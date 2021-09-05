@@ -51,7 +51,7 @@ export default {
         }
       })
     },
-    generateSVG() {
+    generateSVG(): void {
       const renderer = new rendering.ScoreRenderer(new Settings())
       renderer.width = 1200
       renderer.settings.core.engine = "svg"
@@ -76,6 +76,30 @@ export default {
       // 4. Fire off rendering
       renderer.renderScore(this.score, [0])
     },
+    generateMIDI(): void {
+      // TODO: https://www.alphatab.net/docs/guides/lowlevel-apis#generating-midi-files-via-midifilegenerator
+    },
   },
 }
 </script>
+<style lang="scss">
+.at-surface * {
+  cursor: default;
+  vertical-align: top;
+  overflow: visible;
+}
+.at {
+  font-family: "alphaTab";
+  speak: none;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 34px;
+  overflow: visible !important;
+}
+</style>

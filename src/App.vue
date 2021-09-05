@@ -46,3 +46,12 @@ export default Vue.extend({
   }),
 })
 </script>
+<style lang="scss">
+/* Bravura font from https://github.com/steinbergmedia/bravura/ */
+@font-face {
+  font-family: "alphaTab";
+  src: url("fonts/Bravura.woff") format("woff"), url("fonts/Bravura.otf") format("opentype"), url("fonts/Bravura.svg#Bravura") format("svg");
+  font-weight: normal;
+  font-style: normal;
+}
+</style>
