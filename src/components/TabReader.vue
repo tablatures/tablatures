@@ -3,7 +3,8 @@
     <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
     <v-sheet elevation="0" style="height: 100%; overflow: auto">
       <Loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></Loading>
-      <div v-else v-for="(svg, index) in svgs" :key="index">
+      <div v-else ref="sheet"></div>
+      <div v-for="(svg, index) in svgs" :key="index">
         <div v-html="svg"></div>
       </div>
     </v-sheet>
@@ -13,7 +14,7 @@
 <script lang="ts">
 import Vue from "vue"
 import Loading from "@/components/Loading.vue"
-import { importer, rendering, midi, synth, Settings } from "@coderline/alphatab"
+import { importer, rendering, midi, synth, AlphaTabApi, Settings } from "@coderline/alphatab"
 import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
 // const settings = new alphaTab.Settings()
@@ -39,10 +40,7 @@ export default Vue.extend({
     return {
       file: new Blob(),
       bytes: new Uint8Array(),
-      sounds: new Uint8Array(),
-      score: null as any,
-      audio: null as any,
-      svgs: [] as Array<any>,
+      api: null as any,
       loading: false,
       completion: LOADING_BYTES,
       STATUS: STATUS,
@@ -52,70 +50,54 @@ export default Vue.extend({
       TASKS_NUMBER: TASKS_NUMBER,
     }
   },
+  mounted() {
+    this.loadApi()
+  },
   methods: {
     async onChange(e: Blob): Promise<void> {
       this.loading = true
       await this.updateStatus(LOADING_BYTES)
-      this.bytes = await this.loadBytes(e)
+      await this.loadBytes()
 
       await this.updateStatus(LOADING_SCORE)
-      this.score = await this.loadScore()
+      await this.loadScore()
 
       await this.updateStatus(LOADING_SVGS)
       this.svgs = await this.generateSVG()
       this.loading = false
 
-      console.log(this.score)
       this.generateMIDI()
-      console.log(this.audio)
-      this.sounds = await this.loadSounds()
-      console.log(this.sounds)
+      await this.loadSounds()
       this.playMIDI()
     },
-    loadBytes(e: Blob): Promise<Uint8Array> {
-      return new Promise<Uint8Array>((resolve, reject) => {
+    loadApi(): void {
+      this.api = new AlphaTabApi(this.$refs.sheet, null)
+      //this.api.initialRender()
+    },
+    loadBytes(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
         const reader: FileReader = new FileReader()
-        reader.readAsArrayBuffer(e)
-
-        reader.onloadend = function (e: ProgressEvent<FileReader>): void {
+        reader.readAsArrayBuffer(this.file)
+        reader.onloadend = (e: ProgressEvent<FileReader>) => {
           if (e.target === null) return reject()
           const target: any = e.target
 
-          if (target.readyState === null) return reject()
-          const state: number = target.readyState
-
           if (e.target.readyState == FileReader.DONE) {
             const arrayBuffer: any = e.target.result
-            return resolve(new Uint8Array(arrayBuffer))
+            this.bytes = new Uint8Array(arrayBuffer)
+            return resolve()
           }
         }
       })
     },
-    loadScore(): Promise<any> {
-      return new Promise<any>((resolve, reject) => {
-        return resolve(importer.ScoreLoader.loadScoreFromBytes(this.bytes))
+    loadScore(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        return this.api.load(this.bytes) ? resolve() : reject()
       })
     },
-    generateSVG(): Promise<Array<string>> {
-      return new Promise<Array<string>>((resolve, reject) => {
-        const svgs: Array<string> = []
-        const renderer = new rendering.ScoreRenderer(new Settings())
-        renderer.width = 1200
-        renderer.settings.core.engine = "svg"
-
-        //renderer.preRender.on((isResize: any) => {})
-
-        renderer.partialRenderFinished.on((r: any) => {
-          svgs.push(r.renderResult)
-        })
-
-        renderer.renderFinished.on((r: any) => {
-          svgs.pop()
-          return resolve(svgs)
-        })
-
-        // 4. Fire off rendering
-        renderer.renderScore(this.score, [0])
+    generateSVG(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        return this.api.createCanvasElement()
       })
     },
     generateMIDI(): void {
@@ -126,20 +108,19 @@ export default Vue.extend({
 
       generator.generate()
     },
-    loadSounds(): Promise<Uint8Array> {
-      return new Promise<Uint8Array>((resolve, reject) => {
+    loadSounds(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
         const encoder = new TextEncoder()
-        resolve(new Uint8Array(encoder.encode(sonivox)))
+        return this.api.loadSoundFont(new Uint8Array(encoder.encode(sonivox))) ? resolve() : reject()
       })
     },
     playMIDI(): void {
       console.log(synth)
       /*
-      const player = new synth.AlphaSynth()
+      const player = new synth.AlphaSynthWebWorkerApi()
       player.loadSoundFont(this.sounds, false)
       player.loadMidiFile(this.audio)
-      player.play()
-      */
+      player.play()*/
     },
     async updateStatus(status: number): Promise<void> {
       this.completion = status
