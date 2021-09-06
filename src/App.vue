@@ -50,7 +50,7 @@ export default Vue.extend({
 /* Bravura font from https://github.com/steinbergmedia/bravura/ */
 @font-face {
   font-family: "alphaTab";
-  src: url("fonts/Bravura.woff") format("woff"), url("fonts/Bravura.otf") format("opentype"), url("fonts/Bravura.svg#Bravura") format("svg");
+  src: url("assets/font/Bravura.woff") format("woff"), url("assets/font/Bravura.otf") format("opentype"), url("assets/font/Bravura.svg#Bravura") format("svg");
   font-weight: normal;
   font-style: normal;
 }

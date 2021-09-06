@@ -1,8 +1,7 @@
 <template>
-  <div>
-    <div>Home</div>
+  <v-container style="height: 100%">
     <TabReader></TabReader>
-  </div>
+  </v-container>
 </template>
 
 <script lang="ts">
