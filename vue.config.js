@@ -1,4 +1,4 @@
 module.exports = {
   transpileDependencies: ["vuetify"],
-  publicPath: process.env.NODE_ENV === "production" ? "/TabReader/" : "/",
+  publicPath: process.env.NODE_ENV === "production" ? "/Tablatures/" : "/",
 }

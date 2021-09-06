@@ -134,10 +134,12 @@ export default Vue.extend({
     },
     playMIDI(): void {
       console.log(synth)
-      // const player = new synth.AlphaSynth()
-      //player.loadSoundFont(this.sounds, false)
-      //player.loadMidiFile(this.audio)
-      //player.play()
+      /*
+      const player = new synth.AlphaSynth()
+      player.loadSoundFont(this.sounds, false)
+      player.loadMidiFile(this.audio)
+      player.play()
+      */
     },
     async updateStatus(status: number): Promise<void> {
       this.completion = status
