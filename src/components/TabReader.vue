@@ -11,9 +11,10 @@
 </template>
 
 <script lang="ts">
+import Vue from "vue"
 import Loading from "@/components/Loading.vue"
 import { importer, rendering, midi, synth, Settings } from "@coderline/alphatab"
-import sonivox from "!raw-loader!@/assets/soundfont/sonivox.sf2"
+import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
 // const settings = new alphaTab.Settings()
 //const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(fileData), settings)
@@ -31,10 +32,10 @@ const STATUS = [
   { id: LOADING_SVGS, text: "Loadings svgs..." },
 ]
 
-export default {
+export default Vue.extend({
   name: "TabReader",
   components: { Loading },
-  data() {
+  data(): any {
     return {
       file: new Blob(),
       bytes: new Uint8Array(),
@@ -146,7 +147,7 @@ export default {
       return new Promise((resolve) => setTimeout(resolve, ms))
     },
   },
-}
+})
 </script>
 <style lang="scss">
 .at-surface * {
@@ -156,7 +157,6 @@ export default {
 }
 .at {
   font-family: "alphaTab";
-  speak: none;
   font-style: normal;
   font-weight: normal;
   font-variant: normal;

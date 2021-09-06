@@ -9,7 +9,8 @@
   </v-container>
 </template>
 <script lang="ts">
-export default {
+import Vue from "vue"
+export default Vue.extend({
   name: "Loading",
   props: {
     status: Array,
@@ -28,5 +29,5 @@ export default {
       return 100 * (this.completion / this.tasks)
     },
   },
-}
+})
 </script>
