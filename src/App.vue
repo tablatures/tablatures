@@ -75,7 +75,7 @@ export default Vue.extend({
   line-height: 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 15px;
+  font-size: 34px;
   overflow: visible !important;
 }
 </style>

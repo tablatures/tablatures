@@ -5,14 +5,23 @@
       <Loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></Loading>
       <div class="at-wrap">
         <div class="at-content">
-          <div class="at-sidebar">Track selector will go here</div>
+          <div class="at-sidebar"></div>
           <div class="at-viewport">
             <div class="at-main"></div>
           </div>
-          <div id="alphaTabStyle"></div>
         </div>
-        <div class="at-controls">Player controls will go here</div>
+        <div class="at-controls">
+          <div class="at-controls-left">
+            <a class="btn at-player-stop">
+              <i class="fas fa-step-backward"></i>
+            </a>
+            <a class="btn at-player-play-pause">
+              <i class="fas fa-play"></i>
+            </a>
+          </div>
+        </div>
       </div>
+      <div id="alphaTabStyle"></div>
     </v-sheet>
   </v-container>
 </template>
@@ -29,13 +38,13 @@ import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 const DELAY = 200
 
 const LOADING_BYTES = 1
-const LOADING_SCORE = 2
+const LOADING_SOUNDS = 2
 const LOADING_SVGS = 3
 const TASKS_NUMBER = 3
 
 const STATUS = [
   { id: LOADING_BYTES, text: "Loading bytes..." },
-  { id: LOADING_SCORE, text: "Loading score..." },
+  { id: LOADING_SOUNDS, text: "Loading sounds..." },
   { id: LOADING_SVGS, text: "Loadings svgs..." },
 ]
 
@@ -45,57 +54,59 @@ export default Vue.extend({
   data(): any {
     return {
       file: new Blob(),
-      bytes: new Uint8Array(),
       api: undefined as any,
       loading: false,
       completion: LOADING_BYTES,
       STATUS: STATUS,
       LOADING_BYTES: LOADING_BYTES,
-      LOADING_SCORE: LOADING_SCORE,
+      LOADING_SOUNDS: LOADING_SOUNDS,
       LOADING_SVGS: LOADING_SVGS,
       TASKS_NUMBER: TASKS_NUMBER,
     }
   },
   mounted() {
-    console.log("TESSSST")
     this.loadApi()
   },
   methods: {
     async onChange(): Promise<void> {
       this.loading = true
       await this.updateStatus(LOADING_BYTES)
-      await this.loadBytes()
+      await this.loadScoreBytes()
 
-      await this.updateStatus(LOADING_SCORE)
-      await this.loadScore()
+      await this.updateStatus(LOADING_SOUNDS)
+      await this.loadSoundsBytes()
 
       await this.updateStatus(LOADING_SVGS)
-      this.svgs = await this.generateSVG()
+      await this.generateSVG()
       this.loading = false
 
-      // this.generateMIDI()
-      // await this.loadSounds()
-      // this.playMIDI()
+      //this.generateMIDI()
+      this.playMIDI()
     },
-    getContainer(): HTMLElement | undefined {
+    getContainer(): Array<HTMLElement | undefined> {
       const wrapper = document.querySelector(".at-wrap")
-      if (wrapper === null) return undefined
+      if (wrapper === null) return [undefined, undefined, undefined]
       const main = wrapper.querySelector(".at-main")
-      if (main === null) return undefined
-      return main as HTMLElement
+      const viewport = wrapper.querySelector(".at-viewport")
+      return [wrapper as HTMLElement, main as HTMLElement, viewport as HTMLElement]
     },
     loadApi(): void {
+      // Load container
+      const [wrapper, main, viewport] = this.getContainer()
+
       // Load settings and fonts
       const settings = new Settings()
+      settings.core.engine = "html5"
+      settings.player.enablePlayer = true
 
-      // Load container
-      const container = this.getContainer()
-      if (container === undefined) return
+      if (viewport === undefined) return
+      settings.player.scrollElement = viewport
 
       // Initialize api
-      this.api = new AlphaTabApi(container, settings)
+      if (main === undefined) return
+      this.api = new AlphaTabApi(main, settings)
     },
-    loadBytes(): Promise<void> {
+    loadScoreBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const reader: FileReader = new FileReader()
         reader.readAsArrayBuffer(this.file)
@@ -105,49 +116,40 @@ export default Vue.extend({
 
           if (e.target.readyState == FileReader.DONE) {
             const arrayBuffer: any = e.target.result
-            this.bytes = new Uint8Array(arrayBuffer)
-            return resolve()
+            return this.api.load(new Uint8Array(arrayBuffer)) ? resolve() : reject()
           }
         }
       })
     },
-    loadScore(): Promise<void> {
+    loadSoundsBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
-        return this.api.load(this.bytes) ? resolve() : reject()
+        const encoder = new TextEncoder()
+        return this.api.loadSoundFont(new Uint8Array(encoder.encode(sonivox))) ? resolve() : reject()
       })
     },
     generateSVG(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         console.log(this.api)
-        // this.api.renderScore(this.api.score, [0])
+        this.api.renderer.renderFinished.on((e: any) => {
+          resolve()
+        })
+
         // look at : https://docs.alphatab.net/develop/reference/api/
         this.api.renderTracks([this.api.score.tracks[0]])
-        this.api.print()
-        //this.api.createCanvasElement()
-        resolve()
+        // this.api.print()s
       })
     },
     generateMIDI(): void {
       // TODO: https://www.alphatab.net/docs/guides/lowlevel-apis#generating-midi-files-via-midifilegenerator
+      this.api.player.loadMidiFile()
       this.audio = new midi.MidiFile()
       const handler = new midi.AlphaSynthMidiFileHandler(this.audio)
       const generator = new midi.MidiFileGenerator(this.score, null, handler)
 
       generator.generate()
     },
-    loadSounds(): Promise<void> {
-      return new Promise<void>((resolve, reject) => {
-        const encoder = new TextEncoder()
-        return this.api.loadSoundFont(new Uint8Array(encoder.encode(sonivox))) ? resolve() : reject()
-      })
-    },
     playMIDI(): void {
-      console.log(synth)
-      /*
-      const player = new synth.AlphaSynthWebWorkerApi()
-      player.loadSoundFont(this.sounds, false)
-      player.loadMidiFile(this.audio)
-      player.play()*/
+      this.api.player.play()
     },
     async updateStatus(status: number): Promise<void> {
       this.completion = status
