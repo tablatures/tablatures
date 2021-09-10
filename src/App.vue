@@ -50,8 +50,32 @@ export default Vue.extend({
 /* Bravura font from https://github.com/steinbergmedia/bravura/ */
 @font-face {
   font-family: "alphaTab";
-  src: url("assets/font/Bravura.woff") format("woff"), url("assets/font/Bravura.otf") format("opentype"), url("assets/font/Bravura.svg#Bravura") format("svg");
+  src: url("assets/font/Bravura.eot");
+  src: url("assets/font/Bravura.eot?#iefix") format("embedded-opentype"), url("assets/font/Bravura.woff") format("woff"),
+    url("assets/font/Bravura.otf") format("opentype"), url("assets/font/Bravura.svg#Bravura") format("svg");
   font-weight: normal;
   font-style: normal;
+}
+.at-surface * {
+  cursor: default;
+  vertical-align: top;
+  overflow: visible;
+}
+.at-surface-svg text {
+  dominant-baseline: central;
+}
+.at {
+  font-family: "alphaTab";
+  speak: none;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
+  overflow: visible !important;
 }
 </style>

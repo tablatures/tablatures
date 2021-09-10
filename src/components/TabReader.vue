@@ -3,9 +3,15 @@
     <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
     <v-sheet elevation="0" style="height: 100%; overflow: auto">
       <Loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></Loading>
-      <div v-else ref="sheet"></div>
-      <div v-for="(svg, index) in svgs" :key="index">
-        <div v-html="svg"></div>
+      <div class="at-wrap">
+        <div class="at-content">
+          <div class="at-sidebar">Track selector will go here</div>
+          <div class="at-viewport">
+            <div class="at-main"></div>
+          </div>
+          <div id="alphaTabStyle"></div>
+        </div>
+        <div class="at-controls">Player controls will go here</div>
       </div>
     </v-sheet>
   </v-container>
@@ -14,7 +20,7 @@
 <script lang="ts">
 import Vue from "vue"
 import Loading from "@/components/Loading.vue"
-import { importer, rendering, midi, synth, AlphaTabApi, Settings } from "@coderline/alphatab"
+import { midi, synth, AlphaTabApi, Settings } from "@coderline/alphatab"
 import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
 // const settings = new alphaTab.Settings()
@@ -40,7 +46,7 @@ export default Vue.extend({
     return {
       file: new Blob(),
       bytes: new Uint8Array(),
-      api: null as any,
+      api: undefined as any,
       loading: false,
       completion: LOADING_BYTES,
       STATUS: STATUS,
@@ -51,10 +57,11 @@ export default Vue.extend({
     }
   },
   mounted() {
+    console.log("TESSSST")
     this.loadApi()
   },
   methods: {
-    async onChange(e: Blob): Promise<void> {
+    async onChange(): Promise<void> {
       this.loading = true
       await this.updateStatus(LOADING_BYTES)
       await this.loadBytes()
@@ -66,13 +73,27 @@ export default Vue.extend({
       this.svgs = await this.generateSVG()
       this.loading = false
 
-      this.generateMIDI()
-      await this.loadSounds()
-      this.playMIDI()
+      // this.generateMIDI()
+      // await this.loadSounds()
+      // this.playMIDI()
+    },
+    getContainer(): HTMLElement | undefined {
+      const wrapper = document.querySelector(".at-wrap")
+      if (wrapper === null) return undefined
+      const main = wrapper.querySelector(".at-main")
+      if (main === null) return undefined
+      return main as HTMLElement
     },
     loadApi(): void {
-      this.api = new AlphaTabApi(this.$refs.sheet, null)
-      //this.api.initialRender()
+      // Load settings and fonts
+      const settings = new Settings()
+
+      // Load container
+      const container = this.getContainer()
+      if (container === undefined) return
+
+      // Initialize api
+      this.api = new AlphaTabApi(container, settings)
     },
     loadBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
@@ -97,7 +118,13 @@ export default Vue.extend({
     },
     generateSVG(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
-        return this.api.createCanvasElement()
+        console.log(this.api)
+        // this.api.renderScore(this.api.score, [0])
+        // look at : https://docs.alphatab.net/develop/reference/api/
+        this.api.renderTracks([this.api.score.tracks[0]])
+        this.api.print()
+        //this.api.createCanvasElement()
+        resolve()
       })
     },
     generateMIDI(): void {
