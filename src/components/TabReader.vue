@@ -193,6 +193,7 @@ export default Vue.extend({
       this.api.metronomeVolume = 1
       this.api.playbackSpeed = 0.5
     },
+
     loadScoreBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const reader: FileReader = new FileReader()
