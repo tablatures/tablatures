@@ -1,5 +1,5 @@
 <template>
-  <v-container class="full-height" style="overflow: hidden">
+  <v-container fluid class="full-height" style="overflow: hidden">
     <v-col class="fill-height">
       <v-row>
         <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
@@ -19,17 +19,17 @@ import Vue from "vue"
 import TabReader from "@/components/TabReader.vue"
 import Loading from "@/components/Loading.vue"
 
-const DELAY = 100
+const DELAY = 500
 
 const LOADING_BYTES = 1
 const LOADING_SOUNDS = 2
-const LOADING_SVGS = 3
+const RENDERING_TAB = 3
 const TASKS_NUMBER = 3
 
 const STATUS = [
   { id: LOADING_BYTES, text: "Loading bytes..." },
   { id: LOADING_SOUNDS, text: "Loading sounds..." },
-  { id: LOADING_SVGS, text: "Loadings svgs..." },
+  { id: RENDERING_TAB, text: "Rendering tab..." },
 ]
 
 export default Vue.extend({
@@ -44,7 +44,7 @@ export default Vue.extend({
       completion: LOADING_BYTES,
       LOADING_BYTES: LOADING_BYTES,
       LOADING_SOUNDS: LOADING_SOUNDS,
-      LOADING_SVGS: LOADING_SVGS,
+      RENDERING_TAB: RENDERING_TAB,
       TASKS_NUMBER: TASKS_NUMBER,
       STATUS: STATUS,
     }
@@ -62,7 +62,7 @@ export default Vue.extend({
       await this.updateStatus(LOADING_SOUNDS)
       await this.reader.loadSoundsBytes()
 
-      await this.updateStatus(LOADING_SVGS)
+      await this.updateStatus(RENDERING_TAB)
       await this.reader.generateSVG()
       this.loading = false
       this.display = true

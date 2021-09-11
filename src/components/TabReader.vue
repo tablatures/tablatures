@@ -1,14 +1,14 @@
 <template>
-  <v-container>
+  <v-container :fluid="fullscreen">
     <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
-    <v-toolbar dense flat>
-      <v-btn icon @click="play">
-        <v-icon>{{ true ? "mdi-play" : "mdi-pause" }}</v-icon>
+    <v-toolbar dense flat elevation="3">
+      <v-btn icon @click="play" :color="playing ? 'blue' : 'grey'">
+        <v-icon>{{ playing ? "mdi-pause" : "mdi-play" }}</v-icon>
       </v-btn>
-      <v-btn icon>
+      <v-btn icon @click="looping = !looping" :color="looping ? 'blue' : 'grey'">
         <v-icon>mdi-sync</v-icon>
       </v-btn>
-      <v-btn icon @click="metronaume = !metronaume">
+      <v-btn icon @click="metronome = !metronome" :color="metronome ? 'blue' : 'grey'">
         <v-icon>mdi-metronome</v-icon>
       </v-btn>
 
@@ -51,6 +51,7 @@
       </v-menu>
 
       <v-spacer></v-spacer>
+
       <v-menu offset-y>
         <template v-slot:activator="{ on, attrs }">
           <v-btn icon v-bind="attrs" v-on="on">
@@ -70,12 +71,17 @@
           </v-list-item-group>
         </v-list>
       </v-menu>
+
+      <v-btn icon @click="fullscreen = !fullscreen">
+        <v-icon>{{ fullscreen ? "mdi-format-horizontal-align-center" : "mdi-arrow-expand-horizontal" }}</v-icon>
+      </v-btn>
+
       <v-btn icon @click="print">
         <v-icon>mdi-printer</v-icon>
       </v-btn>
     </v-toolbar>
 
-    <v-sheet elevation="10" style="height: 200px; overflow: auto">
+    <v-sheet elevation="10" style="height: 600px; overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
           <div class="at-sidebar"></div>
@@ -106,6 +112,7 @@ const CONSTS = {
     MIN: 0,
     STEP: 1,
   },
+  LOG: 0,
 }
 
 export default Vue.extend({
@@ -118,9 +125,11 @@ export default Vue.extend({
       CONSTS: CONSTS,
       api: undefined as any,
       speed: 100,
-      metronaume: false,
+      metronome: false,
       volume: 100,
       looping: false,
+      fullscreen: false,
+      playing: false,
       layout: 0,
       layouts: [
         { title: "Page", icon: "mdi-page-layout-body" },
@@ -144,8 +153,8 @@ export default Vue.extend({
     layout() {
       this.api.settings.display.layoutMode = this.layout
     },
-    metronaume() {
-      this.api.metronomeVolume = this.metronaume === 1
+    metronome() {
+      this.api.metronomeVolume = this.metronome === 1
     },
     volume() {
       this.api.masterVolume = this.volume
@@ -169,7 +178,7 @@ export default Vue.extend({
       // Load settings and fonts
       const settings = new Settings()
       settings.core.engine = "html5"
-      settings.core.logLevel = 1
+      settings.core.logLevel = this.CONSTS.LOG
       settings.core.useWorkers = true
 
       settings.player.enablePlayer = true
@@ -219,6 +228,7 @@ export default Vue.extend({
     },
     play(): void {
       console.log("Ready? " + this.api.isReadyForPlayback)
+      this.playing = this.api.player.playerState
       this.api.player.play()
     },
     print(): void {

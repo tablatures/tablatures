@@ -1,7 +1,7 @@
 <template>
   <div>
-    <v-app-bar @click="drawer = !drawer" app fixed dark color="primary">
-      <v-app-bar-nav-icon></v-app-bar-nav-icon>
+    <v-app-bar app fixed dark color="primary">
+      <v-app-bar-nav-icon @click="drawer = !drawer"></v-app-bar-nav-icon>
 
       <v-toolbar-title>Tablatures</v-toolbar-title>
 
@@ -22,7 +22,7 @@
       <v-progress-linear :active="loading" :indeterminate="loading" absolute bottom color="deep-purple accent-4"></v-progress-linear>
     </v-app-bar>
 
-    <v-navigation-drawer v-model="drawer" absolute bottom temporary>
+    <v-navigation-drawer v-model="drawer" absolute temporary>
       <v-list-item>
         <v-list-item-content>
           <v-list-item-title class="text-h6">Tablatures</v-list-item-title>
