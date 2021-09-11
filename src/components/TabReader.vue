@@ -1,58 +1,81 @@
 <template>
   <v-container>
-    <v-sheet elevation="0" style="overflow: auto">
-      <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
-      <v-toolbar dense flat>
-        <v-btn icon @click="play">
-          <v-icon>{{ true ? "mdi-play" : "mdi-pause" }}</v-icon>
-        </v-btn>
-        <v-btn icon>
-          <v-icon>mdi-sync</v-icon>
-        </v-btn>
-        <v-btn icon>
-          <v-icon>mdi-metronome</v-icon>
-        </v-btn>
+    <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
+    <v-toolbar dense flat>
+      <v-btn icon @click="play">
+        <v-icon>{{ true ? "mdi-play" : "mdi-pause" }}</v-icon>
+      </v-btn>
+      <v-btn icon>
+        <v-icon>mdi-sync</v-icon>
+      </v-btn>
+      <v-btn icon @click="metronaume = !metronaume">
+        <v-icon>mdi-metronome</v-icon>
+      </v-btn>
 
-        <v-menu offset-x :close-on-content-click="false">
-          <template v-slot:activator="{ on, attrs }">
-            <v-btn text v-bind="attrs" v-on="on"> {{ speed }}% </v-btn>
-          </template>
-          <v-card width="200px">
-            <v-slider v-model="speed" :max="CONSTS.TEMPO.MAX" :min="CONSTS.TEMPO.MIN" :step="CONSTS.TEMPO.STEP" hide-details style="overflow: hidden" class="px-2">
-              <template v-slot:prepend>
-                <v-icon @click="speed -= CONSTS.TEMPO.STEP"> mdi-minus </v-icon>
-              </template>
-              <template v-slot:append>
-                <v-icon @click="speed += CONSTS.TEMPO.STEP"> mdi-plus </v-icon>
-              </template>
-            </v-slider>
-          </v-card>
-        </v-menu>
+      <v-menu offset-x :close-on-content-click="false">
+        <template v-slot:activator="{ on, attrs }">
+          <v-btn text color="grey" v-bind="attrs" v-on="on">
+            <v-icon left> mdi-timelapse </v-icon>
+            {{ speed }}%
+          </v-btn>
+        </template>
+        <v-card width="200px">
+          <v-slider v-model="speed" :max="CONSTS.TEMPO.MAX" :min="CONSTS.TEMPO.MIN" :step="CONSTS.TEMPO.STEP" hide-details style="overflow: hidden" class="px-2">
+            <template v-slot:prepend>
+              <v-icon @click="speed -= CONSTS.TEMPO.STEP"> mdi-minus </v-icon>
+            </template>
+            <template v-slot:append>
+              <v-icon @click="speed += CONSTS.TEMPO.STEP"> mdi-plus </v-icon>
+            </template>
+          </v-slider>
+        </v-card>
+      </v-menu>
 
-        <v-spacer></v-spacer>
-        <v-menu offset-y>
-          <template v-slot:activator="{ on, attrs }">
-            <v-btn icon v-bind="attrs" v-on="on">
-              <v-icon>{{ layouts[layout].icon }}</v-icon>
-            </v-btn>
-          </template>
-          <v-list dense>
-            <v-list-item-group v-model="layout" color="primary">
-              <v-list-item v-for="(item, i) in layouts" :key="i">
-                <v-list-item-icon>
-                  <v-icon>{{ item.icon }}</v-icon>
-                </v-list-item-icon>
-                <v-list-item-content>
-                  <v-list-item-title> {{ item.title }}</v-list-item-title>
-                </v-list-item-content>
-              </v-list-item>
-            </v-list-item-group>
-          </v-list>
-        </v-menu>
-        <v-btn icon @click="print">
-          <v-icon>mdi-printer</v-icon>
-        </v-btn>
-      </v-toolbar>
+      <v-menu offset-x :close-on-content-click="false">
+        <template v-slot:activator="{ on, attrs }">
+          <v-btn text color="grey" v-bind="attrs" v-on="on">
+            <v-icon left> mdi-volume-high </v-icon>
+            {{ volume }}%
+          </v-btn>
+        </template>
+        <v-card width="200px">
+          <v-slider v-model="volume" :max="CONSTS.VOLUME.MAX" :min="CONSTS.VOLUME.MIN" :step="CONSTS.VOLUME.STEP" hide-details style="overflow: hidden" class="px-2">
+            <template v-slot:prepend>
+              <v-icon @click="volume -= CONSTS.VOLUME.STEP"> mdi-minus </v-icon>
+            </template>
+            <template v-slot:append>
+              <v-icon @click="volume += CONSTS.VOLUME.STEP"> mdi-plus </v-icon>
+            </template>
+          </v-slider>
+        </v-card>
+      </v-menu>
+
+      <v-spacer></v-spacer>
+      <v-menu offset-y>
+        <template v-slot:activator="{ on, attrs }">
+          <v-btn icon v-bind="attrs" v-on="on">
+            <v-icon>{{ layouts[layout].icon }}</v-icon>
+          </v-btn>
+        </template>
+        <v-list dense>
+          <v-list-item-group v-model="layout" color="primary">
+            <v-list-item v-for="(item, i) in layouts" :key="i">
+              <v-list-item-icon>
+                <v-icon>{{ item.icon }}</v-icon>
+              </v-list-item-icon>
+              <v-list-item-content>
+                <v-list-item-title> {{ item.title }}</v-list-item-title>
+              </v-list-item-content>
+            </v-list-item>
+          </v-list-item-group>
+        </v-list>
+      </v-menu>
+      <v-btn icon @click="print">
+        <v-icon>mdi-printer</v-icon>
+      </v-btn>
+    </v-toolbar>
+
+    <v-sheet elevation="10" style="height: 200px; overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
           <div class="at-sidebar"></div>
@@ -78,6 +101,11 @@ const CONSTS = {
     MIN: 20,
     STEP: 10,
   },
+  VOLUME: {
+    MAX: 100,
+    MIN: 0,
+    STEP: 1,
+  },
 }
 
 export default Vue.extend({
@@ -90,6 +118,9 @@ export default Vue.extend({
       CONSTS: CONSTS,
       api: undefined as any,
       speed: 100,
+      metronaume: false,
+      volume: 100,
+      looping: false,
       layout: 0,
       layouts: [
         { title: "Page", icon: "mdi-page-layout-body" },
@@ -107,6 +138,20 @@ export default Vue.extend({
       const title = this.api.score.title
       const artist = this.api.score.artist
       return `${title} by ${artist}`
+    },
+  },
+  watch: {
+    layout() {
+      this.api.settings.display.layoutMode = this.layout
+    },
+    metronaume() {
+      this.api.metronomeVolume = this.metronaume === 1
+    },
+    volume() {
+      this.api.masterVolume = this.volume
+    },
+    looping() {
+      this.api.isLooping = this.looping
     },
   },
   methods: {
