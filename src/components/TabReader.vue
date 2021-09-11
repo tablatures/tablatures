@@ -165,20 +165,6 @@ export default Vue.extend({
       this.api.isLooping = this.looping
     },
   },
-  watch: {
-    layout() {
-      this.api.settings.display.layoutMode = this.layout
-    },
-    metronome() {
-      this.api.metronomeVolume = this.metronome === 1
-    },
-    volume() {
-      this.api.masterVolume = this.volume
-    },
-    looping() {
-      this.api.isLooping = this.looping
-    },
-  },
   methods: {
     getContainer(): Array<HTMLElement | undefined> {
       const wrapper = document.querySelector(".at-wrap")
