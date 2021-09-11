@@ -19,7 +19,7 @@ import Vue from "vue"
 import TabReader from "@/components/TabReader.vue"
 import Loading from "@/components/Loading.vue"
 
-const DELAY = 500
+const DELAY = 100
 
 const LOADING_BYTES = 1
 const LOADING_SOUNDS = 2

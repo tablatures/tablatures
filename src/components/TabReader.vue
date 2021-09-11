@@ -146,12 +146,14 @@ export default Vue.extend({
       if (this.api.score == null) return "<score not loaded>"
       const title = this.api.score.title
       const artist = this.api.score.artist
-      return `${title} by ${artist}`
+      return `${title || "???"} by ${artist || "???"}`
     },
   },
   watch: {
     layout() {
       this.api.settings.display.layoutMode = this.layout
+      this.api.updateSettings()
+      this.api.render()
     },
     metronome() {
       this.api.metronomeVolume = this.metronome === 1
