@@ -1,152 +1,183 @@
 <template>
-  <v-container style="height: 100%; overflow: hidden">
-    <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
-    <v-sheet elevation="0" style="height: 100%; overflow: auto">
-      <Loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></Loading>
-      <div v-else v-for="(svg, index) in svgs" :key="index">
-        <div v-html="svg"></div>
+  <v-container>
+    <v-sheet elevation="0" style="overflow: auto">
+      <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
+      <v-toolbar dense flat>
+        <v-btn icon @click="play">
+          <v-icon>{{ true ? "mdi-play" : "mdi-pause" }}</v-icon>
+        </v-btn>
+        <v-btn icon>
+          <v-icon>mdi-sync</v-icon>
+        </v-btn>
+        <v-btn icon>
+          <v-icon>mdi-metronome</v-icon>
+        </v-btn>
+
+        <v-menu offset-x :close-on-content-click="false">
+          <template v-slot:activator="{ on, attrs }">
+            <v-btn text v-bind="attrs" v-on="on"> {{ speed }}% </v-btn>
+          </template>
+          <v-card width="200px">
+            <v-slider v-model="speed" :max="CONSTS.TEMPO.MAX" :min="CONSTS.TEMPO.MIN" :step="CONSTS.TEMPO.STEP" hide-details style="overflow: hidden" class="px-2">
+              <template v-slot:prepend>
+                <v-icon @click="speed -= CONSTS.TEMPO.STEP"> mdi-minus </v-icon>
+              </template>
+              <template v-slot:append>
+                <v-icon @click="speed += CONSTS.TEMPO.STEP"> mdi-plus </v-icon>
+              </template>
+            </v-slider>
+          </v-card>
+        </v-menu>
+
+        <v-spacer></v-spacer>
+        <v-menu offset-y>
+          <template v-slot:activator="{ on, attrs }">
+            <v-btn icon v-bind="attrs" v-on="on">
+              <v-icon>{{ layouts[layout].icon }}</v-icon>
+            </v-btn>
+          </template>
+          <v-list dense>
+            <v-list-item-group v-model="layout" color="primary">
+              <v-list-item v-for="(item, i) in layouts" :key="i">
+                <v-list-item-icon>
+                  <v-icon>{{ item.icon }}</v-icon>
+                </v-list-item-icon>
+                <v-list-item-content>
+                  <v-list-item-title> {{ item.title }}</v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+            </v-list-item-group>
+          </v-list>
+        </v-menu>
+        <v-btn icon @click="print">
+          <v-icon>mdi-printer</v-icon>
+        </v-btn>
+      </v-toolbar>
+      <div class="at-wrap">
+        <div class="at-content">
+          <div class="at-sidebar"></div>
+          <div class="at-viewport">
+            <div class="at-main"></div>
+          </div>
+        </div>
+        <div class="at-controls"></div>
       </div>
+      <div id="alphaTabStyle"></div>
     </v-sheet>
   </v-container>
 </template>
 
 <script lang="ts">
 import Vue from "vue"
-import Loading from "@/components/Loading.vue"
-import { importer, rendering, midi, synth, Settings } from "@coderline/alphatab"
+import { AlphaTabApi, Settings } from "@coderline/alphatab"
 import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
-// const settings = new alphaTab.Settings()
-//const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(fileData), settings)
-
-const DELAY = 200
-
-const LOADING_BYTES = 1
-const LOADING_SCORE = 2
-const LOADING_SVGS = 3
-const TASKS_NUMBER = 3
-
-const STATUS = [
-  { id: LOADING_BYTES, text: "Loading bytes..." },
-  { id: LOADING_SCORE, text: "Loading score..." },
-  { id: LOADING_SVGS, text: "Loadings svgs..." },
-]
+const CONSTS = {
+  TEMPO: {
+    MAX: 300,
+    MIN: 20,
+    STEP: 10,
+  },
+}
 
 export default Vue.extend({
   name: "TabReader",
-  components: { Loading },
+  props: {
+    file: { type: Blob, default: new Blob() },
+  },
   data(): any {
     return {
-      file: new Blob(),
-      bytes: new Uint8Array(),
-      sounds: new Uint8Array(),
-      score: null as any,
-      audio: null as any,
-      svgs: [] as Array<any>,
-      loading: false,
-      completion: LOADING_BYTES,
-      STATUS: STATUS,
-      LOADING_BYTES: LOADING_BYTES,
-      LOADING_SCORE: LOADING_SCORE,
-      LOADING_SVGS: LOADING_SVGS,
-      TASKS_NUMBER: TASKS_NUMBER,
+      CONSTS: CONSTS,
+      api: undefined as any,
+      speed: 100,
+      layout: 0,
+      layouts: [
+        { title: "Page", icon: "mdi-page-layout-body" },
+        { title: "Horizontal", icon: "mdi-format-horizontal-align-right" },
+      ],
     }
   },
-  methods: {
-    async onChange(e: Blob): Promise<void> {
-      this.loading = true
-      await this.updateStatus(LOADING_BYTES)
-      this.bytes = await this.loadBytes(e)
-
-      await this.updateStatus(LOADING_SCORE)
-      this.score = await this.loadScore()
-
-      await this.updateStatus(LOADING_SVGS)
-      this.svgs = await this.generateSVG()
-      this.loading = false
-
-      console.log(this.score)
-      this.generateMIDI()
-      console.log(this.audio)
-      this.sounds = await this.loadSounds()
-      console.log(this.sounds)
-      this.playMIDI()
+  mounted() {
+    this.loadApi()
+  },
+  computed: {
+    title(): string {
+      if (this.api == null) return "<api not loaded>"
+      if (this.api.score == null) return "<score not loaded>"
+      const title = this.api.score.title
+      const artist = this.api.score.artist
+      return `${title} by ${artist}`
     },
-    loadBytes(e: Blob): Promise<Uint8Array> {
-      return new Promise<Uint8Array>((resolve, reject) => {
-        const reader: FileReader = new FileReader()
-        reader.readAsArrayBuffer(e)
+  },
+  methods: {
+    getContainer(): Array<HTMLElement | undefined> {
+      const wrapper = document.querySelector(".at-wrap")
+      if (wrapper === null) return [undefined, undefined, undefined]
+      const main = wrapper.querySelector(".at-main")
+      const viewport = wrapper.querySelector(".at-viewport")
+      return [wrapper as HTMLElement, main as HTMLElement, viewport as HTMLElement]
+    },
+    loadApi(): void {
+      // Load container
+      const [wrapper, main, viewport] = this.getContainer()
 
-        reader.onloadend = function (e: ProgressEvent<FileReader>): void {
+      // Load settings and fonts
+      const settings = new Settings()
+      settings.core.engine = "html5"
+      settings.core.logLevel = 1
+      settings.core.useWorkers = true
+
+      settings.player.enablePlayer = true
+      settings.player.enableCursor = true
+
+      if (viewport === undefined) return
+      settings.player.scrollElement = viewport
+
+      // Initialize api
+      if (main === undefined) return
+      this.api = new AlphaTabApi(main, settings)
+      this.api.metronomeVolume = 1
+      this.api.playbackSpeed = 0.5
+    },
+    loadScoreBytes(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        const reader: FileReader = new FileReader()
+        reader.readAsArrayBuffer(this.file)
+        reader.onloadend = (e: ProgressEvent<FileReader>) => {
           if (e.target === null) return reject()
           const target: any = e.target
 
-          if (target.readyState === null) return reject()
-          const state: number = target.readyState
-
           if (e.target.readyState == FileReader.DONE) {
             const arrayBuffer: any = e.target.result
-            return resolve(new Uint8Array(arrayBuffer))
+            return this.api.load(new Uint8Array(arrayBuffer)) ? resolve() : reject()
           }
         }
       })
     },
-    loadScore(): Promise<any> {
-      return new Promise<any>((resolve, reject) => {
-        return resolve(importer.ScoreLoader.loadScoreFromBytes(this.bytes))
-      })
-    },
-    generateSVG(): Promise<Array<string>> {
-      return new Promise<Array<string>>((resolve, reject) => {
-        const svgs: Array<string> = []
-        const renderer = new rendering.ScoreRenderer(new Settings())
-        renderer.width = 1200
-        renderer.settings.core.engine = "svg"
-
-        //renderer.preRender.on((isResize: any) => {})
-
-        renderer.partialRenderFinished.on((r: any) => {
-          svgs.push(r.renderResult)
-        })
-
-        renderer.renderFinished.on((r: any) => {
-          svgs.pop()
-          return resolve(svgs)
-        })
-
-        // 4. Fire off rendering
-        renderer.renderScore(this.score, [0])
-      })
-    },
-    generateMIDI(): void {
-      // TODO: https://www.alphatab.net/docs/guides/lowlevel-apis#generating-midi-files-via-midifilegenerator
-      this.audio = new midi.MidiFile()
-      const handler = new midi.AlphaSynthMidiFileHandler(this.audio)
-      const generator = new midi.MidiFileGenerator(this.score, null, handler)
-
-      generator.generate()
-    },
-    loadSounds(): Promise<Uint8Array> {
-      return new Promise<Uint8Array>((resolve, reject) => {
+    loadSoundsBytes(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
         const encoder = new TextEncoder()
-        resolve(new Uint8Array(encoder.encode(sonivox)))
+        const buffer = new Uint8Array(encoder.encode(sonivox))
+        return this.api.loadSoundFont(buffer, true) ? resolve() : reject()
       })
     },
-    playMIDI(): void {
-      console.log(synth)
-      /*
-      const player = new synth.AlphaSynth()
-      player.loadSoundFont(this.sounds, false)
-      player.loadMidiFile(this.audio)
-      player.play()
-      */
+    generateSVG(): Promise<void> {
+      return new Promise<void>((resolve, reject) => {
+        console.log(this.api)
+        this.api.renderer.renderFinished.on((e: any) => {
+          resolve()
+        })
+
+        // look at : https://docs.alphatab.net/develop/reference/api/
+        this.api.renderTracks([this.api.score.tracks[0]])
+      })
     },
-    async updateStatus(status: number): Promise<void> {
-      this.completion = status
-      await this.delay(DELAY)
+    play(): void {
+      console.log("Ready? " + this.api.isReadyForPlayback)
+      this.api.player.play()
     },
-    delay(ms: number): Promise<void> {
-      return new Promise((resolve) => setTimeout(resolve, ms))
+    print(): void {
+      this.api.print()
     },
   },
 })

@@ -13,9 +13,9 @@ import Vue from "vue"
 export default Vue.extend({
   name: "Loading",
   props: {
-    status: Array,
-    completion: Number,
-    tasks: Number,
+    status: { type: Array },
+    completion: { type: Number },
+    tasks: { type: Number },
   },
   computed: {
     Status(): string {
