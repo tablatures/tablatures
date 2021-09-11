@@ -1,6 +1,8 @@
 import Vue from "vue"
 import VueRouter, { RouteConfig } from "vue-router"
-import Home from "../views/Home.vue"
+import Home from "@/views/Home.vue"
+import NotFound from "@/views/NotFound.vue"
+import About from "@/views/About.vue"
 
 Vue.use(VueRouter)
 
@@ -13,12 +15,12 @@ const routes: Array<RouteConfig> = [
   {
     path: "/about",
     name: "About",
-    component: () => import(/* webpackChunkName: "about" */ "../views/About.vue"),
+    component: About,
   },
   {
     path: "*",
-    name: "catchAll",
-    component: Home,
+    name: "NotFound",
+    component: NotFound,
   },
 ]
 
