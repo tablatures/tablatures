@@ -1,6 +1,6 @@
 <template>
   <div>
-    <v-app-bar @click="drawer = !drawer" app fixed dark color="teal lighten-3">
+    <v-app-bar @click="drawer = !drawer" app fixed dark color="primary">
       <v-app-bar-nav-icon></v-app-bar-nav-icon>
 
       <v-toolbar-title>Tablatures</v-toolbar-title>

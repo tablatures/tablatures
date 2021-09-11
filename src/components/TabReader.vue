@@ -1,6 +1,6 @@
 <template>
-  <v-container style="height: 85vh; overflow: hidden">
-    <v-sheet elevation="0" style="height: 100%; overflow: auto">
+  <v-container>
+    <v-sheet elevation="0" style="overflow: auto">
       <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
       <v-toolbar dense flat>
         <v-btn icon @click="play">
@@ -13,11 +13,20 @@
           <v-icon>mdi-metronome</v-icon>
         </v-btn>
 
-        <v-menu offset-y>
+        <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn text v-bind="attrs" v-on="on"> 100% </v-btn>
+            <v-btn text v-bind="attrs" v-on="on"> {{ speed }}% </v-btn>
           </template>
-          <v-slider></v-slider>
+          <v-card width="200px">
+            <v-slider v-model="speed" :max="CONSTS.TEMPO.MAX" :min="CONSTS.TEMPO.MIN" :step="CONSTS.TEMPO.STEP" hide-details style="overflow: hidden" class="px-2">
+              <template v-slot:prepend>
+                <v-icon @click="speed -= CONSTS.TEMPO.STEP"> mdi-minus </v-icon>
+              </template>
+              <template v-slot:append>
+                <v-icon @click="speed += CONSTS.TEMPO.STEP"> mdi-plus </v-icon>
+              </template>
+            </v-slider>
+          </v-card>
         </v-menu>
 
         <v-spacer></v-spacer>
@@ -63,6 +72,14 @@ import Vue from "vue"
 import { AlphaTabApi, Settings } from "@coderline/alphatab"
 import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
+const CONSTS = {
+  TEMPO: {
+    MAX: 300,
+    MIN: 20,
+    STEP: 10,
+  },
+}
+
 export default Vue.extend({
   name: "TabReader",
   props: {
@@ -70,7 +87,9 @@ export default Vue.extend({
   },
   data(): any {
     return {
+      CONSTS: CONSTS,
       api: undefined as any,
+      speed: 100,
       layout: 0,
       layouts: [
         { title: "Page", icon: "mdi-page-layout-body" },

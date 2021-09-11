@@ -1,8 +1,16 @@
 <template>
-  <v-container>
-    <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
-    <loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></loading>
-    <tab-reader :file="file" ref="reader"></tab-reader>
+  <v-container class="full-height" style="overflow: hidden">
+    <v-col class="fill-height">
+      <v-row>
+        <v-file-input prepend-icon="mdi-music-note" :clearable="false" v-model="file" @change="onChange"></v-file-input>
+      </v-row>
+      <v-row>
+        <loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></loading>
+      </v-row>
+      <v-row>
+        <tab-reader :file="file" ref="reader" :style="{ visibility: display ? 'visible' : 'hidden' }"></tab-reader>
+      </v-row>
+    </v-col>
   </v-container>
 </template>
 
@@ -29,6 +37,7 @@ export default Vue.extend({
   components: { TabReader, Loading },
   data() {
     return {
+      display: false,
       file: new Blob(),
       reader: null as any,
       loading: false as boolean,
@@ -45,6 +54,7 @@ export default Vue.extend({
   },
   methods: {
     async onChange(): Promise<void> {
+      this.display = false
       this.loading = true
       await this.updateStatus(LOADING_BYTES)
       await this.reader.loadScoreBytes()
@@ -55,6 +65,7 @@ export default Vue.extend({
       await this.updateStatus(LOADING_SVGS)
       await this.reader.generateSVG()
       this.loading = false
+      this.display = true
     },
     async updateStatus(status: number): Promise<void> {
       this.completion = status
