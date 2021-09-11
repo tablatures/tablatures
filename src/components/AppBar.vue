@@ -2,7 +2,6 @@
   <div>
     <v-app-bar app fixed dark color="primary">
       <v-app-bar-nav-icon @click="drawer = !drawer"></v-app-bar-nav-icon>
-
       <v-toolbar-title>Tablatures</v-toolbar-title>
 
       <v-spacer></v-spacer>
