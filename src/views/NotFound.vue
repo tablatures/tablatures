@@ -3,10 +3,7 @@
     <div class="centered">
       <div class="container">
         <div class="text-h1" style="font-size: 16em !important; padding: 0.3em">404</div>
-        <div class="text-h4 text-center">
-          The page you requested <br />
-          couldn't be found...
-        </div>
+        <div class="text-h4 text-center">The page you requested couldn't be found...</div>
         <v-btn class="ma-3" color="primary" link @click="returnHome">go back to home</v-btn>
       </div>
     </div>

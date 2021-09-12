@@ -2,8 +2,8 @@
   <v-container>
     <div class="centered">
       <div class="container">
-        <div class="text-h1" style="font-size: 16em !important; padding: 0.3em">404</div>
-        <div class="text-h4 text-center">The page you requested couldn't be found...</div>
+        <div class="text-h1" style="font-size: 6em !important">In work</div>
+        <div class="text-h4 text-center">Coming soon...</div>
         <v-btn class="ma-3" color="primary" link @click="returnHome">go back to home</v-btn>
       </div>
     </div>
@@ -14,7 +14,7 @@
 import Vue from "vue"
 
 export default Vue.extend({
-  name: "About",
+  name: "Search",
   methods: {
     returnHome() {
       this.$router.push({ name: "Home" })
