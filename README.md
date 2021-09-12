@@ -1,14 +1,20 @@
-# TabReader
+# Tablatures
 
-## Push and deploy
+<img src="./src/assets/imgs/Tablatures.png">
 
-```
-> git subtree push --prefix dist origin gh-pages
-or
-> git subtree split --prefix dist
-then with the token
-> git push origin e5018b8dcb1e6d8e367145ee03da5dee06003e72:gh-pages --force
-```
+## Functionnalities
+
+Read and play tabs quickly
+
+- **Import a music score** (.gp3, .gp4, .gp5, .gpx, .gp, .xml, .cap or .tex)
+- **Browse a music score database** (IN DEV)
+- **Browse documentation** (IN DEV)
+
+## Using
+
+- VueJs: https://github.com/vuejs/vue
+- Vuetify: https://github.com/vuetifyjs/vuetify
+- AlphaTab: https://github.com/CoderLine/alphaTab
 
 ## Project setup
 
