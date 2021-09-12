@@ -117,19 +117,29 @@ export default Vue.extend({
   },
   methods: {
     goHome() {
-      this.$router.push({ name: "Home" })
+      if (this.$route.name != "Home") {
+        this.$router.push({ name: "Home" })
+      }
     },
     goSearch() {
-      this.$router.push({ name: "Search", query: { query: this.query } })
+      if (this.$route.name != "Search") {
+        this.$router.push({ name: "Search", query: { query: this.query } })
+      }
     },
     goImport() {
-      this.$router.push({ name: "Import" })
+      if (this.$route.name != "Import") {
+        this.$router.push({ name: "Import" })
+      }
     },
     goDocs() {
-      this.$router.push("docs")
+      if (this.$route.name != "Docs") {
+        this.$router.push("docs")
+      }
     },
     goAbout() {
-      this.$router.push({ name: "About" })
+      if (this.$route.name != "About") {
+        this.$router.push({ name: "About" })
+      }
     },
     goGitHub() {
       window.location.href = "https://github.com/mlhoutel/Tablatures"
