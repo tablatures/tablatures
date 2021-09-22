@@ -1,5 +1,7 @@
 # Tablatures
 
+[![Build Vue](https://github.com/mlhoutel/Tablatures/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/mlhoutel/Tablatures/actions/workflows/main.yml)
+
 <img src="./src/assets/imgs/Tablatures.png">
 
 ## Functionnalities
