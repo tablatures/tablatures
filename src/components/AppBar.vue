@@ -16,6 +16,14 @@
 
       <v-spacer></v-spacer>
 
+      <v-switch
+        v-model="$vuetify.theme.dark"
+        :prepend-icon="$vuetify.theme.dark ? 'mdi-moon-waning-crescent' : 'mdi-white-balance-sunny'"
+        :color="$vuetify.theme.dark ? 'yellow' : 'white'"
+        :hide-details="true"
+        inset
+      ></v-switch>
+
       <v-text-field
         v-model="query"
         @focus="search = true"
