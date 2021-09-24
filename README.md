@@ -13,7 +13,7 @@
 </a>
 
 <a href="https://github.com/mlhoutel/Tablatures/projects/1" alt="Roadmap">
-  <img src="https://img.shields.io/badge/roadmap-availlable-brightgreen?style=flat-square" />
+  <img src="https://img.shields.io/badge/roadmap-available-brightgreen?style=flat-square" />
 </a>
 
 <a href="https://github.com/mlhoutel/Tablatures/blob/main/LICENSE/" alt="License">
