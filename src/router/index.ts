@@ -38,7 +38,7 @@ const routes: Array<RouteConfig> = [
 
 const router = new VueRouter({
   base: process.env.NODE_ENV === "production" ? "/Tablatures/" : "/",
-  mode: "history",
+  mode: "hash",
   routes,
 })
 
