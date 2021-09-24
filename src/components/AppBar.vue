@@ -122,7 +122,9 @@ export default Vue.extend({
       }
     },
     goSearch() {
-      if (this.$route.name != "Search") {
+      if (this.$route.name == "Search" && this.$route.query?.query != this.query) {
+        this.$router.push({ name: "Search", query: { query: this.query } })
+      } else {
         this.$router.push({ name: "Search", query: { query: this.query } })
       }
     },
