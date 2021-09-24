@@ -98,7 +98,7 @@
 
 <script lang="ts">
 import Vue from "vue"
-import { AlphaTabApi, Settings } from "@coderline/alphatab"
+import { AlphaTabApi, Settings, model } from "@coderline/alphatab"
 import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
 const CONSTS = {
@@ -112,7 +112,7 @@ const CONSTS = {
     MIN: 0,
     STEP: 1,
   },
-  LOG: 0,
+  LOG: 1,
 }
 
 export default Vue.extend({
@@ -163,6 +163,21 @@ export default Vue.extend({
     },
     looping() {
       this.api.isLooping = this.looping
+    },
+    "$vuetify.theme.dark"(dark: boolean) {
+      const white = new model.Color(255, 255, 255, 0.8)
+      const black = new model.Color(0, 0, 0, 0.8)
+
+      const selected = dark ? white : black
+
+      this.api.settings.display.resources.staffLineColor = selected
+      this.api.settings.display.resources.barSeparatorColor = selected
+      this.api.settings.display.resources.barNumberColor = selected
+      this.api.settings.display.resources.mainGlyphColor = selected
+      this.api.settings.display.resources.secondaryGlyphColor = selected
+      this.api.settings.display.resources.scoreInfoColor = selected
+      this.api.updateSettings()
+      console.log(this.api.settings.display.resources.scoreInfoColor)
     },
   },
   methods: {
