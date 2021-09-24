@@ -1,6 +1,6 @@
 <template>
-  <v-container fluid class="full-height" style="overflow: hidden">
-    <v-col class="fill-height">
+  <v-container fluid>
+    <v-col class="tab-fill">
       <v-row>
         <v-file-input
           prepend-icon="mdi-music-note"
@@ -15,7 +15,7 @@
       <v-row>
         <loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></loading>
       </v-row>
-      <v-row>
+      <v-row class="tab-fill">
         <tab-reader :file="file" ref="reader" :style="{ visibility: display ? 'visible' : 'hidden' }"></tab-reader>
       </v-row>
     </v-col>
@@ -27,7 +27,7 @@ import Vue from "vue"
 import TabReader from "@/components/TabReader.vue"
 import Loading from "@/components/Loading.vue"
 
-const DELAY = 500
+const DELAY = 100
 
 const LOADING_BYTES = 1
 const LOADING_SOUNDS = 2
