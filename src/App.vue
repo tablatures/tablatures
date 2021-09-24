@@ -1,7 +1,7 @@
 <template>
-  <v-app>
+  <v-app class="tab-app">
     <app-bar></app-bar>
-    <v-main>
+    <v-main class="tab-main tab-fill">
       <v-container fluid>
         <router-view />
       </v-container>
@@ -14,6 +14,7 @@
 import Vue from "vue"
 import AppBar from "@/components/AppBar.vue"
 import AppFooter from "./components/AppFooter.vue"
+import "@/assets/global.css"
 
 export default Vue.extend({
   name: "App",

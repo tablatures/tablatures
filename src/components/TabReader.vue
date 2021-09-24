@@ -81,7 +81,7 @@
       </v-btn>
     </v-toolbar>
 
-    <v-sheet elevation="10" style="height: 600px; overflow: auto">
+    <v-sheet elevation="10" class="tab-fill" style="overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
           <div class="at-sidebar"></div>
