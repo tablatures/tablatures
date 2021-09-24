@@ -144,7 +144,7 @@ export default Vue.extend({
       }
     },
     goGitHub() {
-      //window.location.href = "https://github.com/mlhoutel/Tablatures"
+      window.location.href = "https://github.com/mlhoutel/Tablatures"
     },
   },
 })
