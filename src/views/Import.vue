@@ -15,7 +15,7 @@
       <v-row>
         <loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></loading>
       </v-row>
-      <v-row class="tab-fill">
+      <v-row class="tab-fill" style="padding-bottom: 100px">
         <tab-reader :file="file" ref="reader" :style="{ visibility: display ? 'visible' : 'hidden' }"></tab-reader>
       </v-row>
     </v-col>

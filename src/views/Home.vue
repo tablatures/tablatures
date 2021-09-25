@@ -1,24 +1,35 @@
 <template>
-  <v-container>
-    <v-card tile height="300px" class="grey lighten-5 text-center pa-13">
+  <v-container class="tab-scrollable">
+    <v-card tile class="text-center py-10">
       <p class="text-center text-h2 text--primary">Read and play tabs quickly</p>
 
       <div class="pb-5">With tablatures, it's never been easier to learn a new music score...</div>
 
       <div>
-        <v-btn rounded color="primary" dark class="mx-1" @click="goImport">Try Importing</v-btn>
-        <v-btn rounded color="primary" dark class="mx-1" @click="goSearch">Search a score</v-btn>
-        <v-btn rounded color="primary" dark class="mx-1" @click="goBrowse">Browse the Docs</v-btn>
+        <v-btn rounded color="primary" dark class="ma-2" @click="goImport">
+          <v-icon left>mdi-upload</v-icon>
+          Try Importing
+        </v-btn>
+        <v-btn rounded color="primary" dark class="ma-2" @click="goSearch">
+          <v-icon left>mdi-magnify</v-icon>
+          Search a score
+        </v-btn>
+        <v-btn rounded color="primary" dark class="ma-2" @click="goBrowse">
+          <v-icon left>mdi-book-open-variant</v-icon>
+          Browse the Docs
+        </v-btn>
       </div>
     </v-card>
+
     <v-card tile height="300px">
       <v-flex>
         <v-parallax height="300" src="@/assets/imgs/score.jpg"></v-parallax>
       </v-flex>
     </v-card>
-    <v-card tile class="grey lighten-5 pa-4">
+
+    <v-card tile class="pa-4">
       <v-card-title primary-title>
-        <h3 class="headline text-h4" style="font-size: 1.4em !important">Tablatures is an open source project</h3>
+        <h3 class="headline text-h4 text-center" style="font-size: 1.4em !important">Tablatures is an open source project</h3>
       </v-card-title>
       <div class="pa-5 pt-0">
         <span>It has been built with open sources libraries, and it is free to access and to download. </span>
@@ -32,7 +43,7 @@
       </div>
 
       <v-card-title primary-title>
-        <h3 class="headline text-h4" style="font-size: 1.4em !important">Libraries used for the design of the website</h3>
+        <h3 class="headline text-h4 text-center" style="font-size: 1.4em !important">Libraries used for the design of the website</h3>
       </v-card-title>
       <v-row dense justify="center">
         <v-col md="4">
@@ -67,7 +78,7 @@
               gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"
             ></v-img>
             <v-card-title>alphaTab</v-card-title>
-            <v-card-subtitle>An open source and cross platform music notation and guitar tablature rendering library.</v-card-subtitle>
+            <v-card-subtitle>An open source and cross platform guitar tablature rendering library.</v-card-subtitle>
             <v-card-text>
               <v-btn href="https://alphatab.net/" target="_blank" block color="primary">Browse</v-btn>
             </v-card-text>
