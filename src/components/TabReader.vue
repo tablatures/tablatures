@@ -112,7 +112,7 @@ const CONSTS = {
     MIN: 0,
     STEP: 1,
   },
-  LOG: 0,
+  LOG: 1,
 }
 
 export default Vue.extend({
