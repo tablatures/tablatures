@@ -8,10 +8,14 @@ body {
   margin-bottom: 50px !important;
 }
 .tab-main {
-  padding-bottom: 150px !important;
+  padding-bottom: 50px !important;
 }
 
 .tab-fill,
 .tab-fill .container {
   height: 100% !important;
+}
+
+.tab-scrollable {
+  overflow: auto;
 }
