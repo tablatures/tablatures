@@ -2,6 +2,7 @@
   <div id="app">
     <h1>AlphaTab - problem loading sound font</h1>
     <div>
+      <v-btn v-on:click="loadApi">loadApi = {{ api != null }}</v-btn>
       <v-btn v-on:click="loadSoundsBytes">loadSoundsBytes = {{ soundLoaded }}</v-btn>
       <v-btn v-on:click="loadScoreBytes">loadScoreBytes = {{ scoreLoaded }}</v-btn>
       <v-btn v-on:click="play">{{ playing ? "pause" : "play" }}</v-btn>
@@ -20,7 +21,7 @@
   </div>
 </template>
 
-<script lang="ts">
+<script lang="js">
 import Vue from "vue"
 const proxy = "" //"https://cors-anywhere.herokuapp.com/"
 import { AlphaTabApi, Settings, model } from "@coderline/alphatab"
@@ -123,7 +124,7 @@ export default Vue.extend({
   },
   mounted() {
     console.log("Mounted")
-    this.loadApi()
+    // this.loadApi()
   },
 })
 </script>
