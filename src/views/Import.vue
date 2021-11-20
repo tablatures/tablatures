@@ -64,14 +64,13 @@ export default Vue.extend({
     async onChange(): Promise<void> {
       this.display = false
       this.loading = true
-      await this.updateStatus(LOADING_BYTES)
-      await this.reader.loadScoreBytes()
 
       await this.updateStatus(LOADING_SOUNDS)
       await this.reader.loadSoundsBytes()
 
-      await this.updateStatus(RENDERING_TAB)
-      await this.reader.generateSVG()
+      await this.updateStatus(LOADING_BYTES)
+      await this.reader.loadScoreBytes()
+
       this.loading = false
       this.display = true
     },
