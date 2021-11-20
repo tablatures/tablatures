@@ -3,13 +3,13 @@
     <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
     <v-toolbar dense flat elevation="3">
       <v-btn icon @click="play" :color="playing ? 'blue' : 'grey'">
-        <v-icon>{{ playing ? "mdi-pause" : "mdi-play" }}</v-icon>
+        <v-icon> {{ playing ? "mdi-pause" : "mdi-play" }} </v-icon>
       </v-btn>
       <v-btn icon @click="looping = !looping" :color="looping ? 'blue' : 'grey'">
-        <v-icon>mdi-sync</v-icon>
+        <v-icon> mdi-sync </v-icon>
       </v-btn>
       <v-btn icon @click="metronome = !metronome" :color="metronome ? 'blue' : 'grey'">
-        <v-icon>mdi-metronome</v-icon>
+        <v-icon> mdi-metronome </v-icon>
       </v-btn>
 
       <v-menu offset-x :close-on-content-click="false">
@@ -62,7 +62,7 @@
           <v-list-item-group v-model="layout" color="primary">
             <v-list-item v-for="(item, i) in layouts" :key="i">
               <v-list-item-icon>
-                <v-icon>{{ item.icon }}</v-icon>
+                <v-icon> {{ item.icon }} </v-icon>
               </v-list-item-icon>
               <v-list-item-content>
                 <v-list-item-title> {{ item.title }}</v-list-item-title>
@@ -73,11 +73,11 @@
       </v-menu>
 
       <v-btn icon @click="fullscreen = !fullscreen">
-        <v-icon>{{ fullscreen ? "mdi-format-horizontal-align-center" : "mdi-arrow-expand-horizontal" }}</v-icon>
+        <v-icon> {{ fullscreen ? "mdi-format-horizontal-align-center" : "mdi-arrow-expand-horizontal" }} </v-icon>
       </v-btn>
 
       <v-btn icon @click="print">
-        <v-icon>mdi-printer</v-icon>
+        <v-icon> mdi-printer </v-icon>
       </v-btn>
     </v-toolbar>
 
@@ -99,7 +99,6 @@
 <script lang="ts">
 import Vue from "vue"
 import { AlphaTabApi, Settings, model } from "@coderline/alphatab"
-import sonivox from "!!raw-loader!@/assets/soundfont/sonivox.sf2"
 
 const CONSTS = {
   TEMPO: {
@@ -176,6 +175,7 @@ export default Vue.extend({
       this.api.settings.display.resources.mainGlyphColor = selected
       this.api.settings.display.resources.secondaryGlyphColor = selected
       this.api.settings.display.resources.scoreInfoColor = selected
+
       this.api.updateSettings()
       console.log(this.api.settings.display.resources.scoreInfoColor)
     },
@@ -184,6 +184,7 @@ export default Vue.extend({
     getContainer(): Array<HTMLElement | undefined> {
       const wrapper = document.querySelector(".at-wrap")
       if (wrapper === null) return [undefined, undefined, undefined]
+
       const main = wrapper.querySelector(".at-main")
       const viewport = wrapper.querySelector(".at-viewport")
       return [wrapper as HTMLElement, main as HTMLElement, viewport as HTMLElement]
@@ -200,6 +201,7 @@ export default Vue.extend({
 
       settings.player.enablePlayer = true
       settings.player.enableCursor = true
+      // settings.player.soundFont = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2"
 
       if (viewport === undefined) return
       settings.player.scrollElement = viewport
@@ -209,8 +211,8 @@ export default Vue.extend({
       this.api = new AlphaTabApi(main, settings)
       this.api.metronomeVolume = 1
       this.api.playbackSpeed = 0.5
+      console.log(this.api)
     },
-
     loadScoreBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const reader: FileReader = new FileReader()
@@ -219,35 +221,32 @@ export default Vue.extend({
           if (e.target === null) return reject()
           const target: any = e.target
 
-          if (e.target.readyState == FileReader.DONE) {
-            const arrayBuffer: any = e.target.result
-            return this.api.load(new Uint8Array(arrayBuffer)) ? resolve() : reject()
+          if (target.readyState == FileReader.DONE) {
+            const arrayBuffer: Uint8Array = new Uint8Array(target.result)
+            return this.api.load(arrayBuffer) ? resolve() : reject()
           }
         }
       })
     },
     loadSoundsBytes(): Promise<void> {
       return new Promise<void>((resolve, reject) => {
-        const encoder = new TextEncoder()
-        const buffer = new Uint8Array(encoder.encode(sonivox))
-        return this.api.loadSoundFont(buffer, true) ? resolve() : reject()
-      })
-    },
-    generateSVG(): Promise<void> {
-      return new Promise<void>((resolve, reject) => {
-        console.log(this.api)
-        this.api.renderer.renderFinished.on((e: any) => {
-          resolve()
-        })
-
-        // look at : https://docs.alphatab.net/develop/reference/api/
-        this.api.renderTracks([this.api.score.tracks[0]])
+        const url = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.2.1/dist/soundfont/sonivox.sf2"
+        const request = new XMLHttpRequest()
+        request.open("GET", url, true)
+        request.responseType = "arraybuffer"
+        request.onload = () => {
+          const sonivox = new Uint8Array(request.response)
+          this.soundLoaded = "true"
+          console.log(sonivox)
+          return this.api.loadSoundFont(sonivox) ? resolve() : reject()
+        }
+        request.send()
       })
     },
     play(): void {
       console.log("Ready? " + this.api.isReadyForPlayback)
       this.playing = this.api.player.playerState
-      this.api.player.play()
+      this.api.playPause()
     },
     print(): void {
       this.api.print()
