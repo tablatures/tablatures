@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
-    <v-col class="tab-fill">
-      <v-row>
+    <v-col>
+      <v-row v-if="!display">
         <v-file-input
           prepend-icon="mdi-music-note"
           :clearable="false"
@@ -10,76 +10,54 @@
           label="tablature file"
           hint=".gp3, .gp4, .gp5, .gpx, .gp, .xml, .cap or .tex"
           :persistent-hint="true"
-        ></v-file-input>
+        />
       </v-row>
-      <v-row>
-        <loading v-if="loading" :status="STATUS" :completion="completion" :tasks="TASKS_NUMBER"></loading>
-      </v-row>
-      <v-row class="tab-fill" style="padding-bottom: 100px">
-        <tab-reader :file="file" ref="reader" :style="{ visibility: display ? 'visible' : 'hidden' }"></tab-reader>
+
+      <v-row v-show="display">
+        <tab-sheet :file="file" ref="reader" />
       </v-row>
     </v-col>
   </v-container>
 </template>
 
-<script lang="ts">
+<script>
 import Vue from "vue"
-import TabReader from "@/components/TabReader.vue"
-import Loading from "@/components/Loading.vue"
-
-const DELAY = 100
-
-const LOADING_BYTES = 1
-const LOADING_SOUNDS = 2
-const RENDERING_TAB = 3
-const TASKS_NUMBER = 3
-
-const STATUS = [
-  { id: LOADING_BYTES, text: "Loading bytes..." },
-  { id: LOADING_SOUNDS, text: "Loading sounds..." },
-  { id: RENDERING_TAB, text: "Rendering tab..." },
-]
+import TabSheet from "../components/TabSheet.vue"
 
 export default Vue.extend({
   name: "Import",
-  components: { TabReader, Loading },
+  components: { TabSheet },
   data() {
     return {
-      display: false,
+      loading: false,
+      loaded: false,
       file: new Blob(),
-      reader: null as any,
-      loading: false as boolean,
-      completion: LOADING_BYTES,
-      LOADING_BYTES: LOADING_BYTES,
-      LOADING_SOUNDS: LOADING_SOUNDS,
-      RENDERING_TAB: RENDERING_TAB,
-      TASKS_NUMBER: TASKS_NUMBER,
-      STATUS: STATUS,
+      reader: null,
     }
   },
   mounted() {
     this.reader = this.$refs.reader
   },
+  computed: {
+    display() {
+      // also display during 'loading' to avoid 
+      // 0px width element (cancel alphaTab rendering) 
+      return this.loading || this.loaded
+    }
+  },
   methods: {
-    async onChange(): Promise<void> {
-      this.display = false
+    async onChange() {
+      this.$store.commit('startLoading')
       this.loading = true
 
-      await this.updateStatus(LOADING_SOUNDS)
       await this.reader.loadSoundsBytes()
-
-      await this.updateStatus(LOADING_BYTES)
       await this.reader.loadScoreBytes()
 
       this.loading = false
-      this.display = true
-    },
-    async updateStatus(status: number): Promise<void> {
-      this.completion = status
-      await this.delay(DELAY)
-    },
-    delay(ms: number): Promise<void> {
-      return new Promise((resolve) => setTimeout(resolve, ms))
+      this.loaded = true
+      this.$store.commit('stopLoading')
+      
+      this.reader.render()
     },
   },
 })

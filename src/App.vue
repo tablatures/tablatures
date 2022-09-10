@@ -1,26 +1,25 @@
 <template>
-  <v-app class="tab-app">
-    <app-bar></app-bar>
-    <v-main class="tab-main tab-fill">
-      <v-container fluid>
-        <router-view />
-      </v-container>
+  <v-app>
+    <app-bar />
+    <v-main class="pa-0">
+      <router-view />
     </v-main>
-    <app-footer></app-footer>
+    <app-footer />
   </v-app>
 </template>
 
-<script lang="ts">
+ <script>
 import Vue from "vue"
-import AppBar from "@/components/AppBar.vue"
+import AppBar from "./components/AppBar.vue"
 import AppFooter from "./components/AppFooter.vue"
-import "@/assets/global.css"
+import "./assets/global.css"
 
 export default Vue.extend({
   name: "App",
   components: { AppBar, AppFooter },
 })
 </script>
+
 <style lang="scss">
 /* Bravura font from https://github.com/steinbergmedia/bravura/ */
 @font-face {
@@ -38,6 +37,17 @@ export default Vue.extend({
 }
 .at-surface-svg text {
   dominant-baseline: central;
+}
+.at-cursor-bar {
+    background: rgba(255, 242, 0, 0.25);
+}
+.at-cursor-beat {
+    background: rgba(64, 64, 255, 0.75);
+    width: 3px;
+}
+.at-highlight * {
+    fill: #0078ff;
+    stroke: #0078ff;
 }
 .at {
   font-family: "alphaTab";
