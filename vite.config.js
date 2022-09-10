@@ -10,4 +10,5 @@ module.exports = {
     }),
   ],
   base: process.env.NODE_ENV === "production" ? "/Tablatures/" : "/",
+  root: './src/',
 };

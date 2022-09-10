@@ -23,7 +23,7 @@
 
     <v-card tile height="300px">
       <v-flex>
-        <v-parallax height="300" src="./src/assets/imgs/Score.jpg"></v-parallax>
+        <v-parallax height="300" src="assets/images/Score.jpg"></v-parallax>
       </v-flex>
     </v-card>
 
@@ -48,7 +48,7 @@
       <v-row dense justify="center">
         <v-col md="4">
           <v-card min-height="360">
-            <v-img src="https://www.synolia.com/wp-content/uploads/2019/12/header-vue-js.jpg" height="200px" gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"></v-img>
+            <v-img src="assets/images/Vue.jpg" height="200px" gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"></v-img>
             <v-card-title>Vue</v-card-title>
             <v-card-subtitle>An well known, open source progressive framework for javascript.</v-card-subtitle>
             <v-card-text>
@@ -59,7 +59,7 @@
         <v-col md="4">
           <v-card min-height="360">
             <v-img
-              src="https://inceptum-stor.icons8.com/171gfWxHN1Pz/1%20E5rLwFafmf6KdH7B2sLELg.png"
+              src="assets/images/Vuetify.jpg"
               height="200px"
               gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"
             ></v-img>
@@ -73,7 +73,7 @@
         <v-col md="4">
           <v-card min-height="360">
             <v-img
-              src="https://repository-images.githubusercontent.com/1491192/0376c980-c7a1-11ea-86af-11ce75ddcb47"
+              src="assets/images/AlphaTab.png"
               height="200px"
               gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"
             ></v-img>
