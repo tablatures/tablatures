@@ -2,26 +2,10 @@ html,
 body {
   height: 100% !important;
 }
-.tab-app {
-  height: 100% !important;
-  overflow: hidden !important;
-  margin-bottom: 50px !important;
-}
-.tab-main {
-  padding-bottom: 50px !important;
-}
-
-.tab-fill,
-.tab-fill .container {
-  height: 100% !important;
-}
-
-.tab-scrollable {
-  overflow: auto;
-}
 
 ::-webkit-scrollbar {
   width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {

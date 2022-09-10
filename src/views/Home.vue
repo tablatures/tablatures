@@ -23,7 +23,7 @@
 
     <v-card tile height="300px">
       <v-flex>
-        <v-parallax height="300" src="@/assets/imgs/score.jpg"></v-parallax>
+        <v-parallax height="300" src="./src/assets/imgs/Score.jpg"></v-parallax>
       </v-flex>
     </v-card>
 
@@ -89,7 +89,7 @@
   </v-container>
 </template>
 
-<script lang="ts">
+ <script>
 import Vue from "vue"
 export default Vue.extend({
   name: "Home",

@@ -24,7 +24,7 @@
 <script lang="js">
 import Vue from "vue"
 const proxy = "" //"https://cors-anywhere.herokuapp.com/"
-import { AlphaTabApi, Settings, model } from "@coderline/alphatab"
+// import { AlphaTabApi, Settings, model } from "@coderline/alphatab"
 
 export default Vue.extend({
   name: "Test",
