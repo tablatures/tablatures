@@ -23,7 +23,7 @@
 
     <v-card tile height="300px">
       <v-flex>
-        <v-parallax height="300" src="assets/images/Score.jpg"></v-parallax>
+        <v-parallax height="300" :src="imgScore"></v-parallax>
       </v-flex>
     </v-card>
 
@@ -48,7 +48,7 @@
       <v-row dense justify="center">
         <v-col md="4">
           <v-card min-height="360">
-            <v-img src="assets/images/Vue.jpg" height="200px" gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"></v-img>
+            <v-img :src="imgVue" height="200px" gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"></v-img>
             <v-card-title>Vue</v-card-title>
             <v-card-subtitle>An well known, open source progressive framework for javascript.</v-card-subtitle>
             <v-card-text>
@@ -59,7 +59,7 @@
         <v-col md="4">
           <v-card min-height="360">
             <v-img
-              src="assets/images/Vuetify.jpg"
+              :src="imgVuetify"
               height="200px"
               gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"
             ></v-img>
@@ -73,7 +73,7 @@
         <v-col md="4">
           <v-card min-height="360">
             <v-img
-              src="assets/images/AlphaTab.png"
+              :src="imgAlphaTab"
               height="200px"
               gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)"
             ></v-img>
@@ -89,10 +89,23 @@
   </v-container>
 </template>
 
- <script>
+<script>
 import Vue from "vue"
+import imgVue from "../assets/images/Vue.jpg"
+import imgVuetify from "../assets/images/Vuetify.jpg"
+import imgAlphaTab from "../assets/images/AlphaTab.png"
+import imgScore from "../assets/images/Score.jpg"
+
 export default Vue.extend({
   name: "Home",
+  data() {
+    return {
+      imgVue,
+      imgVuetify,
+      imgAlphaTab,
+      imgScore
+    }
+  },
   methods: {
     goImport() {
       this.$router.push({ name: "Import" })
