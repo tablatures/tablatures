@@ -1,10 +1,10 @@
 <template>
-  <v-container class="pa-0" style="height: 100%">
+  <v-container class="pa-0" fluid>
     <table ref="table" style="display: none" />
 
     <v-col>
       <v-row v-if="!display">
-        <v-simple-table>
+        <v-simple-table style="width:100%">
           <template v-slot:default>
             <thead>
               <tr>
@@ -28,6 +28,8 @@
             </tbody>
           </template>
         </v-simple-table>
+
+        <div v-if="!tracks.length" style="text-align: center; font-style:italic; width: 100%" class="pa-3">No track found for this query</div>
       </v-row>
 
       <v-row v-show="display">
