@@ -24,7 +24,7 @@
       ></v-switch>
 
       <v-text-field
-        v-model="query"
+        v-model="localQuery"
         @focus="search = true"
         @blur="search = false"
         @change="goSearch"
@@ -40,6 +40,17 @@
 
       <v-progress-linear :active="$store.state.loading" :indeterminate="true" absolute bottom color="blue darken-4"></v-progress-linear>
     </v-app-bar>
+    
+    <v-overlay :absolute="true" :value="$store.state.loading" style="height: 100vh">
+      <v-col>
+        <v-row align="center" justify="center">
+          <v-progress-circular indeterminate color="primary" size="70" width="6" />
+        </v-row>
+        <v-row class="pa-5">
+          <b>LOADING...</b>
+        </v-row>
+      </v-col>
+    </v-overlay>
   </div>
 </template>
 
@@ -51,8 +62,11 @@ export default Vue.extend({
   data() {
     return {
       search: false,
-      query: "",
+      localQuery: ""
     }
+  },
+  mounted() {
+    this.localQuery = this.$store.state.query
   },
   methods: {
     goHome() {
@@ -61,10 +75,12 @@ export default Vue.extend({
       }
     },
     goSearch() {
-      if (this.$route.name == "Search" && this.$route.query?.query != this.query) {
-        this.$router.push({ name: "Search", query: { query: this.query } })
+      this.$store.commit("searchQuery", this.localQuery)
+
+      if (this.$route.name == "Search" && this.$route.query?.query != this.localQuery) {
+        this.$router.push({ name: "Search", query: { query: this.localQuery } })
       } else {
-        this.$router.push({ name: "Search", query: { query: this.query } })
+        this.$router.push({ name: "Search", query: { query: this.localQuery } })
       }
     },
     goImport() {

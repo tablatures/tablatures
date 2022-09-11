@@ -6,7 +6,7 @@ import NotFound from "./views/NotFound.vue"
 import About from "./views/About.vue"
 import Import from "./views/Import.vue"
 import Search from "./views/Search.vue"
-import Test from "./views/Test.vue"
+import ComingSoon from "./views/ComingSoon.vue"
 
 Vue.use(VueRouter)
 
@@ -27,15 +27,14 @@ const routes= [
     component: Search,
   },
   {
+    path: "/docs",
+    name: "Docs",
+    component: ComingSoon,
+  },
+  {
     path: "/about",
     name: "About",
     component: About,
-  },
-
-  {
-    path: "/test",
-    name: "Test",
-    component: Test,
   },
   {
     path: "*",
