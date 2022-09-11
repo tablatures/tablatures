@@ -12,6 +12,6 @@ module.exports = {
   base: process.env.NODE_ENV === "production" ? "/Tablatures/" : "/",
   root: './src/',
   build: {
-    outDir: '../test'
+    outDir: '../dist'
   }
 };
