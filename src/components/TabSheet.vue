@@ -62,18 +62,6 @@
         </v-btn>
       </v-toolbar>
     </div>
-
-    
-    <v-overlay :absolute="true" :value="$store.state.loading">
-      <v-col>
-        <v-row align="center" justify="center">
-          <v-progress-circular indeterminate color="primary" size="70" width="6" />
-        </v-row>
-        <v-row class="pa-5">
-          <b>LOADING TRACK...</b>
-        </v-row>
-      </v-col>
-    </v-overlay>
     
     <v-sheet elevation="10" height="100%" style="overflow: auto">
       <div class="at-wrap">
@@ -203,8 +191,7 @@ export default Vue.extend({
 
       settings.player.enablePlayer = true
       settings.player.enableCursor = true
-      // settings.player.soundFont = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2"
-
+      
       if (viewport === undefined) return
       settings.player.scrollElement = viewport
 
