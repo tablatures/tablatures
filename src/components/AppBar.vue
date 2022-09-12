@@ -41,7 +41,7 @@
       <v-progress-linear :active="$store.state.loading" :indeterminate="true" absolute bottom color="blue darken-4"></v-progress-linear>
     </v-app-bar>
     
-    <v-overlay :absolute="true" :value="$store.state.loading" style="height: 100vh">
+    <v-overlay z-index="99999" :value="$store.state.loading" style="height: 100vh; ">
       <v-col>
         <v-row align="center" justify="center">
           <v-progress-circular indeterminate color="primary" size="70" width="6" />
