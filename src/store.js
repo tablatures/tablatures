@@ -183,11 +183,16 @@ export default new Vuex.Store({
 
       const download = await dispatch("proxy", `https://www.guitarprotabs.net/${href}`)
       
-      const encoder = new TextEncoder()
-      const encoded = encoder.encode(String(download.contents))
+      const raw = String(download.contents)
+      const encoded = new Uint8Array(raw.length)
+
+      for (let i = 0; i < raw.length; i++) {
+        encoded[i] = raw.charCodeAt(i)
+      }
+
       const blob = new Blob([encoded])
       
-      commit("loadFile", new File([blob], target.title))
+      commit("loadFile", new File([blob], target.title + ".gp5"))
     }
   }
 })

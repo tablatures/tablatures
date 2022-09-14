@@ -57,6 +57,10 @@
           <v-icon> {{ horizontal ? "mdi-format-horizontal-align-right" : "mdi-page-layout-body" }} </v-icon>
         </v-btn>
 
+        <v-btn icon :href="fileURL" :download="file.name">
+          <v-icon> mdi-download</v-icon>
+        </v-btn>
+
         <v-btn icon @click="print">
           <v-icon> mdi-printer </v-icon>
         </v-btn>
@@ -101,6 +105,9 @@ export default Vue.extend({
     this.loadApi()
   },
   computed: {
+    fileURL() {
+      return URL.createObjectURL(this.file)
+    },
     title() {
       if (this.api == null) return "<api not loaded>"
       if (this.api.score == null) return "<score not loaded>"
