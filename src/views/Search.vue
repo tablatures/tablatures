@@ -70,11 +70,11 @@ export default Vue.extend({
     },
     index: {
       get() { return this.sindex },
-      set(value) { this.sindex = Math.min(Math.max(value, 0), 3) }
+      set(value) { this.sindex = Math.min(Math.max(value, 1), 10) }
     },
     pages: {
       get() { return this.spages },
-      set(value) { this.spages = Math.min(Math.max(value, 0), 3) }
+      set(value) { this.spages = Math.min(Math.max(value, 1), 3) }
     }
   },
   mounted() {
@@ -106,8 +106,7 @@ export default Vue.extend({
         target: item.track
       })
 
-      console.log(this.$store.state.file)
-      // this.$router.push({ name: "Player"})
+      this.$router.push({ name: "Player"})
     }
   }
 })
