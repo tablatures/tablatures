@@ -104,6 +104,10 @@ export default Vue.extend({
   mounted() {
     this.loadApi()
   },
+  beforeDestroy() {
+    if (this.playing) this.play() // pause the currently playing track
+    this.api = undefined // clear object
+  },
   computed: {
     fileURL() {
       return URL.createObjectURL(this.file)
