@@ -1,19 +1,34 @@
 import Vue from "vue"
 import Vuex from "vuex"
+import VuexPersistence from "vuex-persist"
 
 Vue.use(Vuex)
+
+const persistence = new VuexPersistence({
+  storage: window.localStorage
+})
 
 const SOURCES = {
   GUITAR_PRO_TABS: 0
 }
 
+/**
+ * loading: overlay and loadbar
+ * error: popup and handling
+ * query: track search string
+ * index: id of the search page
+ * file: gp5 file storage
+ * database: cache search by query>index>track
+ */
 export default new Vuex.Store({
+  plugins:[persistence.plugin], 
   state: {
     loading: false,
-    error : false,
+    error: false,
     query: "",
+    index: 1,
     file: new Blob(),
-    list: []
+    database: {}
   },
   mutations: {
     startLoading(state) {
@@ -25,14 +40,24 @@ export default new Vuex.Store({
     searchQuery(state, query) {
       state.query = query
     },
+    searchIndex(state, index) {
+      state.index = index
+    },
     loadFile(state, file) {
       state.file = file
     },
-    appendList(state, item) {
-      state.list = [...state.list, item]
+    appendList(state, { query, index, item }) {
+      // initialise query map if needed 
+      if (!state.database[query]) state.database[query] = {}
+
+      // copy current list and check if empty
+      const current = state.database[query][index] || []
+
+      // concatenate existing list and new item
+      state.database[query][index] = [...current, item]
     },
     clearList(state) {
-      state.list = []
+      state.database = {}
     }
   },
   actions: {
@@ -44,10 +69,10 @@ export default new Vuex.Store({
     proxy({ }, source) {
       return fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(source)}`)
         .then(response => {
-        return response.json()
-      }).catch((error) => {
-        throw new Error(`Error during the proxy request: ${error}`)
-      })
+          return response.json()
+        }).catch((error) => {
+          throw new Error(`Error during the proxy request: ${error}`)
+        })
     },
 
     /**
@@ -67,11 +92,12 @@ export default new Vuex.Store({
      * Fetch the list of track for the given source
      * @param {number} source database website
      * @param {number} pages number of pages to fetch
-     * @param {number} index index of the current page
      */
-    async fetchList({ commit, dispatch }, { source, pages, index }) {
+    async fetchList({ commit, dispatch, state }, { source, pages }) {
       commit("startLoading")
 
+      const index = state.index
+      
       switch (source) {
         case SOURCES.GUITAR_PRO_TABS: {
           await dispatch("fetchListGuitarProTabs", { pages, index })
@@ -91,6 +117,16 @@ export default new Vuex.Store({
     async fetchListGuitarProTabs({ commit, state, dispatch }, { pages, index }) {
       
       if (pages < 1) return // Stop recursive call
+
+      // Check if a value is already stored in the local database
+      if (state.database[state.query]?.[index]?.length) {
+
+        // do not need to fetch again, go directly to the recursive call
+        await dispatch("fetchListGuitarProTabs", { pages: pages - 1, index: index + 1 })
+
+        // bypass the rest, we already have the required datas
+        return
+      }
       
       const parser = new DOMParser();
       const source = `https://www.guitarprotabs.net/artist/${state.query}/${index}`
@@ -123,8 +159,8 @@ export default new Vuex.Store({
         const [views, tracks] = row.cells[3].innerHTML.split("<br>")
 
         found_tabs = true
-        
-        commit("appendList", {
+
+        const track = {
           source: SOURCES.GUITAR_PRO_TABS,
           type: firstCell.innerHTML,
           track: {
@@ -138,7 +174,9 @@ export default new Vuex.Store({
           album: album,
           views: views?.split("# Views ")[1],
           tracks: tracks?.split("# Tracks ")[1]
-        })
+        }
+        
+        commit("appendList", { query: state.query, index: index, item: track })
       }
 
       // recursive call
