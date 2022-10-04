@@ -25,7 +25,7 @@
 Read and play tabs quickly
 
 - **Import a music score** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`, `.cap` or `.tex`)
-- **Browse the tabs database** (`IN DEV`)
+- **Browse the tabs database** (`gp5 database`)
 - **Browse documentation** (`IN DEV`)
 
 The website is currently under heavy development and can be unstable. Do not hesitate to report issues at [here](https://github.com/mlhoutel/Tablatures/issues).

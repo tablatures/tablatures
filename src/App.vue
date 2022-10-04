@@ -1,27 +1,30 @@
 <template>
   <v-app>
     <app-bar />
+    <app-drawer />
     <v-main class="pa-0">
-      <router-view />
+      <app-content />
     </v-main>
     <app-footer />
   </v-app>
 </template>
 
- <script>
+<script>
 import Vue from "vue"
-import AppBar from "./components/AppBar.vue"
-import AppFooter from "./components/AppFooter.vue"
 import "./assets/global.css"
+
+import AppBar from "./views/AppBar.vue"
+import AppDrawer from "./views/AppDrawer.vue"
+import AppFooter from "./views/AppFooter.vue"
+import AppContent from "./views/AppContent.vue"
 
 export default Vue.extend({
   name: "App",
-  components: { AppBar, AppFooter },
+  components: { AppBar, AppDrawer, AppFooter, AppContent },
 })
 </script>
 
 <style lang="scss">
-/* Bravura font from https://github.com/steinbergmedia/bravura/ */
 @font-face {
   font-family: "alphaTab";
   src: url("assets/font/Bravura.eot");
@@ -39,15 +42,15 @@ export default Vue.extend({
   dominant-baseline: central;
 }
 .at-cursor-bar {
-    background: rgba(255, 242, 0, 0.25);
+  background: rgba(207, 127, 201, 0.25);
 }
 .at-cursor-beat {
-    background: rgba(64, 64, 255, 0.75);
-    width: 3px;
+  background: #673ab7;
+  width: 3px;
 }
 .at-highlight * {
-    fill: #0078ff;
-    stroke: #0078ff;
+  fill: #673ab7;
+  stroke: #673ab7;
 }
 .at {
   font-family: "alphaTab";

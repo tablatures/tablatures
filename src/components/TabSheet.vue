@@ -1,22 +1,24 @@
 <template>
   <v-container fluid>
-    <div v-show="ready" class="player-bar">
+    <div v-show="ready" class="player-bar" style="width: 100%">
       <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
       <v-toolbar dense flat elevation="3">
-        <v-btn icon @click="play" :color="playing ? 'blue' : 'grey'">
+        <v-spacer></v-spacer>
+
+        <v-btn icon small class="pa-5 px-sm-6" @click="play" :color="playing ? 'primary' : 'grey'">
           <v-icon> {{ playing ? "mdi-pause" : "mdi-play" }} </v-icon>
         </v-btn>
-        <v-btn icon @click="looping = !looping" :color="looping ? 'blue' : 'grey'">
+        <v-btn icon small class="pa-5 px-sm-6" @click="looping = !looping" :color="looping ? 'primary' : 'grey'">
           <v-icon> mdi-sync </v-icon>
         </v-btn>
-        <v-btn icon @click="metronome = !metronome" :color="metronome ? 'blue' : 'grey'">
+        <v-btn icon small class="pa-5 px-sm-6" @click="metronome = !metronome" :color="metronome ? 'primary' : 'grey'">
           <v-icon> mdi-metronome </v-icon>
         </v-btn>
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn text color="grey" v-bind="attrs" v-on="on">
-              <v-icon left> mdi-timelapse </v-icon>
+            <v-btn class="ma-sm-0 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+              <v-icon left class="d-none d-sm-flex"> mdi-timelapse </v-icon>
               {{ speed }}%
             </v-btn>
           </template>
@@ -34,8 +36,8 @@
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn text color="grey" v-bind="attrs" v-on="on">
-              <v-icon left> mdi-volume-high </v-icon>
+            <v-btn class="ma-sm-0 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+              <v-icon left class="d-none d-sm-flex"> mdi-volume-high </v-icon>
               {{ volume }}%
             </v-btn>
           </template>
@@ -51,45 +53,43 @@
           </v-card>
         </v-menu>
 
-        <v-spacer></v-spacer>
-        
-        <v-btn icon @click="horizontal = !horizontal">
+        <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="horizontal = !horizontal">
           <v-icon> {{ horizontal ? "mdi-format-horizontal-align-right" : "mdi-page-layout-body" }} </v-icon>
         </v-btn>
 
-        <v-btn icon :href="fileURL" :download="file.name">
+        <v-btn icon small class="pa-5 px-sm-6" color="grey" :href="fileURL" :download="file?.name">
           <v-icon> mdi-download</v-icon>
         </v-btn>
 
-        <v-btn icon @click="print">
+        <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="print">
           <v-icon> mdi-printer </v-icon>
         </v-btn>
+
+        <v-spacer></v-spacer>
       </v-toolbar>
     </div>
-    
-    <v-sheet elevation="10" height="100%" style="overflow: auto">
+
+    <v-sheet elevation="10" height="100%" width="100%" style="overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
-          <div class="at-sidebar"></div>
+          <div class="at-sidebar" />
           <div class="at-viewport">
-            <div class="at-main"></div>
+            <div class="at-main" />
           </div>
         </div>
-        <div class="at-controls"></div>
+        <div class="at-controls" />
       </div>
-      <div id="alphaTabStyle"></div>
+      <div id="alphaTabStyle" />
     </v-sheet>
   </v-container>
 </template>
 
- <script>
+<script>
 import Vue from "vue"
 
 export default Vue.extend({
   name: "TabSheet",
-  props: {
-    file: { type: Blob, default: new Blob() },
-  },
+  props: ["file"],
   data() {
     return {
       api: undefined,
@@ -106,11 +106,16 @@ export default Vue.extend({
   },
   beforeDestroy() {
     if (this.playing) this.play() // pause the currently playing track
+    this.api.destroy() // clear the alphaTab controls
     this.api = undefined // clear object
   },
   computed: {
     fileURL() {
-      return URL.createObjectURL(this.file)
+      try {
+        return URL.createObjectURL(this.file)
+      } catch {
+        return "undefined"
+      }
     },
     title() {
       if (this.api == null) return "<api not loaded>"
@@ -122,12 +127,12 @@ export default Vue.extend({
     ready() {
       if (!this.api) return false
       return this.api.isReadyForPlayback
-    }
+    },
   },
   watch: {
     horizontal() {
       this.pauseUpdate(() => {
-        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page 
+        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page
         this.api.settings.display.layoutMode = layout
       })
     },
@@ -153,7 +158,7 @@ export default Vue.extend({
         const black = new alphaTab.model.Color(0, 0, 0, 0.8)
 
         const selected = dark ? white : black
-        
+
         this.api.settings.display.resources.staffLineColor = selected
         this.api.settings.display.resources.barSeparatorColor = selected
         this.api.settings.display.resources.barNumberColor = selected
@@ -168,7 +173,7 @@ export default Vue.extend({
       setTimeout(() => {
         const wasPlaying = this.playing
 
-        this.$store.commit('startLoading')
+        this.$store.commit("startLoading")
         if (wasPlaying) this.play() // pause to avoid sound stuttering
 
         setTimeout(() => {
@@ -177,7 +182,7 @@ export default Vue.extend({
           this.render()
 
           if (wasPlaying) this.play() // restard the track playback
-          this.$store.commit('stopLoading')
+          this.$store.commit("stopLoading")
         }, 100)
       }, 100)
     },
@@ -188,7 +193,7 @@ export default Vue.extend({
 
       const main = wrapper.querySelector(".at-main")
       const viewport = wrapper.querySelector(".at-viewport")
-      return [wrapper , main , viewport]
+      return [wrapper, main, viewport]
     },
     loadApi() {
       // Load container
@@ -197,12 +202,12 @@ export default Vue.extend({
       // Load settings and fonts
       const settings = new alphaTab.Settings()
       settings.core.engine = "html5"
-      settings.core.logLevel = 0
+      settings.core.logLevel = 1
       settings.core.useWorkers = true
 
       settings.player.enablePlayer = true
       settings.player.enableCursor = true
-      
+
       if (viewport === undefined) return
       settings.player.scrollElement = viewport
 
@@ -214,7 +219,7 @@ export default Vue.extend({
       this.api.masterVolume = this.volume / 100
 
       // Update layout
-      this.api.settings.display.layoutMode = alphaTab.LayoutMode.Page 
+      this.api.settings.display.layoutMode = alphaTab.LayoutMode.Page
       this.api.updateSettings()
     },
     render() {
@@ -236,7 +241,7 @@ export default Vue.extend({
         }
       })
     },
-    loadSoundsBytes(){
+    loadSoundsBytes() {
       return new Promise((resolve, reject) => {
         const url = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.2.1/dist/soundfont/sonivox.sf2"
         const request = new XMLHttpRequest()
@@ -260,11 +265,3 @@ export default Vue.extend({
   },
 })
 </script>
-<style lang="scss">
-.player-bar {
-  position: sticky;
-  top: 0px;
-  background-color: white;
-  z-index: 9999;
-}
-</style>

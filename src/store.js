@@ -15,6 +15,8 @@ const SOURCES = {
 /**
  * loading: overlay and loadbar
  * error: popup and handling
+ * drawer: state of the side drawer
+ * navigation: drawer selector
  * query: track search string
  * index: id of the search page
  * file: gp5 file storage
@@ -24,10 +26,13 @@ export default new Vuex.Store({
   plugins:[persistence.plugin], 
   state: {
     loading: false,
-    error: false,
+    error: undefined,
+    gitstar: true,
+    drawer: false,
+    navigation: "",
     query: "",
     index: 1,
-    file: new Blob(),
+    file: undefined,
     database: {}
   },
   mutations: {
@@ -58,6 +63,21 @@ export default new Vuex.Store({
     },
     clearList(state) {
       state.database = {}
+    },
+    displayError(state, error) {
+      state.error = error
+    },
+    clearError(state) {
+      state.error = undefined
+    },
+    setDrawer(state, drawer) {
+      state.drawer = drawer
+    },
+    setNavigation(state, navigation) {
+      state.navigation = navigation
+    },
+    displayGitstar(state, gitstar) {
+      state.gitstar = gitstar
     }
   },
   actions: {
@@ -68,11 +88,11 @@ export default new Vuex.Store({
      */
     proxy({ }, source) {
       return fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(source)}`)
-        .then(response => {
-          return response.json()
-        }).catch((error) => {
-          throw new Error(`Error during the proxy request: ${error}`)
-        })
+      .then(response => {
+        return response.json()
+      }).catch((error) => {
+        throw new Error(`Error during the proxy request: ${error}`)
+      })
     },
 
     /**
@@ -119,6 +139,7 @@ export default new Vuex.Store({
       if (pages < 1) return // Stop recursive call
 
       // Check if a value is already stored in the local database
+      // TODO: Could add an expiration date to cache if data can be stale
       if (state.database[state.query]?.[index]?.length) {
 
         // do not need to fetch again, go directly to the recursive call
