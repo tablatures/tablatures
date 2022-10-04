@@ -43,7 +43,7 @@
       </v-btn>
     </v-app-bar>
 
-    <v-overlay z-index="99999" :value="$store.state.loading" style="height: 100vh">
+    <v-overlay z-index="9999999" :value="$store.state.loading" style="height: 100vh">
       <v-col>
         <v-row align="center" justify="center">
           <v-progress-circular indeterminate color="primary" size="70" width="6" />
@@ -55,7 +55,9 @@
     </v-overlay>
 
     <div v-if="$store.state.error" style="position: fixed; bottom: 0px; z-index: 999999; width: 100%; padding: 10px">
-      <v-alert border="left" colored-border dense dismissible elevation="10" type="warning" width="100%" @input="closeError">{{ $store.state.error }}</v-alert>
+      <v-alert class="py-4" border="left" colored-border dense dismissible elevation="10" type="error" width="100%" @input="closeError">
+        <b>{{ $store.state.error }}</b>
+      </v-alert>
     </div>
   </div>
 </template>

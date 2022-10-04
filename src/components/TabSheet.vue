@@ -3,8 +3,6 @@
     <div v-show="ready" class="player-bar" style="width: 100%">
       <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
       <v-toolbar dense flat elevation="3">
-        <v-spacer></v-spacer>
-
         <v-btn icon small class="pa-5 px-sm-6" @click="play" :color="playing ? 'primary' : 'grey'">
           <v-icon> {{ playing ? "mdi-pause" : "mdi-play" }} </v-icon>
         </v-btn>
@@ -53,6 +51,8 @@
           </v-card>
         </v-menu>
 
+        <v-spacer></v-spacer>
+
         <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="horizontal = !horizontal">
           <v-icon> {{ horizontal ? "mdi-format-horizontal-align-right" : "mdi-page-layout-body" }} </v-icon>
         </v-btn>
@@ -64,12 +64,10 @@
         <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="print">
           <v-icon> mdi-printer </v-icon>
         </v-btn>
-
-        <v-spacer></v-spacer>
       </v-toolbar>
     </div>
 
-    <v-sheet elevation="10" height="100%" width="100%" style="overflow: auto">
+    <v-sheet elevation="5" height="100%" width="100%">
       <div class="at-wrap">
         <div class="at-content">
           <div class="at-sidebar" />
@@ -87,9 +85,16 @@
 <script>
 import Vue from "vue"
 
+/**
+ * @prop {object} file track `{name: string, data: Uint8Array}`
+ * @prop {UInt8Array} sound bytes `Uni`
+ */
 export default Vue.extend({
   name: "TabSheet",
-  props: ["file"],
+  props: {
+    file: { default: undefined },
+    sound: { default: undefined },
+  },
   data() {
     return {
       api: undefined,
@@ -111,8 +116,12 @@ export default Vue.extend({
   },
   computed: {
     fileURL() {
+      if (!this.file?.data) return "undefined"
+
       try {
-        return URL.createObjectURL(this.file)
+        const tempBlob = new Blob([this.file.data])
+        const tempFile = new File([tempBlob], this.file.name)
+        return URL.createObjectURL(tempFile)
       } catch {
         return "undefined"
       }
@@ -153,6 +162,8 @@ export default Vue.extend({
       this.api.updateSettings()
     },
     "$vuetify.theme.dark"(dark) {
+      if (!this.file) return // avoid re-rendering when empty track
+
       this.pauseUpdate(() => {
         const white = new alphaTab.model.Color(255, 255, 255, 0.8)
         const black = new alphaTab.model.Color(0, 0, 0, 0.8)
@@ -169,6 +180,11 @@ export default Vue.extend({
     },
   },
   methods: {
+    clearReset() {
+      this.api.destroy() // clear context
+      this.api = undefined // reset api
+      this.loadApi() // reset context
+    },
     pauseUpdate(fun) {
       setTimeout(() => {
         const wasPlaying = this.playing
@@ -176,10 +192,10 @@ export default Vue.extend({
         this.$store.commit("startLoading")
         if (wasPlaying) this.play() // pause to avoid sound stuttering
 
-        setTimeout(() => {
+        setTimeout(async () => {
           fun()
 
-          this.render()
+          await this.render()
 
           if (wasPlaying) this.play() // restard the track playback
           this.$store.commit("stopLoading")
@@ -202,7 +218,7 @@ export default Vue.extend({
       // Load settings and fonts
       const settings = new alphaTab.Settings()
       settings.core.engine = "html5"
-      settings.core.logLevel = 1
+      settings.core.logLevel = 2
       settings.core.useWorkers = true
 
       settings.player.enablePlayer = true
@@ -221,39 +237,46 @@ export default Vue.extend({
       // Update layout
       this.api.settings.display.layoutMode = alphaTab.LayoutMode.Page
       this.api.updateSettings()
-    },
-    render() {
-      this.api.updateSettings()
-      this.api.render()
-    },
-    loadScoreBytes() {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.readAsArrayBuffer(this.file)
-        reader.onloadend = (e) => {
-          if (e.target === null) return reject()
-          const target = e.target
 
-          if (target.readyState == FileReader.DONE) {
-            const arrayBuffer = new Uint8Array(target.result)
-            return this.api.load(arrayBuffer) ? resolve() : reject()
-          }
-        }
-      })
+      // Add loading listeners
+      this.api.renderStarted.on(() => this.$store.commit("startLoading"))
+      this.api.renderFinished.on(() => this.$store.commit("stopLoading"))
     },
     loadSoundsBytes() {
-      return new Promise((resolve, reject) => {
-        const url = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.2.1/dist/soundfont/sonivox.sf2"
-        const request = new XMLHttpRequest()
-        request.open("GET", url, true)
-        request.responseType = "arraybuffer"
-        request.onload = () => {
-          const sonivox = new Uint8Array(request.response)
-          this.soundLoaded = "true"
-          return this.api.loadSoundFont(sonivox) ? resolve() : reject()
+      try {
+        if (!this.sound?.length) throw new Error("No sound can be loaded")
+
+        this.api.loadSoundFont(this.sound)
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
+    },
+    loadScoreBytes() {
+      try {
+        if (!this.file?.data) throw new Error("No track can be loaded")
+
+        const raw = String(this.file.data)
+        const encoded = new Uint8Array(raw.length)
+
+        for (let i = 0; i < raw.length; i++) {
+          encoded[i] = raw.charCodeAt(i)
         }
-        request.send()
-      })
+
+        this.api.load(encoded)
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
+    },
+    render() {
+      try {
+        this.api.updateSettings()
+        this.api.render()
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
     },
     play() {
       this.playing = !this.playing

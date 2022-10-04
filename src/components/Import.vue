@@ -2,7 +2,7 @@
   <v-file-input
     prepend-icon="mdi-music-note"
     :clearable="false"
-    v-model="file"
+    @change="update"
     label="tablature file"
     hint=".gp3, .gp4, .gp5, .gpx, .gp, .xml, .cap or .tex"
     :persistent-hint="true"
@@ -17,15 +17,14 @@ import Vue from "vue"
  */
 export default Vue.extend({
   name: "Import",
-  computed: {
-    file: {
-      get() {
-        return this.$store.state.file
-      },
-      set(file) {
-        this.$store.commit("loadFile", file)
-        this.$emit("update")
-      },
+  methods: {
+    async update(file) {
+      this.$emit("update")
+
+      // Convert File object to serializable object
+      const name = file.name
+      const data = await file.text()
+      this.$store.commit("loadFile", { name, data })
     },
   },
 })

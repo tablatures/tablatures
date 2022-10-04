@@ -36,11 +36,9 @@
           </tbody>
         </template>
       </v-simple-table>
-
-      <div v-if="!list.length" style="text-align: center; font-style: italic; width: 100%" class="pa-3">No track found for this query</div>
     </v-container>
 
-    <v-pagination v-model="index" :length="list.length" total-visible="7" />
+    <v-pagination v-model="index" :length="length" total-visible="7" />
   </div>
 </template>
 
@@ -57,6 +55,7 @@ export default Vue.extend({
       loading: false,
       reader: null,
       list: [],
+      length: 0,
     }
   },
   computed: {
@@ -84,38 +83,43 @@ export default Vue.extend({
   },
   methods: {
     async search() {
-      // avoid stacking requests
-      if (!this.loading) {
-        this.loading = true
-
-        const GUITAR_PRO_TABS = 0
-        const PREFETCH_NEXT = 2
-
-        try {
-          await this.$store.dispatch("fetchList", { source: GUITAR_PRO_TABS, pages: PREFETCH_NEXT })
-        } catch (error) {
-          this.$store.commit("stopLoading")
-          this.$store.commit("displayError", error)
-        }
-
-        // update current list with database one
-        this.list = this.$store.state.database[this.query]?.[this.index] || []
-
-        this.loading = false
-      }
-    },
-    async rowClick(item) {
+      this.$store.commit("startLoading")
       try {
-        await this.$store.dispatch("fetchTrack", {
-          source: item.source,
-          target: item.track,
-        })
+        // avoid stacking requests
+        if (!this.loading) {
+          this.loading = true
 
-        this.$emit("update")
+          const GUITAR_PRO_TABS = 0
+          const PREFETCH_NEXT = 2
+
+          await this.$store.dispatch("fetchList", { source: GUITAR_PRO_TABS, pages: PREFETCH_NEXT })
+
+          // update current list with database one
+          const current = this.$store.state.database[this.query]?.[this.index] || {}
+
+          this.length = Object.keys(this.$store.state.database[this.query]).length
+          this.list = [...Object.values(current)]
+
+          this.loading = false
+        }
       } catch (error) {
-        this.$store.commit("stopLoading")
+        console.error(error)
         this.$store.commit("displayError", error)
       }
+
+      this.$store.commit("stopLoading")
+    },
+    async rowClick(item) {
+      this.$store.commit("startLoading")
+      try {
+        this.$emit("update")
+        // Convert Item to serializable object
+        await this.$store.dispatch("fetchTrack", { source: item.source, target: item.track })
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
+      this.$store.commit("stopLoading")
     },
   },
 })
