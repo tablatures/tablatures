@@ -1,6 +1,7 @@
 html,
 body {
   height: 100% !important;
+  overflow-y: auto !important;
 }
 
 ::-webkit-scrollbar {
@@ -19,4 +20,31 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(230, 230, 230, 1);
+}
+
+.centered {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+}
+.container {
+  display: -webkit-flexbox;
+  display: -ms-flexbox;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-align: center;
+  -ms-flex-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.player-bar {
+  position: sticky;
+  top: 0px;
+  background-color: white;
+  z-index: 9999;
 }

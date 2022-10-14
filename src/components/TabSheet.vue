@@ -1,22 +1,22 @@
 <template>
   <v-container fluid>
-    <div v-show="ready" class="player-bar">
+    <div v-show="ready" class="player-bar" style="width: 100%">
       <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
       <v-toolbar dense flat elevation="3">
-        <v-btn icon @click="play" :color="playing ? 'blue' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setPlaying" :color="playing ? 'primary' : 'grey'">
           <v-icon> {{ playing ? "mdi-pause" : "mdi-play" }} </v-icon>
         </v-btn>
-        <v-btn icon @click="looping = !looping" :color="looping ? 'blue' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setLooping" :color="looping ? 'primary' : 'grey'">
           <v-icon> mdi-sync </v-icon>
         </v-btn>
-        <v-btn icon @click="metronome = !metronome" :color="metronome ? 'blue' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setMetronome" :color="metronome ? 'primary' : 'grey'">
           <v-icon> mdi-metronome </v-icon>
         </v-btn>
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn text color="grey" v-bind="attrs" v-on="on">
-              <v-icon left> mdi-timelapse </v-icon>
+            <v-btn class="ma-sm-0 pb-6 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+              <v-icon left class="d-none d-sm-flex"> mdi-timelapse </v-icon>
               {{ speed }}%
             </v-btn>
           </template>
@@ -34,8 +34,8 @@
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn text color="grey" v-bind="attrs" v-on="on">
-              <v-icon left> mdi-volume-high </v-icon>
+            <v-btn class="ma-sm-0 pb-6 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+              <v-icon left class="d-none d-sm-flex"> mdi-volume-high </v-icon>
               {{ volume }}%
             </v-btn>
           </template>
@@ -52,65 +52,79 @@
         </v-menu>
 
         <v-spacer></v-spacer>
-        
-        <v-btn icon @click="horizontal = !horizontal">
+
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" @click="horizontal = !horizontal">
           <v-icon> {{ horizontal ? "mdi-format-horizontal-align-right" : "mdi-page-layout-body" }} </v-icon>
         </v-btn>
 
-        <v-btn icon :href="fileURL" :download="file.name">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" :href="fileURL" :download="title + '.gp5'">
           <v-icon> mdi-download</v-icon>
         </v-btn>
 
-        <v-btn icon @click="print">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" @click="print">
           <v-icon> mdi-printer </v-icon>
         </v-btn>
+
+        <v-progress-linear :active="true" :value="progress" absolute bottom color="deep-purple accent-4"></v-progress-linear>
       </v-toolbar>
     </div>
-    
-    <v-sheet elevation="10" height="100%" style="overflow: auto">
+
+    <v-sheet elevation="5" height="100%" width="100%" style="overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
-          <div class="at-sidebar"></div>
+          <div class="at-sidebar" />
           <div class="at-viewport">
-            <div class="at-main"></div>
+            <div class="at-main" />
           </div>
         </div>
-        <div class="at-controls"></div>
+        <div class="at-controls" />
       </div>
-      <div id="alphaTabStyle"></div>
+      <div id="alphaTabStyle" />
     </v-sheet>
   </v-container>
 </template>
 
- <script>
+<script>
 import Vue from "vue"
 
+/**
+ * @prop {object} file track `{name: string, data: Uint8Array}`
+ * @prop {UInt8Array} sound bytes `Uni`
+ */
 export default Vue.extend({
   name: "TabSheet",
   props: {
-    file: { type: Blob, default: new Blob() },
+    file: { default: undefined },
+    sound: { default: undefined },
   },
   data() {
     return {
       api: undefined,
       speed: 100,
-      metronome: false,
       volume: 100,
-      looping: false,
-      playing: false,
       horizontal: false,
+      progress: 0,
     }
   },
   mounted() {
     this.loadApi()
   },
   beforeDestroy() {
-    if (this.playing) this.play() // pause the currently playing track
+    if (this.playing) this.setPlaying() // pause the currently playing track
+    this.api.destroy() // clear the alphaTab controls
     this.api = undefined // clear object
   },
   computed: {
     fileURL() {
-      return URL.createObjectURL(this.file)
+      if (!this.file) return "undefined"
+
+      try {
+        const tempBlob = new Blob([this.file])
+        const tempFile = new File([tempBlob], this.title + ".gp5")
+        return URL.createObjectURL(tempFile)
+      } catch {
+        return "undefined"
+      }
     },
     title() {
       if (this.api == null) return "<api not loaded>"
@@ -120,21 +134,19 @@ export default Vue.extend({
       return `${title || "???"} by ${artist || "???"}`
     },
     ready() {
-      if (!this.api) return false
-      return this.api.isReadyForPlayback
-    }
-  },
-  watch: {
-    horizontal() {
-      this.pauseUpdate(() => {
-        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page 
-        this.api.settings.display.layoutMode = layout
-      })
+      return !this.api ? false : this.api.isReadyForPlayback
+    },
+    playing() {
+      return !this.api ? false : this.api.playerState
+    },
+    looping() {
+      return !this.api ? false : this.api.isLooping
     },
     metronome() {
-      this.api.metronomeVolume = this.metronome
-      this.api.updateSettings()
+      return !this.api ? false : this.api.metronomeVolume !== 0
     },
+  },
+  watch: {
     volume() {
       this.api.masterVolume = this.volume / 100
       this.api.updateSettings()
@@ -143,17 +155,21 @@ export default Vue.extend({
       this.api.playbackSpeed = this.speed / 100
       this.api.updateSettings()
     },
-    looping() {
-      this.api.isLooping = this.looping
-      this.api.updateSettings()
+    horizontal() {
+      this.pauseUpdate(() => {
+        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page
+        this.api.settings.display.layoutMode = layout
+      })
     },
     "$vuetify.theme.dark"(dark) {
+      if (!this.file) return // avoid re-rendering when empty track
+
       this.pauseUpdate(() => {
         const white = new alphaTab.model.Color(255, 255, 255, 0.8)
         const black = new alphaTab.model.Color(0, 0, 0, 0.8)
 
         const selected = dark ? white : black
-        
+
         this.api.settings.display.resources.staffLineColor = selected
         this.api.settings.display.resources.barSeparatorColor = selected
         this.api.settings.display.resources.barNumberColor = selected
@@ -164,20 +180,25 @@ export default Vue.extend({
     },
   },
   methods: {
+    clearReset() {
+      this.api.destroy() // clear context
+      this.api = undefined // reset api
+      this.loadApi() // reset context
+    },
     pauseUpdate(fun) {
       setTimeout(() => {
         const wasPlaying = this.playing
 
-        this.$store.commit('startLoading')
-        if (wasPlaying) this.play() // pause to avoid sound stuttering
+        this.$store.commit("startLoading")
+        if (wasPlaying) this.setPlaying() // pause to avoid sound stuttering
 
-        setTimeout(() => {
+        setTimeout(async () => {
           fun()
 
-          this.render()
+          await this.render()
 
-          if (wasPlaying) this.play() // restard the track playback
-          this.$store.commit('stopLoading')
+          if (wasPlaying) this.setPlaying() // restard the track playback
+          this.$store.commit("stopLoading")
         }, 100)
       }, 100)
     },
@@ -188,7 +209,7 @@ export default Vue.extend({
 
       const main = wrapper.querySelector(".at-main")
       const viewport = wrapper.querySelector(".at-viewport")
-      return [wrapper , main , viewport]
+      return [wrapper, main, viewport]
     },
     loadApi() {
       // Load container
@@ -197,12 +218,12 @@ export default Vue.extend({
       // Load settings and fonts
       const settings = new alphaTab.Settings()
       settings.core.engine = "html5"
-      settings.core.logLevel = 0
+      settings.core.logLevel = 2
       settings.core.useWorkers = true
 
       settings.player.enablePlayer = true
       settings.player.enableCursor = true
-      
+
       if (viewport === undefined) return
       settings.player.scrollElement = viewport
 
@@ -214,57 +235,66 @@ export default Vue.extend({
       this.api.masterVolume = this.volume / 100
 
       // Update layout
-      this.api.settings.display.layoutMode = alphaTab.LayoutMode.Page 
+      this.api.settings.display.layoutMode = alphaTab.LayoutMode.Page
       this.api.updateSettings()
+
+      // Add loading listeners
+      this.api.renderStarted.on(() => this.$store.commit("startLoading"))
+      this.api.renderFinished.on(() => this.$store.commit("stopLoading"))
+
+      // Add progress listener
+      this.api.playerPositionChanged.on((e) => (this.progress = (e.currentTime / e.endTime) * 100))
     },
-    render() {
-      this.api.updateSettings()
-      this.api.render()
+    loadSoundsBytes() {
+      try {
+        if (!this.sound?.length) throw new Error("No sound can be loaded")
+
+        this.api.loadSoundFont(this.sound)
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
     },
     loadScoreBytes() {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.readAsArrayBuffer(this.file)
-        reader.onloadend = (e) => {
-          if (e.target === null) return reject()
-          const target = e.target
+      try {
+        if (!this.file) throw new Error("No track can be loaded")
 
-          if (target.readyState == FileReader.DONE) {
-            const arrayBuffer = new Uint8Array(target.result)
-            return this.api.load(arrayBuffer) ? resolve() : reject()
-          }
+        const raw = String(this.file)
+        const encoded = new Uint8Array(raw.length)
+
+        for (let i = 0; i < raw.length; i++) {
+          encoded[i] = raw.charCodeAt(i)
         }
-      })
+
+        this.api.load(encoded)
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
     },
-    loadSoundsBytes(){
-      return new Promise((resolve, reject) => {
-        const url = "https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.2.1/dist/soundfont/sonivox.sf2"
-        const request = new XMLHttpRequest()
-        request.open("GET", url, true)
-        request.responseType = "arraybuffer"
-        request.onload = () => {
-          const sonivox = new Uint8Array(request.response)
-          this.soundLoaded = "true"
-          return this.api.loadSoundFont(sonivox) ? resolve() : reject()
-        }
-        request.send()
-      })
-    },
-    play() {
-      this.playing = !this.playing
-      this.api.playPause()
+    render() {
+      try {
+        this.api.updateSettings()
+        this.api.render()
+      } catch (error) {
+        console.error(error)
+        this.$store.commit("displayError", error)
+      }
     },
     print() {
       this.api.print()
     },
+    setPlaying() {
+      this.api.playPause()
+    },
+    setLooping() {
+      this.api.isLooping = !this.api.isLooping
+      this.api.updateSettings()
+    },
+    setMetronome() {
+      this.api.metronomeVolume = !this.api.metronomeVolume ? 1 : 0
+      this.api.updateSettings()
+    },
   },
 })
 </script>
-<style lang="scss">
-.player-bar {
-  position: sticky;
-  top: 0px;
-  background-color: white;
-  z-index: 9999;
-}
-</style>
