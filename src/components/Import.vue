@@ -20,11 +20,7 @@ export default Vue.extend({
   methods: {
     async update(file) {
       this.$emit("update")
-
-      // Convert File object to serializable object
-      const name = file.name
-      const data = await file.text()
-      this.$store.commit("loadFile", { name, data })
+      this.$store.commit("loadFile", await file.text())
     },
   },
 })

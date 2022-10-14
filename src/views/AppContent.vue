@@ -43,7 +43,7 @@ export default Vue.extend({
     },
   },
   async mounted() {
-    if (!this.file?.data) return
+    if (!this.file) return
 
     await this.loadTrack()
   },

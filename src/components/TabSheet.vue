@@ -3,19 +3,19 @@
     <div v-show="ready" class="player-bar" style="width: 100%">
       <v-system-bar dark color="primary"> {{ title }} </v-system-bar>
       <v-toolbar dense flat elevation="3">
-        <v-btn icon small class="pa-5 px-sm-6" @click="play" :color="playing ? 'primary' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setPlaying" :color="playing ? 'primary' : 'grey'">
           <v-icon> {{ playing ? "mdi-pause" : "mdi-play" }} </v-icon>
         </v-btn>
-        <v-btn icon small class="pa-5 px-sm-6" @click="looping = !looping" :color="looping ? 'primary' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setLooping" :color="looping ? 'primary' : 'grey'">
           <v-icon> mdi-sync </v-icon>
         </v-btn>
-        <v-btn icon small class="pa-5 px-sm-6" @click="metronome = !metronome" :color="metronome ? 'primary' : 'grey'">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" @click="setMetronome" :color="metronome ? 'primary' : 'grey'">
           <v-icon> mdi-metronome </v-icon>
         </v-btn>
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn class="ma-sm-0 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+            <v-btn class="ma-sm-0 pb-6 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
               <v-icon left class="d-none d-sm-flex"> mdi-timelapse </v-icon>
               {{ speed }}%
             </v-btn>
@@ -34,7 +34,7 @@
 
         <v-menu offset-x :close-on-content-click="false">
           <template v-slot:activator="{ on, attrs }">
-            <v-btn class="ma-sm-0 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
+            <v-btn class="ma-sm-0 pb-6 pa-sm-2" style="margin: -10px" text color="grey" v-bind="attrs" v-on="on">
               <v-icon left class="d-none d-sm-flex"> mdi-volume-high </v-icon>
               {{ volume }}%
             </v-btn>
@@ -53,21 +53,23 @@
 
         <v-spacer></v-spacer>
 
-        <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="horizontal = !horizontal">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" @click="horizontal = !horizontal">
           <v-icon> {{ horizontal ? "mdi-format-horizontal-align-right" : "mdi-page-layout-body" }} </v-icon>
         </v-btn>
 
-        <v-btn icon small class="pa-5 px-sm-6" color="grey" :href="fileURL" :download="file?.name">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" :href="fileURL" :download="title + '.gp5'">
           <v-icon> mdi-download</v-icon>
         </v-btn>
 
-        <v-btn icon small class="pa-5 px-sm-6" color="grey" @click="print">
+        <v-btn icon small class="pa-5 pb-6 px-sm-6" color="grey" @click="print">
           <v-icon> mdi-printer </v-icon>
         </v-btn>
+
+        <v-progress-linear :active="true" :value="progress" absolute bottom color="deep-purple accent-4"></v-progress-linear>
       </v-toolbar>
     </div>
 
-    <v-sheet elevation="5" height="100%" width="100%">
+    <v-sheet elevation="5" height="100%" width="100%" style="overflow: auto">
       <div class="at-wrap">
         <div class="at-content">
           <div class="at-sidebar" />
@@ -99,28 +101,26 @@ export default Vue.extend({
     return {
       api: undefined,
       speed: 100,
-      metronome: false,
       volume: 100,
-      looping: false,
-      playing: false,
       horizontal: false,
+      progress: 0,
     }
   },
   mounted() {
     this.loadApi()
   },
   beforeDestroy() {
-    if (this.playing) this.play() // pause the currently playing track
+    if (this.playing) this.setPlaying() // pause the currently playing track
     this.api.destroy() // clear the alphaTab controls
     this.api = undefined // clear object
   },
   computed: {
     fileURL() {
-      if (!this.file?.data) return "undefined"
+      if (!this.file) return "undefined"
 
       try {
-        const tempBlob = new Blob([this.file.data])
-        const tempFile = new File([tempBlob], this.file.name)
+        const tempBlob = new Blob([this.file])
+        const tempFile = new File([tempBlob], this.title + ".gp5")
         return URL.createObjectURL(tempFile)
       } catch {
         return "undefined"
@@ -134,21 +134,19 @@ export default Vue.extend({
       return `${title || "???"} by ${artist || "???"}`
     },
     ready() {
-      if (!this.api) return false
-      return this.api.isReadyForPlayback
+      return !this.api ? false : this.api.isReadyForPlayback
+    },
+    playing() {
+      return !this.api ? false : this.api.playerState
+    },
+    looping() {
+      return !this.api ? false : this.api.isLooping
+    },
+    metronome() {
+      return !this.api ? false : this.api.metronomeVolume !== 0
     },
   },
   watch: {
-    horizontal() {
-      this.pauseUpdate(() => {
-        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page
-        this.api.settings.display.layoutMode = layout
-      })
-    },
-    metronome() {
-      this.api.metronomeVolume = this.metronome
-      this.api.updateSettings()
-    },
     volume() {
       this.api.masterVolume = this.volume / 100
       this.api.updateSettings()
@@ -157,9 +155,11 @@ export default Vue.extend({
       this.api.playbackSpeed = this.speed / 100
       this.api.updateSettings()
     },
-    looping() {
-      this.api.isLooping = this.looping
-      this.api.updateSettings()
+    horizontal() {
+      this.pauseUpdate(() => {
+        const layout = this.horizontal ? alphaTab.LayoutMode.Horizontal : alphaTab.LayoutMode.Page
+        this.api.settings.display.layoutMode = layout
+      })
     },
     "$vuetify.theme.dark"(dark) {
       if (!this.file) return // avoid re-rendering when empty track
@@ -190,14 +190,14 @@ export default Vue.extend({
         const wasPlaying = this.playing
 
         this.$store.commit("startLoading")
-        if (wasPlaying) this.play() // pause to avoid sound stuttering
+        if (wasPlaying) this.setPlaying() // pause to avoid sound stuttering
 
         setTimeout(async () => {
           fun()
 
           await this.render()
 
-          if (wasPlaying) this.play() // restard the track playback
+          if (wasPlaying) this.setPlaying() // restard the track playback
           this.$store.commit("stopLoading")
         }, 100)
       }, 100)
@@ -241,6 +241,9 @@ export default Vue.extend({
       // Add loading listeners
       this.api.renderStarted.on(() => this.$store.commit("startLoading"))
       this.api.renderFinished.on(() => this.$store.commit("stopLoading"))
+
+      // Add progress listener
+      this.api.playerPositionChanged.on((e) => (this.progress = (e.currentTime / e.endTime) * 100))
     },
     loadSoundsBytes() {
       try {
@@ -254,9 +257,9 @@ export default Vue.extend({
     },
     loadScoreBytes() {
       try {
-        if (!this.file?.data) throw new Error("No track can be loaded")
+        if (!this.file) throw new Error("No track can be loaded")
 
-        const raw = String(this.file.data)
+        const raw = String(this.file)
         const encoded = new Uint8Array(raw.length)
 
         for (let i = 0; i < raw.length; i++) {
@@ -278,12 +281,19 @@ export default Vue.extend({
         this.$store.commit("displayError", error)
       }
     },
-    play() {
-      this.playing = !this.playing
-      this.api.playPause()
-    },
     print() {
       this.api.print()
+    },
+    setPlaying() {
+      this.api.playPause()
+    },
+    setLooping() {
+      this.api.isLooping = !this.api.isLooping
+      this.api.updateSettings()
+    },
+    setMetronome() {
+      this.api.metronomeVolume = !this.api.metronomeVolume ? 1 : 0
+      this.api.updateSettings()
     },
   },
 })

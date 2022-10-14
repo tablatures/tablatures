@@ -14,8 +14,8 @@ const persistence = new VuexPersistence({
     navigation: state.navigation,
     query: state.query,
     index: state.index,
-    file: state.file,
-    database: state.database
+    database: state.database,
+    file: state.file
   })
 })
 

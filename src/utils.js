@@ -201,9 +201,11 @@ async function fetchTrackGuitarProTabs(target) {
   // Extract the page download button link
   const href = await extract(content.contents, '<a class="btn btn-large pull-right" href="', '" rel="nofollow">Download Tab</a>')
   const download = await proxy(`https://www.guitarprotabs.net/${href}`)
-  const track = { name: target.title + ".gp5", data: download.contents }
+  const file = download.contents
 
-  return track
+  console.log({ file })
+
+  return file
 }
 
 async function fetchSound() {

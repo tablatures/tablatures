@@ -1,8 +1,8 @@
 <template>
-  <v-container class="tab-scrollable">
-    <v-card tile class="pa-4">
+  <v-container>
+    <v-card tile class="pa-4" height="calc(100vh - 130px)" style="overflow: auto">
       <v-card-title primary-title>
-        <h3 class="headline text-h4 text-center" style="font-size: 1.4em !important">Tablatures is an open source project</h3>
+        <h3 class="headline text-h4 text-center" style="font-size: 1.7em; word-break: normal">Tablatures is an open source project</h3>
       </v-card-title>
       <div class="pa-5 pt-0">
         <span>It has been built with open sources libraries, and it is free to access and to download. </span>
@@ -16,7 +16,7 @@
       </div>
 
       <v-card-title primary-title>
-        <h3 class="headline text-h4 text-center" style="font-size: 1.4em !important">Libraries used for the design of the website</h3>
+        <h3 class="headline text-h4 text-center" style="font-size: 1.4em; word-break: normal">Libraries used for the design of the website</h3>
       </v-card-title>
       <v-row dense justify="center">
         <v-col cols="12" sm="4">
