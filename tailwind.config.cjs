@@ -15,7 +15,7 @@ const config = {
 				xl: '1440px'
 			},
       colors: {
-        // TODO
+        primary: "#673AB7",
       }
     }
   },
