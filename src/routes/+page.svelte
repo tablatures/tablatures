@@ -1,12 +1,22 @@
 <script>
 	import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from '../library/constants';
+	import { debounce } from '../library/utils';
 
+ 
 	/** @type {import('./$types').PageData} */
 	export let data;
 	/**
 	 * @type {HTMLFormElement}
 	 */
 	let formSearch;
+
+  const debouncedSubmit = debounce(() => {
+		// not supported in all browsers
+		if (typeof HTMLFormElement.prototype.requestSubmit == 'function') {
+			formSearch.requestSubmit();
+		}
+	}, 300);
+  
 	function buildUrl(queryType = 'artist', search = '', page = 1, source = '0') {
 		const data = {
 			[TYPE_PARAM]: queryType,
@@ -39,14 +49,13 @@
 <form method="get" bind:this={formSearch}>
 	<label>
 		Search
+		<!-- svelte-ignore a11y-autofocus -->
 		<input
 			type="text"
 			name={SEARCH_PARAM}
 			autofocus
 			bind:value={data.query}
-			on:input={() => {
-				formSearch.requestSubmit();
-			}}
+			on:input={debouncedSubmit}
 		/>
 		<input class="hidden" name={PAGE_PARAM} readonly value={1} />
 		<select
