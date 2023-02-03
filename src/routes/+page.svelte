@@ -1,80 +1,62 @@
 <script>
 	import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from '../library/constants';
 	import { debounce } from '../library/utils';
+	import { page } from '$app/stores';
+	import { filterSchema } from './util';
+	import { goto } from '$app/navigation';
+	import PageLinks from '../library/components/PageLinks.svelte';
 
- 
 	/** @type {import('./$types').PageData} */
 	export let data;
+
+	const filter = filterSchema.parse($page.url.searchParams);
+
 	/**
 	 * @type {HTMLFormElement}
 	 */
-	let formSearch;
+	let form;
+	const requestSubmit = () => form.requestSubmit();
+	const debouncedSubmit = debounce(requestSubmit, 250);
 
-  const debouncedSubmit = debounce(() => {
-		// not supported in all browsers
-		if (typeof HTMLFormElement.prototype.requestSubmit == 'function') {
-			formSearch.requestSubmit();
-		}
-	}, 300);
-  
-	function buildUrl(queryType = 'artist', search = '', page = 1, source = '0') {
-		const data = {
-			[TYPE_PARAM]: queryType,
-			[SEARCH_PARAM]: search,
-			[PAGE_PARAM]: page.toString(),
-			[SOURCE_PARAM]: source
-		};
-
-		const searchParams = new URLSearchParams(data);
-		return `/?${searchParams.toString()}`;
+	/**
+	 * @param {{ preventDefault: () => void; target: any; }} e
+	 */
+	export function submitReplaceState(e) {
+		e.preventDefault();
+		const form = e.target;
+		const url = new URL(form.action);
+		// @ts-expect-error
+		const params = new URLSearchParams(new FormData(form));
+		url.search = params.toString();
+		goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 </script>
 
-<a
-	href={buildUrl(
-		data.queryType,
-		data.query,
-		isNaN(Number(data.page)) || Number(data.page) === 1 ? 1 : Number(data.page) - 1,
-		data.source
-	)}>page précédente</a
+<PageLinks/>
+
+<form
+	bind:this={form}
+	on:submit={submitReplaceState}
+	on:input={debouncedSubmit}
+	on:change={requestSubmit}
 >
-<a
-	href={buildUrl(
-		data.queryType,
-		data.query,
-		isNaN(Number(data.page)) ? 2 : Number(data.page) + 1,
-		data.source
-	)}>page suivante</a
->
-<form method="get" bind:this={formSearch}>
 	<label>
 		Search
-		<!-- svelte-ignore a11y-autofocus -->
 		<input
 			type="text"
 			name={SEARCH_PARAM}
-			autofocus
-			bind:value={data.query}
-			on:input={debouncedSubmit}
+			autocomplete="off"
+			autocorrect="off"
+			autocapitalize="off"
+			spellcheck="false"
+			value={filter.search}
 		/>
 		<input class="hidden" name={PAGE_PARAM} readonly value={1} />
-		<select
-			on:change={() => {
-				formSearch.requestSubmit();
-			}}
-			name={TYPE_PARAM}
-			bind:value={data.queryType}
-		>
+		<select name={TYPE_PARAM} value={filter.queryType}>
 			<option value="artist">artist</option>
 			<option value="song">song</option>
 		</select>
-		<select
-			on:change={() => {
-				formSearch.requestSubmit();
-			}}
-			name={SOURCE_PARAM}
-			bind:value={data.source}
-		>
+		<select name={SOURCE_PARAM} value={filter.source}>
 			<option value="0">0</option>
 			<option value="1">1</option>
 		</select>

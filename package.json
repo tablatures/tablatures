@@ -36,6 +36,9 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"jsdom": "^21.1.0"
+		"jsdom": "^21.1.0",
+		"just-debounce-it": "^3.2.0",
+		"zod": "^3.20.2",
+		"zod-form-data": "^1.2.4"
 	}
 }

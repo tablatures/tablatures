@@ -1,3 +1,7 @@
+import { z } from 'zod';
+import { zfd } from 'zod-form-data';
+import { PAGE_PARAM } from '../constants';
+
 /**
  * Extract the value between two tokens (exclusive)
  * @param {string} content the input string containing both tokens
@@ -52,3 +56,7 @@ export const debounce = (callback: () => void, delay: number) => {
 		}, delay);
 	};
 };
+
+export const pageLinkSchema = zfd.formData({
+	[PAGE_PARAM]: zfd.numeric(z.number().min(0)).default(1)
+});

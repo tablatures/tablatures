@@ -1,4 +1,50 @@
 /* Write your global styles here, in PostCSS syntax */
 @tailwind base;
 @tailwind components;
-@tailwind utilities
+@tailwind utilities;
+
+.progress-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    z-index: 9999;
+}
+
+.progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background-color: indigo;
+    transition: width 0.4s;
+}
+
+.fade {
+    --fade-color: #eee;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    background-color: hsl(var(--fade-color) / 20%);
+    pointer-events: none;
+    z-index: calc(9999 - 1);
+    animation: fade 0.4s;
+    top: 0;
+    left: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+    .fade {
+        --fade-color: gray;
+    }
+}
+
+@keyframes fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
