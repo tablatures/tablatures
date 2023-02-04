@@ -1,6 +1,6 @@
 import type { Load } from '@sveltejs/kit';
-import { PAGE_PARAM, TYPE_PARAM, SEARCH_PARAM, SOURCE_PARAM } from '../library/constants';
-import { fetchList } from '../library/parsing';
+import { PAGE_PARAM, TYPE_PARAM, SEARCH_PARAM, SOURCE_PARAM } from '../../library/utils/constants';
+import { fetchList } from '../../library/utils/parsing';
 
 /** @type {import('./$types').PageServerLoad} */
 export const load: Load = async ({ url, setHeaders }) => {

@@ -1,4 +1,4 @@
-import type { PageLoad } from './$types';
+import type { PageLoad } from '../$types';
 
 export const load: PageLoad = function ({ data: props, url }) {
 	return {

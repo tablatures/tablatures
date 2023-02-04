@@ -1,5 +1,5 @@
-import type { RootObject } from "../types";
-import { extract, GuitarProTab, GuitarProTabOrg } from "../utils";
+import type { RootObject } from "./types";
+import { extract, GuitarProTab, GuitarProTabOrg } from "$utils/utils.ts";
 import jsdom from "jsdom";
 
 /**
@@ -7,7 +7,7 @@ import jsdom from "jsdom";
  * @param {number} source database website
  * @param {number} pages number of pages to fetch
  * @param {number} index index of the page to fetch
- * @param {string} query search
+ * @param {string} query db index for storage
  */
 export async function fetchList(
   source: number,
@@ -34,14 +34,14 @@ async function fetchTracksGuitarProTabsOrg(source: string) {
   const tables = document.getElementsByClassName("table-striped");
   const table = tables[0] as HTMLTableElement;
   if (!table) return [];
-  const tracks = Array.from(table.rows)
+  let tracks = Array.from(table.rows)
     .slice(1, -1)
     .map((r) => {
       const cols = r.getElementsByTagName("td");
-      const s = cols[0];
-      const anchor = s.getElementsByTagName("a")[0];
-      const ar = cols[1];
-      const anchorA = ar.getElementsByTagName("a")[0];
+      let s = cols[0];
+      let anchor = s.getElementsByTagName("a")[0];
+      let ar = cols[1];
+      let anchorA = ar.getElementsByTagName("a")[0];
       return {
         track: {
           href: anchor?.href ?? null,
@@ -98,7 +98,7 @@ async function fetchListGuitarProTabs(
 
   const table = fragment.getElementsByTagName("table")[0];
 
-  const tracks = Array.from(table.rows).map((row, id) => {
+  const tracks = Array.from(table.rows).map((row: any, id: number) => {
     const firstCell: any = row.cells[0].firstChild;
     const trackLink: any = row.cells[1].firstChild?.firstChild;
     const groupLink: any = row.cells[1].children[2];

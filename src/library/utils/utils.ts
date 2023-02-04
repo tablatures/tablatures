@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { zfd } from 'zod-form-data';
-import { PAGE_PARAM } from '../constants';
+import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from './constants';
 
 /**
  * Extract the value between two tokens (exclusive)
@@ -60,3 +60,32 @@ export const debounce = (callback: () => void, delay: number) => {
 export const pageLinkSchema = zfd.formData({
 	[PAGE_PARAM]: zfd.numeric(z.number().min(0)).default(1)
 });
+
+
+export const filterSchema = zfd.formData({
+	[SEARCH_PARAM]: zfd.text(z.string().default('')),
+	[PAGE_PARAM]: zfd.numeric(z.number().min(0)).default(1),
+	[TYPE_PARAM]: zfd.text(z.string().default('artist')),
+	[SOURCE_PARAM]: zfd.text(z.string()).default("0")
+});
+
+
+export function removeURLParameter(url: string, parameter: string) {
+	//prefer to use l.search if you have a location/link object
+	let urlparts = url.split('?');
+	if (urlparts.length >= 2) {
+		let prefix = encodeURIComponent(parameter) + '=';
+		let pars = urlparts[1].split(/[&;]/g);
+
+		//reverse iteration as may be destructive
+		for (let i = pars.length; i-- > 0; ) {
+			//idiom for string.startsWith
+			if (pars[i].lastIndexOf(prefix, 0) !== -1) {
+				pars.splice(i, 1);
+			}
+		}
+
+		return urlparts[0] + (pars.length > 0 ? '?' + pars.join('&') : '');
+	}
+	return url;
+}
