@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { pageLinkSchema } from '../utils';
 
-	function removeURLParameter(url: string, parameter: string) {
+    export let index: number;
+    function removeURLParameter(url: string, parameter: string) {
 		//prefer to use l.search if you have a location/link object
 		let urlparts = url.split('?');
 		if (urlparts.length >= 2) {
@@ -22,18 +22,17 @@
 		return url;
 	}
 
-	$: param = pageLinkSchema.parse($page.url.searchParams);
-	$: hasPrevious = param.page > 1;
-	$: hasNext = param.page < 10;
+	$: hasPrevious = index > 1;
+	$: hasNext = index < 10;
     // We will erase the page param if its present
 	$: search = removeURLParameter($page.url.search ?? '', 'page');
 </script>
 
 {#if hasPrevious || hasNext}
 	{#if hasPrevious}
-		<a href="/{search !== '' ? search + '&' : '?'}page={param.page - 1}">Previous page</a>
+		<a href="/{search !== '' ? search + '&' : '?'}page={index - 1}">Previous page</a>
 	{/if}
 	{#if hasNext}
-		<a href="/{search !== '' ? search + '&' : '?'}page={param.page + 1}">Next page</a>
+		<a href="/{search !== '' ? search + '&' : '?'}page={index + 1}">Next page</a>
 	{/if}
 {/if}

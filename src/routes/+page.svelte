@@ -9,7 +9,11 @@
 	/** @type {import('./$types').PageData} */
 	export let data;
 
-	const filter = filterSchema.parse($page.url.searchParams);
+	//TODO somehow I can't make this reactive or it will erase the current search value
+	//when debounce is fired and form is submitted
+  //the value at the time the form is submitted will replace the current one as
+  //the user is typing without triggering submit
+  const filter = filterSchema.parse($page.url.searchParams);
 
 	/**
 	 * @type {HTMLFormElement}
@@ -31,8 +35,8 @@
 		goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 </script>
-
-<PageLinks/>
+<!--Because filter is not reactive, we have to get the index from the props-->
+<PageLinks index={isNaN(Number(data.index)) ? 1 : Number(data.index)} />
 
 <form
 	bind:this={form}
@@ -43,7 +47,7 @@
 	<label>
 		Search
 		<input
-			type="text"
+			type="search"
 			name={SEARCH_PARAM}
 			autocomplete="off"
 			autocorrect="off"
