@@ -1,5 +1,5 @@
-import type { RootObject } from "../types";
-import { extract, GuitarProTab, GuitarProTabOrg } from "../utils";
+import type { RootObject } from "./types";
+import { extract, GuitarProTab, GuitarProTabOrg } from "$utils/utils.ts";
 import jsdom from "jsdom";
 
 /**
@@ -98,7 +98,7 @@ async function fetchListGuitarProTabs(
 
   const table = fragment.getElementsByTagName("table")[0];
 
-  const tracks = Array.from(table.rows).map((row, id) => {
+  const tracks = Array.from(table.rows).map((row: any, id: number) => {
     const firstCell: any = row.cells[0].firstChild;
     const trackLink: any = row.cells[1].firstChild?.firstChild;
     const groupLink: any = row.cells[1].children[2];

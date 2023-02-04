@@ -1,5 +1,5 @@
-import type { Track } from "../types";
-import { GuitarProTab, GuitarProTabOrg } from "../utils";
+import type { Track } from "./types";
+import { GuitarProTab, GuitarProTabOrg } from "$utils/utils.ts";
 
 export async function fetchTrack(source: number, target: Track) {
   switch (source) {
