@@ -2,6 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  
+  /* Track */
+  ::-webkit-scrollbar-track {
+    background: bg-light;
+  }
+  
+  /* Handle */
+  ::-webkit-scrollbar-thumb {
+    @apply bg-stone-300;
+  }
+  
+  /* Handle on hover */
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary;
+  }
+}
+
+.loading-bar {
+  width: 100%;
+  -webkit-appearance: none;
+  background-color: rgb(196 181 253);
+  cursor: pointer;
+}
+
+.loading-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  width: 0px;
+  height: 25px;
+  background: #5E17EB;
+  box-shadow: -100em 0 0 100em #5E17EB;
+}
+
+.input-range {
+  -webkit-appearance: none;
+  margin-top: 17px;
+  border-radius: 25px;
+  height: 5px;
+  background-color: rgb(224, 222, 222);
+  cursor: pointer;
+}
+
+.input-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  width: 10px;
+  height: 10px;
+  border-radius: 25px;
+  background: #5E17EB;
+}
+
 .at-surface * {
   cursor: default;
   vertical-align: top;

@@ -4,7 +4,7 @@ const config = {
 	theme: {
 		extend: {
 			fontFamily: {
-				sans: ['"Open Sans"', 'sans-serif'],
+				sans: ['Roboto', 'sans-serif'],
 				serif: ['Vollkorn', 'serif'],
 				mono: ['Inconsolata', 'monospace']
 			},
@@ -16,6 +16,9 @@ const config = {
 			},
       colors: {
         primary: "#673AB7",
+		secondary: "#5E17EB",
+		light: "#F7F7F7",
+		dark: "#404040"
       }
     }
   },
