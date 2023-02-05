@@ -22,9 +22,9 @@
             <div class="w-[45px] h-6 bg-stone-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[11px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
         </label>
 
-        <button class="rounded border border-stone-500 text-stone-500 mx-2">
-            <i class="material-icons !text-2xl px-2 py-1">search</i>
-        </button>
+        <a href="{base}/select" class="rounded border border-stone-500 text-stone-500 mx-2">
+            <i class="material-icons !text-2xl px-2 py-1">music_note</i>
+        </a>
     </div>
     
 </nav>
