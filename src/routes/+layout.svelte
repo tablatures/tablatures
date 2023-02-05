@@ -13,7 +13,7 @@
 	<title>Tablatures</title>
 </svelte:head>
 
-<body class="bg-light text-dark">
+<body class="bg-light text-dark dark:bg-black text:light">
 	<main>
 		<slot><!-- content --></slot>
 	</main>

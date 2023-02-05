@@ -1,19 +1,40 @@
 <script lang="ts">
     import { base } from '$app/paths';
+    import { browser } from '$app/environment'; 
 
     let theme: boolean = false;
+
+    if (browser) {
+        if (localStorage.getItem('theme')) {
+            theme = localStorage.getItem('theme') == 'true'
+        } else {
+            localStorage.setItem('theme', String(theme))
+        }
+    }
+
+    $: if (browser) { 
+        localStorage.setItem('theme', String(theme))
+    }
+
+    $: if (browser) { 
+        if (theme) {
+            document.documentElement.classList.remove('dark')
+        } else {
+            document.documentElement.classList.add('dark')
+        }
+    }
 </script>
 
-<nav class="flex inline-block pt-2 h-[50px] overflow-hidden items-center w-full">
+<nav class="flex pt-2 h-[50px] overflow-hidden items-center w-full">
     <img src="{base}/logos/icon.svg" width="48px" height="48px" class="m-1" alt="Tablatures logo" />
     <h1 class="text-2xl">Tablatures</h1>
-    <div class="flex inline-block w-full justify-end">
+    <div class="flex w-full justify-end">
         
-        <button class="text-stone-500 mx-1">
+        <button class="mx-1">
             {#if theme}
-                <i class="material-icons !text-2xl py-1">light_mode</i>
+                <i class="material-icons !text-2xl py-1 text-stone-500">light_mode</i>
             {:else}
-                <i class="material-icons !text-2xl py-1">nightlight</i>
+                <i class="material-icons !text-2xl py-1 text-yellow-400">nightlight</i>
             {/if}
         </button>
 

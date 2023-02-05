@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base64ToArrayBuffer } from '../utils/utils';
+    import { browser } from '$app/environment'; 
 
 	export let data: {
 		fileAsB64?: string;
@@ -94,6 +95,22 @@
 				progress = 100 * (e.currentTime / e.endTime) || 0;
 			}
 		});
+
+		// api.settings.display.resources.barNumberColor.rgba = '#00ff00'
+        // api.settings.display.resources.barSeparatorColor.rgba = '#00ff00'
+        // api.settings.display.resources.mainGlyphColor.rgba = '#00ff00'
+        // api.settings.display.resources.scoreInfoColor.rgba = '#00ff00'
+        // api.settings.display.resources.secondaryGlyphColor.rgba = '#00ff00'
+        /// api.settings.display.resources.staffLineColor.rgba = '#00ff00'
+        
+        // api.settings.display.scale = 0.5
+        // api.settings.display.barsPerRow = 10
+        // api.settings.display.staveProfile = 1
+
+        // api.updateSettings()
+        // api.render()
+
+		console.log(api)
 	});
 
 	onDestroy(async () => {
@@ -158,8 +175,8 @@
 		<p>{title}</p>
 	</div>
 
-	<div class="sticky top-0 text-stone-500 px-1 z-[1001]">
-		<div class="flex inline-block bg-light">
+	<div class="sticky top-0 text-stone-500 z-[1001]">
+		<div class="flex bg-light">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
 					<i class="material-icons !text-2xl p-1">pause</i>
@@ -266,5 +283,5 @@
 		</div>
 	</div>
 
-	<div bind:this={target} />
+	<div class="min-h-[700px]" bind:this={target} />
 </div>

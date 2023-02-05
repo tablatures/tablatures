@@ -18,7 +18,8 @@ const config = {
         primary: "#673AB7",
 		secondary: "#5E17EB",
 		light: "#F7F7F7",
-		dark: "#404040"
+		dark: "#404040",
+		black: '#1F272D'
       }
     }
   },
