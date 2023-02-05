@@ -44,7 +44,7 @@
     <ol class="pt-3 list-disc px-6">
         <li>clone the project <code class="bg-stone-900 text-light text-xs px-1 py-0.5">git clone https://github.com/tablatures/tablatures.git</code></li>
         <li>fetch the dependancies <code class="bg-stone-900 text-light text-xs px-1 py-0.5">cd tablatures &amp;&amp; npm i</code></li>
-        <li>launc with hot-reload <code class="bg-stone-900 text-light text-xs px-1 py-0.5">npm run start</code></li>
+        <li>launch with hot-reload <code class="bg-stone-900 text-light text-xs px-1 py-0.5">npm run start</code></li>
     </ol>
 
     <h3 class="text-xl pt-5">Build and deploy</h3>
