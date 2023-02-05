@@ -1,11 +1,13 @@
-<script lang="ts">
-	import Header from "$components/Header.svelte";
-	import Footer from "$components/Footer.svelte";
-    import TabViewer from "$components/TabViewer.svelte";
+<script>
+	import Header from '../library/components/Header.svelte';
+	import Footer from '../library/components/Footer.svelte';
+	import TabViewer from '../library/components/TabViewer.svelte';
+	/** @type {import('./$types').PageData} */
+	export let data;
 </script>
 
-<Header/>
+<Header />
 
-<TabViewer />
+<TabViewer data={data}/>
 
-<Footer/>
+<Footer />

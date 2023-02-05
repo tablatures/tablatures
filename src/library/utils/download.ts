@@ -1,34 +1,45 @@
-import type { Track } from "./types";
-import { GuitarProTab, GuitarProTabOrg } from "$utils/utils.ts";
+import { extract, GuitarProTab, GuitarProTabOrg } from './utils';
+import jsdom from 'jsdom';
 
-export async function fetchTrack(source: number, target: Track) {
-  switch (source) {
-    case GuitarProTab.source:
-      return await fetchTrackGuitarProTabs(target);
-    case GuitarProTabOrg.source:
-      return await fetchTrackGuitarProTabsOrg(target);
-    default:
-      throw new Error("No source specified for the track scrapping.");
-  }
+async function downloadGuitarProTabOrg(target: string) {
+	const data = await fetch(target);
+	const html = await data.text();
+	const document = new jsdom.JSDOM(html).window.document;
+	const downloadAnchor = document.getElementsByClassName('btn-info')[0] as HTMLAnchorElement;
+	const downloadUrl = downloadAnchor.href;
+	return downloadUrl;
 }
 
-async function fetchTrackGuitarProTabsOrg(track: Track) {
-  const data = await fetch(`/api/proxy?href=${track.href}&source= 1`);
-  const json = await data.json();
-  const { downloadUrl } = json;
-
-  return downloadUrl;
+async function downloadGuitarPro(target: string) {
+	const data = await fetch(`https://www.guitarprotabs.net${target}`);
+	const content = await data.text();
+	// Extract the page download button link
+	const href = extract(
+		content,
+		'<a class="btn btn-large pull-right" href="',
+		'" rel="nofollow">Download Tab</a>'
+	);
+	const downloadUrl = `https://www.guitarprotabs.net/${href}`;
+	return downloadUrl;
 }
 
-/**
- * Fetch the downloadUrl for guitarprotabs
- * @param {object} target the track to fetch { title, href }
- * @return {object} fetched track row datas
- */
-async function fetchTrackGuitarProTabs(target: Track) {
-  const data = await fetch(`/api/proxy?href=${target.href}&source=0`);
-  const json = await data.json();
-  const { downloadUrl } = json;
+export async function fetchTrack(source: number, target: string) {
+	switch (source) {
+		case GuitarProTab.source:
+			return await fetchTrackGuitarProTabs(target);
+		case GuitarProTabOrg.source:
+			return await fetchTrackGuitarProTabsOrg(target);
+		default:
+			throw new Error('No source specified for the track scrapping.');
+	}
+}
 
-  return downloadUrl;
+async function fetchTrackGuitarProTabsOrg(track: string) {
+	const downloadUrl = await downloadGuitarProTabOrg(track);
+	return downloadUrl;
+}
+
+async function fetchTrackGuitarProTabs(target: string) {
+	const downloadUrl = await downloadGuitarPro(target);
+	return downloadUrl;
 }

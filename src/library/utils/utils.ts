@@ -61,21 +61,24 @@ export const pageLinkSchema = zfd.formData({
 	[PAGE_PARAM]: zfd.numeric(z.number().min(0)).default(1)
 });
 
-
 export const filterSchema = zfd.formData({
 	[SEARCH_PARAM]: zfd.text(z.string().default('')),
 	[PAGE_PARAM]: zfd.numeric(z.number().min(0)).default(1),
 	[TYPE_PARAM]: zfd.text(z.string().default('artist')),
-	[SOURCE_PARAM]: zfd.text(z.string()).default("0")
+	[SOURCE_PARAM]: zfd.text(z.string()).default('0')
 });
 
+export const paramsReader = zfd.formData({
+	href: zfd.text(z.string()).optional(),
+	[SOURCE_PARAM]: zfd.text(z.string()).optional()
+});
 
 export function removeURLParameter(url: string, parameter: string) {
 	//prefer to use l.search if you have a location/link object
-	let urlparts = url.split('?');
+	const urlparts = url.split('?');
 	if (urlparts.length >= 2) {
-		let prefix = encodeURIComponent(parameter) + '=';
-		let pars = urlparts[1].split(/[&;]/g);
+		const prefix = encodeURIComponent(parameter) + '=';
+		const pars = urlparts[1].split(/[&;]/g);
 
 		//reverse iteration as may be destructive
 		for (let i = pars.length; i-- > 0; ) {
