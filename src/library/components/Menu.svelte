@@ -21,8 +21,8 @@
     </div>
 
     <div class="flex justify-end">
-        <a href="{base}/" class="rounded border border-stone-500  mx-2">
+        <button on:click={() => history.back()} class="rounded border border-stone-500  mx-2">
             <i class="material-icons !text-2xl px-2 py-1">close</i>
-        </a>
+        </button>
     </div>
 </nav>

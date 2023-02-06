@@ -88,6 +88,8 @@
 			// api.load();
 			if (data.fileAsB64) {
 				api.load(base64ToArrayBuffer(data.fileAsB64));
+			} else if (history.state.base64) {
+				api.load(base64ToArrayBuffer(history.state.base64));
 			}
 		});
 
@@ -217,7 +219,7 @@
 					<i class="material-icons !text-2xl p-1">play_arrow</i>
 				</button>
 			{/if}
-			
+
 			<select class="bg-transparent text-xs outline-0" bind:value={activeTrackIndex}>
 				{#each tracks as track, i}
 					<option value={i}>
