@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base64ToArrayBuffer } from '../utils/utils';
-    import { browser } from '$app/environment'; 
+	import { writable } from 'svelte/store';
+	import { themeStore } from '../utils/theme';
 
-	export let data: {
-		fileAsB64?: string;
-	};
+	export let data: { fileAsB64?: string };
 
 	let api: any = undefined;
 	let target: any = undefined;
@@ -96,22 +95,29 @@
 			}
 		});
 
-		// api.settings.display.resources.barNumberColor.rgba = '#00ff00'
-        // api.settings.display.resources.barSeparatorColor.rgba = '#00ff00'
-        // api.settings.display.resources.mainGlyphColor.rgba = '#00ff00'
-        // api.settings.display.resources.scoreInfoColor.rgba = '#00ff00'
-        // api.settings.display.resources.secondaryGlyphColor.rgba = '#00ff00'
-        /// api.settings.display.resources.staffLineColor.rgba = '#00ff00'
-        
-        // api.settings.display.scale = 0.5
-        // api.settings.display.barsPerRow = 10
-        // api.settings.display.staveProfile = 1
+		// api.settings.display.scale = 0.5
+		// api.settings.display.barsPerRow = 10
+		// api.settings.display.staveProfile = 1
 
-        // api.updateSettings()
-        // api.render()
-
-		console.log(api)
+		themeStore.subscribe((value) => {
+			updateTheme(value);
+		});
 	});
+
+	function updateTheme(theme: boolean) {
+		if (api) {
+			const color = !theme ? '#404040' : '#d3d3d3';
+			api.settings.display.resources.barNumberColor.rgba = color;
+			api.settings.display.resources.barSeparatorColor.rgba = color;
+			api.settings.display.resources.mainGlyphColor.rgba = color;
+			api.settings.display.resources.scoreInfoColor.rgba = color;
+			api.settings.display.resources.secondaryGlyphColor.rgba = color;
+			// api.settings.display.resources.staffLineColor.rgba = color
+
+			api.updateSettings();
+			api.render();
+		}
+	}
 
 	onDestroy(async () => {
 		if (!api) return;
@@ -175,8 +181,8 @@
 		<p>{title}</p>
 	</div>
 
-	<div class="sticky top-0 text-stone-500 z-[1001]">
-		<div class="flex bg-light">
+	<div class="sticky top-0 text-stone-500 dark:text-stone-400 z-[1001]">
+		<div class="flex bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
 					<i class="material-icons !text-2xl p-1">pause</i>
@@ -187,7 +193,7 @@
 				</button>
 			{/if}
 
-			<div class="my-[5px] mx-1 border-r-[1px]" />
+			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
 			<label
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
@@ -215,7 +221,7 @@
 				<i class="material-icons !text-2xl p-1">restart_alt</i>
 			</button>
 
-			<div class="my-[5px] mx-1 border-r-[1px]" />
+			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
 			<label
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
