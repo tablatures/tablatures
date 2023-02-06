@@ -23,7 +23,18 @@
 
 	let form: HTMLFormElement;
 	const requestSubmit = () => form.requestSubmit();
+
+	let timer: NodeJS.Timeout;
+	const debounce = () => {
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			requestSubmit();
+		}, 350);
+	};
+
 	$: params = filterSchema.parse($page.url.searchParams);
+	//Non reactive binding
+	let query = $page.url.searchParams.get('search') ?? '';
 	$: index = params.page;
 	// We will erase the page param if its present
 	$: search = removeURLParameter($page.url.search ?? '', 'page');
@@ -34,7 +45,7 @@
 		index < 10 ? `${base}/select${search !== '' ? search + '&' : '?'}page=${index + 1}` : '';
 </script>
 
-<form bind:this={form} on:input={requestSubmit} on:change={requestSubmit}>
+<form bind:this={form} on:input={debounce} on:change={requestSubmit}>
 	<label class="relative">
 		<i class="material-icons !text-2xl absolute top-[-6px]">search</i>
 		<input
@@ -47,7 +58,7 @@
 			autocorrect="off"
 			autocapitalize="off"
 			spellcheck="false"
-			value={params.search}
+			value={query}
 		/>
 	</label>
 
