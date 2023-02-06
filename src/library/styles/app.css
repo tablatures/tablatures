@@ -28,11 +28,20 @@
 .loading-bar {
   width: 100%;
   -webkit-appearance: none;
-  background-color: rgb(196 181 253);
   cursor: pointer;
 }
 
 .loading-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  width: 0px;
+  height: 25px;
+  background: #5E17EB;
+  box-shadow: -100em 0 0 100em #5E17EB;
+}
+
+.loading-bar::-moz-range-thumb {
   -webkit-appearance: none;
   appearance: none;
   cursor: pointer;

@@ -218,13 +218,15 @@
 					<i class="material-icons !text-2xl p-1">play_arrow</i>
 				</button>
 			{/if}
-			<select class="bg-transparent" bind:value={activeTrackIndex}>
+			
+			<select class="bg-transparent text-xs outline-0" bind:value={activeTrackIndex}>
 				{#each tracks as track, i}
 					<option value={i}>
 						{track.name}
 					</option>
 				{/each}
 			</select>
+
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
 			<label
@@ -308,7 +310,7 @@
 		>
 			<input
 				type="range"
-				class="loading-bar"
+				class="loading-bar bg-purple-300 dark:bg-violet-900"
 				min="0"
 				max="100"
 				bind:this={range}
