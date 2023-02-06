@@ -1,7 +1,7 @@
 # Tablatures
 
-<a href="https://github.com/tablatures/tablatures/blob/master/.github/workflows/deploy.yml" >
-    <img src="https://img.shields.io/github/actions/workflow/status/tablatures/tablatures/deploy.yml?style=flat-square" alt="Build" />
+<a href="https://https://tablatures.vercel.app/" >
+    <img src="https://vercelbadge.vercel.app/api/tablatures/tablatures?style=flat-square" alt="Build" />
 </a>
 
 <a href="https://github.com/tablatures/tablatures/blob/main/package.json" >
