@@ -60,6 +60,7 @@
 			name={SEARCH_PARAM}
 			autocomplete="off"
 			autocorrect="off"
+			autofocus
 			autocapitalize="off"
 			spellcheck="false"
 			value={query}
