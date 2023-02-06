@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from '$utils/constants.ts';
-	import { removeURLParameter } from '$utils/utils.ts';
+	import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from '../../../library/utils/constants';
+	import { filterSchema, removeURLParameter } from '../../../library/utils/utils';
+	import type { RootObject } from '../../../library/utils/types';
+
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
-	import { filterSchema } from '../utils/utils';
-	import type { RootObject } from '../utils/types';
 
 	type Track = {
 		track: {
@@ -40,9 +40,9 @@
 	$: search = removeURLParameter($page.url.search ?? '', 'page');
 
 	$: previous =
-		index > 1 ? `${base}/select${search !== '' ? search + '&' : '?'}page=${index - 1}` : '';
+		index > 1 ? `${base}/select/search${search !== '' ? search + '&' : '?'}page=${index - 1}` : '';
 	$: next =
-		index < 10 ? `${base}/select${search !== '' ? search + '&' : '?'}page=${index + 1}` : '';
+		index < 10 ? `${base}/select/search${search !== '' ? search + '&' : '?'}page=${index + 1}` : '';
 </script>
 
 <form 
@@ -60,7 +60,6 @@
 			name={SEARCH_PARAM}
 			autocomplete="off"
 			autocorrect="off"
-			autofocus
 			autocapitalize="off"
 			spellcheck="false"
 			value={query}
