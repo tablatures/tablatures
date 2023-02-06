@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { base64ToArrayBuffer } from '../utils/utils';
-	import { writable } from 'svelte/store';
 	import { themeStore } from '../utils/theme';
 
 	export let data: { fileAsB64?: string };
@@ -23,6 +22,9 @@
 	let volume: number = 1;
 	let speed: number = 1;
 	let metronome: number = 0;
+
+	let tracks: any[] = [];
+	let activeTrackIndex: number;
 
 	$: if (api) {
 		api.masterVolume = volume;
@@ -86,6 +88,10 @@
 
 		api.scoreLoaded.on((score: any) => {
 			title = `${score.title} - ${score.artist}`;
+
+			console.log(score);
+			tracks = score.tracks;
+			// console.log(tracks);
 		});
 
 		api.playerPositionChanged.on((e: any) => {
@@ -98,6 +104,23 @@
 		// api.settings.display.scale = 0.5
 		// api.settings.display.barsPerRow = 10
 		// api.settings.display.staveProfile = 1
+
+		api.renderStarted.on(() => {
+			// collect tracks being rendered
+			const tracksMap = new Map();
+			// here we access the currently rendered tracks of alphaTab
+			// we only allow one at a time, but it would be possible to render
+			// multiple tracks simultaneously
+			api.tracks.forEach((t: any) => {
+				tracksMap.set(t.index, t);
+			});
+			// mark the item as active: or not
+			tracks.forEach((trackItem) => {
+				if (tracksMap.has(trackItem.index)) {
+					activeTrackIndex = trackItem.index;
+				}
+			});
+		});
 
 		themeStore.subscribe((value) => {
 			updateTheme(value);
@@ -160,6 +183,11 @@
 		api.isLooping = !api.isLooping;
 	}
 
+	function selectTrack(trackIndex: number) {
+		const track = tracks[trackIndex];
+		api.renderTracks([track]);
+	}
+
 	function clickPrint() {
 		clickPause();
 
@@ -180,7 +208,6 @@
 	<div class="bg-primary text-stone-300 px-2 text-sm">
 		<p>{title}</p>
 	</div>
-
 	<div class="sticky top-0 text-stone-500 dark:text-stone-400 z-[1001]">
 		<div class="flex bg-light dark:bg-black">
 			{#if playing}
@@ -192,7 +219,13 @@
 					<i class="material-icons !text-2xl p-1">play_arrow</i>
 				</button>
 			{/if}
-
+			<select class="bg-transparent" bind:value={activeTrackIndex} on:change={() => selectTrack(activeTrackIndex)}>
+				{#each tracks as track, i}
+					<option value={i}>
+						{track.name}
+					</option>
+				{/each}
+			</select>
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
 			<label
@@ -258,7 +291,7 @@
 				/>
 				<span class="text-xs pt-3 pl-1">{Math.round(metronome * 100)}%</span>
 			</label>
-
+		
 			<div class="flex justify-end w-full">
 				<button title="Download the track">
 					<i class="material-icons !text-2xl p-1">file_download</i>
