@@ -94,7 +94,7 @@
 
 	{#each data.tabs as tab}
 		<tr class="h-[45px] border-t">
-			<td>{tab.track.title}</td>
+			<td>{tab.track.title?.replace(/by(?!.*by)/, " by")}</td>
 			<td>{'album' in tab ? tab.album : '-'}</td>
 			<td>{'type' in tab ? tab.type : '-'}</td>
 			<td>
