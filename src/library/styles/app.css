@@ -70,6 +70,16 @@
   background: #5E17EB;
 }
 
+.input-range::-moz-range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  width: 10px;
+  height: 10px;
+  border-radius: 25px;
+  background: #5E17EB;
+}
+
 .at-surface * {
   cursor: default;
   vertical-align: top;

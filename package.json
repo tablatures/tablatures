@@ -12,6 +12,7 @@
 		"format": "prettier --plugin-search-dir . --write ."
 	},
 	"devDependencies": {
+		"@sveltejs/adapter-auto": "^1.0.2",
 		"@sveltejs/adapter-static": "^1.0.6",
 		"@sveltejs/kit": "^1.0.0",
 		"@types/jsdom": "^20.0.1",
