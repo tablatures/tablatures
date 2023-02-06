@@ -14,21 +14,6 @@
 	}
 </script>
 
-<svelte:head>
-	<script>
-		if (document) {
-			let mode = localStorage.theme || window.matchMedia('(prefers-color-scheme: dark)').matches;
-			if (mode === 'true') {
-				document.documentElement.classList.add('dark');
-				localStorage.theme = true;
-			} else {
-				document.documentElement.classList.remove('dark');
-				localStorage.theme = false;
-			}
-		}
-	</script>
-</svelte:head>
-
 <nav class="flex pt-2 h-[50px] overflow-hidden items-center w-full">
 	<img src="{base}/logos/icon.svg" width="48px" height="48px" class="m-1" alt="Tablatures logo" />
 	<h1 class="text-2xl dark:text-light">Tablatures</h1>
@@ -48,7 +33,7 @@
 			/>
 		</label>
 
-		<a href="{base}/select" class="rounded border border-stone-500 mx-2">
+		<a href="{base}/select/search" class="rounded border border-stone-500 mx-2">
 			<i class="material-icons !text-2xl px-2 py-1">music_note</i>
 		</a>
 	</div>

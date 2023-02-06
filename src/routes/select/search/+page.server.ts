@@ -1,6 +1,6 @@
 import type { Load } from '@sveltejs/kit';
-import { fetchList } from '../../library/utils/parsing';
-import { filterSchema } from '../../library/utils/utils';
+import { fetchList } from '../../../library/utils/parsing';
+import { filterSchema } from '../../../library/utils/utils';
 
 /** @type {import('./$types').PageServerLoad} */
 export const load: Load = async ({ url, setHeaders }) => {
