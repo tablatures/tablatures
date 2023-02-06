@@ -1,53 +1,57 @@
 # Tablatures
 
-<a href="https://github.com/mlhoutel/Tablatures/blob/main/.github/workflows/main.yml" alt="Build">
-  <img src="https://img.shields.io/github/workflow/status/mlhoutel/Tablatures/Build%20Vue/main?style=flat-square" />
+<a href="https://github.com/tablatures/tablatures/blob/master/.github/workflows/deploy.yml" >
+    <img src="https://img.shields.io/github/actions/workflow/status/tablatures/tablatures/deploy.yml?style=flat-square" alt="Build" />
 </a>
 
-<a href="https://github.com/mlhoutel/Tablatures/blob/main/package.json" alt="Version">
-  <img src="https://img.shields.io/github/package-json/v/mlhoutel/Tablatures?style=flat-square" />
+<a href="https://github.com/tablatures/tablatures/blob/main/package.json" >
+    <img src="https://img.shields.io/github/package-json/v/tablatures/tablatures?style=flat-square&color=informational" alt="Version" />
 </a>
 
-<a href="https://github.com/mlhoutel/Tablatures/search?l=vue" alt="Language">
-  <img src="https://img.shields.io/github/languages/top/mlhoutel/Tablatures?style=flat-square" />
+<a href="https://github.com/tablatures/tablatures/search?l=svelte" >
+    <img src="https://img.shields.io/github/languages/top/tablatures/tablatures?style=flat-square&color=orange" alt="Language" />
 </a>
 
-<a href="https://github.com/mlhoutel/Tablatures/projects/1" alt="Roadmap">
-  <img src="https://img.shields.io/badge/roadmap-available-brightgreen?style=flat-square" />
+<a href="https://github.com/tablatures/tablatures/blob/main/LICENSE/" >
+    <img src="https://img.shields.io/github/license/tablatures/tablatures?style=flat-square&color=yellow" alt="License" />
 </a>
 
-<a href="https://github.com/mlhoutel/Tablatures/blob/main/LICENSE/" alt="License">
-  <img src="https://img.shields.io/github/license/mlhoutel/Tablatures?style=flat-square" />
-</a>
+&nbsp;&nbsp;
 
-<img src="./src/assets/images/Tablatures.png">
+<p align="center">
+  <a href="https://tablatures.github.io/tablatures/"><img src="./static/logos/icon.svg" width="100px" /></a>
+</p>
+
+&nbsp;&nbsp;
 
 Read and play tabs quickly
 
 - **Import a music score** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`, `.cap` or `.tex`)
-- **Browse the tabs database** (`gp5 database`)
-- **Browse documentation** (`IN DEV`)
+- **Browse the tabs database** (GuitarProTab)
+- **Play along the track** (rendered using alphaTab)
 
-The website is currently under heavy development and can be unstable. Do not hesitate to report issues at [here](https://github.com/mlhoutel/Tablatures/issues).
+The website is currently under heavy development and can be unstable.
 
-**Browse the website now:** https://mlhoutel.github.io/Tablatures/
+Do not hesitate to report issues [here](https://github.com/tablatures/tablatures/issues).
+
+**Browse the website now:** https://tablatures.github.io/tablatures/
 
 ## Getting started
 
 ### Clone and install
 
-1. clone the project `git clone https://github.com/mlhoutel/Tablatures.git`
-2. fetch the dependancies `cd Tablatures && npm i`
-3. launc with hot-reload `npm run dev`
+1. clone the project `git clone https://github.com/tablatures/tablatures.git`
+2. fetch the dependancies `cd tablatures && npm i`
+3. launch with hot-reload `npm run start`
 
 ### Build and deploy
 
 1. build the website `npm run build`
-2. run on server `npm run serve`
+2. run on server `npm run preview`
 
 ## Made with
 
-- Vite: https://github.com/vitejs/vite
-- VueJs: https://github.com/vuejs/vue
-- Vuetify: https://github.com/vuetifyjs/vuetify
-- AlphaTab: https://github.com/CoderLine/alphaTab
+* Vite: https://github.com/vitejs/vite
+* SvelteKit: https://github.com/sveltejs/kit
+* Tailwind: https://github.com/tailwindlabs/tailwindcss
+* AlphaTab: https://github.com/CoderLine/alphaTab
