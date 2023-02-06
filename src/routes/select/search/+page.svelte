@@ -61,6 +61,7 @@
 			autocomplete="off"
 			autocorrect="off"
 			autocapitalize="off"
+			autofocus
 			spellcheck="false"
 			value={query}
 		/>
