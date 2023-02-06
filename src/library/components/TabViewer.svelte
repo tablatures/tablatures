@@ -26,6 +26,11 @@
 	let tracks: any[] = [];
 	let activeTrackIndex: number;
 
+	$: if (api && tracks.length > 0) {
+		const track = tracks[activeTrackIndex];
+		api.renderTracks([track]);
+	}
+
 	$: if (api) {
 		api.masterVolume = volume;
 	}
@@ -107,16 +112,15 @@
 
 		api.renderStarted.on(() => {
 			// collect tracks being rendered
-			const tracksMap = new Map();
+			const tracksSet = new Set();
 			// here we access the currently rendered tracks of alphaTab
 			// we only allow one at a time, but it would be possible to render
 			// multiple tracks simultaneously
 			api.tracks.forEach((t: any) => {
-				tracksMap.set(t.index, t);
+				tracksSet.add(t.index);
 			});
-			// mark the item as active: or not
 			tracks.forEach((trackItem) => {
-				if (tracksMap.has(trackItem.index)) {
+				if (tracksSet.has(trackItem.index)) {
 					activeTrackIndex = trackItem.index;
 				}
 			});
@@ -183,11 +187,6 @@
 		api.isLooping = !api.isLooping;
 	}
 
-	function selectTrack(trackIndex: number) {
-		const track = tracks[trackIndex];
-		api.renderTracks([track]);
-	}
-
 	function clickPrint() {
 		clickPause();
 
@@ -219,7 +218,7 @@
 					<i class="material-icons !text-2xl p-1">play_arrow</i>
 				</button>
 			{/if}
-			<select class="bg-transparent" bind:value={activeTrackIndex} on:change={() => selectTrack(activeTrackIndex)}>
+			<select class="bg-transparent" bind:value={activeTrackIndex}>
 				{#each tracks as track, i}
 					<option value={i}>
 						{track.name}
@@ -291,7 +290,7 @@
 				/>
 				<span class="text-xs pt-3 pl-1">{Math.round(metronome * 100)}%</span>
 			</label>
-		
+
 			<div class="flex justify-end w-full">
 				<button title="Download the track">
 					<i class="material-icons !text-2xl p-1">file_download</i>
