@@ -96,7 +96,6 @@
 
 			console.log(score);
 			tracks = score.tracks;
-			// console.log(tracks);
 		});
 
 		api.playerPositionChanged.on((e: any) => {

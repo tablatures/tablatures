@@ -9,7 +9,7 @@ export const load: Load = async ({ url, setHeaders }) => {
 	const query = params.search;
 	const source = params.source;
 	const queryType = params.queryType;
-	console.log('fetching for ' + query);
+	
 	if (query.length < 2 && source === '1') {
 		return {
 			tabs: []

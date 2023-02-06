@@ -11,7 +11,6 @@ if (browser) {
 	// if the object already exists in localStorage, get it
 	// otherwise, use our default values
 	theme = localStorage.getItem('theme') == 'true' || false;
-    console.log(localStorage.getItem('theme'))
 }
 
 // export the store for usage elsewhere
