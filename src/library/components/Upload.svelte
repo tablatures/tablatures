@@ -11,7 +11,7 @@
     })
 </script>
 
-<div class="flex justify-center min-h-[450px]">
-    <form action="/file-upload" class="dropzone cursor-pointer border-dashed border-2 border-stone-400 pt-[80px] w-[200px] h-[200px] sm:pt-[390px] rounded sm:w-[800px] sm:h-[800px] text-center" id="myDropzone" />
+<div class="flex justify-center min-h-[300px] sm:min-h-[750px] w-full px-5 dark:text-stone-300">
+    <form action="/file-upload" class="dropzone cursor-pointer border-dashed border-2 border-stone-400 dark:border-stone-300 rounded text-center" id="myDropzone" />
 </div>
 

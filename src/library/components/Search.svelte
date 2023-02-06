@@ -6,19 +6,19 @@
 	import { filterSchema } from '../utils/utils';
 	import type { RootObject } from '../utils/types';
 
+	type Track = {
+		track: {
+			href: string;
+			title: string;
+		};
+		group: {
+			title: string;
+			href: string;
+		};
+	}
+
 	export let data: {
-		tabs:
-			| RootObject[]
-			| {
-					track: {
-						href: string;
-						title: string;
-					};
-					group: {
-						title: string;
-						href: string;
-					};
-			  }[];
+		tabs: RootObject[] | Track[];
 	};
 
 	let form: HTMLFormElement;
@@ -45,13 +45,17 @@
 		index < 10 ? `${base}/select${search !== '' ? search + '&' : '?'}page=${index + 1}` : '';
 </script>
 
-<form bind:this={form} on:input={debounce} on:change={requestSubmit}>
+<form 
+	bind:this={form} 
+	on:input={debounce}
+	on:change={requestSubmit}
+	class="dark:text-stone-300"
+>
 	<label class="relative">
 		<i class="material-icons !text-2xl absolute top-[-6px]">search</i>
 		<input
 			class="bg-transparent border-b border-stone-700 outline-0 ml-8 w-[300px]"
 			type="text"
-			autofocus
 			placeholder="search query"
 			name={SEARCH_PARAM}
 			autocomplete="off"
@@ -78,18 +82,8 @@
 		</select>
 	</label>
 </form>
-<div class="flex align-center justify-center w-full">
-	<a href={previous}>
-		<i class="material-icons !text-3xl px-2 py-1">navigate_before</i>
-	</a>
 
-	<input value={params.page} class="w-5 text-center bg-transparent text-lg" />
-
-	<a href={next} class="">
-		<i class="material-icons !text-3xl px-2 py-1">navigate_next</i>
-	</a>
-</div>
-<table class="w-full mt-5 text-sm lg:min-w-[900px]">
+<table class="w-full mt-5 text-sm dark:text-stone-300 lg:min-w-[900px]">
 	<tr class="h-4 ">
 		<th>Title</th>
 		<th>Album</th>
@@ -113,3 +107,15 @@
 		</tr>
 	{/each}
 </table>
+
+<div class="flex align-center justify-center w-full dark:text-stone-300">
+	<a href={previous}>
+		<i class="material-icons !text-3xl px-2 py-1">navigate_before</i>
+	</a>
+
+	<input value={params.page} class="w-5 text-center bg-transparent text-lg" />
+
+	<a href={next} class="">
+		<i class="material-icons !text-3xl px-2 py-1">navigate_next</i>
+	</a>
+</div>

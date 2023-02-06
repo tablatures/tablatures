@@ -13,8 +13,8 @@
 
 <Menu bind:select />
 
-<div class="flex justify-center font-mono">
-	<div class="px-5 py-7 sm:max-w-[900px]">
+<div class="flex justify-center">
+	<div class="px-5 py-7 w-full sm:max-w-[900px]">
 		{#if select == 0}
 			<Upload />
 		{:else if select == 1}

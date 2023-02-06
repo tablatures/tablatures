@@ -2,7 +2,7 @@
     import {base} from "$app/paths";
 </script>
 
-<div class="p-7 text-sm sm:text-base">
+<div class="p-7 text-sm sm:text-base dark:text-stone-300">
     <img src="{base}/logos/icon.svg" alt="Tablature logo" width="100px" class="m-auto"/>
     <h1 class="text-4xl p-3 text-center">Tablatures</h1>
 
