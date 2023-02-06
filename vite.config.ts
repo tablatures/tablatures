@@ -4,6 +4,10 @@ import path from 'path';
 
 const config: UserConfig = {
 	plugins: [sveltekit()],
+	ssr: {
+		// due to https://github.com/airjp73/remix-validated-form/issues/230
+		noExternal: ['zod-form-data']
+	},
 	resolve: {
 		alias: {
 			$images: path.resolve('static/images'),
