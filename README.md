@@ -19,7 +19,7 @@
 &nbsp;&nbsp;
 
 <p align="center">
-  <a href="https://tablatures.github.io/tablatures/"><img src="./static/logos/icon.svg" width="100px" /></a>
+  <a href="https://tablatures.vercel.app/"><img src="./static/logos/icon.svg" width="100px" /></a>
 </p>
 
 &nbsp;&nbsp;
@@ -34,7 +34,7 @@ The website is currently under heavy development and can be unstable.
 
 Do not hesitate to report issues [here](https://github.com/tablatures/tablatures/issues).
 
-**Browse the website now:** https://tablatures.github.io/tablatures/
+**Browse the website now:** https://tablatures.vercel.app/
 
 ## Getting started
 
