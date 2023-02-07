@@ -8,7 +8,7 @@
 	let api: any = undefined;
 	let target: any = undefined;
 	let loaded: boolean = false;
-
+	let hasTab = false;
 	let playing: boolean = false;
 	let range: any = undefined;
 
@@ -88,15 +88,16 @@
 			// api.load();
 			if (data.fileAsB64) {
 				api.load(base64ToArrayBuffer(data.fileAsB64));
+				hasTab = true;
 			} else if (history.state.base64) {
 				api.load(base64ToArrayBuffer(history.state.base64));
+				hasTab = true;
 			}
 		});
 
 		api.scoreLoaded.on((score: any) => {
 			title = `${score.title} - ${score.artist}`;
 
-			console.log(score);
 			tracks = score.tracks;
 		});
 
@@ -323,6 +324,11 @@
 			<div class="pointer-events-none absolute top-0 bg-transparent px-0.5">{current}</div>
 		</div>
 	</div>
-
+	{#if !hasTab && loaded}
+		<p class="mt-5 dark:text-stone-300">
+			No sheet loaded, <a class="font-bold hover:underline" href="/select/upload">import one from a file</a> or
+			<a class="font-bold hover:underline" href="/select/search">search the database</a>.
+		</p>
+	{/if}
 	<div class="min-h-[700px]" bind:this={target} />
 </div>
