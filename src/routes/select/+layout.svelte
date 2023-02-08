@@ -1,24 +1,13 @@
 <script lang="ts">
 	import Menu from '../../library/components/Menu.svelte';
-	import Footer from "../../library/components/Footer.svelte";
-    import { onMount } from 'svelte';
-	
-	let select: number = 0;
+	import Footer from '../../library/components/Footer.svelte';
+	import { page } from '$app/stores';
 
-	onMount(() => {
-		const path= window.location.href.split("/").at(-1)
-		if (path == 'import') {
-			select = 0
-		} else if (path == 'search') {
-			select = 1
-		} else {
-			select = 2
-		}
-	})
-
+	//https://github.com/sveltejs/kit/issues/3884#issuecomment-1046230169
+	$: path = $page.url.pathname;
 </script>
 
-<Menu bind:select />
+<Menu {path} />
 
 <div class="flex justify-center">
 	<div class="px-5 py-7 w-full sm:max-w-[900px]">
