@@ -1,5 +1,6 @@
 import { extract, GuitarProTab, GuitarProTabOrg } from './utils';
 import jsdom from 'jsdom';
+import type { Track } from './types';
 
 async function downloadGuitarProTabOrg(target: string) {
 	const data = await fetch(target);
@@ -41,5 +42,16 @@ async function fetchTrackGuitarProTabsOrg(track: string) {
 
 async function fetchTrackGuitarProTabs(target: string) {
 	const downloadUrl = await downloadGuitarPro(target);
+	return downloadUrl;
+}
+
+//TODO implement
+async function getDownloadUrlGpPro(track: Track) {
+	const data = await fetch('https://gprotab.net' + track.href);
+	const html = await data.text();
+	const document = new jsdom.JSDOM(html).window.document;
+	const tabData = document.getElementsByClassName('tab-data')[0];
+	const anchor = tabData.getElementsByTagName('a')[1];
+	const downloadUrl = anchor.href;
 	return downloadUrl;
 }

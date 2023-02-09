@@ -15,7 +15,7 @@
 	let progress: number = 0;
 	let duration: number = 0;
 	let bindDuration: boolean = true;
-	$: hasSheet = data.fileAsB64 || (typeof window !== 'undefined' && window.history.state.base64);
+	$: hasSheet = typeof window === 'undefined' || data.fileAsB64 || window.history.state.base64;
 	let current: string = '00:00 / 00:00';
 
 	let volume: number = 1;
@@ -122,7 +122,13 @@
 				}
 			});
 		});
-
+		api.playerStateChanged.on(function (args: {state: number}) {
+			if (args.state == 0) {
+				playing = false;
+			} else {
+				playing = true;
+			}
+		});
 		themeStore.subscribe((value) => {
 			updateTheme(value);
 		});
@@ -151,8 +157,7 @@
 	});
 
 	function clickPlay() {
-		api?.play();
-		playing = true;
+		api?.playPause();
 	}
 
 	function clickPause() {
@@ -331,7 +336,7 @@
 		</div>
 	</div>
 
-	{#if (!scoreLoaded && hasSheet)}
+	{#if hasSheet && !scoreLoaded}
 		<div role="status" class="p-5 text-center">
 			<svg
 				aria-hidden="true"

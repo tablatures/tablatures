@@ -47,6 +47,13 @@ export const GuitarProTabOrg = {
 	song: (query: string) => `https://guitarprotabs.org/search.php?search=${query}&in=songs`
 };
 
+export const GproTab = {
+	source: 2,
+	artist: (query: string) =>
+		`https://gprotab.net/en/search/?type=artist&q=${encodeURIComponent(query)}`,
+	song: (query: string) => `https://gprotab.net/en/search/?type=song&q=${encodeURIComponent(query)}`
+};
+
 export const debounce = (callback: () => void, delay: number) => {
 	let timeoutId: number;
 	return () => {
