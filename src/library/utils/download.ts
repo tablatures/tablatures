@@ -47,9 +47,7 @@ async function fetchTrackGuitarProTabs(target: string) {
 	return downloadUrl;
 }
 
-//TODO implement
 async function fetchTrackUrlGpPro(track: string) {
-	console.log(track);
 	const data = await fetch('https://gprotab.net' + track);
 	const html = await data.text();
 	const document = new jsdom.JSDOM(html).window.document;

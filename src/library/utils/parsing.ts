@@ -138,8 +138,7 @@ async function extractTrack(tabs: Element) {
 		};
 	});
 }
-//TODO add new source in search
-//parallelize requests
+//TODO parallelize requests
 async function fetchTracksGpTab(index: number, search: string, searchType: 'artist' | 'song') {
 	let source = GproTab[searchType](search);
 	if (index > 0) source = source.concat(`&page=${index}`);
