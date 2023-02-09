@@ -1,6 +1,6 @@
 import type { RootObject } from './types';
 import jsdom from 'jsdom';
-import { GuitarProTab, GuitarProTabOrg, extract } from './utils';
+import { GuitarProTab, GuitarProTabOrg, extract, GproTab } from './utils';
 
 /**
  * Fetch the list of track for the given source
@@ -120,17 +120,9 @@ async function fetchListGuitarProTabs(index: number, query: string, searchType: 
 
 	return tracks;
 }
-
-//TODO implement
-async function getTracksGproTab(search: string, index: number, searchType: 'artist' | 'song') {
-	let source = GuitarProTab[searchType](search);
-	if (index > 0) source = source.concat(`/${index}`);
-	const data = await fetch(source);
-	const html = await data.text();
-	const document = new jsdom.JSDOM(html).window.document;
-	const t = document.getElementsByClassName('tabs')[0];
-	const lis = Array.from(t.getElementsByTagName('li'));
-	const tracks = lis.map((li) => {
+async function extractTrack(tabs: Element) {
+	const ta = Array.from(tabs.getElementsByTagName('li'));
+	return ta.map((li) => {
 		const anchor = li.getElementsByTagName('a')[0];
 		return {
 			track: {
@@ -143,5 +135,39 @@ async function getTracksGproTab(search: string, index: number, searchType: 'arti
 			}
 		};
 	});
+}
+//TODO add new source in search
+//parallelize requests
+async function getTracksGproTab(search: string, index: number, searchType: 'artist' | 'song') {
+	let source = GproTab[searchType](search);
+	if (index > 0) source = source.concat(`/${index}`);
+	const data = await fetch(source);
+	const html = await data.text();
+	const document = new jsdom.JSDOM(html).window.document;
+	let tracks: any[] = [];
+	if (searchType === 'artist') {
+		const art = Array.from(document.getElementsByClassName('artists')).at(0);
+		if (!art) throw new Error('getTracksGproTab failed at art');
+		const lis = Array.from(art.getElementsByTagName('li'));
+		for (const li of lis) {
+			const anchor = li.getElementsByTagName('a')[0];
+			const dataArtist = await fetch(`https://gprotab.net${anchor.href}`);
+			//Second step
+			const htmlDataArtist = await dataArtist.text();
+			const artistDom = new jsdom.JSDOM(htmlDataArtist).window.document;
+			const tabsHolder = Array.from(artistDom.getElementsByClassName('tabs-holder'));
+			if (!tabsHolder) throw new Error('getTracksGproTab failed at tabsHolder');
+			for (const holder of tabsHolder) {
+				const t = Array.from(holder.getElementsByClassName('tabs')).at(0);
+				if (!t) throw new Error('getTracksGproTab failed at t');
+				tracks = tracks.concat(await extractTrack(t));
+			}
+		}
+		return tracks;
+	}
+	const t = Array.from(document.getElementsByClassName('tabs'));
+	for (const tabs of t) {
+		tracks.concat(extractTrack(tabs));
+	}
 	return tracks;
 }
