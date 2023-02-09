@@ -9,8 +9,8 @@ export const load: Load = async ({ url, setHeaders }) => {
 	const query = params.search;
 	const source = params.source;
 	const queryType = params.queryType;
-	
-	if (query.length < 2 && source === '1') {
+
+	if (query.length < 2 && ['1', '2'].includes(source)) {
 		return {
 			tabs: []
 		};

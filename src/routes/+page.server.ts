@@ -7,7 +7,6 @@ export const load: Load = async ({ url }) => {
 	const { href, source } = paramsReader.parse(url.searchParams);
 	if (href && source) {
 		const downloadUrl = await fetchTrack(Number(source), href);
-		console.log(downloadUrl);
 		const options: RequestInit = {};
 		// If the tab is on this domain, we need to add special headers
 		if (source === GuitarProTabOrg.source.toString()) {

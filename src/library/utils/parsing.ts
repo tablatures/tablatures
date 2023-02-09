@@ -138,8 +138,8 @@ async function extractTrack(tabs: Element) {
 		};
 	});
 }
-//TODO parallelize requests
 async function fetchTracksGpTab(index: number, search: string, searchType: 'artist' | 'song') {
+  console.log("fetch tracks gp tab", search, searchType)
 	let source = GproTab[searchType](search);
 	if (index > 0) source = source.concat(`&page=${index}`);
 	const data = await fetch(source);
@@ -150,25 +150,28 @@ async function fetchTracksGpTab(index: number, search: string, searchType: 'arti
 		const art = Array.from(document.getElementsByClassName('artists')).at(0);
 		if (!art) throw new Error('getTracksGproTab failed at art');
 		const lis = Array.from(art.getElementsByTagName('li'));
-		for (const li of lis) {
+		const artistPromises = lis.map(async (li) => {
 			const anchor = li.getElementsByTagName('a')[0];
 			const dataArtist = await fetch(`https://gprotab.net${anchor.href}`);
-			//Second step
 			const htmlDataArtist = await dataArtist.text();
 			const artistDom = new jsdom.JSDOM(htmlDataArtist).window.document;
 			const tabsHolder = Array.from(artistDom.getElementsByClassName('tabs-holder'));
 			if (!tabsHolder) throw new Error('getTracksGproTab failed at tabsHolder');
-			for (const holder of tabsHolder) {
+			const tabsPromises = tabsHolder.map(async (holder) => {
 				const t = Array.from(holder.getElementsByClassName('tabs')).at(0);
 				if (!t) throw new Error('getTracksGproTab failed at t');
-				tracks = tracks.concat(await extractTrack(t));
-			}
-		}
+				return extractTrack(t);
+			});
+			return Promise.all(tabsPromises);
+		});
+		const artistTracks = await Promise.all(artistPromises);
+		const flattenned = artistTracks.flat().flat();
+		tracks = tracks.concat(flattenned);
 		return tracks;
 	}
 	const t = Array.from(document.getElementsByClassName('tabs'));
-	for (const tabs of t) {
-		tracks = tracks.concat(await extractTrack(tabs));
-	}  
+	const tabsPromises = t.map((tabs) => extractTrack(tabs));
+	const tabsTracks = await Promise.all(tabsPromises);
+	tracks = tracks.concat(tabsTracks.flat());
 	return tracks;
 }
