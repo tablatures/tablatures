@@ -20,6 +20,8 @@ export async function fetchList(
 			return await fetchListGuitarProTabs(index, query, searchType);
 		case GuitarProTabOrg.source:
 			return await fetchListGuitarProTabsOrg(index, query, searchType);
+		case GproTab.source:
+			return await fetchTracksGpTab(index, query, searchType);
 		default:
 			throw new Error(`Source '${source}' is not specified for the list scrapping.`);
 	}
@@ -138,9 +140,9 @@ async function extractTrack(tabs: Element) {
 }
 //TODO add new source in search
 //parallelize requests
-async function getTracksGproTab(search: string, index: number, searchType: 'artist' | 'song') {
+async function fetchTracksGpTab(index: number, search: string, searchType: 'artist' | 'song') {
 	let source = GproTab[searchType](search);
-	if (index > 0) source = source.concat(`/${index}`);
+	if (index > 0) source = source.concat(`&page=${index}`);
 	const data = await fetch(source);
 	const html = await data.text();
 	const document = new jsdom.JSDOM(html).window.document;
@@ -167,7 +169,7 @@ async function getTracksGproTab(search: string, index: number, searchType: 'arti
 	}
 	const t = Array.from(document.getElementsByClassName('tabs'));
 	for (const tabs of t) {
-		tracks.concat(extractTrack(tabs));
-	}
+		tracks = tracks.concat(await extractTrack(tabs));
+	}  
 	return tracks;
 }

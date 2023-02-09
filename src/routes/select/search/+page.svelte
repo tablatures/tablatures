@@ -80,6 +80,7 @@
 		<select name={SOURCE_PARAM} value={params.source} class="bg-transparent">
 			<option value="0">GuitarProTab.net</option>
 			<option value="1">GuitarProTab.org</option>
+			<option value="2">GProTab.net</option>
 		</select>
 	</label>
 </form>
