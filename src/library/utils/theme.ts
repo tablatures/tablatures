@@ -1,30 +1,30 @@
 import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
-// it works with readable stores too!
+import { writable, get } from 'svelte/store';
 
-// create an object w/default values
-// true for dark
-let theme: boolean = true;
+const storage = <T>(key: string, initValue: T) => {
+	const store = writable<T>(initValue);
+	if (!browser) return store;
 
-// ensure this only runs in the browser
-if (browser) {
-	// if the object already exists in localStorage, get it
-	// otherwise, use our default values
-	theme = localStorage.getItem('theme') == 'true' || false;
-}
+	const storedValueStr = localStorage.getItem(key);
+	if (storedValueStr != null) store.set(JSON.parse(storedValueStr));
 
-// export the store for usage elsewhere
-export const themeStore = writable<boolean>(theme);
-if (browser) {
-	// update localStorage values whenever the store values change
-	themeStore.subscribe((value) => {
-		// localStorage only allows stings
-		// IndexedDB does allow for objects though... 🤔
-		localStorage.setItem('theme', JSON.stringify(value));
-		if (value) {
-			document.documentElement.classList.add('dark');
+	store.subscribe((val) => {
+		if (val == null) {
+			localStorage.removeItem(key);
 		} else {
-			document.documentElement.classList.remove('dark');
+			localStorage.setItem(key, JSON.stringify(val));
 		}
 	});
-}
+
+	window.addEventListener('storage', () => {
+		const storedValueStr = localStorage.getItem(key);
+		if (storedValueStr == null) return;
+
+		const localValue: T = JSON.parse(storedValueStr);
+		if (localValue !== get(store)) store.set(localValue);
+	});
+
+	return store;
+};
+
+export const themeStore = storage<boolean>('theme', false);

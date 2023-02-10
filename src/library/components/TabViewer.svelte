@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { themeStore } from '../utils/theme';
+	import { browser } from '$app/environment';
 
 	export let data: { fileAsB64?: string };
 
@@ -15,7 +16,7 @@
 	let progress: number = 0;
 	let duration: number = 0;
 	let bindDuration: boolean = true;
-	$: hasSheet = typeof window === 'undefined' || data.fileAsB64 || window.history.state.base64;
+	$: hasSheet = !browser || data.fileAsB64 || window.history.state.base64;
 	let current: string = '00:00 / 00:00';
 
 	let volume: number = 1;
