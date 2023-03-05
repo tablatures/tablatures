@@ -189,7 +189,7 @@
 		if (delaying !== 0) {
 			countdownInterval = setInterval(() => {
 				rest -= 1000;
-				if (rest === 0) {
+				if (rest <= 0) {
 					api?.playPause();
 					clearInterval(countdownInterval);
 				}
