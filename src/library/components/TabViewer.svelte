@@ -145,10 +145,10 @@
 		}
 		if (event.code === 'Space') {
 			event.preventDefault();
-			if (api.player._state === 0) {
-				clickPlay();
-			} else {
+			if (playing) {
 				clickPause();
+			} else {
+				clickPlay();
 			}
 		}
 	}
