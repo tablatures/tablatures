@@ -23,6 +23,8 @@
 	let speed: number = 1;
 	let metronome: number = 0;
 
+	let delaying = 0;
+
 	let tracks: any[] = [];
 	let activeTrackIndex: number;
 
@@ -123,7 +125,7 @@
 				}
 			});
 		});
-		api.playerStateChanged.on(function (args: {state: number}) {
+		api.playerStateChanged.on(function (args: { state: number }) {
 			if (args.state == 0) {
 				playing = false;
 			} else {
@@ -133,8 +135,23 @@
 		themeStore.subscribe((value) => {
 			updateTheme(value);
 		});
+
+		document.addEventListener('keydown', onBarPressed);
 	});
 
+	function onBarPressed(event: KeyboardEvent) {
+		if (!api) {
+			return;
+		}
+		if (event.code === 'Space') {
+			event.preventDefault();
+			if (playing) {
+				clickPause();
+			} else {
+				clickPlay();
+			}
+		}
+	}
 	function updateTheme(theme: boolean) {
 		if (api) {
 			const color = !theme ? '#404040' : '#d3d3d3';
@@ -155,10 +172,31 @@
 
 		api.destroy();
 		api = undefined;
+		document.removeEventListener('keydown', onBarPressed);
 	});
 
+	let countdownInterval: NodeJS.Timeout;
+	let rest = 0;
+
 	function clickPlay() {
-		api?.playPause();
+		clearInterval(countdownInterval);
+		if (rest > 0) {
+			//cancel
+			rest = 0;
+			return;
+		}
+		rest = delaying;
+		if (delaying !== 0) {
+			countdownInterval = setInterval(() => {
+				rest -= 1000;
+				if (rest <= 0) {
+					api?.playPause();
+					clearInterval(countdownInterval);
+				}
+			}, 1000);
+		} else {
+			api?.playPause();
+		}
 	}
 
 	function clickPause() {
@@ -307,6 +345,16 @@
 				<span class="text-xs pt-3 pl-1">{Math.round(metronome * 100)}%</span>
 			</label>
 
+			<select
+				class="bg-transparent text-xs outline-0"
+				bind:value={delaying}
+				title="delay to start playing"
+			>
+				{#each Array(10).fill(0) as _, i}
+					<option value={i * 1000}>{i}s</option>
+				{/each}
+			</select>
+
 			<div class="flex justify-end w-full">
 				<button disabled={!scoreLoaded} on:click={clickDownload} title="Download the track">
 					<i class="material-icons !text-2xl p-1">file_download</i>
@@ -366,6 +414,13 @@
 			<a class="font-bold hover:underline" href="/select/search">search the database</a>.
 		</p>
 	{/if}
-
+	<!--If we delay the play-->
+	{#if rest > 0}
+		<p
+			class="text-xl text-white fixed bg-primary z-[9999] rounded-full p-4 max-w-[300px] mr-auto ml-auto top-100 left-0 right-0 text-center"
+		>
+			Playing in {rest / 1000}s
+		</p>
+	{/if}
 	<div class="min-h-[700px]" bind:this={target} />
 </div>
