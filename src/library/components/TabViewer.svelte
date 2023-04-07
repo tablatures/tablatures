@@ -259,7 +259,11 @@
 	<div class="bg-primary text-stone-300 px-2 text-sm">
 		<p>{title}</p>
 	</div>
-	<div class="sticky top-0 text-stone-500 dark:text-stone-400 z-[1001]">
+	<div
+		class="sticky top-0 z-[1001]  {scoreLoaded
+			? 'text-stone-500 dark:text-stone-400'
+			: 'pointer-events-none text-stone-300'}"
+	>
 		<div class="flex bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
@@ -301,7 +305,7 @@
 
 			<button
 				on:click={clickLooping}
-				class={api?.isLooping ? 'text-secondary' : ''}
+				class={api?.isLooping && scoreLoaded ? 'text-secondary' : ''}
 				title="Loop the playback"
 			>
 				<i class="material-icons !text-2xl p-1">restart_alt</i>
@@ -313,7 +317,7 @@
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
 				title="Manage playback volume"
 			>
-				<button on:click={clickVolume} class={volume > 0 ? 'text-secondary' : ''}>
+				<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
 					<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
 				</button>
 				<input
@@ -331,7 +335,10 @@
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
 				title="Manage metronome volume"
 			>
-				<button on:click={clickMetronome} class={metronome > 0 ? 'text-secondary' : ''}>
+				<button
+					on:click={clickMetronome}
+					class={metronome > 0 && scoreLoaded ? 'text-secondary' : ''}
+				>
 					<i class="material-icons !text-2xl p-1">{metronome > 0 ? 'timer' : 'timer_off'}</i>
 				</button>
 				<input
@@ -406,13 +413,14 @@
 			<span class="sr-only">Loading...</span>
 		</div>
 	{:else if !hasSheet}
-		<p class="mt-5 dark:text-stone-300">
-			No sheet loaded, <a class="font-bold hover:underline" href="/select/upload"
-				>import one from a file</a
-			>
-			or
-			<a class="font-bold hover:underline" href="/select/search">search the database</a>.
-		</p>
+		<div class="top-0 left-0 p-10 w-full h-full absolute flex items-center justify-center z-[999]">
+			<p class="text-center dark:text-stone-300">
+				No sheet loaded,
+				<a class="font-bold hover:underline" href="/select/upload">import one from a file </a>
+				or
+				<a class="font-bold hover:underline" href="/select/search">search the database</a>.
+			</p>
+		</div>
 	{/if}
 	<!--If we delay the play-->
 	{#if rest > 0}
@@ -422,5 +430,5 @@
 			Playing in {rest / 1000}s
 		</p>
 	{/if}
-	<div class="min-h-[700px]" bind:this={target} />
+	<div class="min-h-[800px]" bind:this={target} />
 </div>
