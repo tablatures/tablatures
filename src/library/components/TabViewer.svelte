@@ -22,6 +22,8 @@
 	let volume: number = 1;
 	let speed: number = 1;
 	let metronome: number = 0;
+	let solo: boolean = false;
+	let mute: boolean = false;
 
 	let delaying = 0;
 
@@ -31,6 +33,18 @@
 	$: if (api && tracks.length > 0) {
 		const track = tracks[activeTrackIndex];
 		api.renderTracks([track]);
+
+		// reset solo and mute
+		for (let track of tracks) {
+			track.playbackInfo.isSolo = false;
+			track.playbackInfo.isMute = false;
+		}
+
+		api.changeTrackSolo(tracks, false);
+		api.changeTrackMute(tracks, false);
+
+		solo = tracks[activeTrackIndex].playbackInfo.isSolo;
+		mute = tracks[activeTrackIndex].playbackInfo.isMute;
 	}
 
 	$: if (api) {
@@ -218,6 +232,22 @@
 		progressChange();
 	}
 
+	function clickSolo(e: any) {
+		const track = tracks[activeTrackIndex];
+		track.playbackInfo.isSolo = !track.playbackInfo.isSolo;
+		solo = tracks[activeTrackIndex].playbackInfo.isSolo;
+
+		api.changeTrackSolo([track], track.playbackInfo.isSolo);
+	}
+
+	function clickMute(e: any) {
+		const track = tracks[activeTrackIndex];
+		track.playbackInfo.isMute = !track.playbackInfo.isMute;
+		mute = tracks[activeTrackIndex].playbackInfo.isMute;
+
+		api.changeTrackMute([track], track.playbackInfo.isMute);
+	}
+
 	// update the progress on click
 	function progressChange() {
 		api.player.timePosition = (progress / 100) * duration;
@@ -289,6 +319,49 @@
 			<div class="flex relative min-w-[30px]">
 				<label
 					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
+					title="Manage playback volume"
+				>
+					<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
+						<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
+					</button>
+
+					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
+						<input
+							bind:value={volume}
+							type="range"
+							min="0"
+							max="2"
+							step="0.1"
+							class="input-range rotate-90 max-w-[110px]"
+						/>
+						<div class="pt-[50px] text-xs">
+							{Math.round(volume * 100)}%
+						</div>
+					</div>
+				</label>
+			</div>
+
+			<button
+				on:click={clickSolo}
+				class={solo && scoreLoaded ? 'text-secondary' : ''}
+				title="Play as solo"
+			>
+				<i class="material-icons !text-2xl pl-1">{solo ? 'headphones' : 'headset_off'}</i>
+			</button>
+
+			<button
+				on:click={clickMute}
+				class={mute && scoreLoaded ? 'text-secondary' : ''}
+				title="Mute current track"
+			>
+				<i class="material-icons !text-2xl pl-1">{mute ? 'music_note' : 'music_off'}</i>
+			</button>
+
+			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
+
+			<div class="flex relative min-w-[30px]">
+				<label
+					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
 					title="Manage playback speed"
 				>
 					<button>
@@ -318,33 +391,6 @@
 			>
 				<i class="material-icons !text-2xl p-1">restart_alt</i>
 			</button>
-
-			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
-
-			<div class="flex relative min-w-[30px]">
-				<label
-					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
-					title="Manage playback volume"
-				>
-					<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
-						<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
-					</button>
-
-					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
-						<input
-							bind:value={volume}
-							type="range"
-							min="0"
-							max="2"
-							step="0.1"
-							class="input-range rotate-90 max-w-[110px]"
-						/>
-						<div class="pt-[50px] text-xs">
-							{Math.round(volume * 100)}%
-						</div>
-					</div>
-				</label>
-			</div>
 
 			<div class="flex relative min-w-[30px]">
 				<label
