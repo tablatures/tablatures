@@ -281,7 +281,7 @@
 
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
-			<div class="flex relative w-[30px]">
+			<div class="flex relative min-w-[30px]">
 				<label
 					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
 					title="Manage playback speed"
@@ -316,7 +316,7 @@
 
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
-			<div class="flex relative w-[30px]">
+			<div class="flex relative min-w-[30px]">
 				<label
 					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
 					title="Manage playback volume"
@@ -341,7 +341,7 @@
 				</label>
 			</div>
 
-			<div class="flex relative w-[30px]">
+			<div class="flex relative min-w-[30px]">
 				<label
 					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
 					title="Manage metronome volume"
@@ -367,7 +367,7 @@
 			</div>
 
 			<select
-				class="bg-transparent text-xs outline-0"
+				class="bg-transparent text-xs outline-0 min-w-[40px]"
 				bind:value={delaying}
 				title="delay to start playing"
 			>
