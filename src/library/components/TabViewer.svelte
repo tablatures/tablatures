@@ -259,7 +259,11 @@
 	<div class="bg-primary text-stone-300 px-2 text-sm">
 		<p>{title}</p>
 	</div>
-	<div class="sticky top-0 text-stone-500 dark:text-stone-400 z-[1001]">
+	<div
+		class="sticky top-0 z-[1001]  {scoreLoaded
+			? 'text-stone-500 dark:text-stone-400'
+			: 'pointer-events-none text-stone-300'}"
+	>
 		<div class="flex bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
@@ -301,7 +305,7 @@
 
 			<button
 				on:click={clickLooping}
-				class={api?.isLooping ? 'text-secondary' : ''}
+				class={api?.isLooping && scoreLoaded ? 'text-secondary' : ''}
 				title="Loop the playback"
 			>
 				<i class="material-icons !text-2xl p-1">restart_alt</i>
@@ -313,7 +317,7 @@
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
 				title="Manage playback volume"
 			>
-				<button on:click={clickVolume} class={volume > 0 ? 'text-secondary' : ''}>
+				<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
 					<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
 				</button>
 				<input
@@ -331,7 +335,10 @@
 				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
 				title="Manage metronome volume"
 			>
-				<button on:click={clickMetronome} class={metronome > 0 ? 'text-secondary' : ''}>
+				<button
+					on:click={clickMetronome}
+					class={metronome > 0 && scoreLoaded ? 'text-secondary' : ''}
+				>
 					<i class="material-icons !text-2xl p-1">{metronome > 0 ? 'timer' : 'timer_off'}</i>
 				</button>
 				<input
@@ -385,42 +392,52 @@
 		</div>
 	</div>
 
-	{#if hasSheet && !scoreLoaded}
-		<div role="status" class="p-5 text-center">
-			<svg
-				aria-hidden="true"
-				class="inline w-10 h-10 mr-2 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
-				viewBox="0 0 100 101"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
+	<div class="min-h-[500px] md:min-h-[800px] relative">
+		{#if hasSheet && !scoreLoaded}
+			<div
+				role="status"
+				class="top-0 left-0 p-10 w-full h-full fixed flex items-center justify-center"
 			>
-				<path
-					d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
-					fill="currentColor"
-				/>
-				<path
-					d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
-					fill="currentFill"
-				/>
-			</svg>
-			<span class="sr-only">Loading...</span>
-		</div>
-	{:else if !hasSheet}
-		<p class="mt-5 dark:text-stone-300">
-			No sheet loaded, <a class="font-bold hover:underline" href="/select/upload"
-				>import one from a file</a
+				<svg
+					aria-hidden="true"
+					class="inline w-10 h-10 mr-2 text-gray-200 animate-spin dark:text-gray-600 fill-primary"
+					viewBox="0 0 100 101"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+				>
+					<path
+						d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+						fill="currentColor"
+					/>
+					<path
+						d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+						fill="currentFill"
+					/>
+				</svg>
+				<span class="sr-only">Loading...</span>
+			</div>
+		{:else if !hasSheet}
+			<div
+				class="top-0 left-0 p-10 w-full h-full absolute flex items-center justify-center z-[999]"
 			>
-			or
-			<a class="font-bold hover:underline" href="/select/search">search the database</a>.
-		</p>
-	{/if}
-	<!--If we delay the play-->
-	{#if rest > 0}
-		<p
-			class="text-xl text-white fixed bg-primary z-[9999] rounded-full p-4 max-w-[300px] mr-auto ml-auto top-100 left-0 right-0 text-center"
-		>
-			Playing in {rest / 1000}s
-		</p>
-	{/if}
-	<div class="min-h-[700px]" bind:this={target} />
+				<p class="text-center dark:text-stone-300">
+					No sheet loaded,
+					<a class="font-bold hover:underline" href="/select/upload">import one from a file</a>
+					or
+					<a class="font-bold hover:underline" href="/select/search">search the database</a>.
+				</p>
+			</div>
+		{/if}
+
+		<!--If we delay the play-->
+		{#if rest > 0}
+			<div class="top-0 left-0 p-10 w-full h-full fixed flex items-center justify-center z-[99999]">
+				<p class="text-white text-sm fixed bg-primary rounded-full px-7 py-1 text-center">
+					Playing in {rest / 1000}s
+				</p>
+			</div>
+		{/if}
+
+		<div class="h-full" bind:this={target} />
+	</div>
 </div>
