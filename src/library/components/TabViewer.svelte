@@ -332,7 +332,7 @@
 							min="0"
 							max="2"
 							step="0.1"
-							class="input-range rotate-90 max-w-[110px]"
+							class="input-range touch-none rotate-90 max-w-[110px]"
 						/>
 						<div class="pt-[50px] text-xs">
 							{Math.round(volume * 100)}%
@@ -375,7 +375,7 @@
 							min="0.1"
 							max="2"
 							step="0.1"
-							class="input-range rotate-90 max-w-[110px]"
+							class="input-range touch-none rotate-90 max-w-[110px]"
 						/>
 						<div class="pt-[50px] text-xs">
 							{Math.round(speed * 100)}%
@@ -408,7 +408,7 @@
 							min="0"
 							max="2"
 							step="0.1"
-							class="input-range rotate-90 max-w-[110px]"
+							class="input-range touch-none rotate-90 max-w-[110px]"
 						/>
 						<div class="pt-[50px] text-xs">
 							{Math.round(metronome * 100)}%
