@@ -259,12 +259,13 @@
 	<div class="bg-primary text-stone-300 px-2 text-sm">
 		<p>{title}</p>
 	</div>
+
 	<div
 		class="sticky top-0 z-[1001]  {scoreLoaded
 			? 'text-stone-500 dark:text-stone-400'
 			: 'pointer-events-none text-stone-300'}"
 	>
-		<div class="flex bg-light dark:bg-black">
+		<div class="flex flex-wrap sm:flex-nowrap  bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
 					<i class="material-icons !text-2xl p-1">pause</i>
@@ -285,23 +286,30 @@
 
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
-			<label
-				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
-				title="Manage playback speed"
-			>
-				<button>
-					<i class="material-icons !text-2xl p-1">speed</i>
-				</button>
-				<input
-					bind:value={speed}
-					type="range"
-					min="0.1"
-					max="2"
-					step="0.1"
-					class="input-range w-[100px]"
-				/>
-				<span class="text-xs pt-3 pl-1">{Math.round(speed * 100)}%</span>
-			</label>
+			<div class="flex relative min-w-[30px]">
+				<label
+					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
+					title="Manage playback speed"
+				>
+					<button>
+						<i class="material-icons !text-2xl p-1">speed</i>
+					</button>
+
+					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
+						<input
+							bind:value={speed}
+							type="range"
+							min="0.1"
+							max="2"
+							step="0.1"
+							class="input-range rotate-90 max-w-[110px]"
+						/>
+						<div class="pt-[50px] text-xs">
+							{Math.round(speed * 100)}%
+						</div>
+					</div>
+				</label>
+			</div>
 
 			<button
 				on:click={clickLooping}
@@ -313,47 +321,58 @@
 
 			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
 
-			<label
-				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
-				title="Manage playback volume"
-			>
-				<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
-					<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
-				</button>
-				<input
-					bind:value={volume}
-					type="range"
-					min="0"
-					max="2"
-					step="0.1"
-					class="input-range w-[100px]"
-				/>
-				<span class="text-xs pt-3 pl-1">{Math.round(volume * 100)}%</span>
-			</label>
-
-			<label
-				class="flex overflow-hidden transition-all max-w-[30px] hover:min-w-[170px]"
-				title="Manage metronome volume"
-			>
-				<button
-					on:click={clickMetronome}
-					class={metronome > 0 && scoreLoaded ? 'text-secondary' : ''}
+			<div class="flex relative min-w-[30px]">
+				<label
+					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
+					title="Manage playback volume"
 				>
-					<i class="material-icons !text-2xl p-1">{metronome > 0 ? 'timer' : 'timer_off'}</i>
-				</button>
-				<input
-					bind:value={metronome}
-					type="range"
-					min="0"
-					max="2"
-					step="0.1"
-					class="input-range w-[100px]"
-				/>
-				<span class="text-xs pt-3 pl-1">{Math.round(metronome * 100)}%</span>
-			</label>
+					<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
+						<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
+					</button>
+
+					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
+						<input
+							bind:value={volume}
+							type="range"
+							min="0"
+							max="2"
+							step="0.1"
+							class="input-range rotate-90 max-w-[110px]"
+						/>
+						<div class="pt-[50px] text-xs">
+							{Math.round(volume * 100)}%
+						</div>
+					</div>
+				</label>
+			</div>
+
+			<div class="flex relative min-w-[30px]">
+				<label
+					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
+					title="Manage metronome volume"
+				>
+					<button on:click={clickMetronome} class={metronome > 0 ? 'text-secondary' : ''}>
+						<i class="material-icons !text-2xl p-1">{metronome > 0 ? 'timer' : 'timer_off'}</i>
+					</button>
+
+					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
+						<input
+							bind:value={metronome}
+							type="range"
+							min="0"
+							max="2"
+							step="0.1"
+							class="input-range rotate-90 max-w-[110px]"
+						/>
+						<div class="pt-[50px] text-xs">
+							{Math.round(metronome * 100)}%
+						</div>
+					</div>
+				</label>
+			</div>
 
 			<select
-				class="bg-transparent text-xs outline-0"
+				class="bg-transparent text-xs outline-0 min-w-[40px]"
 				bind:value={delaying}
 				title="delay to start playing"
 			>
@@ -362,7 +381,7 @@
 				{/each}
 			</select>
 
-			<div class="flex justify-end w-full">
+			<div class="flex sm:justify-end sm:w-full">
 				<button disabled={!scoreLoaded} on:click={clickDownload} title="Download the track">
 					<i class="material-icons !text-2xl p-1">file_download</i>
 				</button>
