@@ -260,7 +260,7 @@
 		<p>{title}</p>
 	</div>
 	<div class="sticky top-0 text-stone-500 dark:text-stone-400 z-[1001]">
-		<div class="flex bg-light dark:bg-black">
+		<div class="flex flex-wrap sm:flex-nowrap bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
 					<i class="material-icons !text-2xl p-1">pause</i>
@@ -355,7 +355,7 @@
 				{/each}
 			</select>
 
-			<div class="flex justify-end w-full">
+			<div class="flex sm:justify-end sm:w-full">
 				<button disabled={!scoreLoaded} on:click={clickDownload} title="Download the track">
 					<i class="material-icons !text-2xl p-1">file_download</i>
 				</button>

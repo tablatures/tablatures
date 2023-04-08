@@ -24,9 +24,9 @@
 	<h1 class="text-2xl dark:text-light">Tablatures</h1>
 	<div class="flex w-full justify-end text-stone-500 dark:text-stone-300">
 		<button class="mx-1">
-			<i class="!hidden dark:!inline-block material-icons !text-2xl py-1 text-yellow-400"
-				>nightlight</i
-			>
+			<i class="!hidden dark:!inline-block material-icons !text-2xl py-1 text-yellow-400">
+				nightlight
+			</i>
 			<i class="dark:!hidden material-icons !text-2xl py-1">light_mode</i>
 		</button>
 
