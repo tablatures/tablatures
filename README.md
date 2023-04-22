@@ -16,6 +16,10 @@
     <img src="https://img.shields.io/github/license/tablatures/tablatures?style=flat-square&color=yellow" alt="License" />
 </a>
 
+<a href="https://github.com/mlhoutel/Tablatures/projects/1" alt="Roadmap">
+  <img src="https://img.shields.io/badge/roadmap-available-brightgreen?style=flat-square" />
+</a>
+
 &nbsp;&nbsp;
 
 <p align="center">
