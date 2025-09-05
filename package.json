@@ -23,7 +23,6 @@
 		"dropzone": "^6.0.0-beta.2",
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.5.0",
-		"eslint-plugin-svelte3": "^4.0.0",
 		"jsdom": "^21.1.0",
 		"just-debounce-it": "^3.2.0",
 		"material-icons": "^1.13.1",
