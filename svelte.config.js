@@ -1,4 +1,4 @@
-import preprocess from "svelte-preprocess";
+import preprocess from 'svelte-preprocess';
 import adapter from '@sveltejs/adapter-auto';
 import { vitePreprocess } from '@sveltejs/kit/vite';
 
@@ -6,12 +6,17 @@ import { vitePreprocess } from '@sveltejs/kit/vite';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-	preprocess: [vitePreprocess(), preprocess({
-        postcss: true
-    })],
+	preprocess: [
+		vitePreprocess(),
+		preprocess({
+			postcss: true
+		})
+	],
 
 	kit: {
-		adapter: adapter(),
+		adapter: adapter({
+			runtime: 'nodejs20.x' // 👈 explicitly set runtime
+		}),
 		paths: {
 			// base: dev ? '' : '/tablatures'
 		}
