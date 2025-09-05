@@ -35,23 +35,24 @@ export function base64ToArrayBuffer(base64: string) {
 	return bytes.buffer;
 }
 
-export const GuitarProTab = {
-	source: 0,
-	artist: (query: string) => `https://www.guitarprotabs.net/artist/${query}`,
-	song: (query: string) => `https://www.guitarprotabs.net/q-${encodeURI(query)}`
-};
-
 export const GuitarProTabOrg = {
-	source: 1,
+	source: 0,
 	artist: (query: string) => `https://guitarprotabs.org/search.php?search=${query}&in=artists`,
 	song: (query: string) => `https://guitarprotabs.org/search.php?search=${query}&in=songs`
 };
 
 export const GproTab = {
-	source: 2,
+	source: 1,
 	artist: (query: string) =>
 		`https://gprotab.net/en/search/?type=artist&q=${encodeURIComponent(query)}`,
 	song: (query: string) => `https://gprotab.net/en/search/?type=song&q=${encodeURIComponent(query)}`
+};
+
+// @deprecated
+export const GuitarProTab = {
+	source: -999,
+	artist: (query: string) => `https://www.guitarprotabs.net/artist/${query}`,
+	song: (query: string) => `https://www.guitarprotabs.net/q-${encodeURI(query)}`
 };
 
 export const debounce = (callback: () => void, delay: number) => {
