@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { PAGE_PARAM, SEARCH_PARAM, SOURCE_PARAM, TYPE_PARAM } from '../../../library/utils/constants';
+	import {
+		PAGE_PARAM,
+		SEARCH_PARAM,
+		SOURCE_PARAM,
+		TYPE_PARAM
+	} from '../../../library/utils/constants';
 	import { filterSchema, removeURLParameter } from '../../../library/utils/utils';
 	import type { RootObject } from '../../../library/utils/types';
 
@@ -15,7 +20,7 @@
 			title: string;
 			href: string;
 		};
-	}
+	};
 
 	export let data: {
 		tabs: RootObject[] | Track[];
@@ -45,12 +50,7 @@
 		index < 10 ? `${base}/select/search${search !== '' ? search + '&' : '?'}page=${index + 1}` : '';
 </script>
 
-<form 
-	bind:this={form} 
-	on:input={debounce}
-	on:change={requestSubmit}
-	class="dark:text-stone-300"
->
+<form bind:this={form} on:input={debounce} on:change={requestSubmit} class="dark:text-stone-300">
 	<label class="relative">
 		<i class="material-icons !text-2xl absolute top-[-6px]">search</i>
 		<input
@@ -78,36 +78,39 @@
 
 	<label>
 		<select name={SOURCE_PARAM} value={params.source} class="bg-transparent">
-			<option value="0">GuitarProTab.net</option>
-			<option value="1">GuitarProTab.org</option>
-			<option value="2">GProTab.net</option>
+			<option value="0">GuitarProTab.org</option>
+			<option value="1">GProTab.net</option>
+			<!--<option value="-999">GuitarProTab.net</option>-->
 		</select>
 	</label>
 </form>
 
 <table class="w-full mt-5 text-sm dark:text-stone-300 lg:min-w-[900px]">
-	<tr class="h-4 ">
-		<th>Title</th>
-		<th>Album</th>
-		<th>Type</th>
-		<th>Open</th>
-	</tr>
-
-	{#each data.tabs as tab}
-		<tr class="h-[45px] border-t">
-			<td>{tab.track.title?.replace(/by(?!.*by)/, " by")}</td>
-			<td>{'album' in tab ? tab.album : '-'}</td>
-			<td>{'type' in tab ? tab.type : '-'}</td>
-			<td>
-				<a
-					href="{base}/?href={encodeURIComponent(tab.track.href ?? '')}&source={params.source}"
-					class="px-5"
-				>
-					<i class="material-icons !text-2xl">open_in_new</i>
-				</a>
-			</td>
+	<thead>
+		<tr class="h-4 ">
+			<th>Title</th>
+			<th>Album</th>
+			<th>Type</th>
+			<th>Open</th>
 		</tr>
-	{/each}
+	</thead>
+	<tbody>
+		{#each data.tabs as tab}
+			<tr class="h-[45px] border-t">
+				<td>{tab.track.title?.replace(/by(?!.*by)/, ' by')}</td>
+				<td>{'album' in tab ? tab.album : '-'}</td>
+				<td>{'type' in tab ? tab.type : '-'}</td>
+				<td>
+					<a
+						href="{base}/?href={encodeURIComponent(tab.track.href ?? '')}&source={params.source}"
+						class="px-5"
+					>
+						<i class="material-icons !text-2xl">open_in_new</i>
+					</a>
+				</td>
+			</tr>
+		{/each}
+	</tbody>
 </table>
 
 <div class="flex align-center justify-center w-full dark:text-stone-300">
