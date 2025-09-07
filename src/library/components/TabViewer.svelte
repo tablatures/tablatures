@@ -291,11 +291,11 @@
 	</div>
 
 	<div
-		class="sticky top-0 z-[1001]  {scoreLoaded
+		class="sticky top-0 z-[1001] {scoreLoaded
 			? 'text-stone-500 dark:text-stone-400'
 			: 'pointer-events-none text-stone-300'}"
 	>
-		<div class="flex flex-wrap sm:flex-nowrap  bg-light dark:bg-black">
+		<div class="flex flex-wrap sm:flex-nowrap bg-light dark:bg-black">
 			{#if playing}
 				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
 					<i class="material-icons !text-2xl p-1">pause</i>
@@ -314,7 +314,7 @@
 				{/each}
 			</select>
 
-			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
+			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500"></div>
 
 			<div class="flex relative min-w-[30px]">
 				<label
@@ -357,7 +357,7 @@
 				<i class="material-icons !text-2xl pl-1">{mute ? 'music_note' : 'music_off'}</i>
 			</button>
 
-			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
+			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500"></div>
 
 			<div class="flex relative min-w-[30px]">
 				<label
@@ -503,6 +503,6 @@
 			</div>
 		{/if}
 
-		<div class="h-full" bind:this={target} />
+		<div class="h-full" bind:this={target}></div>
 	</div>
 </div>

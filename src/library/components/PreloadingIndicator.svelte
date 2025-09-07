@@ -20,12 +20,12 @@
 
 {#if visible}
 	<div class="progress-container">
-		<div class="progress bg-primary" style="width: {p * 100}%" />
+		<div class="progress bg-primary" style="width: {p * 100}%" ></div>
 	</div>
 {/if}
 
 {#if p >= 0.4}
-	<div class="fade" />
+	<div class="fade" ></div>
 {/if}
 
 <style>

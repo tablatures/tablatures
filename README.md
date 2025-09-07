@@ -1,61 +1,38 @@
-# Tablatures
+# sv
 
-<a href="https://https://tablatures.vercel.app/" >
-    <img src="https://vercelbadge.vercel.app/api/tablatures/tablatures?style=flat-square" alt="Build" />
-</a>
+Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
 
-<a href="https://github.com/tablatures/tablatures/blob/main/package.json" >
-    <img src="https://img.shields.io/github/package-json/v/tablatures/tablatures?style=flat-square&color=informational" alt="Version" />
-</a>
+## Creating a project
 
-<a href="https://github.com/tablatures/tablatures/search?l=svelte" >
-    <img src="https://img.shields.io/github/languages/top/tablatures/tablatures?style=flat-square&color=orange" alt="Language" />
-</a>
+If you're seeing this, you've probably already done this step. Congrats!
 
-<a href="https://github.com/tablatures/tablatures/blob/main/LICENSE/" >
-    <img src="https://img.shields.io/github/license/tablatures/tablatures?style=flat-square&color=yellow" alt="License" />
-</a>
+```sh
+# create a new project in the current directory
+npx sv create
 
-<a href="https://github.com/mlhoutel/Tablatures/projects/1" alt="Roadmap">
-  <img src="https://img.shields.io/badge/roadmap-available-brightgreen?style=flat-square" />
-</a>
+# create a new project in my-app
+npx sv create my-app
+```
 
-&nbsp;&nbsp;
+## Developing
 
-<p align="center">
-  <a href="https://tablatures.vercel.app/"><img src="./static/logos/icon.svg" width="100px" /></a>
-</p>
+Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
 
-&nbsp;&nbsp;
+```sh
+npm run dev
 
-Read and play tabs quickly
+# or start the server and open the app in a new browser tab
+npm run dev -- --open
+```
 
-- **Import a music score** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`, `.cap` or `.tex`)
-- **Browse the tabs database** (GuitarProTab)
-- **Play along the track** (rendered using alphaTab)
+## Building
 
-The website is currently under heavy development and can be unstable.
+To create a production version of your app:
 
-Do not hesitate to report issues [here](https://github.com/tablatures/tablatures/issues).
+```sh
+npm run build
+```
 
-**Browse the website now:** https://tablatures.vercel.app/
+You can preview the production build with `npm run preview`.
 
-## Getting started
-
-### Clone and install
-
-1. clone the project `git clone https://github.com/tablatures/tablatures.git`
-2. fetch the dependancies `cd tablatures && npm i`
-3. launch with hot-reload `npm run start`
-
-### Build and deploy
-
-1. build the website `npm run build`
-2. run on server `npm run preview`
-
-## Made with
-
-* Vite: https://github.com/vitejs/vite
-* SvelteKit: https://github.com/sveltejs/kit
-* Tailwind: https://github.com/tailwindlabs/tailwindcss
-* AlphaTab: https://github.com/CoderLine/alphaTab
+> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.

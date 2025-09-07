@@ -86,28 +86,31 @@
 </form>
 
 <table class="w-full mt-5 text-sm dark:text-stone-300 lg:min-w-[900px]">
-	<tr class="h-4 ">
-		<th>Title</th>
-		<th>Album</th>
-		<th>Type</th>
-		<th>Open</th>
-	</tr>
-
-	{#each data.tabs as tab}
-		<tr class="h-[45px] border-t">
-			<td>{tab.track.title?.replace(/by(?!.*by)/, ' by')}</td>
-			<td>{'album' in tab ? tab.album : '-'}</td>
-			<td>{'type' in tab ? tab.type : '-'}</td>
-			<td>
-				<a
-					href="{base}/?href={encodeURIComponent(tab.track.href ?? '')}&source={params.source}"
-					class="px-5"
-				>
-					<i class="material-icons !text-2xl">open_in_new</i>
-				</a>
-			</td>
+	<thead>
+		<tr class="h-4 ">
+			<th>Title</th>
+			<th>Album</th>
+			<th>Type</th>
+			<th>Open</th>
 		</tr>
-	{/each}
+	</thead>
+	<tbody>
+		{#each data.tabs as tab}
+			<tr class="h-[45px] border-t">
+				<td>{tab.track.title?.replace(/by(?!.*by)/, ' by')}</td>
+				<td>{'album' in tab ? tab.album : '-'}</td>
+				<td>{'type' in tab ? tab.type : '-'}</td>
+				<td>
+					<a
+						href="{base}/?href={encodeURIComponent(tab.track.href ?? '')}&source={params.source}"
+						class="px-5"
+					>
+						<i class="material-icons !text-2xl">open_in_new</i>
+					</a>
+				</td>
+			</tr>
+		{/each}
+	</tbody>
 </table>
 
 <div class="flex align-center justify-center w-full dark:text-stone-300">
