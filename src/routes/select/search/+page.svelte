@@ -281,7 +281,7 @@
 			});
 
 			// Navigate to reader
-			goto('/');
+			goto(`${base}/`);
 		} catch (error) {
 			console.error('Failed to fetch remote tab:', error);
 		} finally {
