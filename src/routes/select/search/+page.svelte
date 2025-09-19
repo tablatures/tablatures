@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { PAGE_PARAM, SEARCH_PARAM } from '../../../library/utils/constants';
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { tabStore } from '../../../library/utils/store';
+	import { base64ToArrayBuffer, arrayBufferToBase64 } from '../../../library/utils/utils';
 
 	const API_BASE_URL = 'https://tablatures-api.vercel.app';
 	const API_TIMEOUT = 10000;
@@ -14,7 +17,7 @@
 		artist: string;
 		album: string;
 		type: string;
-		source: number;
+		source: string;
 		href: string;
 		downloadUrl?: string;
 		views?: number;
@@ -249,19 +252,6 @@
 		performSearch();
 	}
 
-	function getSourceName(source: number): string {
-		switch (source) {
-			case 0:
-				return 'GuitarProTab.net';
-			case 1:
-				return 'GuitarProTab.org';
-			case 2:
-				return 'GproTab.net';
-			default:
-				return 'Unknown Source';
-		}
-	}
-
 	async function testApiConnectivity(): Promise<void> {
 		try {
 			const response = await fetchWithTimeout(`${API_BASE_URL}/api/health`, {}, 5000);
@@ -275,11 +265,28 @@
 		}
 	}
 
-	function openTab(tab: TabResult): void {
-		const url = `${base}/?href=${encodeURIComponent(tab.downloadUrl || tab.href || '')}&source=${
-			tab.source
-		}`;
-		window.open(url, '_blank');
+	async function openTab(tab: TabResult): Promise<void> {
+		loading = true;
+		try {
+			const response = await fetch(tab.downloadUrl || tab.href);
+			const arrayBuffer = await response.arrayBuffer();
+			const base64 = arrayBufferToBase64(arrayBuffer);
+
+			// Store tab data
+			tabStore.setTab({
+				fileAsB64: base64,
+				source: tab.source,
+				title: tab.title,
+				artist: tab.artist
+			});
+
+			// Navigate to reader
+			goto('/');
+		} catch (error) {
+			console.error('Failed to fetch remote tab:', error);
+		} finally {
+			loading = false;
+		}
 	}
 
 	function handlePopState() {
@@ -454,7 +461,7 @@
 								<td class="py-2 px-3 text-stone-600 dark:text-stone-400">{tab.album || '-'}</td>
 								<td class="py-2 px-3">
 									<span class="text-xs bg-stone-200 dark:bg-stone-700 px-2 py-1 rounded">
-										{getSourceName(tab.source)}
+										{tab.source}
 									</span>
 								</td>
 								<td class="py-2 px-3">

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { tabStore } from '../../../library/utils/store';
 
 	let file: HTMLInputElement;
 	let dragActive = false;
@@ -44,13 +45,14 @@
 			const base64 = await getBase64(selectedFile);
 			const cleanBase64 = base64.replace('data:application/octet-stream;base64,', '');
 
-			await goto('/', {
-				state: {
-					base64: cleanBase64,
-					fileName: selectedFile.name,
-					fileSize: selectedFile.size
-				}
+			// Store in the tab store
+			tabStore.setTab({
+				fileAsB64: cleanBase64,
+				fileName: selectedFile.name,
+				source: 'upload'
 			});
+
+			await goto('/');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to process file';
 			console.error('File processing error:', err);
