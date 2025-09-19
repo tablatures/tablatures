@@ -52,7 +52,7 @@
 				source: 'upload'
 			});
 
-			await goto('/');
+			await goto(`${base}/`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to process file';
 			console.error('File processing error:', err);
