@@ -11,7 +11,7 @@ const config = {
 			assets: 'build',
 			fallback: 'index.html',
 			precompress: false,
-			strict: true
+			strict: false
 		}),
 		paths: {
 			base: process.env.NODE_ENV === 'production' ? '/tablatures' : ''
@@ -19,10 +19,7 @@ const config = {
 		prerender: {
 			handleMissingId: 'warn',
 			handleHttpError: 'warn',
-			entries: [
-				'*',
-				'/select/search'
-			]
+			entries: []
 		}
 	}
 };
