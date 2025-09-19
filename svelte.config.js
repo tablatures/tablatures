@@ -1,19 +1,28 @@
-import preprocess from "svelte-preprocess";
-import adapter from '@sveltejs/adapter-auto';
-import { vitePreprocess } from '@sveltejs/kit/vite';
-
-// const dev = process.env.NODE_ENV === 'development';
+import adapter from '@sveltejs/adapter-static';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-	preprocess: [vitePreprocess(), preprocess({
-        postcss: true
-    })],
+	preprocess: vitePreprocess(),
 
 	kit: {
-		adapter: adapter(),
+		adapter: adapter({
+			pages: 'build',
+			assets: 'build',
+			fallback: 'index.html',
+			precompress: false,
+			strict: true
+		}),
 		paths: {
-			// base: dev ? '' : '/tablatures'
+			base: process.env.NODE_ENV === 'production' ? '/tablatures' : ''
+		},
+		prerender: {
+			handleMissingId: 'warn',
+			handleHttpError: 'warn',
+			entries: [
+				'*',
+				'/select/search'
+			]
 		}
 	}
 };
