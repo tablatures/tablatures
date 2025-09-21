@@ -38,6 +38,11 @@ jobs:
 
       - name: Build
         run: pnpm run build
+        env:
+          ## SEARCH_API_BASE_URL and SEARCH_API_TIMEOUT must be added
+          ## in the repository secrets for the github-pages deployment
+          VITE_SEARCH_API_BASE_URL: ${{ secrets.SEARCH_API_BASE_URL }}
+          VITE_SEARCH_API_TIMEOUT: ${{ secrets.SEARCH_API_TIMEOUT }}
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v4
