@@ -196,10 +196,15 @@
 								class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
 								disabled={uploading}
 							/>
-							<button class="bg-primary text-white px-6 py-3 hover:opacity-80 transition-opacity">
-								<i class="material-icons !text-lg mr-2">folder_open</i>
-								Browse Files
-							</button>
+
+							<div class="flex justify-center">
+								<button
+									class="bg-primary text-white px-6 py-3 hover:opacity-80 font-bold transition-opacity flex items-center"
+								>
+									<i class="material-icons mr-2">folder_open</i>
+									Browse Files
+								</button>
+							</div>
 						</div>
 					</div>
 				{/if}

@@ -441,7 +441,7 @@
 		<div
 			class="{bindDuration
 				? 'h-[5px] text-transparent'
-				: 'h-[14px] text-light'} hover:h-[14px] hover:text-light absolute w-full text-xs overflow-hidden"
+				: 'h-[14px] text-light'} hover:h-[14px] hover:text-light absolute w-full text-xs overflow-hidden transition-all duration-50 "
 		>
 			<input
 				type="range"
@@ -462,7 +462,7 @@
 	<div class="min-h-[500px] md:min-h-[800px] relative">
 		{#if hasSheet && !scoreLoaded}
 			<!-- Loading -->
-			<div class="flex items-center justify-center py-20">
+			<div class="flex items-center justify-center h-[80vh]">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mr-3" />
 				<div class="text-stone-600 dark:text-stone-400">Loading tablature...</div>
 			</div>
@@ -518,7 +518,10 @@
 
 		<!-- AlphaTab container -->
 		<div
-			class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 min-h-[600px]"
+			class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 {hasSheet &&
+			scoreLoaded
+				? 'min-h-[600px]'
+				: 'min-h-1 opacity-0'}"
 			bind:this={target}
 		/>
 	</div>

@@ -8,8 +8,16 @@
 	import { tabStore } from '../../../library/utils/store';
 	import { base64ToArrayBuffer, arrayBufferToBase64 } from '../../../library/utils/utils';
 
-	const API_BASE_URL = 'https://tablatures-api.vercel.app';
-	const API_TIMEOUT = 10000;
+	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
+	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
+
+	import.meta.env.VITE_SOME_KEY;
+
+	const ERROR_MESSAGE_BACKEND_UNAVAILLABLE =
+		'Search service is currently unavailable. Please try again later.';
+	const ERROR_MESSAGE_BACKEND_TOO_MANY_MESSSAGES = 'Too many requests. Please wait a moment.';
+	const ERROR_MESSAGE_BACKEND_TIMED_OUT = 'Search timed out. Please try again.';
+	const ERROR_MESSAGE_BACKEND_SEARCH_ERROR = 'Unknown error occurred during search';
 
 	interface TabResult {
 		id: string;
@@ -49,6 +57,8 @@
 	let currentPage = 1;
 	let timer: NodeJS.Timeout;
 
+	let searchBar: HTMLInputElement;
+
 	// Parse advanced search syntax
 	function parseSearchQuery(searchText: string) {
 		const params: any = {
@@ -86,7 +96,7 @@
 	async function fetchWithTimeout(
 		url: string,
 		options: RequestInit = {},
-		timeoutMs: number = API_TIMEOUT
+		timeoutMs: number = SEARCH_API_TIMEOUT
 	): Promise<Response> {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -104,10 +114,10 @@
 		}
 	}
 
-	async function performSearch(): Promise<void> {
+	async function performSearch(force: boolean = false): Promise<void> {
 		if (!browser || !apiAvailable) return;
 
-		if (query.length < 2) {
+		if (!force && query.length < 2) {
 			tabs = [];
 			totalResults = 0;
 			hasMorePages = false;
@@ -120,7 +130,7 @@
 		try {
 			const searchParams = parseSearchQuery(query);
 			const urlParams = new URLSearchParams(searchParams);
-			const apiUrl = `${API_BASE_URL}/api/search?${urlParams.toString()}`;
+			const apiUrl = `${SEARCH_API_BASE_URL}/api/search?${urlParams.toString()}`;
 
 			const response = await fetchWithTimeout(apiUrl, {
 				method: 'GET',
@@ -132,11 +142,11 @@
 
 			if (!response.ok) {
 				if (response.status === 404) {
-					throw new Error('Search service temporarily unavailable');
+					throw new Error(ERROR_MESSAGE_BACKEND_UNAVAILLABLE);
 				} else if (response.status === 429) {
-					throw new Error('Too many requests. Please wait a moment.');
+					throw new Error(ERROR_MESSAGE_BACKEND_TOO_MANY_MESSSAGES);
 				} else if (response.status >= 500) {
-					throw new Error('Server error. Please try again later.');
+					throw new Error(ERROR_MESSAGE_BACKEND_UNAVAILLABLE);
 				} else {
 					throw new Error(`HTTP error ${response.status}`);
 				}
@@ -188,17 +198,17 @@
 			console.error('Search error:', err);
 
 			if (err instanceof TypeError && err?.message?.includes('fetch')) {
-				error = 'Unable to connect to search service. Please check your internet connection.';
+				error = ERROR_MESSAGE_BACKEND_UNAVAILLABLE;
 				apiAvailable = false;
 				setTimeout(() => {
 					apiAvailable = true;
 				}, 30000);
 			} else if (err?.name === 'AbortError') {
-				error = 'Search timed out. Please try again.';
+				error = ERROR_MESSAGE_BACKEND_TIMED_OUT;
 			} else if (err instanceof Error) {
 				error = err?.message;
 			} else {
-				error = 'Unknown error occurred during search';
+				error = ERROR_MESSAGE_BACKEND_SEARCH_ERROR;
 			}
 
 			tabs = [];
@@ -249,19 +259,19 @@
 	function retrySearch(): void {
 		error = '';
 		apiAvailable = true;
-		performSearch();
+		performSearch(true);
 	}
 
 	async function testApiConnectivity(): Promise<void> {
 		try {
-			const response = await fetchWithTimeout(`${API_BASE_URL}/api/health`, {}, 5000);
+			const response = await fetchWithTimeout(`${SEARCH_API_BASE_URL}/api/health`, {}, 5000);
 			apiAvailable = response.ok;
 			if (!response.ok) {
-				error = 'Search service is currently unavailable. Please try again later.';
+				error = ERROR_MESSAGE_BACKEND_UNAVAILLABLE;
 			}
 		} catch {
 			apiAvailable = false;
-			error = 'Unable to connect to search service. Please check if the service is running.';
+			error = ERROR_MESSAGE_BACKEND_UNAVAILLABLE;
 		}
 	}
 
@@ -355,6 +365,7 @@
 					class="w-full pl-9 pr-3 py-2 bg-white dark:bg-black border border-stone-400 dark:border-stone-600 text-sm outline-none focus:border-primary transition-colors"
 					type="text"
 					placeholder="Search for tabs... Try: artist:metallica or song:stairway or source:guitarprotab"
+					bind:this={searchBar}
 					bind:value={query}
 					on:input={handleSearchInput}
 					on:focus={() => (searchFocused = true)}
@@ -406,7 +417,7 @@
 	<div class="px-5 py-3">
 		{#if loading}
 			<!-- Loading -->
-			<div class="flex items-center justify-center py-20">
+			<div class="flex items-center justify-center py-[210px]">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mr-3" />
 				<div class="text-stone-600 dark:text-stone-400">Searching...</div>
 			</div>
@@ -416,12 +427,16 @@
 				<i class="material-icons !text-4xl text-red-500 mb-3">error</i>
 				<div class="text-lg font-medium text-stone-800 dark:text-stone-200 mb-2">Search Error</div>
 				<div class="text-stone-600 dark:text-stone-400 mb-4">{error}</div>
-				<button
-					on:click={retrySearch}
-					class="bg-primary text-white px-4 py-2 text-sm hover:opacity-80 transition-opacity"
-				>
-					Try Again
-				</button>
+
+				<div class="flex justify-center">
+					<button
+						on:click={retrySearch}
+						class="bg-primary text-white px-6 py-3 hover:opacity-80 font-bold transition-opacity flex items-center"
+					>
+						<i class="material-icons mr-2">refresh</i>
+						Try Again
+					</button>
+				</div>
 			</div>
 		{:else if tabs.length > 0}
 			<!-- Results -->
@@ -532,21 +547,39 @@
 				</div>
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-md mx-auto text-sm">
-					<div class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 p-3">
-						<i class="material-icons !text-lg text-blue-500 mb-1">person</i>
-						<div class="font-medium">By Artist</div>
-						<div class="text-stone-500">artist:metallica</div>
-					</div>
-					<div class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 p-3">
-						<i class="material-icons !text-lg text-green-500 mb-1">music_note</i>
-						<div class="font-medium">By Song</div>
-						<div class="text-stone-500">song:stairway</div>
-					</div>
-					<div class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 p-3">
-						<i class="material-icons !text-lg text-purple-500 mb-1">source</i>
-						<div class="font-medium">By Source</div>
-						<div class="text-stone-500">source:guitarprotab</div>
-					</div>
+					<button
+						on:click={() => {
+							searchBar.focus();
+							query += 'artist:';
+						}}
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+					>
+						<i class="material-icons !text-lg mb-1">person</i>
+						<div class="font-medium text-black">By Artist</div>
+						<div class="text-stone-500">artist:[name]</div>
+					</button>
+					<button
+						on:click={() => {
+							searchBar.focus();
+							query += 'song:';
+						}}
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+					>
+						<i class="material-icons !text-lg mb-1">music_note</i>
+						<div class="font-medium text-black">By Song</div>
+						<div class="text-stone-500">song:[name]</div>
+					</button>
+					<button
+						on:click={() => {
+							searchBar.focus();
+							query += 'source:';
+						}}
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+					>
+						<i class="material-icons !text-lg mb-1">source</i>
+						<div class="font-medium text-black">By Source</div>
+						<div class="text-stone-500">source:[name]</div>
+					</button>
 				</div>
 			</div>
 		{/if}
