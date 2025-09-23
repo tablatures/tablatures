@@ -8,6 +8,7 @@
 		{ value: 1, href: '/select/search', icon: 'search', label: 'Search' },
 		{ value: 2, href: '/select/about', icon: 'info', label: 'About' }
 	];
+	$: currentPath = path.replace(base, '') || '/';
 
 	// True for dark, false for light
 	let theme: boolean;
@@ -31,7 +32,10 @@
 >
 	<div class="pl-[130px] flex w-full justify-center">
 		{#each buttons as button}
-			<a href="{base}{button.href}" class="mx-2 {path == button.href ? 'text-secondary' : ''}">
+			<a
+				href="{base}{button.href}"
+				class="mx-2 {currentPath == button.href ? 'text-secondary' : ''}"
+			>
 				<i class="material-icons !text-2xl px-2">{button.icon}</i>
 				<p class="text-xs mt-[-8px]">{button.label}</p>
 			</a>

@@ -2,7 +2,7 @@
 	import { base } from '$app/paths';
 </script>
 
-<div class="min-h-screen bg-stone-50 dark:bg-stone-900">
+<div class="min-h-screen bg-stone-50 dark:bg-black">
 	<!-- Header -->
 	<div class="bg-white dark:bg-black border-b border-stone-300 dark:border-stone-700">
 		<div class="px-5 py-3">

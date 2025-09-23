@@ -398,6 +398,8 @@
 		parts[parts.length - 1] = s?.type ? `${s.type}:${s.value}` : s.value;
 		query = parts.join(' ') + ' '; // add trailing space for clarity
 
+		updateURL();
+
 		suggestions = BASE_SUGGESTIONS;
 		performSearch(true);
 
@@ -612,7 +614,9 @@
 								<td class="py-2 px-3 text-stone-700 dark:text-slate-300">{tab.artist}</td>
 								<td class="py-2 px-3 text-stone-600 dark:text-slate-400">{tab.album || '-'}</td>
 								<td class="py-2 px-3">
-									<span class="text-xs bg-stone-200 dark:bg-gray-700 px-2 py-1 rounded">
+									<span
+										class="text-xs text-stone-700 dark:text-slate-300 bg-stone-200 dark:bg-gray-700 px-2 py-1 rounded"
+									>
 										{tab.source}
 									</span>
 								</td>
