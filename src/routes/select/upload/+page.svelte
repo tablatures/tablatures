@@ -109,9 +109,9 @@
 	<title>Upload Tab</title>
 </svelte:head>
 
-<div class="min-h-screen bg-stone-50 dark:bg-stone-900">
+<div class="min-h-screen bg-stone-50 dark:bg-black">
 	<!-- Header -->
-	<div class="bg-white dark:bg-black border-b border-stone-300 dark:border-stone-700">
+	<div class="bg-white dark:bg-black border-b border-stone-300 dark:border-slate-700">
 		<div class="px-5 py-3">
 			<div class="bg-primary text-stone-300 px-2 py-1 text-sm rounded">
 				<p>Upload Tablature</p>
@@ -141,9 +141,9 @@
 			<div
 				class="relative w-full border-dashed border-2 transition-colors {dragActive
 					? 'border-primary bg-purple-50 dark:bg-purple-900/20'
-					: 'border-stone-400 dark:border-stone-600'} {uploading
+					: 'border-stone-400 dark:border-slate-600'} {uploading
 					? 'pointer-events-none opacity-75'
-					: 'hover:border-primary hover:bg-stone-100 dark:hover:bg-stone-800'} bg-white dark:bg-black min-h-[400px] flex items-center justify-center"
+					: 'hover:border-primary hover:bg-stone-100 dark:hover:bg-slate-800'} bg-white dark:bg-black min-h-[400px] flex items-center justify-center"
 				on:dragenter={handleDragEnter}
 				on:dragleave={handleDragLeave}
 				on:dragover={handleDragOver}
@@ -155,10 +155,10 @@
 						<div
 							class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"
 						/>
-						<div class="text-lg font-medium text-stone-800 dark:text-stone-200 mb-2">
+						<div class="text-lg font-medium text-stone-800 dark:text-slate-200 mb-2">
 							Processing file...
 						</div>
-						<div class="text-sm text-stone-600 dark:text-stone-400">
+						<div class="text-sm text-stone-600 dark:text-slate-400">
 							Please wait while we prepare your tablature
 						</div>
 					</div>
@@ -178,10 +178,10 @@
 
 						<!-- Main text -->
 						<div class="mb-6">
-							<h2 class="text-xl font-medium text-stone-800 dark:text-stone-200 mb-2">
+							<h2 class="text-xl font-medium text-stone-800 dark:text-slate-200 mb-2">
 								{dragActive ? 'Drop your file here' : 'Choose a tablature file'}
 							</h2>
-							<p class="text-stone-600 dark:text-stone-400">
+							<p class="text-stone-600 dark:text-slate-400">
 								Drag and drop your Guitar Pro file or click to browse
 							</p>
 						</div>
@@ -213,28 +213,28 @@
 			<!-- Info sections -->
 			<div class="mt-5">
 				<!-- Supported formats -->
-				<div class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 p-4">
+				<div class="bg-white dark:bg-black border border-stone-300 dark:border-slate-700 p-4">
 					<h3 class="font-medium text-stone-800 dark:text-stone-200 mb-3">Supported Formats</h3>
 					<div class="flex flex-wrap gap-1">
 						{#each supportedTypes as type}
 							<span
-								class="bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300 px-2 py-1 text-xs rounded"
+								class="bg-stone-200 dark:bg-slate-700 text-stone-700 dark:text-slate-300 px-2 py-1 text-xs rounded"
 							>
 								{type}
 							</span>
 						{/each}
 					</div>
-					<div class="mt-2 text-xs text-stone-600 dark:text-stone-400">Maximum file size: 10MB</div>
+					<div class="mt-2 text-xs text-stone-600 dark:text-slate-400">Maximum file size: 10MB</div>
 				</div>
 			</div>
 
 			<!-- Quick actions -->
 			{#if !uploading}
 				<div class="mt-5 text-center">
-					<div class="text-sm text-stone-600 dark:text-stone-400 mb-2">Or browse existing tabs</div>
+					<div class="text-sm text-stone-600 dark:text-slate-400 mb-2">Or browse existing tabs</div>
 					<a
 						href="{base}/select/search"
-						class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-sm hover:bg-stone-300 dark:hover:bg-stone-700 transition-colors"
+						class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-slate-300 text-sm hover:bg-stone-300 dark:hover:bg-slate-700 transition-colors"
 					>
 						<i class="material-icons !text-lg mr-2">search</i>
 						Search Database

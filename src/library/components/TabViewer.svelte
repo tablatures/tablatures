@@ -441,11 +441,11 @@
 		<div
 			class="{bindDuration
 				? 'h-[5px] text-transparent'
-				: 'h-[14px] text-light'} hover:h-[14px] hover:text-light absolute w-full text-xs overflow-hidden transition-all duration-50 "
+				: 'h-[14px] text-light'} hover:h-[14px] hover:text-light absolute w-full overflow-hidden transition-all duration-50 "
 		>
 			<input
 				type="range"
-				class="loading-bar bg-purple-300 dark:bg-violet-900"
+				class="loading-bar bg-purple-200 dark:bg-violet-900"
 				min="0"
 				max="100"
 				bind:this={range}
@@ -454,7 +454,11 @@
 				on:click={progressClick}
 				on:change={progressChange}
 			/>
-			<div class="pointer-events-none absolute top-0 bg-transparent px-0.5">{current}</div>
+			<div
+				class="absolute top-0 left-2 pointer-events-none text-[0.7rem] font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] dark:drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]"
+			>
+				{current}
+			</div>
 		</div>
 	</div>
 
