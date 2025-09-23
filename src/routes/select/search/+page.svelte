@@ -18,32 +18,43 @@
 	const ERROR_MESSAGE_BACKEND_TOO_MANY_MESSSAGES = 'Too many requests. Please wait a moment.';
 	const ERROR_MESSAGE_BACKEND_TIMED_OUT = 'Search timed out. Please try again.';
 	const ERROR_MESSAGE_BACKEND_SEARCH_ERROR = 'Unknown error occurred during search';
+	const ERROR_MESSAGE_TAB_INVALID = 'The requested tab is invalid or cannot be downloaded';
 
 	interface TabResult {
 		id: string;
 		title: string;
-		artist: string;
-		album: string;
-		type: string;
+		artist?: string;
+		album?: string;
+		type?: string;
 		source: string;
-		href: string;
-		downloadUrl?: string;
-		views?: number;
-		tracks?: number;
+		searchTerms?: string;
 		score?: number;
 	}
 
 	interface ApiResponse {
 		results: TabResult[];
 		total: number;
-		page?: number;
-		hasMore?: boolean;
+		page: number;
+		limit: number;
+		totalPages: number;
 	}
 
 	interface ApiError {
 		error: string;
 		code?: string;
 	}
+
+	interface Suggestion {
+		type?: 'artist' | 'song' | 'album' | 'source';
+		value: string;
+		info?: string;
+	}
+
+	const BASE_SUGGESTIONS: Suggestion[] = [
+		{ type: 'artist', value: 'led zeppelin', info: 'Search by artist' },
+		{ type: 'song', value: 'stairway', info: 'Search by song' },
+		{ type: 'source', value: 'guitarprotab', info: 'Search by source' }
+	];
 
 	let tabs: TabResult[] = [];
 	let loading = false;
@@ -53,45 +64,22 @@
 	let hasMorePages = false;
 	let searchFocused = false;
 
+	let suggestions: Suggestion[] = BASE_SUGGESTIONS;
+	let autocompleteLoading = false;
+	let autocompleteTimer: NodeJS.Timeout;
+	let highlightedIndex = 0;
+
 	let query = '';
 	let currentPage = 1;
 	let timer: NodeJS.Timeout;
 
+	$: queryLastWord = (() => {
+		const trimmed = query.trimEnd();
+		const parts = trimmed.split(/\s+/);
+		return parts[parts.length - 1] || '';
+	})();
+
 	let searchBar: HTMLInputElement;
-
-	// Parse advanced search syntax
-	function parseSearchQuery(searchText: string) {
-		const params: any = {
-			q: searchText,
-			type: 'both',
-			source: undefined,
-			page: currentPage,
-			limit: 50
-		};
-
-		const artistMatch = searchText.match(/artist:([^\s]+)/i);
-		const songMatch = searchText.match(/song:([^\s]+)/i);
-		const sourceMatch = searchText.match(/source:([^\s]+)/i);
-
-		if (artistMatch) {
-			params.type = 'artist';
-			params.q = searchText.replace(/artist:[^\s]+/i, '').trim() || artistMatch[1];
-		} else if (songMatch) {
-			params.type = 'song';
-			params.q = searchText.replace(/song:[^\s]+/i, '').trim() || songMatch[1];
-		}
-
-		if (sourceMatch) {
-			const sourceValue = sourceMatch[1].toLowerCase();
-			if (sourceValue === 'guitarprotab' || sourceValue === '0') params.source = '0';
-			else if (sourceValue === 'guitarprotaborg' || sourceValue === '1') params.source = '1';
-			else if (sourceValue === 'gprotab' || sourceValue === '2') params.source = '2';
-			params.q = searchText.replace(/source:[^\s]+/i, '').trim();
-		}
-
-		params.q = params.q.trim();
-		return params;
-	}
 
 	async function fetchWithTimeout(
 		url: string,
@@ -128,8 +116,12 @@
 		error = '';
 
 		try {
-			const searchParams = parseSearchQuery(query);
-			const urlParams = new URLSearchParams(searchParams);
+			const urlParams = new URLSearchParams({
+				q: query,
+				page: String(currentPage),
+				limit: String(50)
+			});
+
 			const apiUrl = `${SEARCH_API_BASE_URL}/api/search?${urlParams.toString()}`;
 
 			const response = await fetchWithTimeout(apiUrl, {
@@ -174,7 +166,7 @@
 						typeof tab.id === 'string' &&
 						typeof tab.title === 'string' &&
 						typeof tab.artist === 'string' &&
-						typeof tab.source === 'number'
+						typeof tab.source === 'string' // now string
 					);
 				})
 				.map((tab) => ({
@@ -184,16 +176,14 @@
 					album: tab.album || '',
 					type: tab.type || 'Guitar Pro',
 					source: tab.source,
-					href: tab.href || '',
-					downloadUrl: tab.downloadUrl,
-					views: tab.views,
-					tracks: tab.tracks,
 					score: tab.score
 				}));
 
 			tabs = validTabs;
-			totalResults = data.total || validTabs.length;
-			hasMorePages = data.hasMore ?? validTabs.length === 50;
+
+			// Use backend pagination info
+			totalResults = data.total ?? validTabs.length;
+			hasMorePages = data.page < data.totalPages; // true if more pages available
 		} catch (err: any) {
 			console.error('Search error:', err);
 
@@ -219,9 +209,10 @@
 		}
 	}
 
-	function debounce(): void {
+	function debounceSearch(): void {
 		clearTimeout(timer);
 		timer = setTimeout(() => {
+			suggestions = BASE_SUGGESTIONS;
 			performSearch();
 		}, 500);
 	}
@@ -247,7 +238,24 @@
 		currentPage = 1;
 
 		updateURL();
-		debounce();
+		debounceAutocomplete();
+	}
+
+	function handleSearchKeydown(event: KeyboardEvent): void {
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			highlightedIndex = (highlightedIndex + 1) % (suggestions.length + 1);
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			highlightedIndex = (highlightedIndex - 1 + suggestions.length + 1) % (suggestions.length + 1);
+		} else if (event.key === 'Enter') {
+			event.preventDefault();
+			if (highlightedIndex === 0) {
+				applySuggestion({ value: queryLastWord });
+			} else if (suggestions[highlightedIndex]) {
+				applySuggestion(suggestions[highlightedIndex - 1]);
+			}
+		}
 	}
 
 	function goToPage(page: number): void {
@@ -277,9 +285,32 @@
 
 	async function openTab(tab: TabResult): Promise<void> {
 		loading = true;
+		error = ''; // reset error
 		try {
-			const response = await fetch(tab.downloadUrl || tab.href);
+			const response = await fetchWithTimeout(
+				`${SEARCH_API_BASE_URL}/api/download/${tab.id}`,
+				{},
+				5000
+			);
+
+			// Check for HTTP errors
+			if (!response.ok) {
+				if (response.status === 400) {
+					throw new Error(ERROR_MESSAGE_TAB_INVALID);
+				} else if (response.status === 404) {
+					throw new Error('Tab not found');
+				} else if (response.status >= 500) {
+					throw new Error(ERROR_MESSAGE_BACKEND_UNAVAILLABLE);
+				} else {
+					throw new Error(`HTTP error ${response.status}`);
+				}
+			}
+
 			const arrayBuffer = await response.arrayBuffer();
+			if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+				throw new Error(ERROR_MESSAGE_TAB_INVALID);
+			}
+
 			const base64 = arrayBufferToBase64(arrayBuffer);
 
 			// Store tab data
@@ -292,10 +323,87 @@
 
 			// Navigate to reader
 			goto(`${base}/`);
-		} catch (error) {
-			console.error('Failed to fetch remote tab:', error);
+		} catch (err: any) {
+			console.error('Failed to fetch remote tab:', err);
+
+			// Set front-end error message
+			if (err instanceof Error) {
+				error = err.message;
+			} else {
+				error = ERROR_MESSAGE_BACKEND_UNAVAILLABLE;
+			}
+
+			// Optionally, clear previous tab data
+			tabStore.clearTab();
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function fetchAutocomplete(): Promise<void> {
+		if (!browser || !apiAvailable) return;
+
+		if (queryLastWord.length < 1) {
+			suggestions = BASE_SUGGESTIONS;
+			return;
+		}
+
+		autocompleteLoading = true;
+
+		try {
+			const urlParams = new URLSearchParams({
+				q: queryLastWord,
+				limit: '10'
+			});
+			const apiUrl = `${SEARCH_API_BASE_URL}/api/autocomplete?${urlParams.toString()}`;
+
+			const response = await fetchWithTimeout(apiUrl, {
+				method: 'GET',
+				headers: {
+					Accept: 'application/json',
+					'Content-Type': 'application/json'
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error(`HTTP error ${response.status}`);
+			}
+
+			const data = await response.json();
+
+			if (!Array.isArray(data.suggestions)) {
+				suggestions = BASE_SUGGESTIONS;
+				return;
+			}
+
+			suggestions = data.suggestions;
+			highlightedIndex = 0; // first item selected by default
+		} catch (err) {
+			console.error('Autocomplete error:', err);
+			suggestions = BASE_SUGGESTIONS;
+		} finally {
+			autocompleteLoading = false;
+		}
+	}
+
+	function debounceAutocomplete(): void {
+		clearTimeout(autocompleteTimer);
+		autocompleteTimer = setTimeout(() => {
+			fetchAutocomplete();
+		}, 300);
+	}
+
+	function applySuggestion(s: Suggestion): void {
+		const parts = query.trimEnd().split(/\s+/);
+		parts[parts.length - 1] = s?.type ? `${s.type}:${s.value}` : s.value;
+		query = parts.join(' ') + ' '; // add trailing space for clarity
+
+		suggestions = BASE_SUGGESTIONS;
+		performSearch(true);
+
+		// keep focus in the input (optional, but nice UX)
+		if (searchBar && typeof searchBar.focus === 'function') {
+			searchBar.focus();
 		}
 	}
 
@@ -341,9 +449,9 @@
 	<title>Tab Search</title>
 </svelte:head>
 
-<div class="min-h-screen bg-stone-50 dark:bg-stone-900">
+<div class="min-h-screen bg-stone-50 dark:bg-black">
 	<!-- Header -->
-	<div class="bg-white dark:bg-black border-b border-stone-300 dark:border-stone-700">
+	<div class="bg-white dark:bg-black border-b border-stone-300 dark:border-slate-700">
 		<div class="px-5 py-3">
 			<div class="bg-primary text-stone-300 px-2 py-1 text-sm rounded">
 				<p>Search Tablatures</p>
@@ -353,7 +461,7 @@
 
 	<!-- Search Bar -->
 	<div
-		class="sticky top-0 z-50 bg-stone-100 dark:bg-stone-800 border-b border-stone-300 dark:border-stone-700"
+		class="sticky top-0 z-50 bg-stone-100 dark:bg-black border-b border-stone-300 dark:border-slate-700"
 	>
 		<div class="px-5 py-3">
 			<div class="relative">
@@ -362,12 +470,13 @@
 					>search</i
 				>
 				<input
-					class="w-full pl-9 pr-3 py-2 bg-white dark:bg-black border border-stone-400 dark:border-stone-600 text-sm outline-none focus:border-primary transition-colors"
+					class="w-full pl-9 pr-3 py-2 bg-white dark:bg-black border border-stone-400 dark:border-slate-600 text-sm outline-none focus:border-primary dark:focus:border-primary transition-colors"
 					type="text"
-					placeholder="Search for tabs... Try: artist:metallica or song:stairway or source:guitarprotab"
+					placeholder="Search for tabs"
 					bind:this={searchBar}
 					bind:value={query}
 					on:input={handleSearchInput}
+					on:keydown={handleSearchKeydown}
 					on:focus={() => (searchFocused = true)}
 					on:blur={() => (searchFocused = false)}
 					disabled={loading}
@@ -383,29 +492,60 @@
 			{#if searchFocused}
 				<div class="relative mx-[-20px]">
 					<div
-						class="absolute top-0 pb-3 pt-1 px-5 w-full bg-stone-100 dark:bg-stone-800 border-b border-stone-300 dark:border-stone-700"
+						class="absolute top-0 pb-3 pt-1 px-5 w-full bg-stone-100 dark:bg-black border-b border-stone-300 dark:border-gray-700"
 					>
+						<!-- Autocomplete suggestions -->
 						<div
-							class="p-2 bg-white dark:bg-black border border-stone-300 dark:border-stone-700 text-xs text-stone-600 dark:text-stone-400"
+							class="bg-white dark:bg-black border border-stone-300 dark:border-gray-700 text-xs text-stone-600 dark:text-slate-400"
 						>
-							<div class="mb-1 font-medium text-stone-800 dark:text-stone-200">Search Tips:</div>
 							<div class="space-y-1">
-								<div>
-									<span class="bg-stone-200 dark:bg-stone-700 px-1 rounded font-mono"
-										>artist:metallica</span
-									> - Search by artist
-								</div>
-								<div>
-									<span class="bg-stone-200 dark:bg-stone-700 px-1 rounded font-mono"
-										>song:stairway</span
-									> - Search by song
-								</div>
-								<div>
-									<span class="bg-stone-200 dark:bg-stone-700 px-1 rounded font-mono"
-										>source:guitarprotab</span
-									> - Search specific source
-								</div>
+								<button
+									type="button"
+									class={`w-full text-left hover:underline transition-colors px-2 py-1  ${
+										0 === highlightedIndex
+											? 'bor bg-stone-200 dark:bg-gray-700'
+											: 'hover:bg-stone-200 dark:hover:bg-gray-700'
+									}`}
+									on:pointerdown|preventDefault={() =>
+										applySuggestion({
+											value: queryLastWord
+										})}
+								>
+									<div class="inline-flex w-full">
+										<p class="pl-1 font-mono" />
+										<p class="text-stone-500 dark:text-slate-500">
+											{queryLastWord.length ? queryLastWord : ' '}
+										</p>
+										<p class="flex-1 text-right px-1 text-xs text-stone-400 dark:text-slate-500">
+											Current value
+										</p>
+									</div>
+								</button>
+								{#each suggestions as s, i (s.type + s.value)}
+									<button
+										type="button"
+										class={`w-full text-left hover:underline transition-colors px-2 py-1   ${
+											i + 1 === highlightedIndex
+												? 'bg-stone-200 dark:bg-gray-700'
+												: 'hover:bg-stone-200 dark:hover:bg-gray-700'
+										}`}
+										on:pointerdown|preventDefault={() => applySuggestion(s)}
+									>
+										<div class="inline-flex w-full">
+											<p class="pl-1 bg-purple-100 dark:bg-primary rounded font-mono">
+												{s.type}:
+											</p>
+											<p>{s.value}</p>
+											<p class="flex-1 text-right px-1 text-xs text-stone-400 dark:text-slate-500">
+												{s?.info ?? ''}
+											</p>
+										</div>
+									</button>
+								{/each}
 							</div>
+						</div>
+						<div class="px-3 text-xs text-stone-500 dark:text-stone-400">
+							↑/↓ to navigate • Enter to select
 						</div>
 					</div>
 				</div>
@@ -446,10 +586,10 @@
 				{#if currentPage > 1}- Page {currentPage}{/if}
 			</div>
 
-			<div class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700">
+			<div class="bg-white dark:bg-black border border-stone-300 dark:border-slate-700">
 				<table class="w-full text-sm">
 					<thead
-						class="bg-stone-100 dark:bg-stone-800 border-b border-stone-300 dark:border-stone-700"
+						class="dark:text-slate-400 bg-stone-100 dark:bg-black border-b border-stone-300 dark:border-slate-700"
 					>
 						<tr>
 							<th class="text-left py-2 px-3 font-medium">Title</th>
@@ -462,20 +602,17 @@
 					<tbody>
 						{#each tabs as tab, i}
 							<tr
-								class="border-b border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+								class="border-b border-stone-200 dark:border-slate-700 hover:bg-stone-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
 								on:click={() => openTab(tab)}
 							>
 								<td class="py-2 px-3">
-									<div class="font-medium">{tab.title}</div>
-									<div class="text-xs text-stone-500">{tab.type}</div>
-									{#if tab.views}
-										<div class="text-xs text-stone-400">{tab.views} views</div>
-									{/if}
+									<div class="font-medium dark:text-slate-200">{tab.title}</div>
+									<div class="text-xs text-stone-500 dark:text-slate-400">{tab.type}</div>
 								</td>
-								<td class="py-2 px-3 text-stone-700 dark:text-stone-300">{tab.artist}</td>
-								<td class="py-2 px-3 text-stone-600 dark:text-stone-400">{tab.album || '-'}</td>
+								<td class="py-2 px-3 text-stone-700 dark:text-slate-300">{tab.artist}</td>
+								<td class="py-2 px-3 text-stone-600 dark:text-slate-400">{tab.album || '-'}</td>
 								<td class="py-2 px-3">
-									<span class="text-xs bg-stone-200 dark:bg-stone-700 px-2 py-1 rounded">
+									<span class="text-xs bg-stone-200 dark:bg-gray-700 px-2 py-1 rounded">
 										{tab.source}
 									</span>
 								</td>
@@ -497,20 +634,20 @@
 					{#if currentPage > 1}
 						<button
 							on:click={() => goToPage(currentPage - 1)}
-							class="px-3 py-1 bg-white dark:bg-black border border-stone-300 dark:border-stone-700 text-sm hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+							class="px-3 py-1 dark:text-slate-200 bg-white dark:bg-black border border-stone-300 dark:border-slate-700 text-sm hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors"
 						>
 							<i class="material-icons !text-lg">navigate_before</i>
 						</button>
 					{/if}
 
-					<span class="px-3 py-1 bg-primary text-white text-sm">
+					<span class="px-4 py-2 bg-primary text-white text-sm">
 						{currentPage}
 					</span>
 
 					{#if hasMorePages}
 						<button
 							on:click={() => goToPage(currentPage + 1)}
-							class="px-3 py-1 bg-white dark:bg-black border border-stone-300 dark:border-stone-700 text-sm hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+							class="px-3 py-1 dark:text-slate-200 bg-white dark:bg-black border border-stone-300 dark:border-slate-700 text-sm hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors"
 						>
 							<i class="material-icons !text-lg">navigate_next</i>
 						</button>
@@ -552,10 +689,10 @@
 							searchBar.focus();
 							query += 'artist:';
 						}}
-						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-slate-600 dark:hover:border-primary p-3"
 					>
 						<i class="material-icons !text-lg mb-1">person</i>
-						<div class="font-medium text-black">By Artist</div>
+						<div class="font-medium text-black dark:text-slate-400">By Artist</div>
 						<div class="text-stone-500">artist:[name]</div>
 					</button>
 					<button
@@ -563,10 +700,10 @@
 							searchBar.focus();
 							query += 'song:';
 						}}
-						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-slate-600 dark:hover:border-primary p-3"
 					>
 						<i class="material-icons !text-lg mb-1">music_note</i>
-						<div class="font-medium text-black">By Song</div>
+						<div class="font-medium text-black dark:text-slate-400">By Song</div>
 						<div class="text-stone-500">song:[name]</div>
 					</button>
 					<button
@@ -574,10 +711,10 @@
 							searchBar.focus();
 							query += 'source:';
 						}}
-						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-stone-600 p-3"
+						class="bg-white dark:bg-black text-slate-600 hover:text-primary border hover:border-primary border-stone-400 dark:border-slate-600 dark:hover:border-primary p-3"
 					>
 						<i class="material-icons !text-lg mb-1">source</i>
-						<div class="font-medium text-black">By Source</div>
+						<div class="font-medium text-black dark:text-slate-400">By Source</div>
 						<div class="text-stone-500">source:[name]</div>
 					</button>
 				</div>
@@ -587,10 +724,10 @@
 		<!-- Quick actions -->
 		{#if error || query.length == 0}
 			<div class="mt-5 text-center">
-				<div class="text-sm text-stone-600 dark:text-stone-400 mb-2">Or import from gp file</div>
+				<div class="text-sm text-stone-600 dark:text-slate-400 mb-2">Or import from gp file</div>
 				<a
 					href="{base}/select/upload"
-					class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-sm hover:bg-stone-300 dark:hover:bg-stone-700 transition-colors"
+					class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-slate-300 text-sm hover:bg-stone-300 dark:hover:bg-slate-700 transition-colors"
 				>
 					<i class="material-icons !text-lg mr-2">file_download</i>
 					Upload tablature
