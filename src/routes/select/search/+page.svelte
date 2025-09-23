@@ -78,7 +78,7 @@
 		const parts = trimmed.split(/\s+/);
 		return parts[parts.length - 1] || '';
 	})();
-
+    
 	let searchBar: HTMLInputElement;
 
 	async function fetchWithTimeout(
@@ -121,7 +121,7 @@
 				page: String(currentPage),
 				limit: String(50)
 			});
-
+      
 			const apiUrl = `${SEARCH_API_BASE_URL}/api/search?${urlParams.toString()}`;
 
 			const response = await fetchWithTimeout(apiUrl, {
