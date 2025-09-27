@@ -1,18 +1,59 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { themeStore } from '../utils/theme';
 	import { browser } from '$app/environment';
+	import SettingSlider from '$components/SettingSlider.svelte';
 
 	export let data: { fileAsB64?: string };
+	export let playerSettings: {
+		volume: number;
+		speed: number;
+		metronome: number;
+		tabScale: number;
+		delaying: number;
+		scrollOffset: number;
+	} = {
+		volume: 1,
+		speed: 1,
+		metronome: 0,
+		tabScale: 1.0,
+		delaying: 0,
+		scrollOffset: 0
+	};
+
+	const dispatch = createEventDispatcher();
+
+	// Use props instead of local variables
+	let { volume, speed, metronome, tabScale, delaying, scrollOffset } = playerSettings;
+
+	$: if (browser) {
+		dispatch('settingsChanged', {
+			volume,
+			speed,
+			metronome,
+			tabScale,
+			delaying,
+			scrollOffset
+		});
+	}
+
+	$: if (browser) {
+		dispatch('playingChanged', {
+			playing
+		});
+	}
 
 	let api: any = undefined;
-	let target: any = undefined;
-	let scoreLoaded = false;
+	let target: HTMLElement | undefined = undefined;
+	let scoreLoaded: boolean = false;
 	let playing: boolean = false;
 	let range: any = undefined;
 
+	let page: HTMLElement | undefined = undefined;
+	let settings: HTMLElement | undefined = undefined;
+	let trackSelectElement: HTMLSelectElement | undefined = undefined;
 	let title: string = '<no sheet loaded>';
 	let progress: number = 0;
 	let duration: number = 0;
@@ -20,16 +61,24 @@
 	$: hasSheet = !browser || data.fileAsB64 || window.history.state.base64;
 	let current: string = '00:00 / 00:00';
 
-	let volume: number = 1;
-	let speed: number = 1;
-	let metronome: number = 0;
+	let controlsHovered = false;
+	let controlsVisible = true;
+	let hideTimeout: NodeJS.Timeout;
+	let mouseMovedRecently = false;
+	let mouseMoveTimeout: NodeJS.Timeout;
+
 	let solo: boolean = false;
 	let mute: boolean = false;
-
-	let delaying = 0;
+	let apiError = '';
 
 	let tracks: any[] = [];
 	let activeTrackIndex: number;
+	let showSettings = false;
+	let theme: boolean;
+	let isFullscreen = false;
+
+	let topSentinel: HTMLElement;
+	let atTop = true;
 
 	$: if (api && tracks.length > 0) {
 		const track = tracks[activeTrackIndex];
@@ -71,6 +120,16 @@
 		current = `${displayTime(now)} / ${displayTime(end)}`;
 	}
 
+	/*
+	$: {
+		volume = playerSettings.volume;
+		speed = playerSettings.speed;
+		metronome = playerSettings.metronome;
+		tabScale = playerSettings.tabScale;
+		delaying = playerSettings.delaying;
+	}
+		*/
+
 	onMount(async () => {
 		if (!window.alphaTab) return;
 		api = new window.alphaTab.AlphaTabApi(target, {
@@ -92,6 +151,7 @@
 				}
 			},
 			player: {
+				scrollMode: 0,
 				enablePlayer: true,
 				enableUserInteraction: true,
 				enableCursor: true,
@@ -109,9 +169,20 @@
 		});
 
 		api.scoreLoaded.on((score: any) => {
-			title = `${score.title} - ${score.artist}`;
+			const newTitle = [score.title, score.artist].filter((s) => Boolean(s)).join(' - ');
+			const isNewSheet = title !== newTitle;
+			title = newTitle;
 			tracks = score.tracks;
 			scoreLoaded = true;
+
+			if (isNewSheet) {
+				dispatch('sheetChanged', {
+					title: score.title,
+					artist: score.artist
+				});
+			}
+
+			updateTabScale();
 		});
 
 		api.playerPositionChanged.on((e: any) => {
@@ -119,6 +190,12 @@
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
 			}
+		});
+
+		api.error.on((error: Error) => {
+			console.error('AlphaTab error:', error);
+			apiError = error.message || 'Failed to load tablature';
+			scoreLoaded = false;
 		});
 
 		// api.settings.display.scale = 0.5
@@ -147,17 +224,120 @@
 				playing = true;
 			}
 		});
+
+		api.playerPositionChanged.on((e: any) => {
+			const cursor = api?._beatCursor;
+			if (!cursor || !cursor.element) return;
+
+			const el = cursor.element;
+
+			const containerRect = target?.getBoundingClientRect();
+			const elRect = el.getBoundingClientRect();
+
+			if (!target || !containerRect) return;
+
+			const scrollTop =
+				target.scrollTop +
+				(elRect.top - containerRect.top) -
+				(showSettings && controlsVisible ? settings?.getBoundingClientRect()?.height ?? 0 : 0);
+
+			const scrollElement = isFullscreen ? page : window;
+
+			if (!scrollElement) return;
+
+			scrollElement.scrollTo({
+				top: scrollTop,
+				behavior: 'smooth'
+			});
+		});
+
 		themeStore.subscribe((value) => {
-			updateTheme(value);
+			theme = value;
 		});
 
 		document.addEventListener('keydown', onBarPressed);
+	});
+
+	// Responsive scale based on screen size
+	function getResponsiveScale() {
+		if (!browser) return 1.0;
+
+		const width = window.innerWidth;
+		const height = window.innerHeight;
+		const isPortrait = height > width;
+
+		if (width < 480) {
+			return isPortrait ? 0.4 : 0.6; // Very small on portrait mobile
+		} else if (width < 768) {
+			return isPortrait ? 0.5 : 0.7; // Small on tablet portrait
+		} else if (width < 1024) {
+			return 0.8;
+		}
+		return 1.0;
+	}
+
+	function updateTabScale() {
+		if (api) {
+			api.settings.display.scale = tabScale;
+			api.updateSettings();
+			api.render();
+		}
+	}
+
+	// Update scale on mount and resize
+	onMount(() => {
+		tabScale = getResponsiveScale();
+
+		const handleResize = () => {
+			const newScale = getResponsiveScale();
+			if (Math.abs(newScale - tabScale) > 0.1) {
+				tabScale = newScale;
+				updateTabScale();
+			}
+		};
+
+		document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+		// Add mouse event listeners for controls
+		if (page) {
+			page.addEventListener('mousemove', handleMouseMove);
+			page.addEventListener('mouseleave', handleMouseLeave);
+			page.addEventListener('mouseenter', handleMouseEnter);
+		}
+
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				atTop = entry.isIntersecting;
+				if (atTop) {
+					controlsVisible = true; // always visible at top
+					clearTimeout(hideTimeout);
+				}
+			},
+			{ threshold: 0.01 }
+		);
+
+		if (topSentinel) observer.observe(topSentinel);
+
+		return () => {
+			window.removeEventListener('resize', handleResize);
+			document.removeEventListener('fullscreenchange', handleFullscreenChange);
+			observer.disconnect();
+
+			if (page) {
+				page.removeEventListener('mousemove', handleMouseMove);
+				page.removeEventListener('mouseleave', handleMouseLeave);
+				page.removeEventListener('mouseenter', handleMouseEnter);
+			}
+			clearTimeout(hideTimeout);
+			clearTimeout(mouseMoveTimeout);
+		};
 	});
 
 	function onBarPressed(event: KeyboardEvent) {
 		if (!api) {
 			return;
 		}
+
 		if (event.code === 'Space') {
 			event.preventDefault();
 			if (playing) {
@@ -165,20 +345,19 @@
 			} else {
 				clickPlay();
 			}
-		}
-	}
-	function updateTheme(theme: boolean) {
-		if (api) {
-			const color = !theme ? '#404040' : '#d3d3d3';
-			api.settings.display.resources.barNumberColor.rgba = color;
-			api.settings.display.resources.barSeparatorColor.rgba = color;
-			api.settings.display.resources.mainGlyphColor.rgba = color;
-			api.settings.display.resources.scoreInfoColor.rgba = color;
-			api.settings.display.resources.secondaryGlyphColor.rgba = color;
-			// api.settings.display.resources.staffLineColor.rgba = color
-
-			api.updateSettings();
-			api.render();
+		} else if (event.code === 'KeyL') {
+			event.preventDefault();
+			clickLooping();
+		} else if (event.code === 'KeyT') {
+			event.preventDefault();
+			trackSelectElement?.focus();
+			trackSelectElement?.showPicker();
+		} else if (event.code === 'KeyS') {
+			event.preventDefault();
+			showSettings = !showSettings;
+		} else if (event.code === 'KeyF') {
+			event.preventDefault();
+			toggleFullscreen();
 		}
 	}
 
@@ -196,7 +375,6 @@
 	function clickPlay() {
 		clearInterval(countdownInterval);
 		if (rest > 0) {
-			//cancel
 			rest = 0;
 			return;
 		}
@@ -212,11 +390,18 @@
 		} else {
 			api?.playPause();
 		}
+
+		// Start auto-hide behavior when playing starts
+		showControls();
 	}
 
 	function clickPause() {
 		api?.pause();
 		playing = false;
+
+		// Keep controls visible when paused
+		controlsVisible = true;
+		clearTimeout(hideTimeout);
 	}
 
 	// pause the progress while dragging
@@ -284,164 +469,214 @@
 		a.click();
 		document.body.removeChild(a);
 	}
+
+	async function toggleFullscreen() {
+		if (!isFullscreen) {
+			if (page && page.requestFullscreen) {
+				await page.requestFullscreen();
+			} else if ((page as any).webkitRequestFullscreen) {
+				(page as any).webkitRequestFullscreen();
+			}
+			isFullscreen = true;
+		} else {
+			if (document.exitFullscreen) {
+				document.exitFullscreen();
+			} else if ((document as any).webkitExitFullscreen) {
+				// Safari
+				(document as any).webkitExitFullscreen();
+			}
+			isFullscreen = false;
+		}
+	}
+
+	// Keep track if the user presses ESC to exit
+	function handleFullscreenChange() {
+		isFullscreen = !!document.fullscreenElement;
+	}
+
+	function showControls() {
+		controlsVisible = true;
+		clearTimeout(hideTimeout);
+
+		if (controlsHovered) return;
+		if (atTop) return;
+
+		if (playing) {
+			hideTimeout = setTimeout(() => {
+				if (!mouseMovedRecently && playing) {
+					controlsVisible = false;
+				}
+			}, 2000);
+		}
+	}
+
+	function handleMouseMove() {
+		mouseMovedRecently = true;
+		showControls();
+
+		clearTimeout(mouseMoveTimeout);
+		mouseMoveTimeout = setTimeout(() => {
+			mouseMovedRecently = false;
+		}, 100);
+	}
+
+	function handleMouseLeave() {
+		if (playing) {
+			clearTimeout(hideTimeout);
+			hideTimeout = setTimeout(() => {
+				controlsVisible = false;
+			}, 100);
+		}
+	}
+
+	function handleMouseEnter() {
+		showControls();
+	}
+
+	function handleControlsEnter() {
+		controlsHovered = true;
+		controlsVisible = true; // make sure they’re visible
+		clearTimeout(hideTimeout);
+	}
+
+	function handleControlsLeave() {
+		controlsHovered = false;
+		showControls(); // restart hiding logic
+	}
 </script>
 
-<div class="m-5">
-	<div class="bg-primary text-stone-300 px-2 text-sm">
+<div
+	id="page"
+	class="m-5 h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
+	bind:this={page}
+>
+	<div class="bg-primary text-stone-300 px-2 text-sm z-[1002]">
 		<p>{title}</p>
 	</div>
+	<div bind:this={topSentinel} class="h-0" />
 
 	<div
-		class="sticky top-0 z-[1001]  {scoreLoaded
+		on:mouseenter={handleControlsEnter}
+		on:mouseleave={handleControlsLeave}
+		class="sticky top-0 z-[1001] transition-transform duration-200 {controlsVisible
+			? 'translate-y-0'
+			: '-translate-y-full'} {scoreLoaded
 			? 'text-stone-500 dark:text-stone-400'
 			: 'pointer-events-none text-stone-300'}"
 	>
-		<div class="flex flex-wrap sm:flex-nowrap  bg-light dark:bg-black">
-			{#if playing}
-				<button on:click={clickPause} class="text-secondary" title="Pause the playback">
-					<i class="material-icons !text-2xl p-1">pause</i>
-				</button>
-			{:else}
-				<button on:click={clickPlay} title="Start the playback">
-					<i class="material-icons !text-2xl p-1">play_arrow</i>
-				</button>
-			{/if}
-
-			<select class="bg-transparent text-xs outline-0" bind:value={activeTrackIndex}>
-				{#each tracks as track, i}
-					<option value={i}>
-						{track.name}
-					</option>
-				{/each}
-			</select>
-
-			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
-
-			<div class="flex relative min-w-[30px]">
-				<label
-					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
-					title="Manage playback volume"
+		<div
+			class="flex items-center justify-between bg-light dark:bg-black transition-opacity duration-200  {controlsVisible
+				? 'opacity-100'
+				: 'opacity-0'}"
+		>
+			<div class="flex items-center">
+				<button
+					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {playing
+						? 'text-primary'
+						: ''}"
+					on:click={() => {
+						playing ? clickPause() : clickPlay();
+					}}
+					title={playing ? 'Pause the playback' : 'Start the playback'}
 				>
-					<button on:click={clickVolume} class={volume > 0 && scoreLoaded ? 'text-secondary' : ''}>
-						<i class="material-icons !text-2xl p-1">{volume > 0 ? 'volume_up' : 'volume_off'}</i>
-					</button>
+					<i class="material-icons !text-2xl">{playing ? 'pause' : 'play_arrow'}</i>
 
-					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
-						<input
-							bind:value={volume}
-							type="range"
-							min="0"
-							max="2"
-							step="0.1"
-							class="input-range touch-none rotate-90 max-w-[110px]"
-						/>
-						<div class="pt-[50px] text-xs">
-							{Math.round(volume * 100)}%
-						</div>
-					</div>
-				</label>
+					<span
+						class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/4 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+					>
+						Play / Pause [Space]
+					</span>
+				</button>
+
+				<button
+					on:click={clickLooping}
+					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {api?.isLooping &&
+					scoreLoaded
+						? 'text-primary'
+						: ''}"
+					title="Loop the playback"
+				>
+					<i class="material-icons !text-xl p-1">repeat</i>
+					<span
+						class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/2 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+					>
+						Loop [L]
+					</span>
+				</button>
 			</div>
 
-			<button
-				on:click={clickSolo}
-				class={solo && scoreLoaded ? 'text-secondary' : ''}
-				title="Play as solo"
-			>
-				<i class="material-icons !text-2xl pl-1">{solo ? 'headphones' : 'headset_off'}</i>
-			</button>
-
-			<button
-				on:click={clickMute}
-				class={mute && scoreLoaded ? 'text-secondary' : ''}
-				title="Mute current track"
-			>
-				<i class="material-icons !text-2xl pl-1">{mute ? 'music_note' : 'music_off'}</i>
-			</button>
-
-			<div class="my-[5px] mx-1 border-r-[1px] border-stone-500" />
-
-			<div class="flex relative min-w-[30px]">
-				<label
-					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
-					title="Manage playback speed"
-				>
-					<button>
-						<i class="material-icons !text-2xl p-1">speed</i>
-					</button>
-
-					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
-						<input
-							bind:value={speed}
-							type="range"
-							min="0.1"
-							max="2"
-							step="0.1"
-							class="input-range touch-none rotate-90 max-w-[110px]"
-						/>
-						<div class="pt-[50px] text-xs">
-							{Math.round(speed * 100)}%
-						</div>
+			<div class="relative group flex-1 mx-4 text-center min-w-0">
+				{#if scoreLoaded}
+					<div
+						class="cursor-none absolute top-0 left-[50%] transform -translate-x-1/2 text-xs text-stone-600 dark:text-stone-400 truncate"
+					>
+						{current}
 					</div>
-				</label>
+					<select
+						id="trackSelect"
+						bind:value={activeTrackIndex}
+						bind:this={trackSelectElement}
+						class="flex-1 bg-transparent text-center text-md outline-none truncate h-full w-full pt-5 px-2 pb-1 border-b border-stone-200 dark:border-stone-800 hover:border-stone-400 dark:hover:border-stone-600
+						bg-stone-50 dark:bg-black text-stone-500 dark:text-slate-400 hover:bg-stone-100 dark:hover:bg-slate-800"
+					>
+						{#each tracks as track, i}
+							<option value={i} class="w-full ">
+								{track.name}
+							</option>
+						{/each}
+					</select>
+
+					<span
+						class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/2 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+					>
+						Select track [T]
+					</span>
+				{/if}
 			</div>
 
-			<button
-				on:click={clickLooping}
-				class={api?.isLooping && scoreLoaded ? 'text-secondary' : ''}
-				title="Loop the playback"
-			>
-				<i class="material-icons !text-2xl p-1">restart_alt</i>
-			</button>
-
-			<div class="flex relative min-w-[30px]">
-				<label
-					class="absolute overflow-hidden flex flex-col transition-all max-w-[30px] max-h-[30px] hover:min-h-[170px] bg-gray-100 dark:bg-black rounded-full z-[99999]"
-					title="Manage metronome volume"
+			<div>
+				<button
+					on:click={() => (showSettings = !showSettings)}
+					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {showSettings
+						? 'text-primary'
+						: ''}"
 				>
-					<button on:click={clickMetronome} class={metronome > 0 ? 'text-secondary' : ''}>
-						<i class="material-icons !text-2xl p-1">{metronome > 0 ? 'timer' : 'timer_off'}</i>
-					</button>
-
-					<div class="h-full text-center absolute top-[70px] left-[50%] translate-x-[-50%]">
-						<input
-							bind:value={metronome}
-							type="range"
-							min="0"
-							max="2"
-							step="0.1"
-							class="input-range touch-none rotate-90 max-w-[110px]"
-						/>
-						<div class="pt-[50px] text-xs">
-							{Math.round(metronome * 100)}%
-						</div>
-					</div>
-				</label>
-			</div>
-
-			<select
-				class="bg-transparent text-xs outline-0 min-w-[40px]"
-				bind:value={delaying}
-				title="delay to start playing"
-			>
-				{#each Array(10).fill(0) as _, i}
-					<option value={i * 1000}>{i}s</option>
-				{/each}
-			</select>
-
-			<div class="flex sm:justify-end sm:w-full">
-				<button disabled={!scoreLoaded} on:click={clickDownload} title="Download the track">
-					<i class="material-icons !text-2xl p-1">file_download</i>
+					<i class="material-icons !text-2xl">settings</i>
+					<span
+						class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/2 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+					>
+						Settings [S]
+					</span>
 				</button>
-				<button disabled={!scoreLoaded} on:click={clickPrint} title="Download the tablature">
-					<i class="material-icons !text-2xl p-1">print</i>
+
+				<button
+					on:click={toggleFullscreen}
+					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {isFullscreen
+						? 'text-primary'
+						: ''}"
+					title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+				>
+					<i class="material-icons !text-2xl">
+						{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}
+					</i>
+					<span
+						class="font-mono absolute left-1 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/2 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+					>
+						Fullscreen [F]
+					</span>
 				</button>
 			</div>
 		</div>
 
 		<div
-			class="{bindDuration
-				? 'h-[5px] text-transparent'
-				: 'h-[14px] text-light'} hover:h-[14px] hover:text-light absolute w-full overflow-hidden transition-all duration-50 "
+			class="z-[1003] {bindDuration
+				? 'h-[6px] text-transparent'
+				: 'h-[16px] text-light'} hover:h-[16px] hover:text-light absolute w-full overflow-hidden transition-all duration-50 "
 		>
 			<input
 				type="range"
@@ -455,16 +690,177 @@
 				on:change={progressChange}
 			/>
 			<div
-				class="absolute top-0 left-2 pointer-events-none text-[0.7rem] font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] dark:drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]"
+				class="absolute top-0 left-2 pointer-events-none text-xs font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] dark:drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]"
 			>
 				{current}
 			</div>
 		</div>
+
+		<!-- Expandable Settings Panel -->
+		{#if showSettings}
+			<div
+				class="relative w-full pt-3 bg-white dark:bg-black transition-opacity duration-200  {controlsVisible
+					? 'opacity-100'
+					: 'opacity-0'}"
+			>
+				<div
+					bind:this={settings}
+					class="absolute w-full border-t border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-black p-3"
+				>
+					<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+						<!-- Volume Control -->
+						<SettingSlider
+							bind:value={volume}
+							min={0}
+							max={2}
+							step={0.1}
+							label="Volume"
+							iconOn="volume_up"
+							iconOff="volume_off"
+						/>
+
+						<!-- Speed Control -->
+						<SettingSlider
+							bind:value={speed}
+							min={0.1}
+							max={2}
+							step={0.1}
+							label="Speed"
+							iconOn="speed"
+							iconOff="speed"
+						/>
+
+						<!-- Metronome -->
+						<SettingSlider
+							bind:value={metronome}
+							min={0}
+							max={2}
+							step={0.1}
+							label="Metronome"
+							iconOn="timer"
+							iconOff="timer_off"
+						/>
+
+						<!-- Scale Control -->
+						<SettingSlider
+							bind:value={tabScale}
+							min={0.3}
+							max={1.5}
+							step={0.1}
+							label="Scale"
+							iconOn="zoom_in"
+							iconOff="zoom_out"
+							onInput={updateTabScale}
+						/>
+					</div>
+
+					<!-- Track Controls (if multiple tracks) -->
+					{#if tracks.length > 1}
+						<div class="mt-4 pt-3 border-t border-stone-300 dark:border-stone-700">
+							<div class="text-xs font-medium text-stone-700 dark:text-stone-300 mb-2">
+								Track Controls
+							</div>
+							<div class="flex flex-wrap gap-2">
+								<button
+									on:click={clickSolo}
+									class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {solo
+										? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300'
+										: 'border-stone-300 dark:border-stone-600'}"
+								>
+									<i class="material-icons !text-sm mr-1">{solo ? 'headphones' : 'headset_off'}</i>
+									Solo
+								</button>
+								<button
+									on:click={clickMute}
+									class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {mute
+										? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 border-red-300'
+										: 'border-stone-300 dark:border-stone-600'}"
+								>
+									<i class="material-icons !text-sm mr-1">{mute ? 'music_off' : 'music_note'}</i>
+									Mute
+								</button>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Action Buttons -->
+					<div class="mt-4 pt-3 border-t border-stone-300 dark:border-stone-700 flex gap-2">
+						<button
+							disabled={!scoreLoaded}
+							on:click={clickDownload}
+							class="px-3 py-2 text-xs bg-stone-200 dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700 transition-all duration-200 active:scale-95 disabled:opacity-50"
+						>
+							<i class="material-icons !text-lg mr-1">file_download</i>
+							Download
+						</button>
+						<button
+							disabled={!scoreLoaded}
+							on:click={clickPrint}
+							class="px-3 py-2 text-xs bg-stone-200  dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700 transition-all duration-200 active:scale-95 disabled:opacity-50"
+						>
+							<i class="material-icons !text-lg mr-1">print</i>
+							Print
+						</button>
+
+						<!-- Delay selector -->
+						<div
+							class="relative bg-stone-200  dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700"
+						>
+							<label for="delay" class="pointer-events-none absolute left-2">
+								<i class="py-2 material-icons !text-lg mr-1">access_time</i>
+							</label>
+
+							<select
+								name="delay"
+								class="pl-8 pr-3 py-2 text-xs bg-stone-200 dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700  border-none outline-none h-full w-max"
+								bind:value={delaying}
+							>
+								{#each Array(10).fill(0) as _, i}
+									<option value={i * 1000}>{i}s delay</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Content -->
 	<div class="min-h-[500px] md:min-h-[800px] relative">
-		{#if hasSheet && !scoreLoaded}
+		{#if apiError}
+			<!-- Error State -->
+			<div class="flex items-center justify-center h-[80vh]">
+				<div class="text-center">
+					<i class="material-icons !text-6xl text-red-500 mb-4">error_outline</i>
+					<div class="text-xl font-medium text-stone-800 dark:text-stone-200">
+						Error Loading Tablature
+					</div>
+					<div class="text-stone-600 dark:text-stone-400 max-w-md mx-auto my-2">
+						{apiError}
+					</div>
+
+					<div class="flex justify-center">
+						<button
+							on:click={() => {
+								apiError = '';
+								if (api) {
+									if (data.fileAsB64) {
+										api.load(base64ToArrayBuffer(data.fileAsB64));
+									} else if (history.state.base64) {
+										api.load(base64ToArrayBuffer(history.state.base64));
+									}
+								}
+							}}
+							class="bg-primary text-white px-6 py-3 hover:opacity-80 font-bold transition-opacity flex items-center"
+						>
+							<i class="material-icons mr-2">refresh</i>
+							Try Again
+						</button>
+					</div>
+				</div>
+			</div>
+		{:else if hasSheet && !scoreLoaded}
 			<!-- Loading -->
 			<div class="flex items-center justify-center h-[80vh]">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mr-3" />
@@ -504,28 +900,61 @@
 
 		<!-- Countdown overlay -->
 		{#if rest > 0}
-			<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
-				<div
-					class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 p-6 text-center"
-				>
-					<div class="text-4xl font-bold text-primary mb-2">{rest / 1000}</div>
-					<div class="text-stone-600 dark:text-stone-400 mb-3">Playing in...</div>
-					<button
-						on:click={() => (rest = 0)}
-						class="px-3 py-1 bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 transition-colors text-sm"
-					>
-						Cancel
-					</button>
-				</div>
-			</div>
+			<button
+				class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999] cursor-pointer"
+				on:click={() => {
+					clearInterval(countdownInterval);
+					rest = 0;
+				}}
+			>
+				<button class="text-center" on:click|stopPropagation>
+					<!-- Animated circle -->
+					<div class="relative w-32 h-32 mx-auto mb-6">
+						<svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128">
+							<!-- Background circle -->
+							<circle
+								cx="64"
+								cy="64"
+								r="56"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="8"
+								class="text-stone-300 dark:text-stone-600"
+							/>
+							<!-- Progress circle with smooth animation -->
+							<circle
+								cx="64"
+								cy="64"
+								r="56"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="8"
+								stroke-linecap="round"
+								class="text-primary transition-all duration-75 ease-linear"
+								style="stroke-dasharray: 351.86; stroke-dashoffset: {351.86 * (rest / delaying)};"
+							/>
+						</svg>
+						<!-- Countdown number -->
+						<div class="absolute inset-0 flex items-center justify-center">
+							<span class="text-5xl font-bold text-white drop-shadow-lg transition-all duration-75">
+								{Math.ceil(rest / 1000)}
+							</span>
+						</div>
+					</div>
+
+					<!-- Text and cancel -->
+					<div class="text-white text-lg font-medium mb-4 drop-shadow">Starting playback...</div>
+					<div class="text-white text-sm opacity-75 mb-4 drop-shadow">Click anywhere to cancel</div>
+				</button>
+			</button>
 		{/if}
 
 		<!-- AlphaTab container -->
 		<div
-			class="bg-white dark:bg-black border border-stone-300 dark:border-stone-700 {hasSheet &&
+			class="bg-white dark:bg-stone-200 border border-stone-300 dark:border-slate-200 {hasSheet &&
 			scoreLoaded
 				? 'min-h-[600px]'
-				: 'min-h-1 opacity-0'}"
+				: 'min-h-1 opacity-0'} {theme ? 'invert' : ''}"
 			bind:this={target}
 		/>
 	</div>

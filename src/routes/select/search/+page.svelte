@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte';
 	import { tabStore } from '../../../library/utils/store';
 	import { base64ToArrayBuffer, arrayBufferToBase64 } from '../../../library/utils/utils';
+	import ScrollObserver from '../../../library/components/ScrollObserver.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -71,15 +72,31 @@
 
 	let query = '';
 	let currentPage = 1;
-	let timer: NodeJS.Timeout;
+	let loadingMore = false;
 
 	$: queryLastWord = (() => {
 		const trimmed = query.trimEnd();
 		const parts = trimmed.split(/\s+/);
 		return parts[parts.length - 1] || '';
 	})();
-    
+
+	$: isInitialLoading = loading && currentPage === 1 && !tabs.length;
+
 	let searchBar: HTMLInputElement;
+
+	async function loadMore(isIntersecting: boolean) {
+		if (loadingMore || !hasMorePages) return;
+		loadingMore = true;
+
+		try {
+			currentPage += 1;
+			await performSearch();
+		} catch (err) {
+			console.error('Failed to load more:', err);
+		} finally {
+			loadingMore = false;
+		}
+	}
 
 	async function fetchWithTimeout(
 		url: string,
@@ -121,7 +138,7 @@
 				page: String(currentPage),
 				limit: String(50)
 			});
-      
+
 			const apiUrl = `${SEARCH_API_BASE_URL}/api/search?${urlParams.toString()}`;
 
 			const response = await fetchWithTimeout(apiUrl, {
@@ -179,7 +196,11 @@
 					score: tab.score
 				}));
 
-			tabs = validTabs;
+			if (currentPage === 1) {
+				tabs = validTabs; // fresh search
+			} else {
+				tabs = [...tabs, ...validTabs]; // append for infinite scroll
+			}
 
 			// Use backend pagination info
 			totalResults = data.total ?? validTabs.length;
@@ -207,14 +228,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function debounceSearch(): void {
-		clearTimeout(timer);
-		timer = setTimeout(() => {
-			suggestions = BASE_SUGGESTIONS;
-			performSearch();
-		}, 500);
 	}
 
 	function updateURL(): void {
@@ -557,7 +570,7 @@
 
 	<!-- Content -->
 	<div class="px-5 py-3">
-		{#if loading}
+		{#if isInitialLoading}
 			<!-- Loading -->
 			<div class="flex items-center justify-center py-[210px]">
 				<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mr-3" />
@@ -585,11 +598,11 @@
 			<div class="mb-3 text-sm text-stone-600 dark:text-stone-400">
 				{totalResults} result{totalResults !== 1 ? 's' : ''} found
 				{#if query} for "{query}"{/if}
-				{#if currentPage > 1}- Page {currentPage}{/if}
 			</div>
 
 			<div class="bg-white dark:bg-black border border-stone-300 dark:border-slate-700">
-				<table class="w-full text-sm">
+				<!-- Desktop table -->
+				<table class="hidden md:table w-full text-sm">
 					<thead
 						class="dark:text-slate-400 bg-stone-100 dark:bg-black border-b border-stone-300 dark:border-slate-700"
 					>
@@ -608,7 +621,12 @@
 								on:click={() => openTab(tab)}
 							>
 								<td class="py-2 px-3">
-									<div class="font-medium dark:text-slate-200">{tab.title}</div>
+									<div class="flex space-x-1">
+										<div class="text-xs text-stone-500 dark:text-slate-400 text-center">
+											{i + 1}.
+										</div>
+										<div class="font-medium dark:text-slate-200">{tab.title}</div>
+									</div>
 									<div class="text-xs text-stone-500 dark:text-slate-400">{tab.type}</div>
 								</td>
 								<td class="py-2 px-3 text-stone-700 dark:text-slate-300">{tab.artist}</td>
@@ -630,34 +648,62 @@
 						{/each}
 					</tbody>
 				</table>
-			</div>
 
-			<!-- Pagination -->
-			{#if hasMorePages || currentPage > 1}
-				<div class="flex items-center justify-center mt-4 space-x-2">
-					{#if currentPage > 1}
+				<!-- Mobile stacked version -->
+				<div class="md:hidden divide-y divide-stone-200 dark:divide-slate-700">
+					{#each tabs as tab, i}
 						<button
-							on:click={() => goToPage(currentPage - 1)}
-							class="px-3 py-1 dark:text-slate-200 bg-white dark:bg-black border border-stone-300 dark:border-slate-700 text-sm hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors"
+							class="relative p-3 w-full hover:bg-stone-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+							on:click={() => openTab(tab)}
 						>
-							<i class="material-icons !text-lg">navigate_before</i>
-						</button>
-					{/if}
+							<!-- Open icon pinned right -->
+							<i
+								class="material-icons absolute top-3 right-3 !text-lg text-primary hover:opacity-70 transition-opacity"
+								>open_in_new</i
+							>
 
-					<span class="px-4 py-2 bg-primary text-white text-sm">
-						{currentPage}
-					</span>
+							<!-- Main title -->
+							<div class="">
+								<span class="text-sm text-stone-500 dark:text-slate-400 text-center">
+									{i + 1}.
+								</span>
+								<span class="font-medium dark:text-slate-200 pr-8">{tab.title}</span>
+							</div>
 
-					{#if hasMorePages}
-						<button
-							on:click={() => goToPage(currentPage + 1)}
-							class="px-3 py-1 dark:text-slate-200 bg-white dark:bg-black border border-stone-300 dark:border-slate-700 text-sm hover:bg-stone-50 dark:hover:bg-gray-800 transition-colors"
-						>
-							<i class="material-icons !text-lg">navigate_next</i>
+							<div class="text-xs text-stone-500 dark:text-slate-400 mb-1">{tab.type}</div>
+
+							<!-- Secondary info stacked -->
+							<div class="text-xs text-stone-700 dark:text-slate-300">
+								<span class="font-semibold">Artist:</span>
+								{tab.artist}
+							</div>
+							<div class="text-xs text-stone-600 dark:text-slate-400">
+								<span class="font-semibold">Album:</span>
+								{tab.album || '-'}
+							</div>
+							<div class="text-xs mt-1">
+								<span
+									class="text-stone-700 dark:text-slate-300 bg-stone-200 dark:bg-gray-700 px-2 py-0.5 rounded"
+								>
+									{tab.source}
+								</span>
+							</div>
 						</button>
-					{/if}
+					{/each}
 				</div>
-			{/if}
+				{#if loadingMore}
+					<!-- Infinite scroll loader -->
+					<div class="py-4 text-center text-sm text-stone-500 dark:text-slate-400">
+						<div class="flex items-center justify-center">
+							<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2" />
+							<span>Loading more...</span>
+						</div>
+					</div>
+				{/if}
+				{#if hasMorePages}
+					<ScrollObserver onIntersect={loadMore} />
+				{/if}
+			</div>
 		{:else if query.length >= 2}
 			<!-- No Results -->
 			<div class="text-center py-20">

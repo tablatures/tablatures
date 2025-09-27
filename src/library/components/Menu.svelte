@@ -28,20 +28,9 @@
 </script>
 
 <nav
-	class="flex pt-2 h-[50px] overflow-hidden items-center w-full text-stone-500 dark:text-stone-300"
+	class="flex pt-2 sm:h-[50px] h-[100px] overflow-hidden w-full text-stone-500 dark:text-stone-300"
 >
-	<div class="pl-[130px] flex w-full justify-center">
-		{#each buttons as button}
-			<a
-				href="{base}{button.href}"
-				class="mx-2 {currentPath == button.href ? 'text-secondary' : ''}"
-			>
-				<i class="material-icons !text-2xl px-2">{button.icon}</i>
-				<p class="text-xs mt-[-8px]">{button.label}</p>
-			</a>
-		{/each}
-	</div>
-	<div class="flex justify-end">
+	<div class="absolute w-full flex justify-end">
 		<button class="mx-1">
 			<i class="!hidden dark:!inline-block material-icons !text-2xl py-1 text-yellow-400">
 				nightlight
@@ -64,5 +53,16 @@
 		<a href="{base}/" class="rounded border border-stone-500  mx-2">
 			<i class="material-icons !text-2xl px-2 py-1">close</i>
 		</a>
+	</div>
+	<div class="sm:pt-0 pt-[50px] flex w-full justify-center">
+		{#each buttons as button}
+			<a
+				href="{base}{button.href}"
+				class="mx-2 {currentPath == button.href ? 'text-secondary' : ''}"
+			>
+				<i class="material-icons !text-2xl px-2">{button.icon}</i>
+				<p class="text-xs mt-[-8px]">{button.label}</p>
+			</a>
+		{/each}
 	</div>
 </nav>
