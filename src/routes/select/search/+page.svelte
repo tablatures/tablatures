@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { PAGE_PARAM, SEARCH_PARAM } from '../../../library/utils/constants';
+	export const SEARCH_PARAM = 'search';
+	export const TYPE_PARAM = 'queryType';
+	export const PAGE_PARAM = 'page';
+	export const SOURCE_PARAM = 'source';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -777,7 +780,8 @@
 				<div class="text-sm text-stone-600 dark:text-slate-400 mb-2">Or import from gp file</div>
 				<a
 					href="{base}/select/upload"
-					class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-slate-300 text-sm hover:bg-stone-300 dark:hover:bg-slate-700 transition-colors"
+					class="inline-flex items-center px-4 py-2  text-stone-700 dark:text-slate-300 text-sm  rounded-lg transition-colors duration-200
+           hover:bg-purple-100 dark:hover:bg-purple-900/40"
 				>
 					<i class="material-icons !text-lg mr-2">file_download</i>
 					Upload tablature
