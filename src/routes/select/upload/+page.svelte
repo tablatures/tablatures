@@ -234,7 +234,8 @@
 					<div class="text-sm text-stone-600 dark:text-slate-400 mb-2">Or browse existing tabs</div>
 					<a
 						href="{base}/select/search"
-						class="inline-flex items-center px-4 py-2 bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-slate-300 text-sm hover:bg-stone-300 dark:hover:bg-slate-700 transition-colors"
+						class="inline-flex items-center px-4 py-2 text-stone-700 dark:text-slate-300 text-sm rounded-lg transition-colors duration-200
+           hover:bg-purple-100 dark:hover:bg-purple-900/40"
 					>
 						<i class="material-icons !text-lg mr-2">search</i>
 						Search Database

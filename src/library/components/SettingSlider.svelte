@@ -7,6 +7,7 @@
 	export let max: number = 2;
 	export let step: number = 0.1;
 	export let label: string = 'Setting';
+	export let details: string = '';
 	export let onInput: () => void;
 
 	// Dynamic icons
@@ -31,7 +32,7 @@
 <div class="w-full">
 	<!-- Wrapper button -->
 	<button
-		class="w-full text-left space-y-1 py-2 px-3 rounded-lg transition-colors duration-200
+		class="relative group w-full text-left space-y-1 py-2 px-3 rounded-lg transition-colors duration-200
            hover:bg-purple-100 dark:hover:bg-purple-900/40 group"
 		on:click={toggleValue}
 	>
@@ -48,6 +49,14 @@
 			</i>
 			{label}: {format(value)}
 		</div>
+		{#if details}
+			<span
+				class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/4 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+			>
+				{details}
+			</span>
+		{/if}
 	</button>
 
 	<!-- Range Slider -->
@@ -60,15 +69,15 @@
 		on:input={onInput}
 		on:click|stopPropagation
 		class="
-      w-full h-4 cursor-pointer rounded bg-transparent
-      relative accent-primary appearance-none
-      [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-primary  [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:-mt-1.5
-      [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:rounded-sm
+		w-full h-4 cursor-pointer rounded bg-transparent
+		accent-purple-600 dark:accent-purple-400 appearance-none
 
+		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-stone-300 dark:[&::-webkit-slider-runnable-track]:bg-stone-700 [&::-webkit-slider-runnable-track]:rounded
+		[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-purple-600 dark:[&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:focus:outline-none
 
-      [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-primary  [&::-webkit-slider-runnable-track]:rounded
-      [&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-purple-100  [&::-moz-range-track]:rounded [&::-moz-range-thumb]:focus:outline-none
-      [&::-moz-range-progress]:bg-primary [&::-moz-range-progress]:h-1 [&::-moz-range-progress]:rounded [&::-moz-range-thumb]:focus:outline-none
-    "
+		[&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-stone-300 dark:[&::-moz-range-track]:bg-stone-700 [&::-moz-range-track]:rounded
+		[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:bg-purple-600 dark:[&::-moz-range-thumb]:bg-purple-400 [&::-moz-range-thumb]:rounded-sm [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:focus:outline-none
+		[&::-moz-range-progress]:bg-purple-600 dark:[&::-moz-range-progress]:bg-purple-400 [&::-moz-range-progress]:h-1 [&::-moz-range-progress]:rounded
+	"
 	/>
 </div>

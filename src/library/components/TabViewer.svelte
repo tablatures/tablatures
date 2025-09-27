@@ -70,6 +70,12 @@
 	let solo: boolean = false;
 	let mute: boolean = false;
 	let apiError = '';
+	let activeSettingsTab = 'settings';
+
+	let showProgressTooltip = false;
+	let tooltipTime = '';
+	let tooltipPosition = 0;
+	let hoverProgress = 0;
 
 	let tracks: any[] = [];
 	let activeTrackIndex: number;
@@ -79,6 +85,11 @@
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
+
+	let showTrackMixer = false;
+	let trackVolumes: number[] = [];
+	let trackMutes: boolean[] = [];
+	let trackSolos: boolean[] = [];
 
 	$: if (api && tracks.length > 0) {
 		const track = tracks[activeTrackIndex];
@@ -118,6 +129,13 @@
 		const end = Math.round(duration / 1000);
 		const now = Math.round(progress * 0.01 * end);
 		current = `${displayTime(now)} / ${displayTime(end)}`;
+	}
+
+	// Initialize track states when tracks load
+	$: if (tracks.length > 0 && trackVolumes.length === 0) {
+		trackVolumes = tracks.map(() => 1.0);
+		trackMutes = tracks.map(() => false);
+		trackSolos = tracks.map(() => false);
 	}
 
 	/*
@@ -350,11 +368,10 @@
 			clickLooping();
 		} else if (event.code === 'KeyT') {
 			event.preventDefault();
-			trackSelectElement?.focus();
-			trackSelectElement?.showPicker();
+			toggleTracksSettings();
 		} else if (event.code === 'KeyS') {
 			event.preventDefault();
-			showSettings = !showSettings;
+			toggleSettings();
 		} else if (event.code === 'KeyF') {
 			event.preventDefault();
 			toggleFullscreen();
@@ -381,12 +398,12 @@
 		rest = delaying;
 		if (delaying !== 0) {
 			countdownInterval = setInterval(() => {
-				rest -= 1000;
+				rest -= 100;
 				if (rest <= 0) {
 					api?.playPause();
 					clearInterval(countdownInterval);
 				}
-			}, 1000);
+			}, 100);
 		} else {
 			api?.playPause();
 		}
@@ -418,20 +435,91 @@
 		progressChange();
 	}
 
-	function clickSolo(e: any) {
-		const track = tracks[activeTrackIndex];
-		track.playbackInfo.isSolo = !track.playbackInfo.isSolo;
-		solo = tracks[activeTrackIndex].playbackInfo.isSolo;
+	function toggleTrackSolo(trackIndex: number) {
+		if (trackSolos[trackIndex]) {
+			// Unsolo this track
+			trackSolos[trackIndex] = false;
+			const track = tracks[trackIndex];
+			track.playbackInfo.isSolo = false;
+			api.changeTrackSolo([track], false);
+		} else {
+			// Unsolo all other tracks first, then solo this one
+			trackSolos = trackSolos.map(() => false);
+			tracks.forEach((track) => {
+				track.playbackInfo.isSolo = false;
+				api.changeTrackSolo([track], false);
+			});
 
-		api.changeTrackSolo([track], track.playbackInfo.isSolo);
+			// Solo the selected track
+			trackSolos[trackIndex] = true;
+			const track = tracks[trackIndex];
+			track.playbackInfo.isSolo = true;
+			api.changeTrackSolo([track], true);
+		}
+
+		// Update current track solo state
+		solo = trackSolos[activeTrackIndex];
 	}
 
-	function clickMute(e: any) {
-		const track = tracks[activeTrackIndex];
-		track.playbackInfo.isMute = !track.playbackInfo.isMute;
-		mute = tracks[activeTrackIndex].playbackInfo.isMute;
+	function toggleTrackMute(trackIndex: number) {
+		trackMutes[trackIndex] = !trackMutes[trackIndex];
+		const track = tracks[trackIndex];
+		track.playbackInfo.isMute = trackMutes[trackIndex];
+		api.changeTrackMute([track], trackMutes[trackIndex]);
 
-		api.changeTrackMute([track], track.playbackInfo.isMute);
+		// Update current track mute state if this is the active track
+		if (trackIndex === activeTrackIndex) {
+			mute = trackMutes[trackIndex];
+		}
+	}
+
+	function updateTrackVolume(trackIndex: number, volume: number) {
+		trackVolumes[trackIndex] = volume;
+		const track = tracks[trackIndex];
+		track.playbackInfo.volume = volume;
+		api.changeTrackVolume([track], volume);
+	}
+
+	function setActiveTrack(trackIndex: number) {
+		activeTrackIndex = trackIndex;
+		api.renderTracks([tracks[trackIndex]]);
+
+		// Update current states
+		solo = trackSolos[trackIndex];
+		mute = trackMutes[trackIndex];
+	}
+
+	function getTrackInfo(track: any): string {
+		const parts = [];
+		if (track.channel?.instrument) parts.push(track.channel.instrument);
+		if (track.channel?.channel1) parts.push(`Ch.${track.channel.channel1}`);
+		return parts.join(' • ') || 'Track';
+	}
+
+	function muteAllTracks() {
+		trackMutes = trackMutes.map(() => true);
+		tracks.forEach((track, i) => {
+			track.playbackInfo.isMute = true;
+			api.changeTrackMute([track], true);
+		});
+		mute = trackMutes[activeTrackIndex];
+	}
+
+	function unmuteAllTracks() {
+		trackMutes = trackMutes.map(() => false);
+		tracks.forEach((track, i) => {
+			track.playbackInfo.isMute = false;
+			api.changeTrackMute([track], false);
+		});
+		mute = false;
+	}
+
+	function resetAllVolumes() {
+		trackVolumes = trackVolumes.map(() => 1.0);
+		tracks.forEach((track, i) => {
+			track.playbackInfo.volume = 1.0;
+			api.changeTrackVolume([track], 1.0);
+		});
 	}
 
 	// update the progress on click
@@ -449,14 +537,6 @@
 
 		// avoid sound freeze by delaying pdf generation
 		setTimeout(() => api.print(), 100);
-	}
-
-	function clickMetronome() {
-		metronome = metronome == 0 ? 1 : 0;
-	}
-
-	function clickVolume() {
-		volume = volume == 0 ? 1 : 0;
 	}
 
 	function clickDownload() {
@@ -486,6 +566,32 @@
 				(document as any).webkitExitFullscreen();
 			}
 			isFullscreen = false;
+		}
+	}
+
+	function toggleTracksSettings() {
+		if (showSettings) {
+			if (activeSettingsTab == 'tracks') {
+				showSettings = false;
+			} else {
+				activeSettingsTab = 'tracks';
+			}
+		} else {
+			showSettings = true;
+			activeSettingsTab = 'tracks';
+		}
+	}
+
+	function toggleSettings() {
+		if (showSettings) {
+			if (activeSettingsTab == 'settings') {
+				showSettings = false;
+			} else {
+				activeSettingsTab = 'settings';
+			}
+		} else {
+			showSettings = true;
+			activeSettingsTab = 'settings';
 		}
 	}
 
@@ -542,6 +648,39 @@
 	function handleControlsLeave() {
 		controlsHovered = false;
 		showControls(); // restart hiding logic
+	}
+
+	function handleProgressHover(event: MouseEvent) {
+		if (!range || !duration) return;
+
+		const rect = range.getBoundingClientRect();
+		const x = event.clientX - rect.left;
+		const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		const timeSeconds = (percentage / 100) * (duration / 1000);
+
+		hoverProgress = percentage;
+		tooltipTime = displayTime(Math.round(timeSeconds));
+		tooltipPosition = Math.max(20, Math.min(rect.width - 20, x));
+		showProgressTooltip = true;
+	}
+
+	function handleProgressTouch(event: TouchEvent) {
+		if (!range || !duration || !event.touches[0]) return;
+
+		const rect = range.getBoundingClientRect();
+		const x = event.touches[0].clientX - rect.left;
+		const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		const timeSeconds = (percentage / 100) * (duration / 1000);
+
+		hoverProgress = percentage;
+		tooltipTime = displayTime(Math.round(timeSeconds));
+		tooltipPosition = Math.max(20, Math.min(rect.width - 20, x));
+		showProgressTooltip = true;
+	}
+
+	function hideProgressTooltip() {
+		showProgressTooltip = false;
+		hoverProgress = 0;
 	}
 </script>
 
@@ -610,27 +749,25 @@
 			<div class="relative group flex-1 mx-4 text-center min-w-0">
 				{#if scoreLoaded}
 					<div
-						class="cursor-none absolute top-0 left-[50%] transform -translate-x-1/2 text-xs text-stone-600 dark:text-stone-400 truncate"
+						class="z-[9010] cursor-none absolute top-1 left-[50%] transform -translate-x-1/2 text-xs text-stone-600 dark:text-stone-400 truncate"
 					>
 						{current}
 					</div>
-					<select
-						id="trackSelect"
-						bind:value={activeTrackIndex}
-						bind:this={trackSelectElement}
-						class="flex-1 bg-transparent text-center text-md outline-none truncate h-full w-full pt-5 px-2 pb-1 border-b border-stone-200 dark:border-stone-800 hover:border-stone-400 dark:hover:border-stone-600
-						bg-stone-50 dark:bg-black text-stone-500 dark:text-slate-400 hover:bg-stone-100 dark:hover:bg-slate-800"
+					<button
+						on:click={() => {
+							toggleTracksSettings();
+						}}
+						class="relative group flex-1 bg-transparent text-center text-md outline-none truncate h-full w-full pt-5 px-2 pb-1 bg-stone-50 dark:bg-black text-stone-500 dark:text-slate-400 hover:bg-stone-100 dark:hover:bg-slate-800 {showSettings &&
+						activeSettingsTab == 'tracks'
+							? 'text-primary'
+							: ''}"
 					>
-						{#each tracks as track, i}
-							<option value={i} class="w-full ">
-								{track.name}
-							</option>
-						{/each}
-					</select>
+						{tracks[activeTrackIndex]?.name || 'Select Track'}
+					</button>
 
 					<span
 						class="font-mono absolute left-1/2 -bottom-[30px] mb-2 w-max max-w-xs transform -translate-x-1/2 z-[1005] opacity-0 group-hover:opacity-90 rounded-md
-						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200 text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
+						shadow-md bg-white dark:bg-black text-slate-700 dark:text-slate-200  text-xs px-2 py-1 whitespace-nowrap transition-opacity duration-200 pointer-events-none"
 					>
 						Select track [T]
 					</span>
@@ -639,8 +776,11 @@
 
 			<div>
 				<button
-					on:click={() => (showSettings = !showSettings)}
-					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {showSettings
+					on:click={() => {
+						toggleSettings();
+					}}
+					class="relative group p-1 hover:text-stone-700 dark:hover:text-slate-200 {showSettings &&
+					activeSettingsTab == 'settings'
 						? 'text-primary'
 						: ''}"
 				>
@@ -675,12 +815,27 @@
 
 		<div
 			class="z-[1003] {bindDuration
-				? 'h-[6px] text-transparent'
-				: 'h-[16px] text-light'} hover:h-[16px] hover:text-light absolute w-full overflow-hidden transition-all duration-50 "
+				? 'h-[6px]'
+				: 'h-[16px]'} hover:h-[16px] absolute w-full overflow-visible transition-all duration-200 group"
 		>
+			<!-- Background track -->
+			<div class="absolute inset-0 bg-purple-200 dark:bg-violet-900">
+				<!-- Current progress -->
+				<div
+					class="absolute inset-0 bg-primary transition-all duration-150"
+					style="width: {progress}%"
+				/>
+
+				<!-- Preview progress on hover (transparent) -->
+				{#if showProgressTooltip && hoverProgress > progress}
+					<div class="absolute inset-0 bg-primary opacity-30" style="width: {hoverProgress}%" />
+				{/if}
+			</div>
+
+			<!-- Invisible input for interaction -->
 			<input
 				type="range"
-				class="loading-bar bg-purple-200 dark:bg-violet-900"
+				class="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none"
 				min="0"
 				max="100"
 				bind:this={range}
@@ -688,139 +843,295 @@
 				on:input={progressInput}
 				on:click={progressClick}
 				on:change={progressChange}
+				on:mousemove={handleProgressHover}
+				on:mouseleave={hideProgressTooltip}
+				on:touchstart={handleProgressTouch}
+				on:touchmove={handleProgressTouch}
+				on:touchend={hideProgressTooltip}
 			/>
-			<div
-				class="absolute top-0 left-2 pointer-events-none text-xs font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] dark:drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]"
-			>
-				{current}
-			</div>
+
+			<!-- Hover tooltip (downward) -->
+			{#if showProgressTooltip && tooltipTime}
+				<div
+					class="absolute top-full mt-2 bg-black dark:bg-white text-white dark:text-black px-2 py-1 rounded text-xs font-medium shadow-lg pointer-events-none z-10 transform -translate-x-1/2 transition-opacity duration-150"
+					style="left: {tooltipPosition}px"
+				>
+					<!-- Tooltip arrow (pointing up) -->
+					<div
+						class="absolute bottom-full left-1/2 transform -translate-x-1/2 border-l-4 border-r-4 border-b-4 border-transparent border-b-black dark:border-b-white"
+					/>
+					{tooltipTime}
+				</div>
+			{/if}
 		</div>
 
 		<!-- Expandable Settings Panel -->
 		{#if showSettings}
 			<div
-				class="relative w-full pt-3 bg-white dark:bg-black transition-opacity duration-200  {controlsVisible
+				class="relative w-full bg-white dark:bg-black transition-opacity duration-200 {controlsVisible
 					? 'opacity-100'
 					: 'opacity-0'}"
 			>
 				<div
 					bind:this={settings}
-					class="absolute w-full border-t border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-black p-3"
+					class="absolute w-full border-t border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-black py-3"
 				>
-					<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-						<!-- Volume Control -->
-						<SettingSlider
-							bind:value={volume}
-							min={0}
-							max={2}
-							step={0.1}
-							label="Volume"
-							iconOn="volume_up"
-							iconOff="volume_off"
-						/>
-
-						<!-- Speed Control -->
-						<SettingSlider
-							bind:value={speed}
-							min={0.1}
-							max={2}
-							step={0.1}
-							label="Speed"
-							iconOn="speed"
-							iconOff="speed"
-						/>
-
-						<!-- Metronome -->
-						<SettingSlider
-							bind:value={metronome}
-							min={0}
-							max={2}
-							step={0.1}
-							label="Metronome"
-							iconOn="timer"
-							iconOff="timer_off"
-						/>
-
-						<!-- Scale Control -->
-						<SettingSlider
-							bind:value={tabScale}
-							min={0.3}
-							max={1.5}
-							step={0.1}
-							label="Scale"
-							iconOn="zoom_in"
-							iconOff="zoom_out"
-							onInput={updateTabScale}
-						/>
+					<!-- Tab Navigation -->
+					<div class="flex mb-4 border-b border-stone-200 dark:border-stone-700">
+						<button
+							on:click={() => (activeSettingsTab = 'tracks')}
+							class="px-4 pb-2 text-sm font-medium transition-colors duration-200 {activeSettingsTab ===
+							'tracks'
+								? 'text-primary border-b-2 border-primary'
+								: 'text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'}"
+						>
+							Tracks ({tracks.length})
+						</button>
+						<button
+							on:click={() => (activeSettingsTab = 'settings')}
+							class="px-4 pb-2 text-sm font-medium transition-colors duration-200 {activeSettingsTab ===
+							'settings'
+								? 'text-primary border-b-2 border-primary'
+								: 'text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200'}"
+						>
+							Settings
+						</button>
 					</div>
 
-					<!-- Track Controls (if multiple tracks) -->
-					{#if tracks.length > 1}
-						<div class="mt-4 pt-3 border-t border-stone-300 dark:border-stone-700">
-							<div class="text-xs font-medium text-stone-700 dark:text-stone-300 mb-2">
-								Track Controls
-							</div>
-							<div class="flex flex-wrap gap-2">
-								<button
-									on:click={clickSolo}
-									class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {solo
-										? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300'
-										: 'border-stone-300 dark:border-stone-600'}"
+					<!-- Settings Tab -->
+					{#if activeSettingsTab === 'settings'}
+						<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+							<!-- Volume Control -->
+							<SettingSlider
+								bind:value={volume}
+								min={0}
+								max={2}
+								step={0.1}
+								label="Volume"
+								iconOn="volume_up"
+								iconOff="volume_off"
+								details="Mute / Reset playback volume"
+							/>
+
+							<!-- Speed Control -->
+							<SettingSlider
+								bind:value={speed}
+								min={0.1}
+								max={2}
+								step={0.1}
+								label="Speed"
+								iconOn="speed"
+								iconOff="speed"
+								details="Slow / Reset playback speed"
+							/>
+
+							<!-- Metronome -->
+							<SettingSlider
+								bind:value={metronome}
+								min={0}
+								max={2}
+								step={0.1}
+								label="Metronome"
+								iconOn="timer"
+								iconOff="timer_off"
+								details="Mute / Max metronome volume"
+							/>
+
+							<!-- Scale Control -->
+							<SettingSlider
+								bind:value={tabScale}
+								min={0.3}
+								max={1.5}
+								step={0.1}
+								label="Scale"
+								iconOn="zoom_in"
+								iconOff="zoom_out"
+								onInput={updateTabScale}
+								details="Small / Reset tablature scale"
+							/>
+						</div>
+
+						<!-- Action Buttons -->
+						<div
+							class="mt-4 pt-3 border-t border-stone-300 dark:border-stone-700 flex flex-wrap gap-2"
+						>
+							<!-- Download -->
+							<button
+								disabled={!scoreLoaded}
+								on:click={clickDownload}
+								class="relative group flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors duration-200 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-stone-700 dark:text-stone-300 group disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+							>
+								<i
+									class="material-icons !text-lg text-stone-500 dark:text-stone-400 group-hover:text-purple-600 dark:group-hover:text-purple-300"
+									>file_download</i
 								>
-									<i class="material-icons !text-sm mr-1">{solo ? 'headphones' : 'headset_off'}</i>
-									Solo
-								</button>
-								<button
-									on:click={clickMute}
-									class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {mute
-										? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 border-red-300'
-										: 'border-stone-300 dark:border-stone-600'}"
+								<span class="group-hover:text-purple-700 dark:group-hover:text-purple-300"
+									>Download</span
 								>
-									<i class="material-icons !text-sm mr-1">{mute ? 'music_off' : 'music_note'}</i>
-									Mute
-								</button>
+							</button>
+
+							<!-- Print -->
+							<button
+								disabled={!scoreLoaded}
+								on:click={clickPrint}
+								class="relative group flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors duration-200 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-stone-700 dark:text-stone-300 group disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+							>
+								<i
+									class="material-icons !text-lg text-stone-500 dark:text-stone-400 group-hover:text-purple-600 dark:group-hover:text-purple-300"
+									>print</i
+								>
+								<span class="group-hover:text-purple-700 dark:group-hover:text-purple-300"
+									>Print</span
+								>
+							</button>
+
+							<!-- Delay selector -->
+							<div
+								class="relative group flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors duration-200 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-stone-700 dark:text-stone-300 group"
+							>
+								<i
+									class="material-icons !text-lg text-stone-500 dark:text-stone-400 group-hover:text-purple-600 dark:group-hover:text-purple-300"
+									>access_time</i
+								>
+								<select
+									name="delay"
+									class="bg-transparent outline-none border-none text-sm text-stone-700 dark:text-stone-300 group-hover:text-purple-700 dark:group-hover:text-purple-300 cursor-pointer hover:bg-stone-100 dark:hover:bg-slate-800"
+									bind:value={delaying}
+								>
+									{#each Array(10).fill(0) as _, i}
+										<option value={i * 1000}>{i}s delay</option>
+									{/each}
+								</select>
 							</div>
 						</div>
 					{/if}
 
-					<!-- Action Buttons -->
-					<div class="mt-4 pt-3 border-t border-stone-300 dark:border-stone-700 flex gap-2">
-						<button
-							disabled={!scoreLoaded}
-							on:click={clickDownload}
-							class="px-3 py-2 text-xs bg-stone-200 dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700 transition-all duration-200 active:scale-95 disabled:opacity-50"
-						>
-							<i class="material-icons !text-lg mr-1">file_download</i>
-							Download
-						</button>
-						<button
-							disabled={!scoreLoaded}
-							on:click={clickPrint}
-							class="px-3 py-2 text-xs bg-stone-200  dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700 transition-all duration-200 active:scale-95 disabled:opacity-50"
-						>
-							<i class="material-icons !text-lg mr-1">print</i>
-							Print
-						</button>
+					<!-- Tracks Tab -->
+					{#if activeSettingsTab === 'tracks'}
+						<!-- Track List -->
+						<div class="bg-stone-50 dark:bg-black rounded-lg px-2 max-h-60 overflow-y-auto">
+							<div class="grid gap-1">
+								{#each tracks as track, i}
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="flex items-center gap-3 p-3  rounded border cursor-pointer transition-all duration-200 bg-stone-50 dark:bg-black text-stone-500 dark:text-slate-400 hover:bg-stone-100 dark:hover:bg-slate-800  {i ===
+										activeTrackIndex
+											? 'border-primary shadow-sm'
+											: 'border-stone-200 dark:border-slate-700'}"
+										on:click={() => {
+											setActiveTrack(i);
+											activeSettingsTab = 'settings';
+											showSettings = false;
+										}}
+									>
+										<!-- Track Info -->
+										<div class="flex-1 min-w-0 flex-shrink-1">
+											<div
+												class="text-sm font-medium truncate {i === activeTrackIndex
+													? 'text-primary'
+													: 'text-stone-800 dark:text-slate-200'}"
+											>
+												{track.name}
+											</div>
+											<div class="text-xs text-slate-500 truncate">
+												{getTrackInfo(track)}
+											</div>
+										</div>
 
-						<!-- Delay selector -->
-						<div
-							class="relative bg-stone-200  dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700"
-						>
-							<label for="delay" class="pointer-events-none absolute left-2">
-								<i class="py-2 material-icons !text-lg mr-1">access_time</i>
-							</label>
+										<!-- Volume Control -->
+										<div class=" items-center gap-2 min-w-0 flex-shrink-1 hidden sm:flex">
+											<i class="material-icons !text-xl text-slate-500">volume_up</i>
+											<input
+												type="range"
+												min="0"
+												max="2"
+												step="0.1"
+												bind:value={trackVolumes[i]}
+												on:input={() => updateTrackVolume(i, trackVolumes[i])}
+												on:click|stopPropagation
+												class="
+		w-24 h-4 cursor-pointer rounded bg-transparent
+		accent-purple-600 dark:accent-purple-400 appearance-none
 
-							<select
-								name="delay"
-								class="pl-8 pr-3 py-2 text-xs bg-stone-200 dark:bg-slate-800 rounded hover:bg-stone-300 dark:hover:bg-slate-700  border-none outline-none h-full w-max"
-								bind:value={delaying}
-							>
-								{#each Array(10).fill(0) as _, i}
-									<option value={i * 1000}>{i}s delay</option>
+		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-stone-300 dark:[&::-webkit-slider-runnable-track]:bg-stone-700 [&::-webkit-slider-runnable-track]:rounded
+		[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-purple-600 dark:[&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:focus:outline-none
+
+		[&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-stone-300 dark:[&::-moz-range-track]:bg-stone-700 [&::-moz-range-track]:rounded
+		[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:bg-purple-600 dark:[&::-moz-range-thumb]:bg-purple-400 [&::-moz-range-thumb]:rounded-sm [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:focus:outline-none
+		[&::-moz-range-progress]:bg-purple-600 dark:[&::-moz-range-progress]:bg-purple-400 [&::-moz-range-progress]:h-1 [&::-moz-range-progress]:rounded
+	"
+											/>
+											<span class="text-sm text-stone-600 dark:text-stone-400 w-8 text-right">
+												{Math.round(trackVolumes[i] * 100)}%
+											</span>
+										</div>
+
+										<!-- Control Buttons -->
+										<div class="flex gap-1 flex-shrink-0">
+											<button
+												on:click|stopPropagation={() => toggleTrackSolo(i)}
+												class="p-1 rounded transition-all duration-200 active:scale-95 {trackSolos[
+													i
+												]
+													? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+													: 'hover:bg-stone-200 dark:hover:bg-stone-700'}"
+												title="Solo Track"
+											>
+												<i class="material-icons !text-xl"
+													>{trackSolos[i] ? 'headphones' : 'headset_off'}</i
+												>
+											</button>
+
+											<button
+												on:click|stopPropagation={() => toggleTrackMute(i)}
+												class="p-1 rounded transition-all duration-200 active:scale-95 {trackMutes[
+													i
+												]
+													? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+													: 'hover:bg-stone-200 dark:hover:bg-stone-700'}"
+												title="Mute Track"
+											>
+												<i class="material-icons !text-xl"
+													>{trackMutes[i] ? 'music_off' : 'music_note'}</i
+												>
+											</button>
+										</div>
+									</div>
 								{/each}
-							</select>
+							</div>
 						</div>
-					</div>
+						<!-- Quick Controls -->
+						<div class="mt-4 flex flex-wrap gap-2">
+							<button
+								on:click={() => toggleTrackSolo(activeTrackIndex)}
+								class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {trackSolos[
+									activeTrackIndex
+								]
+									? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300'
+									: 'border-stone-300 dark:border-stone-600'}"
+							>
+								Solo current
+							</button>
+							<button
+								on:click={resetAllVolumes}
+								class="px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+							>
+								Reset levels
+							</button>
+							<button
+								on:click={muteAllTracks}
+								class="px-3 py-1 text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
+							>
+								Mute All
+							</button>
+							<button
+								on:click={unmuteAllTracks}
+								class="px-3 py-1 text-xs bg-stone-200 dark:bg-stone-700 rounded-full hover:bg-stone-300 dark:hover:bg-stone-600 transition-colors"
+							>
+								Unmute All
+							</button>
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -901,7 +1212,7 @@
 		<!-- Countdown overlay -->
 		{#if rest > 0}
 			<button
-				class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[9999] cursor-pointer"
+				class="fixed inset-0 bg-black bg-opacity-60 dark:bg-opacity-80 flex items-center justify-center z-[9999] cursor-pointer"
 				on:click={() => {
 					clearInterval(countdownInterval);
 					rest = 0;
