@@ -38,7 +38,7 @@ The website is currently under heavy development and can be unstable.
 
 Do not hesitate to report issues [here](https://github.com/tablatures/tablatures/issues).
 
-**Browse the website now:** https://tablatures.github.io/tablatures//
+**Browse the website now:** https://tablatures.github.io/tablatures
 
 ## Getting started
 
