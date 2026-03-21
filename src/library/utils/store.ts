@@ -7,6 +7,7 @@ export interface TabData {
 	title?: string;
 	artist?: string;
 	fileName?: string;
+	tabId?: string;
 	volume?: number;
 	speed?: number;
 	metronome?: number;

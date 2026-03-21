@@ -1,50 +1,112 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { themeStore } from '../utils/theme';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { createEventDispatcher } from 'svelte';
+	import ThemeToggle from './ThemeToggle.svelte';
+	import IconButton from './IconButton.svelte';
+	import SearchBar from './SearchBar.svelte';
 
-	// True for dark, false for light
-	let theme: boolean;
+	export let showSearch: boolean = true;
+	export let searchValue: string = '';
+	export let searchLoading: boolean = false;
 
-	themeStore.subscribe((value) => {
-		theme = value;
-	});
+	const dispatch = createEventDispatcher();
+	let mobileSearchOpen = false;
+	let searchBar: SearchBar;
 
-	function updateTheme() {
-		themeStore.set(!theme);
-		if (theme) {
-			document.documentElement.classList.add('dark');
+	// Check if we're on the search page
+	$: isOnSearch = $page.url.pathname.includes('/search');
+
+	function handleSearch(e: CustomEvent<string>) {
+		const query = e.detail.trim();
+		if (!query) return;
+		if (isOnSearch) {
+			dispatch('search', query);
 		} else {
-			document.documentElement.classList.remove('dark');
+			goto(`${base}/search?q=${encodeURIComponent(query)}`);
+		}
+	}
+
+	function handleSearchInput(e: CustomEvent<string>) {
+		searchValue = e.detail;
+		dispatch('input', e.detail);
+	}
+
+	function handleOpenTab(e: CustomEvent) {
+		dispatch('openTab', e.detail);
+	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+			e.preventDefault();
+			searchBar?.focus();
 		}
 	}
 </script>
 
-<nav class="flex pt-2 h-[50px] overflow-hidden items-center w-full">
-	<img src="{base}/logos/icon.svg" width="48px" height="48px" class="m-1" alt="Tablatures logo" />
-	<h1 class="text-2xl dark:text-light">Tablatures</h1>
-	<div class="flex w-full justify-end text-stone-500 dark:text-stone-300">
-		<button class="mx-1">
-			<i class="!hidden dark:!inline-block material-icons !text-2xl py-1 text-yellow-400">
-				nightlight
-			</i>
-			<i class="dark:!hidden material-icons !text-2xl py-1">light_mode</i>
-		</button>
+<svelte:window on:keydown={handleGlobalKeydown} />
 
-		<label class="relative inline-flex items-center cursor-pointer">
-			<input
-				id="theme-switcher"
-				type="checkbox"
-				checked={theme}
-				on:change={updateTheme}
-				class="sr-only peer"
-			/>
-			<div
-				class="w-[45px] h-6 bg-stone-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[11px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
-			/>
-		</label>
-
-		<a href="{base}/select/search" class="rounded border border-stone-500 mx-2">
-			<i class="material-icons !text-2xl px-2 py-1">music_note</i>
+<header class="sticky top-0 z-[100] bg-white dark:bg-black border-b border-neutral-300 dark:border-neutral-700">
+	<div class="flex items-center h-14 px-4 gap-2 sm:gap-3">
+		<!-- Logo (always visible, including name on mobile) -->
+		<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">
+			<img src="{base}/logos/icon.svg" width="28" height="28" alt="Tablatures" class="sm:w-8 sm:h-8" />
+			<span class="font-black text-neutral-800 dark:text-neutral-100" style="font-size: 1rem; letter-spacing: -0.06em; transform: scaleX(1.3) scaleY(1.6); transform-origin: left center; line-height: 1;">Tablatures</span>
 		</a>
+
+		<!-- Search bar (desktop) -->
+		{#if showSearch}
+			<div class="flex-1 hidden sm:flex justify-center">
+				<SearchBar
+					bind:this={searchBar}
+					value={searchValue}
+					loading={searchLoading}
+					on:search={handleSearch}
+					on:input={handleSearchInput}
+					on:openTab={handleOpenTab}
+				/>
+			</div>
+		{:else}
+			<div class="flex-1" />
+		{/if}
+
+		<!-- Spacer on mobile to push icons right -->
+		<div class="flex-1 sm:hidden" />
+
+		<!-- Right actions -->
+		<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+			<!-- Mobile search toggle -->
+			{#if showSearch}
+				<div class="sm:hidden">
+					<IconButton icon="search" label="Search" on:click={() => (mobileSearchOpen = !mobileSearchOpen)} />
+				</div>
+			{/if}
+
+			<a
+				href="{base}/collection"
+				class="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+					text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500"
+				aria-label="My Collection"
+			>
+				<i class="material-icons !text-xl">collections_bookmark</i>
+				<span class="hidden sm:inline">Collection</span>
+			</a>
+			<ThemeToggle />
+		</div>
 	</div>
-</nav>
+
+	<!-- Mobile search bar (expanded) -->
+	{#if mobileSearchOpen && showSearch}
+		<div class="sm:hidden px-4 pb-3">
+			<SearchBar
+				value={searchValue}
+				loading={searchLoading}
+				autofocus={true}
+				on:search={(e) => { handleSearch(e); mobileSearchOpen = false; }}
+				on:input={handleSearchInput}
+				on:openTab={handleOpenTab}
+			/>
+		</div>
+	{/if}
+</header>

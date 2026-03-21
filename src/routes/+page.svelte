@@ -1,136 +1,60 @@
 <script lang="ts">
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Header from '../library/components/Header.svelte';
-	import Footer from '../library/components/Footer.svelte';
-	import TabViewer from '../library/components/TabViewer.svelte';
+	import HomeFeed from '../library/components/HomeFeed.svelte';
 	import { tabStore } from '../library/utils/store';
-	import type { TabData } from '../library/utils/store';
-	import type { Subscriber } from 'svelte/store';
-	import { base } from '$app/paths';
-	import ScrollObserver from '../library/components/ScrollObserver.svelte';
+	import { openTabById } from '../library/utils/openTab';
+	import { arrayBufferToBase64 } from '../library/utils/utils';
 
-	let currentTab: TabData | null = null;
-	let tabUnsubscribe: Subscriber<TabData | null>;
-	let isPlaying: boolean = false;
-	let showShortcut: boolean = false;
-	let lastIntersection = true;
+	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
-	// Player settings state
-	let playerSettings = {
-		volume: 1,
-		speed: 1,
-		metronome: 0,
-		tabScale: 1.0,
-		delaying: 0,
-		scrollOffset: 0
-	};
+	function handleSearch(e: CustomEvent<string>) {
+		const q = e.detail?.trim();
+		if (q) goto(`${base}/search?q=${encodeURIComponent(q)}`);
+	}
 
-	// Convert store data to the format TabViewer expects
-	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
+	function handleOpenTab(e: CustomEvent) {
+		openTabById(e.detail);
+	}
 
-	// Load settings from current tab
-	function loadPlayerSettings(tab: TabData | null) {
-		if (tab) {
-			playerSettings = {
-				volume: tab.volume ?? 1,
-				speed: tab.speed ?? 1,
-				metronome: tab.metronome ?? 0,
-				tabScale: tab.tabScale ?? 1.0,
-				delaying: tab.delaying ?? 0,
-				scrollOffset: tab.scrollOffset ?? 0
-			};
+	async function openTab(tab: any) {
+		await openTabById(tab);
+	}
+
+	onMount(async () => {
+		// If ?tab= in URL, load tab for mini player
+		const sharedTabId = $page.url.searchParams.get('tab');
+		if (sharedTabId && !$tabStore?.fileAsB64) {
+			try {
+				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`, { signal: AbortSignal.timeout(10000) });
+				if (resp.ok) {
+					const buf = await resp.arrayBuffer();
+					if (buf.byteLength > 0) {
+						tabStore.setTab({ fileAsB64: arrayBufferToBase64(buf), tabId: sharedTabId });
+					}
+				}
+			} catch {}
 		}
-	}
-
-	// Handle settings changes from TabViewer
-	function handleSettingsChanged(event: CustomEvent) {
-		const newSettings = event.detail;
-		playerSettings = { ...newSettings };
-
-		// Update store with new settings
-		if (currentTab) {
-			tabStore.updateSettings(newSettings);
-		}
-	}
-
-	// Handle sheet changes from TabViewer
-	function handleSheetChanged(event: CustomEvent) {
-		const { title, artist } = event.detail;
-
-		// Reset settings for new sheet
-		playerSettings = {
-			volume: 1,
-			speed: 1,
-			metronome: 0,
-			tabScale: 1.0,
-			delaying: 0,
-			scrollOffset: 0
-		};
-
-		// Update store
-		if (currentTab) {
-			tabStore.updateSettings({
-				...playerSettings,
-				title,
-				artist
-			});
-		}
-	}
-
-	function handlePlayingChanged(event: CustomEvent) {
-		const { playing } = event.detail;
-
-		isPlaying = playing;
-
-		checkShortcut(lastIntersection);
-	}
-
-	function checkShortcut(isIntersecting: boolean) {
-		lastIntersection = isIntersecting;
-		showShortcut = !isIntersecting && !isPlaying;
-	}
-
-	onMount(() => {
-		// Subscribe to tab store
-		tabUnsubscribe = tabStore.subscribe((tab) => {
-			currentTab = tab;
-			loadPlayerSettings(tab);
-		});
-
-		// Load existing tab data if any
-		const existingTab = tabStore.loadTab();
-		if (existingTab) {
-			currentTab = existingTab;
-			loadPlayerSettings(existingTab);
-		}
-
-		return () => {
-			if (tabUnsubscribe) {
-				tabUnsubscribe(currentTab);
-			}
-		};
 	});
 </script>
 
-<Header />
-<ScrollObserver onIntersect={checkShortcut} />
-<TabViewer
-	{data}
-	{playerSettings}
-	on:playingChanged={handlePlayingChanged}
-	on:settingsChanged={handleSettingsChanged}
-	on:sheetChanged={handleSheetChanged}
-/>
+<svelte:head>
+	<title>Tablatures</title>
+</svelte:head>
 
-{#if showShortcut}
-	<div class="fixed bottom-1 right-0 z-50 h-[50px]">
-		<a
-			href="{base}/select/search"
-			class="flex rounded border border-stone-500 mx-2 bg-white dark:bg-black shadow-lg hover:bg-stone-100 dark:hover:bg-slate-800 transition-colors"
-		>
-			<i class="material-icons !text-2xl px-2 py-1 text-stone-500 dark:text-stone-300">music_note</i
-			>
-		</a>
-	</div>
-{/if}
-<Footer />
+<Header on:search={handleSearch} on:openTab={handleOpenTab} />
+
+<div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
+	<HomeFeed {openTab} />
+</div>
+
+<!-- Minimal footer -->
+<div class="text-center py-6 text-xs text-neutral-400 dark:text-neutral-600">
+	<a href="https://github.com/tablatures/tablatures" target="_blank" rel="noopener" class="hover:text-violet-500 transition-colors">
+		Open Source
+	</a>
+</div>

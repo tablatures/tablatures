@@ -4,9 +4,7 @@ const config = {
 	theme: {
 		extend: {
 			fontFamily: {
-				sans: ['Roboto', 'sans-serif'],
-				serif: ['Vollkorn', 'serif'],
-				mono: ['Inconsolata', 'monospace']
+				sans: ['IBM Plex Sans', 'sans-serif']
 			},
 			screens: {
 				sm: '480px',
@@ -15,11 +13,21 @@ const config = {
 				xl: '1440px'
 			},
 			colors: {
-				primary: '#673AB7',
-				secondary: '#5E17EB',
-				light: '#F7F7F7',
+				violet: {
+					50: '#f5f0ff',
+					100: '#ede5ff',
+					200: '#d4bfff',
+					300: '#b78aff',
+					400: '#a06cff',
+					500: '#8C52FF',
+					600: '#7b3bff',
+					700: '#5E17EB',
+					800: '#4a11bf',
+					900: '#370d8f',
+				},
+				light: '#fafafa',
 				dark: '#404040',
-				black: '#1F272D'
+				black: '#171717'
 			}
 		}
 	},
