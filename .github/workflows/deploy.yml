@@ -39,10 +39,15 @@ jobs:
       - name: Build
         run: pnpm run build
         env:
-          ## SEARCH_API_BASE_URL and SEARCH_API_TIMEOUT must be added
-          ## in the repository secrets for the github-pages deployment
+          NODE_ENV: production
+          ## Set these secrets in repo Settings > Secrets > Actions:
+          ##   SEARCH_API_BASE_URL = https://tablatures-api.vercel.app
+          ##   SEARCH_API_TIMEOUT = 30000
           VITE_SEARCH_API_BASE_URL: ${{ secrets.SEARCH_API_BASE_URL }}
           VITE_SEARCH_API_TIMEOUT: ${{ secrets.SEARCH_API_TIMEOUT }}
+
+      - name: Create 404.html for SPA routing
+        run: cp build/index.html build/404.html
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v4

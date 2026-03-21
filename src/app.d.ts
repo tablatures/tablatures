@@ -10,6 +10,8 @@ declare global {
 
 	interface Window {
 		alphaTab: any;
+		YT: any;
+		onYouTubeIframeAPIReady: any;
 	}
 }
 

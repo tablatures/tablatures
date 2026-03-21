@@ -16,10 +16,6 @@
     <img src="https://img.shields.io/github/license/tablatures/tablatures?style=flat-square&color=yellow" alt="License" />
 </a>
 
-<a href="https://github.com/mlhoutel/Tablatures/projects/1" alt="Roadmap">
-  <img src="https://img.shields.io/badge/roadmap-available-brightgreen?style=flat-square" />
-</a>
-
 &nbsp;&nbsp;
 
 <p align="center">
@@ -28,34 +24,70 @@
 
 &nbsp;&nbsp;
 
-Read and play tabs quickly
+**The YouTube of guitar tablatures**: search, play, and practice guitar tabs with a modern web player.
 
-- **Import a music score** (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`, `.cap` or `.tex`)
-- **Browse the tabs database** (GuitarProTab)
-- **Play along the track** (rendered using alphaTab)
+## Features
 
-The website is currently under heavy development and can be unstable.
+### Player
+- **alphaTab-powered rendering** of Guitar Pro files (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`)
+- **Persistent mini-player**: audio continues playing across page navigation with a floating tab preview
+- **YouTube video sync**: play along with YouTube videos, with bidirectional playback sync and adjustable time offset
+- **Drag-to-loop**: drag on the progress bar or the tablature sheet to create A-B loop regions with floating controls
+- **Smart cursor follow**: auto-scrolls with the cursor, pauses when you scroll away, resumes when you scroll back
+- **Dark theme support**: proper alphaTab color theming with dark mode
+- **Track mixer**: solo, mute, and adjust volume per track
+- **Keyboard shortcuts**: Space, arrows, +/-, and more
 
-Do not hesitate to report issues [here](https://github.com/tablatures/tablatures/issues).
+### Search & Discovery
+- **Multi-source search**: searches local database, Songsterr, and Ultimate Guitar in parallel
+- **Dedicated search page** (`/search?q=...`) with shareable URLs
+- **Artist hero banner**: fuzzy-matched artist detection with image, bio, country, and genre tags
+- **Album artwork**: fetched from iTunes for search results, favorites, and the player
+- **Artist tooltips**: hover any artist name to see their photo, bio, and a link to search their tabs
+- **Autocomplete** with section headers (songs first, then albums, then artists)
 
-**Browse the website now:** https://tablatures.github.io/tablatures
+### Collection
+- **Favorite songs** with album artwork, grouped by artist
+- **Favorite artists** with follow/unfollow from tooltips and hero banners
+- **History** grouped by day with individual item removal
+- **Preferences**: soundfont selection, default speed/metronome, data export/import
+- **Local-only data**: everything stored in browser localStorage, nothing sent to servers
 
-## Getting started
+### Player Controls
+- **YouTube-style volume**: icon + hover slider with violet fill
+- **Speed selector**: shows custom values when adjusted with +/- keys
+- **Unified settings panel**: single button for tracks and settings
+- **Video picker**: choose from YouTube results, plays inline with sync
+- **Share**: URLs include tab ID, video ID, and playback time for easy sharing
 
-### Clone and install
+## Routes
 
-1. clone the project `git clone https://github.com/tablatures/tablatures.git`
-2. fetch the dependancies `cd tablatures && npm i`
-3. launch with hot-reload `npm run start`
+| Route | Description |
+|-------|-------------|
+| `/` | Home: discovery feed with recommendations, recent tabs, import |
+| `/search?q=...` | Search results with artist hero section |
+| `/play?tab=...&video=...&t=...` | Full player with shareable state |
+| `/collection` | Favorites, history, settings |
 
-### Build and deploy
+## Getting Started
 
-1. build the website `npm run build`
-2. run on server `npm run preview`
+```bash
+# Clone and install
+git clone https://github.com/tablatures/tablatures.git
+cd tablatures && pnpm install
 
-## Made with
+# Development
+pnpm run start
 
-* Vite: https://github.com/vitejs/vite
-* SvelteKit: https://github.com/sveltejs/kit
-* Tailwind: https://github.com/tailwindlabs/tailwindcss
-* AlphaTab: https://github.com/CoderLine/alphaTab
+# Build
+pnpm run build
+pnpm run preview
+```
+
+## Tech Stack
+
+- **SvelteKit** + TypeScript
+- **Tailwind CSS** for styling
+- **alphaTab 1.5.0** for tablature rendering and playback
+- **YouTube iFrame API** for video sync
+- **Vite** for building

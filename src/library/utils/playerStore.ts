@@ -1,0 +1,64 @@
+import { writable, get } from 'svelte/store';
+
+export interface PlayerState {
+	playing: boolean;
+	progress: number;
+	duration: number;
+	title: string;
+	artist: string;
+	scoreLoaded: boolean;
+	soundFontLoaded: boolean;
+	soundFontProgress: number;
+	currentBar: number;
+	totalBars: number;
+	tracks: any[];
+	activeTrackIndex: number;
+	isRendering: boolean;
+}
+
+const DEFAULT_STATE: PlayerState = {
+	playing: false,
+	progress: 0,
+	duration: 0,
+	title: '',
+	artist: '',
+	scoreLoaded: false,
+	soundFontLoaded: false,
+	soundFontProgress: 0,
+	currentBar: 0,
+	totalBars: 0,
+	tracks: [],
+	activeTrackIndex: 0,
+	isRendering: false
+};
+
+// The alphaTab API instance (not serializable, just a reference)
+export const playerApi = writable<any>(null);
+
+// The persistent DOM element where alphaTab renders
+export const playerTarget = writable<HTMLElement | null>(null);
+
+// Reactive player state for UI binding
+export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });
+
+// Whether the full /play view is currently active
+export const isFullPlayerView = writable<boolean>(false);
+
+// The base64 data of the currently loaded tab (to detect tab changes)
+export const loadedTabB64 = writable<string | null>(null);
+
+export function updatePlayerState(partial: Partial<PlayerState>) {
+	playerState.update((s) => ({ ...s, ...partial }));
+}
+
+export function resetPlayerState() {
+	playerState.set({ ...DEFAULT_STATE });
+}
+
+export function getApi(): any {
+	return get(playerApi);
+}
+
+// Video player state
+export const activeVideoId = writable<string | null>(null);
+export const videoPlayerRef = writable<any>(null);

@@ -2,29 +2,86 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  .dark *:focus-visible {
+    outline: 2px solid #8C52FF;
+    outline-offset: 2px;
+  }
+
+  *:focus-visible {
+    outline: 2px solid #8C52FF;
+    outline-offset: 2px;
+  }
+}
+
 @layer components {
 
   ::-webkit-scrollbar {
     width: 5px;
     height: 5px;
   }
-  
-  /* Track */
+
   ::-webkit-scrollbar-track {
-    background: bg-light;
+    background: #fafafa;
   }
-  
-  /* Handle */
+
+  .dark ::-webkit-scrollbar-track {
+    background: #171717;
+  }
+
   ::-webkit-scrollbar-thumb {
-    @apply bg-stone-300;
+    @apply bg-neutral-300;
   }
-  
-  /* Handle on hover */
+
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-neutral-600;
+  }
+
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-primary;
+    background: #8C52FF;
+  }
+
+  /* Page transition fade */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  /* Animated ellipsis for loading text */
+  @keyframes ellipsis {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+  }
+
+  .animate-ellipsis::after {
+    content: '';
+    animation: ellipsis 1.5s infinite step-end;
+  }
+
+  /* Interactive button press effect */
+  .btn-press {
+    @apply transition-all duration-150 active:scale-95;
+  }
+
+  /* Subtle hover lift */
+  .hover-lift {
+    @apply transition-transform duration-200 hover:-translate-y-0.5;
   }
 }
 
+/* Progress bar */
 .loading-bar {
   width: 100%;
   -webkit-appearance: none;
@@ -37,8 +94,8 @@
   cursor: pointer;
   width: 0px;
   height: 25px;
-  background: #5E17EB;
-  box-shadow: -100em 0 0 100em #5E17EB;
+  background: #8C52FF;
+  box-shadow: -100em 0 0 100em #8C52FF;
 }
 
 .loading-bar::-moz-range-thumb {
@@ -47,10 +104,11 @@
   cursor: pointer;
   width: 0px;
   height: 25px;
-  background: #5E17EB;
-  box-shadow: -100em 0 0 100em #5E17EB;
+  background: #8C52FF;
+  box-shadow: -100em 0 0 100em #8C52FF;
 }
 
+/* Settings sliders */
 .input-range {
   -webkit-appearance: none;
   margin-top: 17px;
@@ -67,7 +125,7 @@
   width: 10px;
   height: 10px;
   border-radius: 25px;
-  background: #5E17EB;
+  background: #8C52FF;
 }
 
 .input-range::-moz-range-thumb {
@@ -77,7 +135,78 @@
   width: 10px;
   height: 10px;
   border-radius: 25px;
-  background: #5E17EB;
+  background: #8C52FF;
+}
+
+/* Persistent player host states */
+.player-host-full #player-host {
+  position: relative;
+  width: 100%;
+  min-height: 500px;
+}
+
+.player-host-mini {
+  position: fixed !important;
+  bottom: 52px !important;
+  right: 8px !important;
+  width: 340px !important;
+  height: 220px !important;
+  overflow: auto !important;
+  scrollbar-width: none !important; /* Firefox */
+  border-radius: 8px !important;
+  border: 1px solid rgba(128, 128, 128, 0.15) !important;
+  z-index: 85 !important;
+  visibility: visible !important;
+  left: auto !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.player-host-mini::-webkit-scrollbar {
+  display: none;
+}
+
+.player-host-mini #player-host {
+  transform-origin: top left;
+  transform: scale(0.425);
+  width: 800px;
+  height: 520px;
+  pointer-events: none;
+}
+
+/* Mobile: full width, positioned under the player bar */
+@media (max-width: 480px) {
+  .player-host-mini {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 220px !important;
+    overflow: auto !important;
+    scrollbar-width: none !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    bottom: 52px !important;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+  }
+
+  .player-host-mini #player-host {
+    /* 800px scaled to fill ~480px container → needs ~0.6 scale, but we want full width
+       so we set width to what the container needs at the given scale */
+    transform-origin: top left;
+    transform: scale(0.5);
+    width: 200%;
+    height: 440px;
+  }
+}
+
+/* AlphaTab rendering */
+.at-surface {
+  background: white;
+}
+
+.dark .at-surface {
+  background: #171717;
 }
 
 .at-surface * {
@@ -91,17 +220,38 @@
 }
 
 .at-cursor-bar {
-  background: rgba(207, 127, 201, 0.25);
+  background: rgba(140, 82, 255, 0.2);
+}
+
+.dark .at-cursor-bar {
+  background: rgba(140, 82, 255, 0.25);
 }
 
 .at-cursor-beat {
-  background: #673ab7;
+  background: #8C52FF;
   width: 3px;
 }
 
+.dark .at-cursor-beat {
+  background: #a06cff;
+}
+
 .at-highlight * {
-  fill: #673ab7;
-  stroke: #673ab7;
+  fill: #8C52FF;
+  stroke: #8C52FF;
+}
+
+.dark .at-highlight * {
+  fill: #a06cff;
+  stroke: #a06cff;
+}
+
+.at-selection div {
+  background: rgba(140, 82, 255, 0.15) !important;
+}
+
+.dark .at-selection div {
+  background: rgba(140, 82, 255, 0.25) !important;
 }
 
 .at {
@@ -111,7 +261,6 @@
   font-weight: normal;
   font-variant: normal;
   text-transform: none;
-  line-height: 1;
   line-height: 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
