@@ -2725,7 +2725,7 @@
 			<!-- Track background -->
 			<div class="absolute inset-0 bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
 				<!-- Playback progress fill -->
-				<div class="absolute inset-y-0 left-0 bg-violet-500 transition-[width] duration-100" style="width: {progress}%" />
+				<div class="absolute inset-y-0 left-0 bg-violet-500" style="width: {progress}%" />
 
 				<!-- Hover preview -->
 				{#if showProgressTooltip && hoverProgress > progress && !isDraggingLoop}
