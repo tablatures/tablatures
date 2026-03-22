@@ -16,45 +16,19 @@
 	let fadingIn = true;
 
 	const sizeConfig = {
-		sm: {
-			clef: 20,
-			staffWidth: 120,
-			lines: [0, 2, 4],
-			lineHeight: 0.8,
-			lineGap: 3,
-			textClass: 'text-[10px]',
-			gapClass: 'gap-1'
-		},
-		md: {
-			clef: 32,
-			staffWidth: 180,
-			lines: [0, 1.5, 3, 4.5, 6],
-			lineHeight: 1,
-			lineGap: 0,
-			textClass: 'text-xs',
-			gapClass: 'gap-1.5'
-		},
-		lg: {
-			clef: 44,
-			staffWidth: 260,
-			lines: [0, 2, 4, 6, 8],
-			lineHeight: 1,
-			lineGap: 0,
-			textClass: 'text-sm',
-			gapClass: 'gap-2'
-		}
+		sm: { clefH: 24, staffW: 80, lineCount: 3, textClass: 'text-[10px]', gapClass: 'gap-1' },
+		md: { clefH: 36, staffW: 120, lineCount: 5, textClass: 'text-xs', gapClass: 'gap-1.5' },
+		lg: { clefH: 48, staffW: 180, lineCount: 5, textClass: 'text-sm', gapClass: 'gap-2' }
 	};
 
-	// Small random offsets for each line to look more organic
-	const lineOffsets = [3, 1, 0, 2, 4];
+	// Horizontal offsets for each line (px from each side) to vary lengths
+	const lineMargins = [12, 6, 0, 4, 10];
 
 	$: config = sizeConfig[size];
 	$: isSimulated = progress === -1;
 	$: displayProgress = isSimulated ? simulatedProgress : progress;
 	$: currentMessage = messages.length > 0 ? messages[messageIndex] : message;
-	$: staffHeight = config.lines.length > 1
-		? config.lines[config.lines.length - 1] + config.lineHeight
-		: config.lineHeight;
+	$: lineSpacing = config.clefH / (config.lineCount + 1);
 
 	function simulateProgress(timestamp: number) {
 		if (!startTime) startTime = timestamp;
@@ -62,10 +36,7 @@
 
 		if (done) {
 			simulatedProgress = Math.min(100, simulatedProgress + (100 - simulatedProgress) * 0.15);
-			if (simulatedProgress >= 99.5) {
-				simulatedProgress = 100;
-				return;
-			}
+			if (simulatedProgress >= 99.5) { simulatedProgress = 100; return; }
 		} else if (elapsed < 0.5) {
 			simulatedProgress = (elapsed / 0.5) * 40;
 		} else if (elapsed < 2.5) {
@@ -75,25 +46,18 @@
 		} else if (elapsed < 4) {
 			simulatedProgress = 75 + ((elapsed - 3) / 1) * 5;
 		} else {
-			const t = elapsed - 4;
-			simulatedProgress = 80 + 15 * (1 - Math.exp(-t * 0.1));
+			simulatedProgress = 80 + 15 * (1 - Math.exp(-(elapsed - 4) * 0.1));
 		}
 
 		rafId = requestAnimationFrame(simulateProgress);
 	}
 
 	onMount(() => {
-		if (isSimulated) {
-			rafId = requestAnimationFrame(simulateProgress);
-		}
-
+		if (isSimulated) rafId = requestAnimationFrame(simulateProgress);
 		if (messages.length > 1) {
 			messageInterval = setInterval(() => {
 				fadingIn = false;
-				setTimeout(() => {
-					messageIndex = (messageIndex + 1) % messages.length;
-					fadingIn = true;
-				}, 200);
+				setTimeout(() => { messageIndex = (messageIndex + 1) % messages.length; fadingIn = true; }, 200);
 			}, 2000);
 		}
 	});
@@ -104,55 +68,53 @@
 	});
 
 	$: if (done && isSimulated && typeof window !== 'undefined') {
-		if (!rafId) {
-			rafId = requestAnimationFrame(simulateProgress);
-		}
+		if (!rafId) rafId = requestAnimationFrame(simulateProgress);
 	}
 </script>
 
 <div class="flex flex-col items-center justify-center {config.gapClass}">
-	<!-- Staff with treble clef inline -->
-	<div class="flex items-center" style="width: {config.staffWidth}px; gap: {size === 'sm' ? 4 : 8}px;">
-		<!-- Treble Clef - fills with progress like the lines -->
-		<div class="relative flex-shrink-0" style="width: {config.clef}px; height: {config.clef * 1.8}px;">
+	<!-- Score: clef centered on staff lines -->
+	<div class="relative" style="width: {config.staffW}px; height: {config.clefH}px;">
+		<!-- Staff lines (behind the clef) -->
+		{#each Array(config.lineCount) as _, i}
+			{@const margin = lineMargins[i] || 0}
+			{@const y = lineSpacing * (i + 1)}
+			<div
+				class="absolute bg-neutral-200 dark:bg-neutral-700 overflow-hidden"
+				style="top: {y}px; left: {margin}px; right: {margin}px; height: 1px;"
+			>
+				<div
+					class="absolute inset-y-0 left-0 bg-violet-500 transition-[width] duration-150"
+					style="width: {Math.min(100, Math.max(0, displayProgress))}%;"
+				/>
+				<div class="absolute inset-0 animate-shimmer" />
+			</div>
+		{/each}
+
+		<!-- Treble clef centered on the lines -->
+		<div
+			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+			style="height: {config.clefH * 0.9}px; width: {config.clefH * 0.32}px;"
+		>
 			<!-- Grey background clef -->
 			<svg
-				viewBox="0 0 24 56"
-				class="absolute inset-0 w-full h-full text-neutral-200 dark:text-neutral-700"
+				viewBox="0 0 43.52 122.88"
+				class="absolute inset-0 w-full h-full text-neutral-300 dark:text-neutral-600"
 				fill="currentColor"
 			>
-				<path d="M12.8 0C12 0 11.2.6 11.2 1.8c0 1.8 1.2 4.8 1.2 9 0 7.2-4.8 13.2-9.6 19.2C-.8 34.8-2.4 39.6-2.4 45.6c0 10.8 7.2 18 16.8 18 2.4 0 4.8-.3 6.6-1.2-1.2 8.4-4.8 15.6-10.8 20.4-3.6 2.4-7.2 4.2-10.8 4.2-2.4 0-3.6-1.2-3.6-3 0-2.4 1.8-4.2 4.2-4.2 1.2 0 2.4.6 2.4 1.8 0 1.8-1.8 2.4-3 2.4 1.2 2.4 4.8 1.2 7.2-1.2 4.8-3.6 8.4-10.8 9.6-19.2 0-1.2.6-1.8.6-3 0-8.4-6-14.4-14.4-14.4-6 0-10.8 3.6-10.8 9.6 0 4.8 2.4 8.4 7.2 8.4 3.6 0 6-2.4 6-5.4 0-2.4-1.2-4.2-3.6-4.2-1.2 0-2.4.6-2.4 1.8 0 1.8 1.2 2.4 2.4 2.4-2.4-.6-4.8-2.4-4.8-6 0-4.8 3.6-9 9.6-9 8.4 0 13.2 6 13.2 14.4 0 2.4-.6 4.2-1.2 6 2.4-1.2 4.2-3 4.2-6 0-9.6-8.4-16.8-18-16.8zM12 33c0-3.6 1.2-6.6 3.6-9.6 2.4-3 4.8-6 4.8-10.2 0-1.2-.3-2.4-.6-3-.6 4.8-2.4 8.4-4.8 12-2.4 3.6-4.2 7.2-4.2 10.8 0 1.2.3 1.8 1.2 1.8z" transform="translate(3, 0) scale(0.38)"/>
+				<path fill-rule="evenodd" d="M11.35,45.61q3.72-4.22,7.69-8a45.71,45.71,0,0,1-2.19-12c-.23-7.24.88-14.93,5-21C23,2.79,25-.25,27.17,0,29,.24,30,2.83,30.72,4.32c4.92,10,5.93,20.54.25,31.93a46,46,0,0,1-7.84,10.8l2.38,12.12a8.74,8.74,0,0,1,.87-.14,14.2,14.2,0,0,1,8.56,1.41c5.6,3,9.08,10.57,8.52,16.83-.5,5.5-3,9.3-7.15,12.63a23.92,23.92,0,0,1-4.24,2.78l2.87,14.62a28.07,28.07,0,0,1,.12,3.74c-.35,7.71-6.35,12.16-13.78,11.82-5.72-.36-11.67-4.9-11.7-10.64-.06-11.13,15-10.6,13.9-.42-.32,3-2.51,5.65-7.21,5.82,3.79,6.28,15.51,1.79,16.31-6.44a17.52,17.52,0,0,0-.69-6.24L29.72,93.65a17.7,17.7,0,0,1-3.07.67A23.71,23.71,0,0,1,8.5,88.66a26,26,0,0,1-8-24.34C2,56.69,6.39,51.26,11.35,45.61Zm9.81-9.53C19.09,28.55,19.4,19,24.73,12.76S35.94,15,28.18,27.42a48.8,48.8,0,0,1-7,8.66Zm0,13c-.67.67-1.36,1.34-2.06,2-4,3.85-8,7.52-11,13a20.65,20.65,0,0,0-1.5,17.23c2.4,7.49,14,12.21,22.65,9.94L24.72,67.63a9.82,9.82,0,0,0-7.09,8,8.7,8.7,0,0,0,3.08,7.81,16.74,16.74,0,0,0,1.81,1.36c1.24.82.63,1.41-.53,1.06-3.87-1.3-6.19-3.44-7.43-6.17-3.67-8.08.83-17.08,8.66-19.92L21.16,49.07ZM31.63,90.43,27.09,67.24a9,9,0,0,1,4.53,1,12,12,0,0,1,6.62,8.23c1.2,5.57-1.7,11.72-6.49,13.94l-.12.05Z"/>
 			</svg>
 			<!-- Purple fill clef (clipped by progress) -->
 			<div class="absolute inset-0 overflow-hidden" style="width: {Math.min(100, Math.max(0, displayProgress))}%;">
 				<svg
-					viewBox="0 0 24 56"
-					class="w-full h-full text-violet-500"
+					viewBox="0 0 43.52 122.88"
+					class="text-violet-500"
 					fill="currentColor"
-					style="width: {config.clef}px; height: {config.clef * 1.8}px;"
+					style="width: {config.clefH * 0.32}px; height: {config.clefH * 0.9}px;"
 				>
-					<path d="M12.8 0C12 0 11.2.6 11.2 1.8c0 1.8 1.2 4.8 1.2 9 0 7.2-4.8 13.2-9.6 19.2C-.8 34.8-2.4 39.6-2.4 45.6c0 10.8 7.2 18 16.8 18 2.4 0 4.8-.3 6.6-1.2-1.2 8.4-4.8 15.6-10.8 20.4-3.6 2.4-7.2 4.2-10.8 4.2-2.4 0-3.6-1.2-3.6-3 0-2.4 1.8-4.2 4.2-4.2 1.2 0 2.4.6 2.4 1.8 0 1.8-1.8 2.4-3 2.4 1.2 2.4 4.8 1.2 7.2-1.2 4.8-3.6 8.4-10.8 9.6-19.2 0-1.2.6-1.8.6-3 0-8.4-6-14.4-14.4-14.4-6 0-10.8 3.6-10.8 9.6 0 4.8 2.4 8.4 7.2 8.4 3.6 0 6-2.4 6-5.4 0-2.4-1.2-4.2-3.6-4.2-1.2 0-2.4.6-2.4 1.8 0 1.8 1.2 2.4 2.4 2.4-2.4-.6-4.8-2.4-4.8-6 0-4.8 3.6-9 9.6-9 8.4 0 13.2 6 13.2 14.4 0 2.4-.6 4.2-1.2 6 2.4-1.2 4.2-3 4.2-6 0-9.6-8.4-16.8-18-16.8zM12 33c0-3.6 1.2-6.6 3.6-9.6 2.4-3 4.8-6 4.8-10.2 0-1.2-.3-2.4-.6-3-.6 4.8-2.4 8.4-4.8 12-2.4 3.6-4.2 7.2-4.2 10.8 0 1.2.3 1.8 1.2 1.8z" transform="translate(3, 0) scale(0.38)"/>
+					<path fill-rule="evenodd" d="M11.35,45.61q3.72-4.22,7.69-8a45.71,45.71,0,0,1-2.19-12c-.23-7.24.88-14.93,5-21C23,2.79,25-.25,27.17,0,29,.24,30,2.83,30.72,4.32c4.92,10,5.93,20.54.25,31.93a46,46,0,0,1-7.84,10.8l2.38,12.12a8.74,8.74,0,0,1,.87-.14,14.2,14.2,0,0,1,8.56,1.41c5.6,3,9.08,10.57,8.52,16.83-.5,5.5-3,9.3-7.15,12.63a23.92,23.92,0,0,1-4.24,2.78l2.87,14.62a28.07,28.07,0,0,1,.12,3.74c-.35,7.71-6.35,12.16-13.78,11.82-5.72-.36-11.67-4.9-11.7-10.64-.06-11.13,15-10.6,13.9-.42-.32,3-2.51,5.65-7.21,5.82,3.79,6.28,15.51,1.79,16.31-6.44a17.52,17.52,0,0,0-.69-6.24L29.72,93.65a17.7,17.7,0,0,1-3.07.67A23.71,23.71,0,0,1,8.5,88.66a26,26,0,0,1-8-24.34C2,56.69,6.39,51.26,11.35,45.61Zm9.81-9.53C19.09,28.55,19.4,19,24.73,12.76S35.94,15,28.18,27.42a48.8,48.8,0,0,1-7,8.66Zm0,13c-.67.67-1.36,1.34-2.06,2-4,3.85-8,7.52-11,13a20.65,20.65,0,0,0-1.5,17.23c2.4,7.49,14,12.21,22.65,9.94L24.72,67.63a9.82,9.82,0,0,0-7.09,8,8.7,8.7,0,0,0,3.08,7.81,16.74,16.74,0,0,0,1.81,1.36c1.24.82.63,1.41-.53,1.06-3.87-1.3-6.19-3.44-7.43-6.17-3.67-8.08.83-17.08,8.66-19.92L21.16,49.07ZM31.63,90.43,27.09,67.24a9,9,0,0,1,4.53,1,12,12,0,0,1,6.62,8.23c1.2,5.57-1.7,11.72-6.49,13.94l-.12.05Z"/>
 				</svg>
 			</div>
-		</div>
-
-		<!-- Staff lines -->
-		<div class="relative flex-1" style="height: {staffHeight * (size === 'sm' ? 3.5 : 5)}px;">
-			{#each config.lines as yPos, i}
-				{@const offset = lineOffsets[i] || 0}
-				<div
-					class="absolute bg-neutral-200 dark:bg-neutral-700 overflow-hidden"
-					style="top: {yPos * (size === 'sm' ? 3.5 : 5)}px; left: {offset}px; right: {offset}px; height: {config.lineHeight}px; border-radius: 1px;"
-				>
-					<!-- Progress fill -->
-					<div
-						class="absolute inset-y-0 left-0 bg-violet-500 transition-[width] duration-150"
-						style="width: {Math.min(100, Math.max(0, displayProgress))}%; border-radius: 1px;"
-					/>
-					<!-- Shimmer -->
-					<div class="absolute inset-0 animate-shimmer" style="border-radius: 1px;" />
-				</div>
-			{/each}
 		</div>
 	</div>
 
