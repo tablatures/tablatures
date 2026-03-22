@@ -549,25 +549,59 @@
 		{#if artistHeroes.length > 0}
 			<div class="flex gap-3 overflow-x-auto py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 				{#each artistHeroes as hero}
-					<button
-						class="flex items-center gap-3 flex-shrink-0 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-700 hover:border-violet-400 dark:hover:border-violet-500 transition-all bg-white dark:bg-neutral-900 min-w-[200px] max-w-[280px] text-left"
-						on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
-					>
-						{#if hero.image}
-							<img src={hero.image} alt={hero.name} class="w-12 h-12 rounded-full object-cover flex-shrink-0" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
-						{:else}
-							<div class="w-12 h-12 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
-								<i class="material-icons text-neutral-400 !text-xl">person</i>
+					<div class="flex-shrink-0 w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+						<!-- Top: image + name + follow -->
+						<button
+							class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+							on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
+						>
+							{#if hero.image}
+								<img src={hero.image} alt={hero.name} class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-800" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+							{:else}
+								<div class="w-14 h-14 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
+									<i class="material-icons text-neutral-400 !text-2xl">person</i>
+								</div>
+							{/if}
+							<div class="flex-1 min-w-0">
+								<p class="font-semibold text-sm text-neutral-800 dark:text-neutral-100 truncate">{hero.name}</p>
+								{#if hero.country}
+									<p class="text-[11px] text-neutral-400">{hero.country}</p>
+								{/if}
+								<p class="text-[11px] text-violet-500">{hero.tabCount} tab{hero.tabCount !== 1 ? 's' : ''}</p>
+							</div>
+							<!-- Follow button -->
+							<button
+								on:click|stopPropagation={() => {
+									if (favoriteArtistsStore.isArtist(hero.name)) {
+										favoriteArtistsStore.removeArtist(hero.name);
+									} else {
+										favoriteArtistsStore.addArtist({ name: hero.name, image: hero.image || undefined });
+									}
+									artistHeroes = artistHeroes;
+								}}
+								class="flex-shrink-0 p-1.5 rounded-full transition-all active:scale-90
+									{favoriteArtistsStore.isArtist(hero.name) ? 'text-red-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-red-400'}"
+								title="{favoriteArtistsStore.isArtist(hero.name) ? 'Unfollow' : 'Follow'} {hero.name}"
+							>
+								<i class="material-icons !text-lg">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>
+							</button>
+						</button>
+						<!-- Tags + bio -->
+						{#if (hero.tags && hero.tags.length > 0) || hero.bio}
+							<div class="px-4 pb-3 border-t border-neutral-100 dark:border-neutral-800 pt-2">
+								{#if hero.tags && hero.tags.length > 0}
+									<div class="flex flex-wrap gap-1 mb-1.5">
+										{#each hero.tags.slice(0, 4) as tag}
+											<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500">{tag}</span>
+										{/each}
+									</div>
+								{/if}
+								{#if hero.bio}
+									<p class="text-[11px] text-neutral-400 dark:text-neutral-500 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{hero.bio}</p>
+								{/if}
 							</div>
 						{/if}
-						<div class="min-w-0">
-							<p class="font-medium text-sm text-neutral-800 dark:text-neutral-100 truncate">{hero.name}</p>
-							{#if hero.country}
-								<p class="text-[11px] text-neutral-400 truncate">{hero.country}</p>
-							{/if}
-							<p class="text-[11px] text-violet-500">{hero.tabCount} tabs</p>
-						</div>
-					</button>
+					</div>
 				{/each}
 			</div>
 		{/if}
