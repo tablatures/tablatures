@@ -14,6 +14,7 @@
 	import SettingSlider from '$components/SettingSlider.svelte';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import VideoPlayer from '$components/VideoPlayer.svelte';
+	import LoadingScore from '$components/LoadingScore.svelte';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 
 	// Timeout constants (ms)
@@ -2627,33 +2628,14 @@
 				</div>
 			</div>
 		{:else if hasSheet && !scoreLoaded}
-			<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-4">
+			<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
 				{#if !soundFontLoaded}
-					<div class="text-center">
-						<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm mb-2">Preparing audio engine<span class="animate-ellipsis"></span></p>
-						<div class="w-48 mx-auto bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5 overflow-hidden">
-							<div class="bg-violet-500 h-full rounded-full transition-all duration-300" style="width: {soundFontProgress}%" />
-						</div>
-						<p class="text-xs text-neutral-400 dark:text-neutral-500 mt-1.5">{soundFontProgress}%</p>
-					</div>
+					<LoadingScore progress={soundFontProgress} message="Preparing audio engine" size="lg" />
 				{:else if isRendering}
-					<div class="text-center">
-						<div class="animate-spin rounded-full h-8 w-8 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Rendering tablature<span class="animate-ellipsis"></span></p>
-					</div>
+					<LoadingScore message="Rendering tablature" size="lg" />
 				{:else}
-					<div class="text-center">
-						<div class="animate-spin rounded-full h-8 w-8 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Loading tablature<span class="animate-ellipsis"></span></p>
-					</div>
+					<LoadingScore message="Loading tablature" size="lg" />
 				{/if}
-				<!-- Skeleton tablature preview -->
-				<div class="w-64 mt-4 opacity-30">
-					{#each Array(5) as _, i}
-						<div class="h-px bg-neutral-300 dark:bg-neutral-600 mb-2 animate-pulse" style="width: {85 + Math.sin(i) * 15}%" />
-					{/each}
-				</div>
 			</div>
 		{/if}
 

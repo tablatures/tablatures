@@ -8,6 +8,7 @@
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
 	import ArtistTooltip from './ArtistTooltip.svelte';
+	import LoadingScore from './LoadingScore.svelte';
 
 	export let showPreview = true;
 	const dispatch = createEventDispatcher();
@@ -138,13 +139,8 @@
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
-		<div class="absolute inset-x-0 top-0 z-10">
-			<div class="h-0.5 bg-neutral-700 overflow-hidden">
-				<div class="h-full bg-violet-500 transition-all duration-300" style="width: {state.soundFontProgress}%" />
-			</div>
-			<div class="text-center py-0.5">
-				<span class="text-[9px] text-neutral-400">Loading soundfont<span class="animate-ellipsis"></span> {state.soundFontProgress}%</span>
-			</div>
+		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">
+			<LoadingScore progress={state.soundFontProgress} message="Loading soundfont" size="sm" />
 		</div>
 	{/if}
 

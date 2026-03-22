@@ -16,6 +16,7 @@
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
+	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -497,15 +498,8 @@
 <div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-4">
-			<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
-			<p class="text-sm text-neutral-400 dark:text-neutral-500">
-				{#if searchingMore}
-					Fetching from sources<span class="animate-ellipsis"></span>
-				{:else}
-					Searching local database<span class="animate-ellipsis"></span>
-				{/if}
-			</p>
+		<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+			<LoadingScore messages={['Searching local database', 'Fetching from sources']} size="lg" />
 		</div>
 
 	{:else if error}

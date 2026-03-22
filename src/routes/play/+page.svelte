@@ -13,6 +13,7 @@
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { activeVideoId, playerState } from '../../library/utils/playerStore';
+	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -268,9 +269,8 @@
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
 {#if loadingSharedTab}
-	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-3">
-		<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
-		<p class="text-sm text-neutral-400 dark:text-neutral-500">Loading tablature<span class="animate-ellipsis"></span></p>
+	<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+		<LoadingScore message="Loading tablature" size="lg" />
 	</div>
 {:else if sharedTabError}
 	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
