@@ -5,6 +5,7 @@
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { displayTime } from '../utils/format';
+	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
 	import ArtistTooltip from './ArtistTooltip.svelte';
 
@@ -68,31 +69,11 @@
 		const artist = state.artist || currentTab?.artist || '';
 		const title = state.title || currentTab?.title || '';
 		if (!artist || !title) return;
-		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
-		if (!SEARCH_API_BASE_URL) return;
 		const generation = ++artworkFetchGeneration;
-		try {
-			// Try song artwork first
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`);
-			if (generation !== artworkFetchGeneration) return;
-			if (resp.ok) {
-				const data = await resp.json();
-				if (generation !== artworkFetchGeneration) return;
-				if (data.artworkUrl) {
-					artworkUrl = data.artworkUrl;
-					return;
-				}
-			}
-			// Fallback: use artist image
-			if (!artist) return;
-			const artistResp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`);
-			if (generation !== artworkFetchGeneration) return;
-			if (artistResp.ok) {
-				const artistData = await artistResp.json();
-				if (generation !== artworkFetchGeneration) return;
-				artworkUrl = artistData.image || null;
-			}
-		} catch {}
+		const url = await fetchSingleArtwork(artist, title);
+		if (generation === artworkFetchGeneration) {
+			artworkUrl = url;
+		}
 	}
 
 	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';

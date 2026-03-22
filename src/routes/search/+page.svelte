@@ -15,6 +15,7 @@
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
+	import { fetchArtworkBatch } from '../../library/utils/artwork';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -278,31 +279,7 @@
 	}
 
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
-		if (!SEARCH_API_BASE_URL) return;
-		const toFetch = tabList.filter(t => !tabArtwork[t.id]);
-		if (toFetch.length === 0) return;
-
-		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork/batch`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(toFetch.map(t => ({
-					id: t.id,
-					artist: t.artist || '',
-					title: t.title
-				})))
-			});
-			if (resp.ok) {
-				const data = await resp.json();
-				for (const [id, url] of Object.entries(data)) {
-					if (url) tabArtwork[id] = url as string;
-				}
-				tabArtwork = tabArtwork;
-			}
-		} catch {
-			// Fallback: try individual artist images for tabs without artwork
-			// (keeps some images showing even if batch endpoint is unavailable)
-		}
+		tabArtwork = await fetchArtworkBatch(tabList, tabArtwork);
 	}
 
 	async function performSearch(force: boolean = false): Promise<void> {
@@ -520,7 +497,7 @@
 <div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)] gap-4">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-4">
 			<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
 			<p class="text-sm text-neutral-400 dark:text-neutral-500">
 				{#if searchingMore}
@@ -533,7 +510,7 @@
 
 	{:else if error}
 		<!-- Error -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
 			<p class="text-neutral-600 dark:text-neutral-400 mb-4">{error}</p>
 			<button
@@ -547,9 +524,9 @@
 	{:else if tabs.length > 0}
 		<!-- Artist hero cards (when search matches artists) -->
 		{#if artistHeroes.length > 0}
-			<div class="flex gap-3 overflow-x-auto py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 				{#each artistHeroes as hero}
-					<div class="flex-shrink-0 w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+					<div class="flex-shrink-0 snap-start w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<!-- Top: image + name + follow -->
 						<button
 							class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
@@ -652,20 +629,20 @@
 
 	{:else if query.length >= 2}
 		<!-- No results -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search_off</i>
 			<p class="text-neutral-600 dark:text-neutral-400">No results for "{query}"</p>
 		</div>
 
 	{:else if query.length > 0 && query.length < 2}
 		<!-- Too short -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Type at least 2 characters to search</p>
 		</div>
 
 	{:else}
 		<!-- Empty search - show prompt -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search</i>
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>

@@ -14,6 +14,7 @@
 	const dispatch = createEventDispatcher();
 	let mobileSearchOpen = false;
 	let searchBar: SearchBar;
+	let scrolled = false;
 
 	// Check if we're on the search page
 	$: isOnSearch = $page.url.pathname.includes('/search');
@@ -45,9 +46,9 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleGlobalKeydown} />
+<svelte:window on:keydown={handleGlobalKeydown} on:scroll={() => { scrolled = window.scrollY > 0; }} />
 
-<header class="sticky top-0 z-[100] bg-white dark:bg-black border-b border-neutral-300 dark:border-neutral-700">
+<header class="sticky top-0 z-[100] bg-white dark:bg-black border-b border-neutral-300 dark:border-neutral-700 transition-shadow duration-200 {scrolled ? 'shadow-sm' : ''}">
 	<div class="flex items-center h-14 px-4 gap-2 sm:gap-3">
 		<!-- Logo (always visible, including name on mobile) -->
 		<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">

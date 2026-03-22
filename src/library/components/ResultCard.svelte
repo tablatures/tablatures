@@ -73,7 +73,7 @@
 </script>
 
 <button
-	class="group flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all duration-150 cursor-pointer"
+	class="group flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
 	on:click={onClick}
 >
 	<!-- Icon -->
@@ -140,7 +140,7 @@
 				class="p-1.5 rounded-full active:scale-90 transition-all duration-150
 					{isFavorite
 						? 'text-red-500'
-						: 'text-neutral-300 dark:text-neutral-600 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400'}"
+						: 'text-neutral-300 dark:text-neutral-600 opacity-60 hover:opacity-100 hover:text-red-400'}"
 				on:click={toggleFavorite}
 				aria-label="{isFavorite ? 'Remove' : 'Add'} {title} {isFavorite ? 'from' : 'to'} favorites"
 			>
