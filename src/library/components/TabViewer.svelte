@@ -1437,6 +1437,11 @@
 				// Scroll to top when a new tab is loaded
 				window.scrollTo({ top: 0, behavior: 'smooth' });
 				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
+				// Auto-play on load if preference is enabled
+				const prefs = get(preferencesStore);
+				if (prefs.autoPlayOnLoad && apiRef && !playing) {
+					setTimeout(() => { try { apiRef.playPause(); } catch {} }, 200);
+				}
 			}
 
 			if (!(activeTrackIndex >= 0 && activeTrackIndex < tracks.length)) {
@@ -1995,6 +2000,11 @@
 		clearTimeout(hideTimeout);
 		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
 		clearTimeout(scrollCheckTimeout);
+
+		// Cleanup timers that may still be running
+		clearInterval(countdownInterval);
+		clearTimeout(longPressTimer);
+		clearInterval(videoSyncInterval);
 	});
 
 	let countdownInterval: NodeJS.Timeout;

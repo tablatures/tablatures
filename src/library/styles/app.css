@@ -191,11 +191,11 @@
   }
 
   .player-host-mini #player-host {
-    /* Bigger scale on mobile for better readability */
+    /* Bigger scale on mobile for better readability — driven by --mini-player-scale-mobile preference */
     transform-origin: top left;
-    transform: scale(0.7);
-    width: 143%; /* 100% / 0.7 */
-    height: 314px; /* 220px / 0.7 */
+    transform: scale(var(--mini-player-scale-mobile, 0.7));
+    width: calc(100% / var(--mini-player-scale-mobile, 0.7));
+    height: calc(220px / var(--mini-player-scale-mobile, 0.7));
   }
 }
 

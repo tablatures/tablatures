@@ -11,7 +11,7 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning } from '../library/utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
@@ -22,7 +22,7 @@
 	$: isOnPlay = $page.url.pathname.includes('/play');
 	$: showMiniPlayer = currentTab?.fileAsB64 && !isOnPlay;
 
-	let miniPreviewVisible = true;
+	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
 	let miniHovered = false;
 	$: playerHostClass = (!isOnPlay && showMiniPlayer && miniPreviewVisible) ? 'player-host-mini' : 'player-host-hidden';
 
@@ -262,6 +262,29 @@
 		loadedTabB64.set(null);
 	}
 
+	// Sync miniPreviewVisible with the showMiniPlayerPreview preference
+	$: if (browser) {
+		const prefs = get(preferencesStore);
+		miniPreviewVisible = prefs.showMiniPlayerPreview;
+	}
+
+	// When miniPreviewVisible changes, persist back to preferences
+	$: if (browser && miniPreviewVisible !== undefined) {
+		preferencesStore.update(p => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
+	}
+
+	// When a video becomes active, apply audioSourcePreference
+	$: if (browser && $activeVideoId) {
+		const prefs = get(preferencesStore);
+		audioSource.set(prefs.audioSourcePreference);
+	}
+
+	// Set CSS custom property for miniPlayerScaleMobile from preferences
+	$: if (browser) {
+		const prefs = get(preferencesStore);
+		document.documentElement.style.setProperty('--mini-player-scale-mobile', String(prefs.miniPlayerScaleMobile));
+	}
+
 	onMount(() => {
 		// Initialize API if tab already exists in store
 		const existingTab = tabStore.loadTab();
@@ -344,7 +367,16 @@
 				<!-- Close video mini -->
 				<button
 					class="absolute top-1 right-1 z-[88] p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 transition-colors pointer-events-auto"
-					on:click|stopPropagation={() => { activeVideoId.set(null); }}
+					on:click|stopPropagation={() => {
+						const ytPlayer = get(videoPlayerRef);
+						if (ytPlayer) try { ytPlayer.pauseVideo(); } catch {}
+						videoPlayerRef.set(null);
+						audioSource.set('tab');
+						// Restore tab volume in case it was muted for video audio
+						const api = get(playerApi);
+						if (api) try { api.masterVolume = 1; } catch {}
+						activeVideoId.set(null);
+					}}
 					title="Close video"
 				>
 					<i class="material-icons !text-sm">close</i>

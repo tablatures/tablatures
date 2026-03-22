@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	const artistImageCache: Record<string, string | null> = {};
+</script>
+
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -30,8 +34,6 @@
 	const SEARCH_API_BASE_URL_META = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	let recommendedArtwork: Record<string, string> = {};
 	let discoverArtwork: Record<string, string> = {};
-
-	const artistImageCache: Record<string, string | null> = {};
 
 	async function fetchArtwork(tabs: any[], artworkMap: Record<string, string>, setter: (m: Record<string, string>) => void) {
 		if (!SEARCH_API_BASE_URL_META) return;

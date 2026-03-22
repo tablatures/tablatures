@@ -170,6 +170,7 @@
 		if (!browser || !SEARCH_API_BASE_URL) return;
 		loadingSharedTab = true;
 		sharedTabError = '';
+		currentTabId = tabId;
 		try {
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
@@ -187,7 +188,6 @@
 			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Tab file is empty');
 
 			const b64 = arrayBufferToBase64(arrayBuffer);
-			currentTabId = tabId;
 			tabStore.setTab({ fileAsB64: b64, tabId });
 		} catch (err: any) {
 			console.error('Failed to fetch shared tab:', err);

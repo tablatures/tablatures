@@ -54,6 +54,7 @@
 
 	let artworkUrl: string | null = null;
 	let lastFetchedTab = '';
+	let artworkFetchGeneration = 0;
 
 	$: {
 		const tabKey = (state.title || currentTab?.title || '') + '|' + (state.artist || currentTab?.artist || '');
@@ -69,11 +70,14 @@
 		if (!artist || !title) return;
 		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 		if (!SEARCH_API_BASE_URL) return;
+		const generation = ++artworkFetchGeneration;
 		try {
 			// Try song artwork first
 			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`);
+			if (generation !== artworkFetchGeneration) return;
 			if (resp.ok) {
 				const data = await resp.json();
+				if (generation !== artworkFetchGeneration) return;
 				if (data.artworkUrl) {
 					artworkUrl = data.artworkUrl;
 					return;
@@ -82,8 +86,10 @@
 			// Fallback: use artist image
 			if (!artist) return;
 			const artistResp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`);
+			if (generation !== artworkFetchGeneration) return;
 			if (artistResp.ok) {
 				const artistData = await artistResp.json();
+				if (generation !== artworkFetchGeneration) return;
 				artworkUrl = artistData.image || null;
 			}
 		} catch {}

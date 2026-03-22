@@ -33,7 +33,7 @@ export const SOUNDFONT_PRESETS = [
 		description: 'Full General MIDI set, clear instruments, good quality',
 		size: '~10 MB',
 		tier: 'balanced' as const,
-		url: 'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@master/soundfonts/GeneralUserGS.sf3'
+		url: 'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@24e5f18b6a6a5f1c56a56b7d9d589f52161cf490/soundfonts/GeneralUserGS.sf3'
 	}
 ];
 

@@ -566,7 +566,7 @@
 						on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
 					>
 						{#if hero.image}
-							<img src={hero.image} alt={hero.name} class="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+							<img src={hero.image} alt={hero.name} class="w-12 h-12 rounded-full object-cover flex-shrink-0" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 						{:else}
 							<div class="w-12 h-12 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
 								<i class="material-icons text-neutral-400 !text-xl">person</i>
