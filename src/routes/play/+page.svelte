@@ -21,6 +21,7 @@
 	let tabUnsubscribe: Unsubscriber;
 	let currentTabId: string | undefined = undefined;
 	let loadingSharedTab = false;
+	let sharedTabError = '';
 
 	let playerSettings = {
 		volume: 1,
@@ -168,6 +169,7 @@
 	async function fetchSharedTab(tabId: string) {
 		if (!browser || !SEARCH_API_BASE_URL) return;
 		loadingSharedTab = true;
+		sharedTabError = '';
 		try {
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
@@ -176,18 +178,21 @@
 			});
 			clearTimeout(timeoutId);
 
-			if (!response.ok) throw new Error(`Failed to load shared tab (HTTP ${response.status})`);
+			if (response.status === 404) {
+				throw new Error('This tab was not found. It may have been removed.');
+			}
+			if (!response.ok) throw new Error(`Failed to load tab (HTTP ${response.status})`);
 
 			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Shared tab data is empty');
+			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Tab file is empty');
 
 			const b64 = arrayBufferToBase64(arrayBuffer);
 			currentTabId = tabId;
 			tabStore.setTab({ fileAsB64: b64, tabId });
-			toastStore.success('Tab loaded');
 		} catch (err: any) {
 			console.error('Failed to fetch shared tab:', err);
-			toastStore.error(err?.message || 'Failed to load tab');
+			sharedTabError = err?.message || 'Failed to load tab';
+			toastStore.error(sharedTabError);
 		} finally {
 			loadingSharedTab = false;
 		}
@@ -263,8 +268,28 @@
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
 {#if loadingSharedTab}
-	<div class="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-		<div class="animate-spin rounded-full h-8 w-8 border-2 border-neutral-300 border-t-violet-500" />
+	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-3">
+		<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
+		<p class="text-sm text-neutral-400 dark:text-neutral-500">Loading tablature<span class="animate-ellipsis"></span></p>
+	</div>
+{:else if sharedTabError}
+	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
+		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
+		<div class="flex gap-3 mt-2">
+			<button
+				on:click={() => { sharedTabError = ''; if (currentTabId) fetchSharedTab(currentTabId); }}
+				class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
+			>
+				Try again
+			</button>
+			<a
+				href="{base}/"
+				class="px-4 py-2 text-sm border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+			>
+				Search for tabs
+			</a>
+		</div>
 	</div>
 {:else if hasTab}
 	<TabViewer
@@ -275,8 +300,8 @@
 		on:sheetChanged={handleSheetChanged}
 	/>
 {:else}
-	<div class="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)]">
-		<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
+	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">No tab loaded</p>
 		<a
 			href="{base}/"

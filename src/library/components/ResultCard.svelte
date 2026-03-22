@@ -12,6 +12,8 @@
 	export let trackCount: number | undefined = undefined;
 	export let artworkUrl: string = '';
 	export let onClick: () => void = () => {};
+	export let variants: Array<{id: string; source: string; sourceUrl: string; trackCount?: number; instruments?: string[]}> | undefined = undefined;
+	export let onVariantClick: ((variant: any) => void) | undefined = undefined;
 
 	$: isFavorite = id ? $favoritesStore.some(f => f.id === id) : false;
 
@@ -50,6 +52,21 @@
 		if (lower.includes('drum')) return 'sports_mma';
 		if (lower.includes('piano') || lower.includes('key')) return 'piano';
 		return 'music_note';
+	}
+
+	function getSourceColor(src: string): string {
+		if (src.toLowerCase().includes('songsterr')) return 'bg-orange-500';
+		if (src.toLowerCase().includes('ultimate') || src === 'ultimate_guitar') return 'bg-amber-500';
+		if (src.toLowerCase().includes('local') || src === 'GuitarProTabOrg') return 'bg-emerald-500';
+		return 'bg-neutral-400';
+	}
+
+	function getSourceLabel(src: string): string {
+		if (src.toLowerCase().includes('songsterr')) return 'Songsterr';
+		if (src.toLowerCase().includes('ultimate') || src === 'ultimate_guitar') return 'UG';
+		if (src === 'GuitarProTabOrg') return 'GP Tabs';
+		if (src.toLowerCase().includes('local')) return 'Local';
+		return src || 'Unknown';
 	}
 
 	$: dotColor = sourceDotColor(source);
@@ -95,6 +112,25 @@
 				<span class="text-[11px] text-neutral-400 dark:text-neutral-500">{trackCount} tracks</span>
 			{/if}
 		</div>
+		{#if variants && variants.length > 1}
+			<div class="flex gap-1.5 mt-1.5 flex-wrap">
+				{#each variants as variant}
+					<button
+						class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
+							{variant.source === source
+								? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+								: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-violet-300'}"
+						on:click|stopPropagation={() => onVariantClick?.(variant)}
+					>
+						<span class="w-1.5 h-1.5 rounded-full {getSourceColor(variant.source)}"></span>
+						{getSourceLabel(variant.source)}
+						{#if variant.trackCount}
+							<span class="text-neutral-400">({variant.trackCount})</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	<!-- Right actions -->

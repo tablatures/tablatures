@@ -11,7 +11,7 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId } from '../library/utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
@@ -121,8 +121,8 @@
 				duration: e.endTime
 			});
 
-			// In mini player mode, always scroll to follow the cursor
-			if (!get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
+			// In mini player mode, always scroll to follow the cursor (skip during transitions)
+			if (!get(isTransitioning) && !get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
 				const cursor = api?._beatCursor;
 				if (cursor?.element) {
 					const el = cursor.element;
@@ -224,6 +224,16 @@
 			res.barNumberColor = atColor(80, 80, 80);
 		}
 		api.updateSettings();
+		// Render immediately to sync theme with UI
+		try { api.render(); } catch {}
+	}
+
+	// Subscribe to theme changes to apply to alphaTab even when not on /play route
+	$: if (browser && $themeStore !== undefined) {
+		const api = get(playerApi);
+		if (api && get(playerState).scoreLoaded) {
+			applyTheme(api);
+		}
 	}
 
 	// React to tab changes - load new tabs into the persistent API
@@ -331,6 +341,14 @@
 					width={340}
 					height={220}
 				/>
+				<!-- Close video mini -->
+				<button
+					class="absolute top-1 right-1 z-[88] p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 transition-colors pointer-events-auto"
+					on:click|stopPropagation={() => { activeVideoId.set(null); }}
+					title="Close video"
+				>
+					<i class="material-icons !text-sm">close</i>
+				</button>
 			</div>
 		{/if}
 
@@ -344,11 +362,20 @@
 					class="material-icons !text-4xl text-white transition-opacity duration-200 drop-shadow-md dark:drop-shadow-none
 						{miniHovered ? 'opacity-100' : 'opacity-0'}"
 				>fullscreen</i>
+				<!-- Close preview button (on hover) -->
+				<button
+					class="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 transition-all pointer-events-auto
+						{miniHovered ? 'opacity-100' : 'opacity-0'}"
+					on:click|stopPropagation={() => { miniPreviewVisible = false; }}
+					title="Hide preview"
+				>
+					<i class="material-icons !text-sm">close</i>
+				</button>
 			</div>
 		{/if}
 	</div>
 
-	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? 'pb-14' : ''}">
+	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[280px] sm:pb-14' : 'pb-14') : ''}">
 		<slot />
 	</main>
 
