@@ -8,7 +8,7 @@
 	export let step: number = 0.1;
 	export let label: string = 'Setting';
 	export let details: string = '';
-	export let onInput: () => void;
+	export let onInput: () => void = () => {};
 
 	// Dynamic icons
 	export let iconOn: string = 'tune';

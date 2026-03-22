@@ -466,7 +466,7 @@
 		{#if artistHero}
 			<div class="py-4 px-3 flex items-start gap-4 border-b border-neutral-100 dark:border-neutral-800">
 				{#if artistHero.image}
-					<img src={artistHero.image} alt="" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 shadow-md" on:error={(e) => e.currentTarget.style.display='none'} />
+					<img src={artistHero.image} alt="" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 shadow-md" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 				{:else}
 					<div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0">
 						<i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600">person</i>

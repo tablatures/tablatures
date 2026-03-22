@@ -98,7 +98,7 @@
 		<!-- Artwork thumbnail -->
 		<a href="{base}/play" class="flex-shrink-0">
 			{#if artworkUrl}
-				<img src={artworkUrl} alt="" class="w-10 h-10 rounded object-cover bg-neutral-700" on:error={(e) => e.currentTarget.style.display='none'} />
+				<img src={artworkUrl} alt="" class="w-10 h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
 				<div class="w-10 h-10 rounded bg-neutral-700 flex items-center justify-center">
 					<i class="material-icons !text-lg text-neutral-500">music_note</i>

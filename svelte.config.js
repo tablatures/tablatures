@@ -1,10 +1,9 @@
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-import preprocess from 'svelte-preprocess';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-	preprocess: [vitePreprocess(), preprocess()],
+	preprocess: vitePreprocess(),
 
 	kit: {
 		adapter: adapter({
@@ -21,6 +20,14 @@ const config = {
 			handleMissingId: 'warn',
 			handleHttpError: 'warn',
 			entries: []
+		},
+		alias: {
+			$components: 'src/library/components',
+			$utils: 'src/library/utils',
+			$styles: 'src/library/styles',
+			$routes: 'src/routes',
+			$images: 'static/images',
+			$logos: 'static/logos'
 		}
 	}
 };

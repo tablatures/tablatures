@@ -54,6 +54,13 @@ function createHistoryStore() {
 		getHistory: (): HistoryItem[] => {
 			return get(store);
 		},
+		removeFromHistory: (id: string) => {
+			update((items) => {
+				const filtered = items.filter((h) => h.id !== id);
+				saveHistory(filtered);
+				return filtered;
+			});
+		},
 		clearHistory: () => {
 			saveHistory([]);
 			set([]);
