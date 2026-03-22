@@ -471,15 +471,17 @@
 		}
 	}
 
-	/** Sync api.playbackRange and isLooping from our loop state.
-	 *  Uses stored ticks when available to avoid ms→tick round-trip precision loss. */
+	/** Sync api.playbackRange from our loop state.
+	 *  Always converts from ms to get ticks that account for repeats. */
 	function syncPlaybackRange() {
 		if (!api) return;
 		try {
 			if (loopStart !== null && loopEnd !== null && loopEnabled) {
-				// Prefer stored ticks (exact), fall back to ms→tick conversion
-				const startTick = loopStartTick ?? msToTick(loopStart);
-				const endTick = loopEndTick ?? msToTick(loopEnd);
+				// Always use ms→tick conversion which accounts for the full timeline
+				// (including expanded repeats). Stored ticks from bar boundaries may
+				// not include repeat expansions.
+				const startTick = msToTick(loopStart);
+				const endTick = msToTick(loopEnd);
 				if (endTick > startTick) {
 					api.playbackRange = { startTick, endTick };
 					api.isLooping = true;
