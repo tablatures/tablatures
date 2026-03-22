@@ -1,7 +1,3 @@
-<script context="module" lang="ts">
-	const artistImageCache: Record<string, string | null> = {};
-</script>
-
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -37,48 +33,27 @@
 
 	async function fetchArtwork(tabs: any[], artworkMap: Record<string, string>, setter: (m: Record<string, string>) => void) {
 		if (!SEARCH_API_BASE_URL_META) return;
-		const tabsToFetch = tabs.slice(0, 8).filter(t => !artworkMap[t.id]);
+		const toFetch = tabs.slice(0, 8).filter((t: any) => !artworkMap[t.id]);
+		if (toFetch.length === 0) return;
 
-		// First: batch-fetch artist images in parallel for all unique artists
-		const uniqueArtists = new Set(tabsToFetch.map((t: any) => t.artist || '').filter(Boolean));
-		const promises: Promise<void>[] = [];
-		for (const artist of uniqueArtists) {
-			if (artist in artistImageCache) continue;
-			promises.push(
-				fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artist/${encodeURIComponent(artist)}`)
-					.then(async (resp) => {
-						if (resp.ok) {
-							const data = await resp.json();
-							artistImageCache[artist] = data.image || null;
-						} else {
-							artistImageCache[artist] = null;
-						}
-					})
-					.catch(() => { artistImageCache[artist] = null; })
-			);
-		}
-		await Promise.allSettled(promises);
-
-		// Second: fetch song artwork, fallback to artist image
-		for (const tab of tabsToFetch) {
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artwork?artist=${encodeURIComponent(tab.artist || '')}&title=${encodeURIComponent(tab.title)}`);
-				if (resp.ok) {
-					const data = await resp.json();
-					if (data.artworkUrl) {
-						artworkMap[tab.id] = data.artworkUrl;
-						setter({ ...artworkMap });
-						continue;
-					}
+		try {
+			const resp = await fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artwork/batch`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(toFetch.map((t: any) => ({
+					id: t.id,
+					artist: t.artist || '',
+					title: t.title || ''
+				})))
+			});
+			if (resp.ok) {
+				const data = await resp.json();
+				for (const [id, url] of Object.entries(data)) {
+					if (url) artworkMap[id] = url as string;
 				}
-			} catch {}
-			// Fallback: use cached artist image
-			const artist = tab.artist || '';
-			if (artist && artistImageCache[artist]) {
-				artworkMap[tab.id] = artistImageCache[artist]!;
 				setter({ ...artworkMap });
 			}
-		}
+		} catch {}
 	}
 
 	$: recentItems = $historyStore.slice(0, 4);

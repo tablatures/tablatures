@@ -196,24 +196,33 @@
 		artistHeroes = [];
 		if (!SEARCH_API_BASE_URL || results.length < 1) return;
 
+		function splitArtistName(name: string): string[] {
+			return name.split(/\s*(?:,\s+|&|\|)\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with)\s+/i)
+				.map(s => s.trim())
+				.filter(Boolean);
+		}
+
 		const groups: { canonical: string; names: string[]; count: number }[] = [];
 
 		for (const tab of results) {
-			const artist = (tab.artist || '').trim();
-			if (!artist || artist === 'Unknown') continue;
+			const rawArtist = (tab.artist || '').trim();
+			if (!rawArtist || rawArtist === 'Unknown') continue;
 
-			let found = false;
-			for (const group of groups) {
-				if (artistsMatch(artist, group.canonical)) {
-					group.count++;
-					if (!group.names.includes(artist)) group.names.push(artist);
-					if (artist.length > group.canonical.length) group.canonical = artist;
-					found = true;
-					break;
+			const subArtists = splitArtistName(rawArtist);
+			for (const artist of subArtists) {
+				let found = false;
+				for (const group of groups) {
+					if (artistsMatch(artist, group.canonical)) {
+						group.count++;
+						if (!group.names.includes(artist)) group.names.push(artist);
+						if (artist.length > group.canonical.length) group.canonical = artist;
+						found = true;
+						break;
+					}
 				}
-			}
-			if (!found) {
-				groups.push({ canonical: artist, names: [artist], count: 1 });
+				if (!found) {
+					groups.push({ canonical: artist, names: [artist], count: 1 });
+				}
 			}
 		}
 
@@ -233,7 +242,7 @@
 				return true;
 			}
 			return false;
-		}).slice(0, 3);
+		}).slice(0, 10);
 
 		if (qualifying.length === 0) return;
 
@@ -268,52 +277,31 @@
 		} catch {}
 	}
 
-	const artistImageCache: Record<string, string | null> = {};
-
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
-		// First pass: batch-fetch artist images for unique artists (avoids sequential delays)
-		const uniqueArtists = new Set(tabList.map(t => t.artist || '').filter(Boolean));
-		const artistFetchPromises: Promise<void>[] = [];
-		for (const artist of uniqueArtists) {
-			if (artist in artistImageCache) continue;
-			artistFetchPromises.push(
-				fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`)
-					.then(async (resp) => {
-						if (resp.ok) {
-							const data = await resp.json();
-							artistImageCache[artist] = data.image || null;
-						} else {
-							artistImageCache[artist] = null;
-						}
-					})
-					.catch(() => { artistImageCache[artist] = null; })
-			);
-		}
-		// Fetch all artist images in parallel
-		await Promise.allSettled(artistFetchPromises);
+		if (!SEARCH_API_BASE_URL) return;
+		const toFetch = tabList.filter(t => !tabArtwork[t.id]);
+		if (toFetch.length === 0) return;
 
-		// Second pass: fetch song artwork, fallback to artist image
-		for (const tab of tabList) {
-			if (tabArtwork[tab.id]) continue;
-			try {
-				const resp = await fetch(
-					`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(tab.artist || '')}&title=${encodeURIComponent(tab.title)}`
-				);
-				if (resp.ok) {
-					const data = await resp.json();
-					if (data.artworkUrl) {
-						tabArtwork[tab.id] = data.artworkUrl;
-						tabArtwork = tabArtwork;
-						continue;
-					}
+		try {
+			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork/batch`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(toFetch.map(t => ({
+					id: t.id,
+					artist: t.artist || '',
+					title: t.title
+				})))
+			});
+			if (resp.ok) {
+				const data = await resp.json();
+				for (const [id, url] of Object.entries(data)) {
+					if (url) tabArtwork[id] = url as string;
 				}
-			} catch {}
-			// Fallback: use cached artist image
-			const artist = tab.artist || '';
-			if (artist && artistImageCache[artist]) {
-				tabArtwork[tab.id] = artistImageCache[artist]!;
 				tabArtwork = tabArtwork;
 			}
+		} catch {
+			// Fallback: try individual artist images for tabs without artwork
+			// (keeps some images showing even if batch endpoint is unavailable)
 		}
 	}
 
