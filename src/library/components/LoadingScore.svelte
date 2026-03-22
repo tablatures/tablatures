@@ -17,38 +17,44 @@
 
 	const sizeConfig = {
 		sm: {
-			clef: 28,
-			staffWidth: 100,
-			lines: [75, 85, 75],
-			lineHeight: 1,
-			lineGap: 4,
+			clef: 20,
+			staffWidth: 120,
+			lines: [0, 2, 4],
+			lineHeight: 0.8,
+			lineGap: 3,
 			textClass: 'text-[10px]',
-			gapClass: 'gap-1.5'
+			gapClass: 'gap-1'
 		},
 		md: {
-			clef: 48,
-			staffWidth: 160,
-			lines: [80, 85, 90, 85, 80],
-			lineHeight: 1.5,
-			lineGap: 5,
+			clef: 32,
+			staffWidth: 180,
+			lines: [0, 1.5, 3, 4.5, 6],
+			lineHeight: 1,
+			lineGap: 0,
 			textClass: 'text-xs',
-			gapClass: 'gap-2'
+			gapClass: 'gap-1.5'
 		},
 		lg: {
-			clef: 64,
-			staffWidth: 220,
-			lines: [85, 90, 95, 90, 85],
-			lineHeight: 2,
-			lineGap: 6,
+			clef: 44,
+			staffWidth: 260,
+			lines: [0, 2, 4, 6, 8],
+			lineHeight: 1,
+			lineGap: 0,
 			textClass: 'text-sm',
-			gapClass: 'gap-3'
+			gapClass: 'gap-2'
 		}
 	};
+
+	// Small random offsets for each line to look more organic
+	const lineOffsets = [3, 1, 0, 2, 4];
 
 	$: config = sizeConfig[size];
 	$: isSimulated = progress === -1;
 	$: displayProgress = isSimulated ? simulatedProgress : progress;
 	$: currentMessage = messages.length > 0 ? messages[messageIndex] : message;
+	$: staffHeight = config.lines.length > 1
+		? config.lines[config.lines.length - 1] + config.lineHeight
+		: config.lineHeight;
 
 	function simulateProgress(timestamp: number) {
 		if (!startTime) startTime = timestamp;
@@ -98,7 +104,6 @@
 	});
 
 	$: if (done && isSimulated && typeof window !== 'undefined') {
-		// Re-trigger animation loop if it stopped
 		if (!rafId) {
 			rafId = requestAnimationFrame(simulateProgress);
 		}
@@ -106,42 +111,57 @@
 </script>
 
 <div class="flex flex-col items-center justify-center {config.gapClass}">
-	<!-- Treble Clef -->
-	<svg
-		viewBox="0 0 100 200"
-		fill="currentColor"
-		class="text-violet-500"
-		style="width: {config.clef}px; height: {config.clef * 2}px;"
-	>
-		<path d="M52 10c-1.5 0-3 1.2-3 3 0 3 2 8 2 15 0 12-8 22-16 32-6 8-10 16-10 26 0 18 12 30 28 30 4 0 8-0.5 11-2-2 14-8 26-18 34-6 4-12 7-18 7-4 0-6-2-6-5 0-4 3-7 7-7 2 0 4 1 4 3 0 3-3 4-5 4 2 4 8 2 12-2 8-6 14-18 16-32 0-2 1-3 1-5 0-14-10-24-24-24-10 0-18 6-18 16 0 8 4 14 12 14 6 0 10-4 10-9 0-4-2-7-6-7-2 0-4 1-4 3 0 3 2 4 4 4-4-1-8-4-8-10 0-8 6-15 16-15 14 0 22 10 22 24 0 4-1 7-2 10 4-2 7-5 7-10 0-16-14-28-30-28zM50 55c0-6 2-11 6-16 4-5 8-10 8-17 0-2-0.5-4-1-5-1 8-4 14-8 20-4 6-7 12-7 18 0 2 0.5 3 2 3z"/>
-	</svg>
-
-	<!-- Staff Lines -->
-	<div class="flex flex-col items-center" style="gap: {config.lineGap}px; width: {config.staffWidth}px;">
-		{#each config.lines as widthPct}
-			<div
-				class="relative bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden"
-				style="width: {widthPct}%; height: {config.lineHeight}px;"
+	<!-- Staff with treble clef inline -->
+	<div class="flex items-center" style="width: {config.staffWidth}px; gap: {size === 'sm' ? 4 : 8}px;">
+		<!-- Treble Clef - fills with progress like the lines -->
+		<div class="relative flex-shrink-0" style="width: {config.clef}px; height: {config.clef * 1.8}px;">
+			<!-- Grey background clef -->
+			<svg
+				viewBox="0 0 24 56"
+				class="absolute inset-0 w-full h-full text-neutral-200 dark:text-neutral-700"
+				fill="currentColor"
 			>
-				<!-- Progress fill -->
-				<div
-					class="absolute inset-y-0 left-0 bg-violet-500 transition-[width] duration-150 rounded-full"
-					style="width: {Math.min(100, Math.max(0, displayProgress))}%;"
-				/>
-				<!-- Shimmer overlay -->
-				<div
-					class="absolute inset-0 animate-shimmer rounded-full"
-				/>
+				<path d="M12.8 0C12 0 11.2.6 11.2 1.8c0 1.8 1.2 4.8 1.2 9 0 7.2-4.8 13.2-9.6 19.2C-.8 34.8-2.4 39.6-2.4 45.6c0 10.8 7.2 18 16.8 18 2.4 0 4.8-.3 6.6-1.2-1.2 8.4-4.8 15.6-10.8 20.4-3.6 2.4-7.2 4.2-10.8 4.2-2.4 0-3.6-1.2-3.6-3 0-2.4 1.8-4.2 4.2-4.2 1.2 0 2.4.6 2.4 1.8 0 1.8-1.8 2.4-3 2.4 1.2 2.4 4.8 1.2 7.2-1.2 4.8-3.6 8.4-10.8 9.6-19.2 0-1.2.6-1.8.6-3 0-8.4-6-14.4-14.4-14.4-6 0-10.8 3.6-10.8 9.6 0 4.8 2.4 8.4 7.2 8.4 3.6 0 6-2.4 6-5.4 0-2.4-1.2-4.2-3.6-4.2-1.2 0-2.4.6-2.4 1.8 0 1.8 1.2 2.4 2.4 2.4-2.4-.6-4.8-2.4-4.8-6 0-4.8 3.6-9 9.6-9 8.4 0 13.2 6 13.2 14.4 0 2.4-.6 4.2-1.2 6 2.4-1.2 4.2-3 4.2-6 0-9.6-8.4-16.8-18-16.8zM12 33c0-3.6 1.2-6.6 3.6-9.6 2.4-3 4.8-6 4.8-10.2 0-1.2-.3-2.4-.6-3-.6 4.8-2.4 8.4-4.8 12-2.4 3.6-4.2 7.2-4.2 10.8 0 1.2.3 1.8 1.2 1.8z" transform="translate(3, 0) scale(0.38)"/>
+			</svg>
+			<!-- Purple fill clef (clipped by progress) -->
+			<div class="absolute inset-0 overflow-hidden" style="width: {Math.min(100, Math.max(0, displayProgress))}%;">
+				<svg
+					viewBox="0 0 24 56"
+					class="w-full h-full text-violet-500"
+					fill="currentColor"
+					style="width: {config.clef}px; height: {config.clef * 1.8}px;"
+				>
+					<path d="M12.8 0C12 0 11.2.6 11.2 1.8c0 1.8 1.2 4.8 1.2 9 0 7.2-4.8 13.2-9.6 19.2C-.8 34.8-2.4 39.6-2.4 45.6c0 10.8 7.2 18 16.8 18 2.4 0 4.8-.3 6.6-1.2-1.2 8.4-4.8 15.6-10.8 20.4-3.6 2.4-7.2 4.2-10.8 4.2-2.4 0-3.6-1.2-3.6-3 0-2.4 1.8-4.2 4.2-4.2 1.2 0 2.4.6 2.4 1.8 0 1.8-1.8 2.4-3 2.4 1.2 2.4 4.8 1.2 7.2-1.2 4.8-3.6 8.4-10.8 9.6-19.2 0-1.2.6-1.8.6-3 0-8.4-6-14.4-14.4-14.4-6 0-10.8 3.6-10.8 9.6 0 4.8 2.4 8.4 7.2 8.4 3.6 0 6-2.4 6-5.4 0-2.4-1.2-4.2-3.6-4.2-1.2 0-2.4.6-2.4 1.8 0 1.8 1.2 2.4 2.4 2.4-2.4-.6-4.8-2.4-4.8-6 0-4.8 3.6-9 9.6-9 8.4 0 13.2 6 13.2 14.4 0 2.4-.6 4.2-1.2 6 2.4-1.2 4.2-3 4.2-6 0-9.6-8.4-16.8-18-16.8zM12 33c0-3.6 1.2-6.6 3.6-9.6 2.4-3 4.8-6 4.8-10.2 0-1.2-.3-2.4-.6-3-.6 4.8-2.4 8.4-4.8 12-2.4 3.6-4.2 7.2-4.2 10.8 0 1.2.3 1.8 1.2 1.8z" transform="translate(3, 0) scale(0.38)"/>
+				</svg>
 			</div>
-		{/each}
+		</div>
+
+		<!-- Staff lines -->
+		<div class="relative flex-1" style="height: {staffHeight * (size === 'sm' ? 3.5 : 5)}px;">
+			{#each config.lines as yPos, i}
+				{@const offset = lineOffsets[i] || 0}
+				<div
+					class="absolute bg-neutral-200 dark:bg-neutral-700 overflow-hidden"
+					style="top: {yPos * (size === 'sm' ? 3.5 : 5)}px; left: {offset}px; right: {offset}px; height: {config.lineHeight}px; border-radius: 1px;"
+				>
+					<!-- Progress fill -->
+					<div
+						class="absolute inset-y-0 left-0 bg-violet-500 transition-[width] duration-150"
+						style="width: {Math.min(100, Math.max(0, displayProgress))}%; border-radius: 1px;"
+					/>
+					<!-- Shimmer -->
+					<div class="absolute inset-0 animate-shimmer" style="border-radius: 1px;" />
+				</div>
+			{/each}
+		</div>
 	</div>
 
 	<!-- Message -->
 	<span
-		class="{config.textClass} text-neutral-400 dark:text-neutral-500 animate-ellipsis transition-opacity duration-200"
+		class="{config.textClass} text-neutral-400 dark:text-neutral-500 transition-opacity duration-200"
 		class:opacity-0={!fadingIn}
 		class:opacity-100={fadingIn}
 	>
-		{currentMessage}
+		{currentMessage}<span class="animate-ellipsis"></span>
 	</span>
 </div>
