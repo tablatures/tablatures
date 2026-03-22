@@ -82,6 +82,10 @@
 	let controlsHovered = false;
 	let controlsVisible = true;
 	let hideTimeout: NodeJS.Timeout;
+	let themeUnsubscribe: (() => void) | undefined;
+	let mountObserver: IntersectionObserver | undefined;
+	let mountScrollTarget: Window | HTMLElement | undefined;
+	let mountHandleResize: (() => void) | undefined;
 
 	let solo: boolean = false;
 	let mute: boolean = false;
@@ -1065,7 +1069,7 @@
 		// --- Theme subscription ---
 		// Skip the initial subscription call to avoid triggering api.render() during adoption
 		let themeInitialized = false;
-		const themeUnsubscribe = themeStore.subscribe((value) => {
+		themeUnsubscribe = themeStore.subscribe((value) => {
 			theme = value;
 			if (themeInitialized) {
 				updateAlphaTabTheme(value);
@@ -1083,7 +1087,7 @@
 		}
 
 		let resizeDebounceTimeout: NodeJS.Timeout;
-		const handleResize = () => {
+		mountHandleResize = () => {
 			clearTimeout(resizeDebounceTimeout);
 			resizeDebounceTimeout = setTimeout(() => {
 				const newScale = getResponsiveScale();
@@ -1094,7 +1098,7 @@
 			}, DEBOUNCE_DELAY_MS);
 		};
 
-		window.addEventListener('resize', handleResize);
+		window.addEventListener('resize', mountHandleResize);
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 
 		// Add mouse event listeners for controls
@@ -1105,10 +1109,10 @@
 		}
 
 		// Smart cursor follow: detect user scrolling
-		const scrollTarget = isFullscreen && page ? page : window;
-		scrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget = isFullscreen && page ? page : window;
+		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
 
-		const observer = new IntersectionObserver(
+		mountObserver = new IntersectionObserver(
 			([entry]) => {
 				atTop = entry.isIntersecting;
 				if (atTop) {
@@ -1119,23 +1123,8 @@
 			{ threshold: 0.01 }
 		);
 
-		if (topSentinel) observer.observe(topSentinel);
+		if (topSentinel) mountObserver.observe(topSentinel);
 
-		return () => {
-			themeUnsubscribe();
-			window.removeEventListener('resize', handleResize);
-			document.removeEventListener('fullscreenchange', handleFullscreenChange);
-			observer.disconnect();
-
-			if (page) {
-				page.removeEventListener('mousemove', handleMouseMove);
-				page.removeEventListener('mouseleave', handleMouseLeave);
-				page.removeEventListener('mouseenter', handleMouseEnter);
-			}
-			clearTimeout(hideTimeout);
-			scrollTarget.removeEventListener('scroll', handleUserScroll);
-			clearTimeout(scrollCheckTimeout);
-		};
 	});
 
 	function onBarPressed(event: KeyboardEvent) {
@@ -1249,11 +1238,25 @@
 		fullPlayerListenerCleanups = [];
 	}
 
-	onDestroy(async () => {
+	onDestroy(() => {
 		// Do NOT destroy the API - it persists in the layout
 		if (!didReturnPlayerHost) returnPlayerHost();
 		api = undefined;
 		document.removeEventListener('keydown', onBarPressed);
+
+		// Cleanup from onMount
+		themeUnsubscribe?.();
+		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
+		document.removeEventListener('fullscreenchange', handleFullscreenChange);
+		mountObserver?.disconnect();
+		if (page) {
+			page.removeEventListener('mousemove', handleMouseMove);
+			page.removeEventListener('mouseleave', handleMouseLeave);
+			page.removeEventListener('mouseenter', handleMouseEnter);
+		}
+		clearTimeout(hideTimeout);
+		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		clearTimeout(scrollCheckTimeout);
 	});
 
 	let countdownInterval: NodeJS.Timeout;
@@ -1809,6 +1812,7 @@
 		{/if}
 	</div>
 
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->
 	<div
 		on:mouseenter={handleControlsEnter}
@@ -1816,12 +1820,14 @@
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded ? '' : 'pointer-events-none opacity-30'}"
 		role="toolbar"
+		tabindex="0"
 		aria-label="Playback controls"
 	>
 		<!-- Progress bar with drag-to-loop -->
 		<div
 			class="relative h-1 hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
 			role="slider"
+			tabindex="0"
 			aria-label="Playback progress. Drag to create loop region."
 			aria-valuemin={0}
 			aria-valuemax={100}
@@ -2176,7 +2182,7 @@
 							src={songArtwork || artistImage}
 							alt=""
 							class="w-full h-full object-cover"
-							on:error={(e) => { e.currentTarget.style.display = 'none'; }}
+							on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }}
 						/>
 					</div>
 				{/if}
@@ -2253,11 +2259,13 @@
 
 	<!-- Settings popover (YouTube-style, above controls) -->
 	{#if showSettings}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 		<div class="fixed inset-0 z-[60]" on:click={closeSettings} role="presentation" />
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
 		<div
 			bind:this={settings}
 			class="fixed bottom-16 right-4 z-[70] w-[90vw] max-w-md bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-4 py-3 max-h-[60vh] overflow-y-auto animate-fade-in"
+			role="dialog"
 			on:click|stopPropagation
 		>
 			<!-- Tab Navigation -->
@@ -2395,6 +2403,7 @@
 											showSettings = false;
 										}}
 										role="option"
+										tabindex="0"
 										aria-selected={i === activeTrackIndex}
 									>
 										<!-- Track Info -->
@@ -2544,15 +2553,15 @@
 
 	<!-- Keyboard shortcuts overlay -->
 	{#if showKeyboardShortcuts}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 		<div
 			class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[400]"
 			on:click={() => (showKeyboardShortcuts = false)}
 			role="dialog"
 			aria-modal="true"
 		>
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<div class="bg-white dark:bg-neutral-900 rounded-lg shadow-2xl p-6 max-w-md w-full mx-4" on:click|stopPropagation>
+			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+			<div class="bg-white dark:bg-neutral-900 rounded-lg shadow-2xl p-6 max-w-md w-full mx-4" role="document" on:click|stopPropagation>
 				<div class="flex items-center justify-between mb-4">
 					<h2 class="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Keyboard Shortcuts</h2>
 					<button on:click={() => (showKeyboardShortcuts = false)} class="p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close shortcuts">

@@ -28,14 +28,14 @@
 				playsinline: 1
 			},
 			events: {
-				onReady: (e) => {
+				onReady: (e: YT.PlayerEvent) => {
 					videoPlayerRef.set(player);
 					dispatch('ready', e);
 				},
-				onStateChange: (e) => {
+				onStateChange: (e: YT.PlayerEvent) => {
 					dispatch('stateChange', e.data);
 				},
-				onError: (e) => {
+				onError: (e: YT.PlayerEvent) => {
 					dispatch('error', e);
 				}
 			}

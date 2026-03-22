@@ -67,10 +67,12 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+<!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions -->
 <span
 	bind:this={wrapperEl}
 	class="inline-block"
+	role="button"
+	tabindex="0"
 	on:mouseenter={show}
 	on:mouseleave={hide}
 	on:focus={show}
@@ -79,11 +81,12 @@
 	<slot />
 
 	{#if visible && artistName}
-		<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+		<!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions -->
 		<div
 			class="absolute z-[200] w-72 {position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} left-1/2 -translate-x-1/2
 				bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 p-4
 				pointer-events-auto animate-fade-in"
+			role="tooltip"
 			on:mouseenter={cancelHide}
 			on:mouseleave={hide}
 		>
@@ -95,7 +98,7 @@
 			{:else if info}
 				<div class="flex items-start gap-3">
 					{#if info.image}
-						<img src={info.image} alt="" class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-700" on:error={(e) => e.currentTarget.style.display='none'} />
+						<img src={info.image} alt="" class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 					{:else}
 						<div class="w-14 h-14 rounded-full bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
 							<i class="material-icons !text-xl text-neutral-400">person</i>
