@@ -8,8 +8,9 @@
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { favoritesStore } from '../utils/favorites';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView } from '../utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning } from '../utils/playerStore';
 	import { browser } from '$app/environment';
+	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import VideoPlayer from '$components/VideoPlayer.svelte';
@@ -123,10 +124,13 @@
 	// Keyboard shortcut overlay
 	let showKeyboardShortcuts = false;
 
-	// A-B Loop
+	// A-B Loop (ms for progress bar, ticks for alphaTab playbackRange)
 	let loopStart: number | null = null;
 	let loopEnd: number | null = null;
+	let loopStartTick: number | null = null;
+	let loopEndTick: number | null = null;
 	let loopEnabled = true;
+	let loopSyncKey = '';
 
 	// Loop drag state
 	let isDraggingLoop = false;
@@ -205,10 +209,17 @@
 	let volumeBeforeVideo = 1;
 	$: hasActiveVideo = $activeVideoId !== null;
 
-	// Video sync offset (seconds) - stored per video+tab combo
-	let videoOffset = 0;
+	// Video sync offset (seconds) - stored per video+tab combo, shared via store
 	let showOffsetControl = false;
 	const VIDEO_OFFSET_KEY = 'video-offsets';
+
+	// Local alias for the shared offset store
+	$: videoOffset = $videoSyncOffset;
+
+	function setVideoOffset(val: number) {
+		videoSyncOffset.set(val);
+		saveVideoOffset();
+	}
 
 	function getOffsetKey(): string {
 		return `${tabId || 'local'}::${$activeVideoId || ''}`;
@@ -220,7 +231,9 @@
 			const stored = localStorage.getItem(VIDEO_OFFSET_KEY);
 			if (stored) {
 				const offsets = JSON.parse(stored);
-				videoOffset = offsets[getOffsetKey()] || 0;
+				videoSyncOffset.set(offsets[getOffsetKey()] || 0);
+			} else {
+				videoSyncOffset.set(0);
 			}
 		} catch {}
 	}
@@ -230,9 +243,47 @@
 		try {
 			const stored = localStorage.getItem(VIDEO_OFFSET_KEY);
 			const offsets = stored ? JSON.parse(stored) : {};
-			offsets[getOffsetKey()] = videoOffset;
+			offsets[getOffsetKey()] = $videoSyncOffset;
 			localStorage.setItem(VIDEO_OFFSET_KEY, JSON.stringify(offsets));
 		} catch {}
+	}
+
+	// Tap-to-sync: capture current tab and video times, compute offset
+	function tapToSync() {
+		const ytPlayer = $videoPlayerRef;
+		if (!ytPlayer || !api || !duration) return;
+		try {
+			const videoTime = ytPlayer.getCurrentTime?.() || 0;
+			const tabTimeSec = (progress / 100) * (duration / 1000);
+			const newOffset = videoTime - tabTimeSec;
+			setVideoOffset(Math.round(newOffset * 10) / 10);
+		} catch {}
+	}
+
+	// Audio source toggle
+	function toggleAudioSource() {
+		const current = $audioSource;
+		const next = current === 'tab' ? 'video' : 'tab';
+		audioSource.set(next);
+		applyAudioSource(next);
+	}
+
+	function applyAudioSource(source: 'tab' | 'video') {
+		const ytPlayer = $videoPlayerRef;
+		if (source === 'video') {
+			// Mute tab, unmute video
+			if (api) api.masterVolume = 0;
+			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
+		} else {
+			// Restore tab volume, mute video
+			if (api) api.masterVolume = volume;
+			if (ytPlayer) try { ytPlayer.mute(); } catch {}
+		}
+	}
+
+	// Apply audio source when video is selected/changes
+	$: if (hasActiveVideo && $videoPlayerRef) {
+		applyAudioSource($audioSource);
 	}
 
 	// Video progress sync interval
@@ -250,21 +301,21 @@
 				if (videoDuration <= 0) return;
 
 				// Sync alphaTab position to video (with offset)
-				const adjustedVideoTime = videoTime - videoOffset;
+				const adjustedVideoTime = videoTime - $videoSyncOffset;
 				const tabDurationSec = duration / 1000;
 				if (tabDurationSec <= 0) return;
 
 				const targetProgress = (adjustedVideoTime / tabDurationSec) * 100;
 				const clampedProgress = Math.max(0, Math.min(100, targetProgress));
 
-				// Only sync if difference is significant (>1%)
-				if (Math.abs(clampedProgress - progress) > 1) {
+				// Sync if difference > 0.5% for tighter coupling
+				if (Math.abs(clampedProgress - progress) > 0.5) {
 					progress = clampedProgress;
 					api.player.timePosition = (progress / 100) * duration;
 					seekDebounce();
 				}
 			} catch {}
-		}, 500);
+		}, 200); // 200ms polling for smoother sync
 	}
 
 	function stopVideoSync() {
@@ -324,8 +375,19 @@
 		saveSettings();
 	}
 
+	/** Set loop from ms values (progress bar). Clears stored ticks. */
+	function setLoopMs(startMs: number, endMs: number) {
+		loopStartTick = null;
+		loopEndTick = null;
+		loopStart = startMs;
+		loopEnd = endMs;
+		loopEnabled = true;
+	}
+
 	function setLoopPoint(point: 'A' | 'B') {
 		const currentTime = duration > 0 ? (progress / 100) * duration : 0;
+		loopStartTick = null;
+		loopEndTick = null;
 		if (point === 'A') {
 			loopStart = currentTime;
 			if (loopEnd !== null && loopEnd <= currentTime) {
@@ -342,31 +404,350 @@
 	function clearLoopPoints() {
 		loopStart = null;
 		loopEnd = null;
-		showSelectionPopover = false;
+		loopStartTick = null;
+		loopEndTick = null;
 		selectionStartBeat = null;
 		selectionEndBeat = null;
+		invalidateScoreSelection();
+		removeOverlay();
 		if (api) {
-			try { api.playbackRange = null; } catch {}
+			try {
+				api.playbackRange = null;
+				api.isLooping = false;
+			} catch {}
 		}
 	}
 
-	// Check loop bounds during playback - jump back to start and keep playing
-	$: if (loopEnabled && loopStart !== null && loopEnd !== null && api && duration > 0) {
-		const currentTime = (progress / 100) * duration;
-		if (currentTime >= loopEnd) {
-			progress = (loopStart / duration) * 100;
-			api.player.timePosition = loopStart;
-			seekDebounce();
-			// Ensure playback continues after looping back
-			if (!playing) {
-				setTimeout(() => { if (api) api.playPause(); }, 50);
-			}
-		}
-	}
+	// Loop enforcement: alphaTab's native isLooping + playbackRange handles seamless looping
+	// at the audio sample level (no seek, no pause, no glitch). Set in syncPlaybackRange().
 
 	function toggleLoopEnabled() {
 		if (loopStart === null && loopEnd === null) return;
 		loopEnabled = !loopEnabled;
+	}
+
+	// --- Loop ↔ alphaTab playbackRange synchronization ---
+	//
+	// Architecture:
+	// - loopStart/loopEnd (ms) + loopEnabled are the SOLE source of truth for the loop.
+	// - The progress bar overlay is the SOLE authoritative visual for the loop region.
+	// - api.playbackRange (ticks) is synced FROM loopStart/loopEnd for alphaTab's internal
+	//   playback looping, but alphaTab does NOT re-render .at-selection divs when
+	//   playbackRange is set programmatically.
+	// - .at-selection divs are a bonus visual that only appears when the user drag-selects
+	//   on the score. They become stale when the loop is moved from the progress bar.
+	//   When stale, we clear them entirely rather than trying to reposition them.
+	//
+	// The sheet selection popover is only shown when .at-selection divs are live
+	// (i.e. the loop was just created by dragging on the score). It's hidden whenever
+	// the loop is modified from anywhere else.
+
+	// Selection is always driven by the bottom progress bar loop.
+	// No editing from the alphaTab score - only reselect via drag on score.
+
+	/** Re-render score selection from progress bar changes. Clears stored ticks. */
+	function invalidateScoreSelection() {
+		showSelectionPopover = false;
+		loopStartTick = null;
+		loopEndTick = null;
+		updateScoreSelection();
+	}
+
+	/** No-op - kept for compat with score drag detection code */
+	function markScoreSelectionLive() {}
+
+	function msToTick(ms: number): number {
+		if (!api?.score || !duration || duration <= 0) return 0;
+		try {
+			const masterBars = api.score.masterBars;
+			let totalTicks = 0;
+			for (const bar of masterBars) {
+				totalTicks += bar.calculateDuration ? bar.calculateDuration() : 960 * 4;
+			}
+			if (totalTicks === 0) return 0;
+			return Math.round((ms / duration) * totalTicks);
+		} catch {
+			return 0;
+		}
+	}
+
+	/** Sync api.playbackRange and isLooping from our loop state.
+	 *  Uses stored ticks when available to avoid ms→tick round-trip precision loss. */
+	function syncPlaybackRange() {
+		if (!api) return;
+		try {
+			if (loopStart !== null && loopEnd !== null && loopEnabled) {
+				// Prefer stored ticks (exact), fall back to ms→tick conversion
+				const startTick = loopStartTick ?? msToTick(loopStart);
+				const endTick = loopEndTick ?? msToTick(loopEnd);
+				if (endTick > startTick) {
+					api.playbackRange = { startTick, endTick };
+					api.isLooping = true;
+				} else {
+					api.playbackRange = null;
+					api.isLooping = false;
+				}
+			} else {
+				api.playbackRange = null;
+				api.isLooping = false;
+			}
+		} catch {}
+	}
+
+	// --- Score selection overlay ---
+	// We render our own overlay inside #player-host (NOT inside .at-selection).
+	// alphaTab's native .at-selection divs are hidden via CSS (display:none).
+	// This avoids all conflicts between alphaTab's scaled elements and our plain divs.
+
+	let loopOverlayEl: HTMLElement | null = null;
+
+	// Scrollbar minimap: shows loop position relative to full page height
+	let loopMinimapTop = '0px';
+	let loopMinimapHeight = '0px';
+	let loopMinimapVisible = false;
+
+	/** Get or create our overlay container inside #player-host */
+	function ensureOverlayContainer(): HTMLElement | null {
+		if (loopOverlayEl && loopOverlayEl.parentElement) return loopOverlayEl;
+		// Find #player-host (alphaTab's root, has position:relative)
+		const host = target?.querySelector('#player-host') || document.getElementById('player-host');
+		if (!host) return null;
+		loopOverlayEl = document.createElement('div');
+		loopOverlayEl.id = 'loop-selection-overlay';
+		loopOverlayEl.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;';
+		host.appendChild(loopOverlayEl);
+		return loopOverlayEl;
+	}
+
+	function clearScoreSelection() {
+		if (loopOverlayEl) loopOverlayEl.innerHTML = '';
+		loopMinimapVisible = false;
+	}
+
+	function removeOverlay() {
+		if (loopOverlayEl) { loopOverlayEl.remove(); loopOverlayEl = null; }
+	}
+
+	/** Convert ms to bar index using tick accumulation */
+	function msToBarIdx(ms: number): number {
+		if (!api?.score) return 0;
+		const tick = msToTick(ms);
+		const bars = api.score.masterBars;
+		let acc = 0;
+		for (let i = 0; i < bars.length; i++) {
+			const dur = bars[i].calculateDuration ? bars[i].calculateDuration() : 960 * 4;
+			if (tick >= acc && tick < acc + dur) return i;
+			acc += dur;
+		}
+		return bars.length - 1;
+	}
+
+	/** Render the loop selection overlay on the score */
+	function updateScoreSelection() {
+		if (!api || !scoreLoaded || !duration || duration <= 0 ||
+			loopStart === null || loopEnd === null || !loopEnabled) {
+			clearScoreSelection();
+			loopMinimapVisible = false;
+			return;
+		}
+
+		const container = ensureOverlayContainer();
+		if (!container) return;
+
+		try {
+			const lookup = api.renderer?.boundsLookup;
+			if (!lookup?.staffSystems) { clearScoreSelection(); return; }
+
+			const startBar = msToBarIdx(loopStart);
+			const endBar = msToBarIdx(loopEnd);
+
+			type Rect = { x: number; y: number; w: number; h: number };
+			const rects: Rect[] = [];
+
+			for (const sg of lookup.staffSystems) {
+				if (!sg.bars) continue;
+				for (const mbb of sg.bars) {
+					if (mbb.index < startBar || mbb.index > endBar) continue;
+					const b = mbb.realBounds;
+					if (b && b.w > 0 && b.h > 0) {
+						rects.push({ x: b.x, y: b.y, w: b.w, h: b.h });
+					}
+				}
+			}
+
+			if (rects.length === 0) { clearScoreSelection(); return; }
+
+			// Group by row and merge
+			const rows = new Map<number, Rect[]>();
+			for (const r of rects) {
+				const key = Math.round(r.y / 10) * 10;
+				if (!rows.has(key)) rows.set(key, []);
+				rows.get(key)!.push(r);
+			}
+
+			const merged: Rect[] = [];
+			for (const rowRects of rows.values()) {
+				let minX = Infinity, maxX = -Infinity, y = 0, h = 0;
+				for (const r of rowRects) {
+					minX = Math.min(minX, r.x);
+					maxX = Math.max(maxX, r.x + r.w);
+					y = r.y; h = Math.max(h, r.h);
+				}
+				merged.push({ x: minX, y, w: maxX - minX, h });
+			}
+			merged.sort((a, b) => a.y - b.y);
+
+			// Render selection rects with interactive [ ] bracket handles and floating menu
+			container.innerHTML = '';
+
+			const pink = 'rgba(236,72,153,';
+			const pinkBorder = `${pink}0.35)`;
+			const pinkBracket = `${pink}0.6)`;
+
+			for (let i = 0; i < merged.length; i++) {
+				const r = merged[i];
+				const isFirst = i === 0;
+				const isLast = i === merged.length - 1;
+
+				// Selection area
+				const sel = document.createElement('div');
+				sel.style.cssText = `position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${pink}0.10);border-top:1.5px solid ${pinkBorder};border-bottom:1.5px solid ${pinkBorder};box-sizing:border-box;pointer-events:none;`;
+				container.appendChild(sel);
+
+				// [ bracket handle on first row
+				if (isFirst) {
+					const lh = document.createElement('div');
+					lh.style.cssText = `position:absolute;left:${r.x - 8}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
+					lh.innerHTML = `<div style="width:2.5px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="display:flex;flex-direction:column;justify-content:space-between;margin-left:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div></div>`;
+					lh.title = 'Drag to resize start';
+					lh.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopEdgeDrag('start', true); });
+					container.appendChild(lh);
+				}
+
+				// ] bracket handle on last row
+				if (isLast) {
+					const rh = document.createElement('div');
+					rh.style.cssText = `position:absolute;left:${r.x + r.w - 2}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
+					rh.innerHTML = `<div style="display:flex;flex-direction:column;justify-content:space-between;margin-right:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div></div><div style="width:2.5px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div>`;
+					rh.title = 'Drag to resize end';
+					rh.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopEdgeDrag('end', true); });
+					container.appendChild(rh);
+				}
+			}
+
+			// Floating menu above the first row (same style as progress bar loop menu)
+			if (merged.length > 0) {
+				const first = merged[0];
+				const menuX = first.x + first.w / 2;
+				const menuY = first.y - 32;
+
+				const menu = document.createElement('div');
+				const isDark = theme;
+				const menuBg = isDark ? '#1c1c1c' : 'white';
+				const menuBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+				const divColor = isDark ? '#444' : '#e5e5e5';
+				const iconColor = isDark ? '#888' : '#999';
+				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+
+				// Drag handle
+				const dragHandle = document.createElement('div');
+				dragHandle.style.cssText = `cursor:grab;color:${isDark ? '#555' : '#ccc'};padding:0 2px;`;
+				dragHandle.innerHTML = '<i class="material-icons" style="font-size:14px;">drag_indicator</i>';
+				dragHandle.title = 'Drag to move loop';
+				dragHandle.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopMoveDrag(e, true); });
+				menu.appendChild(dragHandle);
+
+				// Divider
+				const div1 = document.createElement('div');
+				div1.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
+				menu.appendChild(div1);
+
+				// Loop toggle
+				const loopBtn = document.createElement('button');
+				loopBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
+				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
+				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
+				loopBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleLoopEnabled(); });
+				menu.appendChild(loopBtn);
+
+				// Play from A
+				const playBtn = document.createElement('button');
+				playBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				playBtn.innerHTML = '<i class="material-icons" style="font-size:16px;">play_circle</i>';
+				playBtn.title = 'Play from start';
+				playBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					if (loopStart !== null && api) {
+						progress = (loopStart / duration) * 100;
+						api.player.timePosition = loopStart;
+						if (typeof seekDebounce === 'function') seekDebounce();
+						if (!playing) playImmediate();
+					}
+				});
+				menu.appendChild(playBtn);
+
+				// Divider
+				const div2 = document.createElement('div');
+				div2.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
+				menu.appendChild(div2);
+
+				// Delete
+				const delBtn = document.createElement('button');
+				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;">delete_outline</i>';
+				delBtn.title = 'Remove loop [Esc]';
+				delBtn.addEventListener('click', (e) => { e.stopPropagation(); clearLoopPoints(); });
+				menu.appendChild(delBtn);
+
+				container.appendChild(menu);
+			}
+
+			// Update scrollbar minimap indicator
+			if (merged.length > 0) {
+				const docHeight = document.documentElement.scrollHeight;
+				const viewportH = window.innerHeight;
+				const host = document.getElementById('player-host');
+				if (host && docHeight > 0) {
+					const hostTop = host.getBoundingClientRect().top + window.scrollY;
+					const selTop = hostTop + merged[0].y;
+					const selBottom = hostTop + merged[merged.length - 1].y + merged[merged.length - 1].h;
+					// Map page position to viewport-relative position (like a scrollbar)
+					const topPct = selTop / docHeight;
+					const bottomPct = selBottom / docHeight;
+					loopMinimapTop = `${topPct * viewportH}px`;
+					loopMinimapHeight = `${Math.max(4, (bottomPct - topPct) * viewportH)}px`;
+					loopMinimapVisible = true;
+				}
+			}
+		} catch {
+			clearScoreSelection();
+			loopMinimapVisible = false;
+		}
+	}
+
+	/** Scroll to show the loop start on the score */
+	function scrollToLoopRegion() {
+		requestAnimationFrame(() => {
+			if (!loopOverlayEl) return;
+			// First child is the first selection rect
+			const firstDiv = loopOverlayEl.querySelector('div');
+			if (!firstDiv) return;
+			// Get its position on screen and scroll so it's centered
+			const rect = firstDiv.getBoundingClientRect();
+			const scrollTarget = isFullscreen && page ? page : window;
+			const viewportH = isFullscreen && page ? page.clientHeight : window.innerHeight;
+			const currentScroll = isFullscreen && page ? page.scrollTop : window.scrollY;
+			// rect.top is relative to viewport, add current scroll for absolute position
+			const targetScroll = currentScroll + rect.top - viewportH / 3;
+			scrollTarget.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' });
+		});
+	}
+
+	// React to loop changes: sync playbackRange and update score selection
+	$: loopSyncKey = `${loopStart}-${loopEnd}-${loopEnabled}`;
+	$: if (api && scoreLoaded && duration > 0 && loopSyncKey) {
+		syncPlaybackRange();
+		updateScoreSelection();
 	}
 
 	// --- Sheet selection → auto-loop ---
@@ -453,29 +834,28 @@
 		const loopDuration = loopEnd - loopStart;
 		const startX = e.clientX;
 		const origStart = loopStart;
-		const origEnd = loopEnd;
 
 		// Get the progress bar or page width for calculating time from pixels
 		const barEl = range;
 		const barRect = barEl?.getBoundingClientRect();
 
+		// Immediately invalidate score selection - it won't track the drag
+		invalidateScoreSelection();
+
 		const onMove = (me: MouseEvent) => {
+			const dx = me.clientX - startX;
 			if (!barRect || !barRect.width) {
-				// Fallback: use viewport-relative movement (for sheet popover drag)
-				const dx = me.clientX - startX;
 				const timeDelta = (dx / window.innerWidth) * duration;
 				const newStart = Math.max(0, Math.min(duration - loopDuration, origStart + timeDelta));
 				loopStart = newStart;
 				loopEnd = newStart + loopDuration;
 			} else {
-				// Progress bar: pixel-accurate
-				const dx = me.clientX - startX;
 				const timeDelta = (dx / barRect.width) * duration;
 				const newStart = Math.max(0, Math.min(duration - loopDuration, origStart + timeDelta));
 				loopStart = newStart;
 				loopEnd = newStart + loopDuration;
 			}
-			positionSelectionPopover();
+			updateScoreSelection();
 		};
 
 		const onUp = () => {
@@ -549,11 +929,13 @@
 			const currentPct = getProgressPercent(me.clientX);
 
 			if (dx > 10) {
+				if (!didDrag) {
+					invalidateScoreSelection();
+				}
 				didDrag = true;
 				isDraggingLoop = true;
-				loopStart = percentToTime(Math.min(startPct, currentPct));
-				loopEnd = percentToTime(Math.max(startPct, currentPct));
-				loopEnabled = true;
+				setLoopMs(percentToTime(Math.min(startPct, currentPct)), percentToTime(Math.max(startPct, currentPct)));
+				updateScoreSelection();
 			}
 		};
 
@@ -567,8 +949,17 @@
 					clearLoopPoints();
 				}
 			} else {
-				// Single click = seek
+				// Single click = seek to position
 				const seekPct = getProgressPercent(me.clientX);
+				const seekTime = percentToTime(seekPct);
+
+				// If clicking outside the current loop, disable it
+				if (loopStart !== null && loopEnd !== null && loopEnabled) {
+					if (seekTime < loopStart || seekTime > loopEnd) {
+						clearLoopPoints();
+					}
+				}
+
 				progress = seekPct;
 				bindDuration = false;
 				api.player.timePosition = (progress / 100) * duration;
@@ -580,20 +971,35 @@
 		document.addEventListener('mouseup', onUp);
 	}
 
-	function startLoopMoveDrag(e: MouseEvent) {
-		if (loopStart === null || loopEnd === null || !range || !duration) return;
+	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
+		if (loopStart === null || loopEnd === null || !duration) return;
 		isDraggingLoop = true;
+		invalidateScoreSelection();
 		const loopDur = loopEnd - loopStart;
-		const rect = range.getBoundingClientRect();
-		const startMouseX = e.clientX;
 		const origStart = loopStart;
+		const barRect = !useScore ? range?.getBoundingClientRect() : null;
+		const startMouseX = e.clientX;
+		// For score drag: record the time at the drag start point
+		const origDragTime = useScore ? mouseToTimeViaScore(e.clientX, e.clientY) : null;
 
 		const onMove = (me: MouseEvent) => {
-			const dx = me.clientX - startMouseX;
-			const timeDelta = (dx / rect.width) * duration;
+			let timeDelta: number;
+			if (useScore && origDragTime !== null) {
+				const currentTime = mouseToTimeViaScore(me.clientX, me.clientY);
+				if (currentTime === null) return;
+				timeDelta = currentTime - origDragTime;
+			} else if (barRect && barRect.width) {
+				const dx = me.clientX - startMouseX;
+				timeDelta = (dx / barRect.width) * duration;
+			} else {
+				return;
+			}
 			const newStart = Math.max(0, Math.min(duration - loopDur, origStart + timeDelta));
 			loopStart = newStart;
 			loopEnd = newStart + loopDur;
+			loopStartTick = null;
+			loopEndTick = null;
+			updateScoreSelection();
 		};
 
 		const onUp = () => {
@@ -606,22 +1012,81 @@
 		document.addEventListener('mouseup', onUp);
 	}
 
-	function startLoopEdgeDrag(edge: 'start' | 'end') {
-		isDraggingLoop = true;
-		const onMove = (e: MouseEvent) => {
-			const pct = getProgressPercent(e.clientX);
-			const time = percentToTime(pct);
-			if (edge === 'start') {
-				loopStart = Math.min(time, (loopEnd ?? duration) - 500);
-			} else {
-				loopEnd = Math.max(time, (loopStart ?? 0) + 500);
+	/** Snap a time (ms) to the nearest bar boundary */
+	function snapToBarBoundary(timeMs: number, snapToEnd: boolean): { ms: number; tick: number } {
+		if (!api?.score?.masterBars || !duration) return { ms: timeMs, tick: msToTick(timeMs) };
+		const tick = msToTick(timeMs);
+		const bars = api.score.masterBars;
+		let acc = 0;
+		for (let i = 0; i < bars.length; i++) {
+			const dur = bars[i].calculateDuration ? bars[i].calculateDuration() : 960 * 4;
+			const barEnd = acc + dur;
+			if (tick >= acc && tick < barEnd) {
+				// Snap to start or end of this bar
+				if (snapToEnd) {
+					return { ms: tickToMs(barEnd - 50), tick: barEnd - 50 };
+				} else {
+					return { ms: tickToMs(acc), tick: acc };
+				}
 			}
+			acc = barEnd;
+		}
+		return { ms: timeMs, tick: msToTick(timeMs) };
+	}
+
+	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
+	 *  This handles multi-line score layout correctly (uses both X and Y). */
+	function mouseToTimeViaScore(clientX: number, clientY: number): number | null {
+		try {
+			const lookup = api?.renderer?.boundsLookup;
+			if (!lookup) return null;
+			const host = document.getElementById('player-host');
+			if (!host) return null;
+			const hostRect = host.getBoundingClientRect();
+			// Convert client coords to player-host-relative coords
+			const x = clientX - hostRect.left;
+			const y = clientY - hostRect.top + (host.scrollTop || 0);
+			const beat = lookup.getBeatAtPos(x, y);
+			if (beat) {
+				const tick = beat.absolutePlaybackStart || beat.absoluteStart || 0;
+				return tickToMs(tick);
+			}
+		} catch {}
+		return null;
+	}
+
+	function startLoopEdgeDrag(edge: 'start' | 'end', useScore: boolean = false) {
+		isDraggingLoop = true;
+		invalidateScoreSelection();
+		const onMove = (e: MouseEvent) => {
+			let time: number;
+			if (useScore) {
+				const t = mouseToTimeViaScore(e.clientX, e.clientY);
+				if (t === null) return;
+				time = t;
+			} else {
+				time = percentToTime(getProgressPercent(e.clientX));
+			}
+			if (edge === 'start') {
+				const snapped = snapToBarBoundary(time, false);
+				loopStart = Math.min(snapped.ms, (loopEnd ?? duration) - 500);
+				loopStartTick = snapped.tick;
+			} else {
+				const snapped = snapToBarBoundary(time, true);
+				loopEnd = Math.max(snapped.ms, (loopStart ?? 0) + 500);
+				loopEndTick = snapped.tick;
+			}
+			updateScoreSelection();
 		};
 
 		const onUp = () => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
 			isDraggingLoop = false;
+			if (loopStart !== null && loopEnd !== null && loopStart > loopEnd) {
+				const tmp = loopStart; loopStart = loopEnd; loopEnd = tmp;
+				const tmpT = loopStartTick; loopStartTick = loopEndTick; loopEndTick = tmpT;
+			}
 		};
 
 		document.addEventListener('mousemove', onMove);
@@ -641,16 +1106,149 @@
 		showProgressTooltip = true;
 	}
 
-	function handleProgressBarTouch(event: TouchEvent) {
+	// Touch-based loop and seek on progress bar
+	let touchDragStartX = 0;
+	let touchDragStartPct = 0;
+	let touchDidDrag = false;
+	let longPressTimer: NodeJS.Timeout;
+	let pendingLoopA: number | null = null;
+
+	function handleProgressBarTouchStart(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.touches[0].clientX - rect.left;
-		const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+		touchDragStartX = event.touches[0].clientX;
+		touchDragStartPct = pct;
+		touchDidDrag = false;
 
-		// Touch seek
-		progress = percentage;
-		api.player.timePosition = (progress / 100) * duration;
-		seekDebounce();
+		const EDGE_THRESHOLD_PX = 15;
+
+		// Check if touching near loop edges for resize
+		if (loopStart !== null && loopEnd !== null) {
+			const startX = (loopStart / duration) * rect.width;
+			const endX = (loopEnd / duration) * rect.width;
+
+			if (Math.abs(x - startX) < EDGE_THRESHOLD_PX) {
+				startLoopEdgeDragTouch(event, 'start');
+				return;
+			}
+			if (Math.abs(x - endX) < EDGE_THRESHOLD_PX) {
+				startLoopEdgeDragTouch(event, 'end');
+				return;
+			}
+			// Inside loop region - move
+			if (x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
+				startLoopMoveDragTouch(event);
+				return;
+			}
+		}
+
+		// Long press to set loop point A
+		longPressTimer = setTimeout(() => {
+			pendingLoopA = percentToTime(pct);
+			loopStart = pendingLoopA;
+			loopEnd = null;
+			loopEnabled = true;
+		}, 500);
+	}
+
+	function handleProgressBarTouchMove(event: TouchEvent) {
+		if (!range || !duration || !event.touches[0]) return;
+		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
+		if (dx > 10) {
+			if (!touchDidDrag) invalidateScoreSelection();
+			touchDidDrag = true;
+			clearTimeout(longPressTimer);
+			isDraggingLoop = true;
+			const currentPct = getProgressPercent(event.touches[0].clientX);
+			setLoopMs(percentToTime(Math.min(touchDragStartPct, currentPct)), percentToTime(Math.max(touchDragStartPct, currentPct)));
+			updateScoreSelection();
+		}
+	}
+
+	function handleProgressBarTouchEnd(event: TouchEvent) {
+		clearTimeout(longPressTimer);
+		if (touchDidDrag) {
+			isDraggingLoop = false;
+			if (loopStart !== null && loopEnd !== null && Math.abs(loopEnd - loopStart) < 500) {
+				clearLoopPoints();
+			}
+		} else if (pendingLoopA !== null) {
+			// Long press happened - wait for next tap to set B
+			pendingLoopA = null;
+		} else {
+			// Simple tap = seek (set progress first to prevent flicker)
+			if (!event.changedTouches[0] || !range || !duration) return;
+			const pct = getProgressPercent(event.changedTouches[0].clientX);
+			const seekTime = percentToTime(pct);
+
+			// If tapping outside the current loop, disable it
+			if (loopStart !== null && loopEnd !== null && loopEnabled) {
+				if (seekTime < loopStart || seekTime > loopEnd) {
+					clearLoopPoints();
+				}
+			}
+
+			progress = pct;
+			api.player.timePosition = (progress / 100) * duration;
+			seekDebounce();
+		}
+	}
+
+	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
+		isDraggingLoop = true;
+		invalidateScoreSelection();
+		const onMove = (e: TouchEvent) => {
+			if (!e.touches[0]) return;
+			const pct = getProgressPercent(e.touches[0].clientX);
+			const time = percentToTime(pct);
+			if (edge === 'start') {
+				loopStart = Math.min(time, (loopEnd ?? duration) - 500);
+			} else {
+				loopEnd = Math.max(time, (loopStart ?? 0) + 500);
+			}
+			updateScoreSelection();
+		};
+		const onEnd = () => {
+			document.removeEventListener('touchmove', onMove);
+			document.removeEventListener('touchend', onEnd);
+			isDraggingLoop = false;
+		};
+		document.addEventListener('touchmove', onMove, { passive: true });
+		document.addEventListener('touchend', onEnd);
+	}
+
+	function startLoopMoveDragTouch(event: TouchEvent) {
+		if (loopStart === null || loopEnd === null || !range || !duration || !event.touches[0]) return;
+		isDraggingLoop = true;
+		invalidateScoreSelection();
+		const loopDur = loopEnd - loopStart;
+		const rect = range.getBoundingClientRect();
+		const startTouchX = event.touches[0].clientX;
+		const origStart = loopStart;
+
+		const onMove = (e: TouchEvent) => {
+			if (!e.touches[0]) return;
+			const dx = e.touches[0].clientX - startTouchX;
+			const timeDelta = (dx / rect.width) * duration;
+			const newStart = Math.max(0, Math.min(duration - loopDur, origStart + timeDelta));
+			loopStart = newStart;
+			loopEnd = newStart + loopDur;
+			updateScoreSelection();
+		};
+		const onEnd = () => {
+			document.removeEventListener('touchmove', onMove);
+			document.removeEventListener('touchend', onEnd);
+			isDraggingLoop = false;
+		};
+		document.addEventListener('touchmove', onMove, { passive: true });
+		document.addEventListener('touchend', onEnd);
+	}
+
+	// Legacy mouse touch handler (kept for backward compat)
+	function handleProgressBarTouch(event: TouchEvent) {
+		// Now handled by touchstart/move/end handlers above
 	}
 
 	// Favorite toggle for current tab
@@ -700,7 +1298,7 @@
 		}
 	}
 
-	$: if (api && tracks.length > 0) {
+	$: if (api && tracks.length > 0 && scoreLoaded) {
 		const track = tracks[activeTrackIndex];
 		api.renderTracks([track]);
 
@@ -718,7 +1316,10 @@
 	}
 
 	$: if (api) {
-		api.masterVolume = volume;
+		// Only apply tab volume when audio source is 'tab' (not when video is active with video audio)
+		if ($audioSource === 'tab' || !hasActiveVideo) {
+			api.masterVolume = volume;
+		}
 	}
 	$: if (api) {
 		api.playbackSpeed = speed;
@@ -741,22 +1342,18 @@
 		trackSolos = tracks.map(() => false);
 	}
 
-	// Responsive scale based on screen size
+	// Responsive scale based on screen size and user preferences
 	function getResponsiveScale() {
 		if (!browser) return 1.0;
 
+		const prefs = get(preferencesStore);
 		const width = window.innerWidth;
-		const height = window.innerHeight;
-		const isPortrait = height > width;
+		const isMobile = width < 768;
 
-		if (width < 480) {
-			return isPortrait ? 0.4 : 0.6;
-		} else if (width < 768) {
-			return isPortrait ? 0.5 : 0.7;
-		} else if (width < 1024) {
-			return 0.8;
+		if (isMobile) {
+			return prefs.tabScaleMobile;
 		}
-		return 1.0;
+		return prefs.tabScaleDesktop;
 	}
 
 	let scaleDebounceTimeout: NodeJS.Timeout;
@@ -779,7 +1376,6 @@
 		return { r, g, b, a };
 	}
 
-	let themeRenderTimeout: NodeJS.Timeout;
 	function updateAlphaTabTheme(isDark: boolean) {
 		if (!api) return;
 		const res = api.settings.display.resources;
@@ -799,8 +1395,7 @@
 			res.barNumberColor = atColor(80, 80, 80);
 		}
 		api.updateSettings();
-		clearTimeout(themeRenderTimeout);
-		themeRenderTimeout = setTimeout(() => api?.render(), 100);
+		api.render(); // Render immediately to avoid theme delay
 	}
 
 	// Seek by bar
@@ -842,6 +1437,11 @@
 				// Scroll to top when a new tab is loaded
 				window.scrollTo({ top: 0, behavior: 'smooth' });
 				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
+				// Auto-play on load if preference is enabled
+				const prefs = get(preferencesStore);
+				if (prefs.autoPlayOnLoad && apiRef && !playing) {
+					setTimeout(() => { try { apiRef.playPause(); } catch {} }, 200);
+				}
 			}
 
 			if (!(activeTrackIndex >= 0 && activeTrackIndex < tracks.length)) {
@@ -922,78 +1522,158 @@
 		const onSfLoaded = () => { soundFontLoaded = true; };
 		apiRef.soundFontLoaded.on(onSfLoaded);
 
-		// --- Sheet selection detection ---
-		// IMPORTANT: Do NOT interfere with alphaTab's normal click-to-seek behavior.
-		// Only detect actual drag selections (multiple beats), never single-click.
+		// --- Sheet selection via alphaTab beat events ---
+		// During drag: show a lightweight preview overlay (no loop state changes).
+		// On release: commit the selection to loopStart/loopEnd.
+		// This avoids heavy reactive updates during the drag.
 
-		// Track mouse drag distance on the tablature to distinguish click from drag
-		let tabDragStartX = 0;
-		let tabDragStartY = 0;
-		let tabDidDrag = false;
-		const TAB_DRAG_THRESHOLD = 20; // pixels - must drag at least this far
+		let scoreDragStartBeat: any = null;
+		let scoreDragging = false;
 
-		const handleTabMouseDown = (e: MouseEvent) => {
-			tabDragStartX = e.clientX;
-			tabDragStartY = e.clientY;
-			tabDidDrag = false;
-		};
-
-		const handleTabMouseMove = (e: MouseEvent) => {
-			if (e.buttons === 1 && !tabDidDrag) {
-				const dx = Math.abs(e.clientX - tabDragStartX);
-				const dy = Math.abs(e.clientY - tabDragStartY);
-				if (dx > TAB_DRAG_THRESHOLD || dy > TAB_DRAG_THRESHOLD) {
-					tabDidDrag = true;
+		/** Get the bar-level start tick for a beat (snap to bar start) */
+		function beatBarStartTick(beat: any): number {
+			try {
+				const bar = beat.voice?.bar;
+				if (bar?.masterBar) {
+					// masterBar.start gives the absolute tick start of the bar
+					return bar.masterBar.start ?? (beat.absolutePlaybackStart || beat.absoluteStart || 0);
 				}
-			}
-		};
+			} catch {}
+			return beat.absolutePlaybackStart || beat.absoluteStart || 0;
+		}
 
-		const handleTabMouseUp = () => {
-			if (!tabDidDrag) {
-				// Single click (not drag) - clear loop and selection display
+		/** Get the bar-level end tick for a beat (snap to bar end).
+		 *  Subtracts 50 ticks (like alphaTab does internally) to keep the end
+		 *  inside the last bar and avoid the loop cutting off early. */
+		function beatBarEndTick(beat: any): number {
+			try {
+				const bar = beat.voice?.bar;
+				if (bar?.masterBar) {
+					const barStart = bar.masterBar.start ?? 0;
+					const barDur = bar.masterBar.calculateDuration ? bar.masterBar.calculateDuration() : 960 * 4;
+					return barStart + barDur - 50;
+				}
+			} catch {}
+			return (beat.absolutePlaybackStart || beat.absoluteStart || 0) +
+				(beat.playbackDuration || beat.duration || 0) - 50;
+		}
+
+		/** Show a lightweight preview overlay during score drag (no state changes) */
+		function showDragPreview(startBeat: any, endBeat: any) {
+			try {
+				const t1 = beatBarStartTick(startBeat);
+				const t2 = beatBarStartTick(endBeat);
+				const startTick = Math.min(t1, t2);
+				const endTick = t1 < t2 ? beatBarEndTick(endBeat) : beatBarEndTick(startBeat);
+				if (endTick <= startTick) return;
+
+				const startMs = tickToMs(startTick);
+				const endMs = tickToMs(endTick);
+				if (endMs <= startMs + 100) return;
+
+				// Directly update the overlay without changing loopStart/loopEnd
+				const startBar = msToBarIdx(startMs);
+				const endBar = msToBarIdx(endMs);
+				renderOverlayForBars(startBar, endBar);
+			} catch {}
+		}
+
+		/** Render overlay for a bar range (used for drag preview) */
+		function renderOverlayForBars(startBar: number, endBar: number) {
+			const container = ensureOverlayContainer();
+			if (!container || !api) return;
+			try {
+				const lookup = api.renderer?.boundsLookup;
+				if (!lookup?.staffSystems) return;
+
+				type Rect = { x: number; y: number; w: number; h: number };
+				const rects: Rect[] = [];
+				for (const sg of lookup.staffSystems) {
+					if (!sg.bars) continue;
+					for (const mbb of sg.bars) {
+						if (mbb.index < startBar || mbb.index > endBar) continue;
+						const b = mbb.realBounds;
+						if (b && b.w > 0 && b.h > 0) rects.push({ x: b.x, y: b.y, w: b.w, h: b.h });
+					}
+				}
+				if (rects.length === 0) return;
+
+				const rows = new Map<number, Rect[]>();
+				for (const r of rects) {
+					const key = Math.round(r.y / 10) * 10;
+					if (!rows.has(key)) rows.set(key, []);
+					rows.get(key)!.push(r);
+				}
+				const merged: Rect[] = [];
+				for (const rowRects of rows.values()) {
+					let minX = Infinity, maxX = -Infinity, y = 0, h = 0;
+					for (const r of rowRects) { minX = Math.min(minX, r.x); maxX = Math.max(maxX, r.x + r.w); y = r.y; h = Math.max(h, r.h); }
+					merged.push({ x: minX, y, w: maxX - minX, h });
+				}
+				merged.sort((a, b) => a.y - b.y);
+
+				let html = '';
+				for (let i = 0; i < merged.length; i++) {
+					const r = merged[i];
+					const isFirst = i === 0, isLast = i === merged.length - 1;
+					const lb = isFirst ? 'border-left:2.5px solid rgba(236,72,153,0.4);' : '';
+					const rb = isLast ? 'border-right:2.5px solid rgba(236,72,153,0.4);' : '';
+					html += `<div style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:rgba(236,72,153,0.08);border-top:1px dashed rgba(236,72,153,0.3);border-bottom:1px dashed rgba(236,72,153,0.3);${lb}${rb}box-sizing:border-box;pointer-events:none;"></div>`;
+				}
+				container.innerHTML = html;
+			} catch {}
+		}
+
+		const onBeatMouseDown = (beat: any) => {
+			scoreDragStartBeat = beat;
+			scoreDragging = false;
+		};
+		apiRef.beatMouseDown.on(onBeatMouseDown);
+
+		const onBeatMouseMove = (beat: any) => {
+			if (!scoreDragStartBeat || beat === scoreDragStartBeat) return;
+			scoreDragging = true;
+			showDragPreview(scoreDragStartBeat, beat);
+		};
+		apiRef.beatMouseMove.on(onBeatMouseMove);
+
+		const onBeatMouseUp = (beat: any) => {
+			if (!scoreDragging) {
+				// Single click - clear loop
 				if (loopStart !== null || loopEnd !== null) {
 					clearLoopPoints();
 				}
 				showSelectionPopover = false;
-				return;
-			}
-
-			// User dragged on the tablature - check for selection after alphaTab processes it
-			setTimeout(() => {
-				const selDivs = target?.querySelectorAll('.at-selection div');
-				if (selDivs && selDivs.length > 0) {
-					// A real drag selection exists - try to get the range from alphaTab
-					try {
-						const range = api?.playbackRange;
-						if (range && range.startTick !== undefined && range.endTick !== undefined) {
-							const tickSpan = range.endTick - range.startTick;
-							// Only set loop if selection spans multiple beats (> ~2 quarter notes)
-							if (tickSpan > 1800) {
-								const startMs = tickToMs(range.startTick);
-								const endMs = tickToMs(range.endTick);
-								if (endMs > startMs + 500) {
-									loopStart = startMs;
-									loopEnd = endMs;
-									loopEnabled = true;
-								}
+			} else {
+				// Drag complete - commit the selection with exact ticks
+				try {
+					const t1 = beatBarStartTick(scoreDragStartBeat);
+					const t2 = beatBarStartTick(beat);
+					const startTick = Math.min(t1, t2);
+					const endTick = t1 < t2 ? beatBarEndTick(beat) : beatBarEndTick(scoreDragStartBeat);
+					if (endTick > startTick) {
+						const startMs = tickToMs(startTick);
+						const endMs = tickToMs(endTick);
+						if (endMs > startMs + 200) {
+							// Store both ms (for progress bar) and ticks (for playbackRange)
+							loopStartTick = startTick;
+							loopEndTick = endTick;
+							loopStart = startMs;
+							loopEnd = endMs;
+							loopEnabled = true;
+							// Move cursor to start of selection
+							if (api && !playing) {
+								progress = (startMs / duration) * 100;
+								api.player.timePosition = startMs;
 							}
 						}
-					} catch {}
-					positionSelectionPopover();
-				}
-			}, 300);
+					}
+				} catch {}
+			}
+			scoreDragStartBeat = null;
+			scoreDragging = false;
 		};
-
-		if (target) {
-			target.addEventListener('mousedown', handleTabMouseDown, { capture: true });
-			target.addEventListener('mousemove', handleTabMouseMove, { passive: true });
-			target.addEventListener('mouseup', handleTabMouseUp);
-			fullPlayerListenerCleanups.push(() => {
-				target?.removeEventListener('mousedown', handleTabMouseDown, { capture: true });
-				target?.removeEventListener('mousemove', handleTabMouseMove);
-				target?.removeEventListener('mouseup', handleTabMouseUp);
-			});
-		}
+		apiRef.beatMouseUp.on(onBeatMouseUp);
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -1039,9 +1719,24 @@
 		api = get(playerApi);
 		const playerHostEl = get(playerTarget);
 
-		// Reparent the persistent player host into our container
+		// Reparent the persistent player host into our container (pause during transition to avoid stutter)
 		if (playerHostEl && target) {
+			const wasPlaying = get(playerState).playing;
+			const savedPosition = api?.player?.timePosition || 0;
+			isTransitioning.set(true);
+			if (wasPlaying && api) try { api.pause(); } catch {}
 			target.appendChild(playerHostEl);
+			if (wasPlaying && api) {
+				requestAnimationFrame(() => {
+					try {
+						api.player.timePosition = savedPosition;
+						api.playPause();
+					} catch {}
+					isTransitioning.set(false);
+				});
+			} else {
+				isTransitioning.set(false);
+			}
 		}
 
 		if (api) {
@@ -1180,6 +1875,30 @@
 		} else if (event.code === 'KeyM') {
 			event.preventDefault();
 			toggleTrackMute(activeTrackIndex);
+		} else if (event.code === 'KeyO') {
+			event.preventDefault();
+			toggleTrackSolo(activeTrackIndex);
+		} else if (event.code === 'KeyP') {
+			event.preventDefault();
+			clickPrint();
+		} else if (event.code === 'KeyD') {
+			event.preventDefault();
+			clickDownload();
+		} else if (event.code === 'KeyV') {
+			event.preventDefault();
+			if (youtubeResults.length > 0) showVideoDropdown = !showVideoDropdown;
+		} else if (event.code === 'ArrowUp') {
+			event.preventDefault();
+			volume = Math.min(2, Math.round((volume + 0.1) * 10) / 10);
+		} else if (event.code === 'ArrowDown') {
+			event.preventDefault();
+			volume = Math.max(0, Math.round((volume - 0.1) * 10) / 10);
+		} else if (event.code === 'Home') {
+			event.preventDefault();
+			if (api) { api.player.timePosition = 0; progress = 0; }
+		} else if (event.code === 'End') {
+			event.preventDefault();
+			if (api && duration > 0) { api.player.timePosition = duration - 100; }
 		} else if (event.code === 'Slash') {
 			event.preventDefault();
 			showKeyboardShortcuts = !showKeyboardShortcuts;
@@ -1187,6 +1906,10 @@
 			event.preventDefault();
 			if (showKeyboardShortcuts) {
 				showKeyboardShortcuts = false;
+			} else if (showSettings) {
+				showSettings = false;
+			} else if (showVideoDropdown) {
+				showVideoDropdown = false;
 			} else if (loopStart !== null || loopEnd !== null) {
 				clearLoopPoints();
 			}
@@ -1216,11 +1939,26 @@
 		didReturnPlayerHost = true;
 		isFullPlayerView.set(false);
 
-		// Return the persistent player host to the layout's hidden anchor
+		// Return the persistent player host to the layout's hidden anchor (pause during transition)
 		const playerHostEl = get(playerTarget);
 		const layoutAnchor = document.getElementById('player-host-anchor');
 		if (playerHostEl && layoutAnchor && playerHostEl.parentElement !== layoutAnchor) {
+			const wasPlaying = playing;
+			const savedPosition = api?.player?.timePosition || 0;
+			isTransitioning.set(true);
+			if (wasPlaying && api) try { api.pause(); } catch {}
 			layoutAnchor.appendChild(playerHostEl);
+			if (wasPlaying && api) {
+				requestAnimationFrame(() => {
+					try {
+						api.player.timePosition = savedPosition;
+						api.playPause();
+					} catch {}
+					isTransitioning.set(false);
+				});
+			} else {
+				isTransitioning.set(false);
+			}
 		}
 
 		// Save current state to the store (for MiniPlayer to display)
@@ -1245,6 +1983,7 @@
 	onDestroy(() => {
 		// Do NOT destroy the API - it persists in the layout
 		if (!didReturnPlayerHost) returnPlayerHost();
+		removeOverlay();
 		api = undefined;
 		document.removeEventListener('keydown', onBarPressed);
 
@@ -1261,38 +2000,100 @@
 		clearTimeout(hideTimeout);
 		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
 		clearTimeout(scrollCheckTimeout);
+
+		// Cleanup timers that may still be running
+		clearInterval(countdownInterval);
+		clearTimeout(longPressTimer);
+		clearInterval(videoSyncInterval);
 	});
 
 	let countdownInterval: NodeJS.Timeout;
 	let rest = 0;
+	let countdownPaused = false;
 
-	function clickPlay() {
+	/** Actually start playback (called when countdown finishes or when playing without delay) */
+	function startPlaybackNow() {
+		rest = 0;
+		countdownPaused = false;
 		clearInterval(countdownInterval);
-		if (rest > 0) {
-			rest = 0;
-			return;
-		}
-		rest = delaying;
-		if (delaying !== 0) {
-			countdownInterval = setInterval(() => {
-				rest -= COUNTDOWN_INTERVAL_MS;
-				if (rest <= 0) {
-					api?.playPause();
-					clearInterval(countdownInterval);
-				}
-			}, COUNTDOWN_INTERVAL_MS);
-		} else {
-			api?.playPause();
-		}
-
-		showControls();
-
-		// Sync video
+		api?.playPause();
+		// Start video only when actually playing, not during countdown
 		const ytPlayer = $videoPlayerRef;
 		if (ytPlayer) try { ytPlayer.playVideo(); } catch {}
 	}
 
+	/** Cancel any active countdown without starting playback */
+	function cancelCountdown() {
+		clearInterval(countdownInterval);
+		rest = 0;
+		countdownPaused = false;
+	}
+
+	/** Start the countdown interval that ticks down to playback */
+	function startCountdownTimer() {
+		clearInterval(countdownInterval);
+		countdownPaused = false;
+		countdownInterval = setInterval(() => {
+			rest -= COUNTDOWN_INTERVAL_MS;
+			if (rest <= 0) {
+				startPlaybackNow();
+			}
+		}, COUNTDOWN_INTERVAL_MS);
+	}
+
+	function toggleCountdownPause() {
+		if (countdownPaused) {
+			// Resume countdown
+			startCountdownTimer();
+		} else {
+			// Pause countdown
+			countdownPaused = true;
+			clearInterval(countdownInterval);
+		}
+	}
+
+	function adjustCountdownTime(deltaMs: number) {
+		const newDelay = Math.max(1000, Math.min(10000, delaying + deltaMs));
+		delaying = newDelay;
+		// Restart the countdown with the new delay
+		rest = newDelay;
+		startCountdownTimer();
+	}
+
+	function clickPlay() {
+		// If countdown is active, cancel it (tap play again = cancel)
+		if (rest > 0) {
+			cancelCountdown();
+			return;
+		}
+
+		showControls();
+
+		if (delaying > 0) {
+			// Start countdown - don't play yet, don't start video yet
+			rest = delaying;
+			startCountdownTimer();
+		} else {
+			// No delay - play immediately
+			startPlaybackNow();
+		}
+	}
+
+	/** Play immediately, bypassing any delay (used by video sync, loop play-from-A) */
+	function playImmediate() {
+		cancelCountdown();
+		if (!playing) {
+			api?.playPause();
+		}
+		const ytPlayer = $videoPlayerRef;
+		if (ytPlayer) try { ytPlayer.playVideo(); } catch {}
+		showControls();
+	}
+
 	function clickPause() {
+		// Cancel any active countdown
+		cancelCountdown();
+
 		api?.pause();
 		playing = false;
 
@@ -1312,7 +2113,8 @@
 			return;
 		}
 		volumeBeforeVideo = volume;
-		volume = 0;
+		// Default to video audio when selecting a video
+		audioSource.set('video');
 		activeVideoId.set(videoId);
 		loadVideoOffset();
 	}
@@ -1325,7 +2127,10 @@
 			try { ytPlayer.pauseVideo(); } catch {}
 		}
 		videoPlayerRef.set(null);
+		// Restore tab audio
+		audioSource.set('tab');
 		volume = volumeBeforeVideo || 1;
+		if (api) api.masterVolume = volume;
 		showOffsetControl = false;
 	}
 
@@ -1336,11 +2141,11 @@
 		// YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
 		videoSyncLock = true;
 		if (state === 1 && !playing) {
-			clickPlay();
+			// Video started playing - bypass delay, play tab immediately
+			playImmediate();
 		} else if (state === 2 && playing) {
 			clickPause();
 		} else if (state === 0) {
-			// Video ended - pause tab too
 			clickPause();
 		}
 		setTimeout(() => { videoSyncLock = false; }, 300);
@@ -1455,11 +2260,11 @@
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
 
-		// Sync video seek (with offset)
+		// Sync video seek (with offset from shared store)
 		const ytPlayer = $videoPlayerRef;
 		if (ytPlayer && duration > 0) {
 			const tabTimeSec = (progress / 100) * (duration / 1000);
-			const videoSeekTime = tabTimeSec + videoOffset;
+			const videoSeekTime = tabTimeSec + $videoSyncOffset;
 			if (videoSeekTime >= 0) {
 				ytPlayer.seekTo(videoSeekTime, true);
 			}
@@ -1467,7 +2272,13 @@
 	}
 
 	function clickLooping() {
-		api.isLooping = !api.isLooping;
+		// If a region loop is active, this toggle affects loopEnabled (our region loop)
+		if (loopStart !== null && loopEnd !== null) {
+			toggleLoopEnabled();
+		} else {
+			// No region loop - toggle alphaTab's global loop
+			api.isLooping = !api.isLooping;
+		}
 	}
 
 	function clickPrint() {
@@ -1686,6 +2497,55 @@
 
 	// Playback status text for screen readers
 	$: playbackStatus = playing ? 'Playing' : 'Paused';
+
+	// Keyboard shortcut sections for the help overlay
+	const shortcutSections = [
+		{
+			title: 'Playback',
+			icon: 'play_circle',
+			shortcuts: [
+				['Space', 'play_arrow', 'Play / Pause'],
+				['Home', 'first_page', 'Go to start'],
+				['End', 'last_page', 'Go to end'],
+				['\u2190 / \u2192', 'skip_previous', 'Previous / Next bar'],
+				['\u2191 / \u2193', 'volume_up', 'Volume up / down'],
+				['+ / \u2013', 'speed', 'Speed up / down'],
+			]
+		},
+		{
+			title: 'Loop',
+			icon: 'loop',
+			shortcuts: [
+				['A', 'looks_one', 'Set loop point A'],
+				['B', 'looks_two', 'Set loop point B'],
+				['L', 'loop', 'Toggle global loop'],
+				['Esc', 'close', 'Clear loop / Close panel'],
+				['Drag', 'open_with', 'Drag progress bar to create loop'],
+			]
+		},
+		{
+			title: 'Tracks',
+			icon: 'queue_music',
+			shortcuts: [
+				['1\u20139', 'filter_1', 'Switch to track'],
+				['M', 'volume_off', 'Mute current track'],
+				['O', 'headphones', 'Solo current track'],
+				['T', 'queue_music', 'Open tracks panel'],
+			]
+		},
+		{
+			title: 'View & Tools',
+			icon: 'tune',
+			shortcuts: [
+				['S', 'tune', 'Open settings panel'],
+				['F', 'fullscreen', 'Toggle fullscreen'],
+				['V', 'videocam', 'Video picker'],
+				['P', 'print', 'Print tablature'],
+				['D', 'download', 'Download tab file'],
+				['?', 'keyboard', 'Show this help'],
+			]
+		}
+	];
 </script>
 
 <div
@@ -1733,26 +2593,33 @@
 				</div>
 			</div>
 		{:else if hasSheet && !scoreLoaded}
-			<div class="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] gap-4">
+			<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-4">
 				{#if !soundFontLoaded}
 					<div class="text-center">
 						<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm mb-2">Loading soundfont<span class="animate-ellipsis"></span></p>
-						<div class="w-48 mx-auto bg-neutral-200 dark:bg-neutral-700 rounded-full h-1 overflow-hidden">
+						<p class="text-neutral-500 dark:text-neutral-400 text-sm mb-2">Preparing audio engine<span class="animate-ellipsis"></span></p>
+						<div class="w-48 mx-auto bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5 overflow-hidden">
 							<div class="bg-violet-500 h-full rounded-full transition-all duration-300" style="width: {soundFontProgress}%" />
 						</div>
+						<p class="text-xs text-neutral-400 dark:text-neutral-500 mt-1.5">{soundFontProgress}%</p>
 					</div>
 				{:else if isRendering}
 					<div class="text-center">
 						<div class="animate-spin rounded-full h-8 w-8 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Rendering...</p>
+						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Rendering tablature<span class="animate-ellipsis"></span></p>
 					</div>
 				{:else}
 					<div class="text-center">
 						<div class="animate-spin rounded-full h-8 w-8 border-2 border-neutral-300 border-t-violet-500 mx-auto mb-4" />
-						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Loading...</p>
+						<p class="text-neutral-500 dark:text-neutral-400 text-sm">Loading tablature<span class="animate-ellipsis"></span></p>
 					</div>
 				{/if}
+				<!-- Skeleton tablature preview -->
+				<div class="w-64 mt-4 opacity-30">
+					{#each Array(5) as _, i}
+						<div class="h-px bg-neutral-300 dark:bg-neutral-600 mb-2 animate-pulse" style="width: {85 + Math.sin(i) * 15}%" />
+					{/each}
+				</div>
 			</div>
 		{/if}
 
@@ -1785,7 +2652,7 @@
 
 				<!-- Loop on/off toggle -->
 				<button
-					class="p-1 rounded-full transition-all {loopEnabled ? 'text-violet-500 bg-violet-100 dark:bg-violet-900/30' : 'text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+					class="p-1 rounded-full transition-all {loopEnabled ? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30' : 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 					on:click={() => { loopEnabled = !loopEnabled; }}
 					title="{loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}"
 				>
@@ -1794,8 +2661,8 @@
 
 				<!-- Play selection from start -->
 				<button
-					class="p-1 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-					on:click={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) clickPlay(); } }}
+					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
+					on:click={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) playImmediate(); } }}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -1831,7 +2698,8 @@
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
-			{scoreLoaded ? '' : 'pointer-events-none opacity-30'}"
+			{scoreLoaded ? '' : 'pointer-events-none opacity-30'}
+			{isFullscreen ? 'fullscreen-controls' : ''}"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
@@ -1839,6 +2707,7 @@
 		<!-- Progress bar with drag-to-loop -->
 		<div
 			class="relative h-1 hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
+			style="touch-action: none;"
 			role="slider"
 			tabindex="0"
 			aria-label="Playback progress. Drag to create loop region."
@@ -1849,8 +2718,9 @@
 			on:mousedown={handleProgressBarDown}
 			on:mousemove={handleProgressBarHover}
 			on:mouseleave={() => { showProgressTooltip = false; hoverProgress = 0; }}
-			on:touchstart|preventDefault={handleProgressBarTouch}
-			on:touchmove|preventDefault={handleProgressBarTouch}
+			on:touchstart|preventDefault={handleProgressBarTouchStart}
+			on:touchmove|preventDefault={handleProgressBarTouchMove}
+			on:touchend={handleProgressBarTouchEnd}
 		>
 			<!-- Track background -->
 			<div class="absolute inset-0 bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
@@ -1867,27 +2737,57 @@
 			{#if loopStart !== null && loopEnd !== null && duration > 0}
 				{@const startPct = (loopStart / duration) * 100}
 				{@const endPct = (loopEnd / duration) * 100}
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
-					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing {loopEnabled ? 'bg-violet-400/40' : 'bg-neutral-400/25'}"
-					style="left: {startPct}%; width: {endPct - startPct}%"
+					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled ? 'bg-pink-400/50' : 'bg-neutral-400/25'}"
+					style="left: {startPct}%; width: {endPct - startPct}%; touch-action: none;"
 				>
-					<!-- Start handle -->
-					<div class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full {loopEnabled ? 'bg-violet-500' : 'bg-neutral-400'} border-2 border-white dark:border-neutral-900 cursor-ew-resize shadow-md z-20" />
-					<!-- End handle -->
-					<div class="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full {loopEnabled ? 'bg-violet-500' : 'bg-neutral-400'} border-2 border-white dark:border-neutral-900 cursor-ew-resize shadow-md z-20" />
-					<!-- A/B labels -->
-					<span class="absolute -top-4 left-0 text-[9px] font-bold {loopEnabled ? 'text-violet-500' : 'text-neutral-400'} pointer-events-none -translate-x-1/2">A</span>
-					<span class="absolute -top-4 right-0 text-[9px] font-bold {loopEnabled ? 'text-violet-500' : 'text-neutral-400'} pointer-events-none translate-x-1/2">B</span>
+					<!-- [ bracket handle (start) -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="absolute left-0 -translate-x-[1px] top-1/2 -translate-y-1/2 cursor-ew-resize z-20 h-5 flex items-stretch"
+						on:touchstart|stopPropagation|preventDefault={(e) => startLoopEdgeDragTouch(e, 'start')}
+					>
+						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
+						<div class="flex flex-col justify-between -ml-px">
+							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
+							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
+						</div>
+					</div>
+					<!-- ] bracket handle (end) -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="absolute right-0 translate-x-[1px] top-1/2 -translate-y-1/2 cursor-ew-resize z-20 h-5 flex items-stretch"
+						on:touchstart|stopPropagation|preventDefault={(e) => startLoopEdgeDragTouch(e, 'end')}
+					>
+						<div class="flex flex-col justify-between -mr-px">
+							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
+							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
+						</div>
+						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
+					</div>
 				</div>
 
-				<!-- Loop floating controls (centered above the region) - same style as sheet popover -->
+				<!-- Loop floating controls (centered above the region) -->
 				<div
-					class="absolute -top-8 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1 py-0.5 gap-px pointer-events-auto"
+					class="absolute -top-10 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1.5 py-1 gap-0.5 pointer-events-auto"
 					style="left: {(startPct + endPct) / 2}%; transform: translateX(-50%)"
 				>
+					<!-- Drag handle -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="px-0.5 cursor-grab active:cursor-grabbing text-neutral-300 dark:text-neutral-600 hover:text-neutral-400 dark:hover:text-neutral-500 transition-colors"
+						on:mousedown|stopPropagation={startLoopDrag}
+						title="Drag to move loop"
+					>
+						<i class="material-icons !text-sm">drag_indicator</i>
+					</div>
+
+					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
+
 					<!-- Loop on/off -->
 					<button
-						class="p-0.5 rounded-full transition-all {loopEnabled ? 'text-violet-500 bg-violet-100 dark:bg-violet-900/30' : 'text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+						class="p-0.5 rounded-full transition-all {loopEnabled ? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30' : 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 						on:click|stopPropagation={toggleLoopEnabled}
 						title="{loopEnabled ? 'Loop ON' : 'Loop OFF'}"
 					>
@@ -1897,7 +2797,7 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) clickPlay(); } }}
+						on:click|stopPropagation={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) playImmediate(); } }}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
@@ -1932,30 +2832,30 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 py-1 gap-1">
+		<div class="flex items-center px-2 {isFullscreen ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
 			<!-- Left: playback controls -->
 			<button
-				class="p-1.5 rounded-full transition-colors {playing ? 'text-violet-500' : 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing ? 'text-violet-500' : 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => { playing ? clickPause() : clickPlay(); }}
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 			>
-				<i class="material-icons !text-2xl">{playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons {isFullscreen ? '!text-xl' : '!text-2xl'}">{playing ? 'pause' : 'play_arrow'}</i>
 			</button>
 
 			<button
-				class="p-1.5 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
 			>
-				<i class="material-icons !text-xl">skip_previous</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_previous</i>
 			</button>
 
 			<button
-				class="p-1.5 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
 			>
-				<i class="material-icons !text-xl">skip_next</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -1971,12 +2871,12 @@
 				on:mouseleave={() => volumeHover = false}
 			>
 				<button
-					class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{volume === 0 ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-600 dark:text-neutral-400'}"
 					on:click={() => { if (volume > 0) { volumeBeforeMute = volume; volume = 0; } else { volume = volumeBeforeMute || 1; } }}
 					title="{volume === 0 ? 'Unmute' : 'Mute'}"
 				>
-					<i class="material-icons !text-xl">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i>
+					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i>
 				</button>
 				{#if volumeHover}
 					<div class="flex items-center pl-1 pr-2 animate-fade-in">
@@ -2036,7 +2936,7 @@
 					{/if}
 
 					{#if showVideoDropdown}
-						<div class="absolute bottom-full right-0 mb-2 w-72 bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[80] animate-fade-in">
+						<div class="absolute bottom-full right-0 mb-2 w-72 max-w-[calc(100vw-2rem)] bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[80] animate-fade-in">
 							<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-700 flex items-center justify-between">
 								<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Play with video</span>
 								{#if hasActiveVideo}
@@ -2075,52 +2975,52 @@
 			{#if loopStart !== null && loopEnd !== null}
 				<button
 					on:click={toggleLoopEnabled}
-					class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{loopEnabled ? 'text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}"
+					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop ({displayTime(Math.round(loopStart / 1000))} → {displayTime(Math.round(loopEnd / 1000))}) [Esc to clear]"
 				>
-					<i class="material-icons !text-xl">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
+					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
 				</button>
 			{:else}
 				<button
 					on:click={clickLooping}
-					class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
 				>
-					<i class="material-icons !text-xl">repeat</i>
+					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
 			{/if}
 
 			<button
 				on:click={() => { showSettings = !showSettings; }}
-				class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 			>
-				<i class="material-icons !text-xl">{showSettings ? 'close' : 'tune'}</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{showSettings ? 'close' : 'tune'}</i>
 			</button>
 
 			<button
 				on:click={toggleFullscreen}
-				class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Fullscreen [F]"
 			>
-				<i class="material-icons !text-xl">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i>
 			</button>
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
-				class="p-1.5 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
 			>
-				<i class="material-icons !text-xl">keyboard</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">keyboard</i>
 			</button>
 		</div>
 
-	<!-- Video player (PiP position, above controls bar + settings) -->
-	{#if hasActiveVideo && $activeVideoId}
+	<!-- Video player (PiP position, above controls bar + settings) - hidden in fullscreen -->
+	{#if hasActiveVideo && $activeVideoId && !isFullscreen}
 		<div class="fixed bottom-40 right-4 z-[75] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black">
 			<div class="relative">
 				<VideoPlayer
@@ -2132,18 +3032,29 @@
 				/>
 				<!-- Top controls overlay -->
 				<div class="absolute top-0 left-0 right-0 flex items-center justify-between p-1.5 bg-gradient-to-b from-black/50 to-transparent">
-					<!-- Offset control toggle -->
-					<button
-						on:click={() => showOffsetControl = !showOffsetControl}
-						class="p-1 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors text-[10px] font-mono"
-						title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
-					>
-						{#if videoOffset !== 0}
-							{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
-						{:else}
-							<i class="material-icons !text-sm">sync</i>
-						{/if}
-					</button>
+					<div class="flex items-center gap-1">
+						<!-- Audio source toggle -->
+						<button
+							on:click={toggleAudioSource}
+							class="p-1 rounded text-[10px] font-medium transition-colors
+								{$audioSource === 'video' ? 'bg-violet-500/80 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+							title="{$audioSource === 'video' ? 'Playing video audio' : 'Playing tab audio'} - click to switch"
+						>
+							<i class="material-icons !text-sm">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
+						</button>
+						<!-- Offset control toggle -->
+						<button
+							on:click={() => showOffsetControl = !showOffsetControl}
+							class="p-1 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors text-[10px] font-mono"
+							title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
+						>
+							{#if videoOffset !== 0}
+								{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
+							{:else}
+								<i class="material-icons !text-sm">sync</i>
+							{/if}
+						</button>
+					</div>
 					<button
 						on:click={closeVideo}
 						class="p-1 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"
@@ -2153,39 +3064,75 @@
 					</button>
 				</div>
 
-				<!-- Offset control (shown when sync icon clicked) -->
+				<!-- Enhanced offset control panel -->
 				{#if showOffsetControl}
-					<div class="absolute bottom-0 left-0 right-0 bg-black/80 px-3 py-2 flex items-center gap-2">
-						<span class="text-[10px] text-white/70 flex-shrink-0">Sync offset</span>
-						<button
-							on:click={() => { videoOffset -= 0.5; saveVideoOffset(); }}
-							class="p-0.5 rounded text-white/70 hover:text-white hover:bg-white/10"
-						>
-							<i class="material-icons !text-xs">remove</i>
-						</button>
-						<span class="text-xs text-white font-mono min-w-[3rem] text-center">
-							{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
-						</span>
-						<button
-							on:click={() => { videoOffset += 0.5; saveVideoOffset(); }}
-							class="p-0.5 rounded text-white/70 hover:text-white hover:bg-white/10"
-						>
-							<i class="material-icons !text-xs">add</i>
-						</button>
-						<button
-							on:click={() => { videoOffset = 0; saveVideoOffset(); }}
-							class="text-[10px] text-white/50 hover:text-white ml-auto"
-						>
-							Reset
-						</button>
+					<div class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2">
+						<!-- Slider for coarse adjustment -->
+						<div class="flex items-center gap-2">
+							<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
+							<input
+								type="range"
+								min="-10"
+								max="10"
+								step="0.1"
+								value={videoOffset}
+								on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
+								class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
+									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
+							/>
+							<span class="text-xs text-white font-mono min-w-[3.5rem] text-center">
+								{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
+							</span>
+						</div>
+						<!-- Fine controls + tap-to-sync -->
+						<div class="flex items-center gap-1.5 justify-center">
+							<button
+								on:click={() => setVideoOffset(Math.round((videoOffset - 1) * 10) / 10)}
+								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+								title="-1 second"
+							>-1s</button>
+							<button
+								on:click={() => setVideoOffset(Math.round((videoOffset - 0.1) * 10) / 10)}
+								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+								title="-0.1 second"
+							>-0.1</button>
+							<button
+								on:click={tapToSync}
+								class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
+								title="Auto-sync: matches current tab position to current video position"
+							>
+								<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
+								Tap to sync
+							</button>
+							<button
+								on:click={() => setVideoOffset(Math.round((videoOffset + 0.1) * 10) / 10)}
+								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+								title="+0.1 second"
+							>+0.1</button>
+							<button
+								on:click={() => setVideoOffset(Math.round((videoOffset + 1) * 10) / 10)}
+								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+								title="+1 second"
+							>+1s</button>
+						</div>
+						<!-- Reset -->
+						{#if videoOffset !== 0}
+							<div class="text-center">
+								<button
+									on:click={() => setVideoOffset(0)}
+									class="text-[10px] text-white/40 hover:text-white transition-colors"
+								>Reset offset</button>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
 		</div>
 	{/if}
 
-	<!-- Metadata row (title, artist, actions) -->
-	{#if scoreLoaded}
+	<!-- Metadata row (title, artist, actions) - hidden in fullscreen -->
+	{#if scoreLoaded && !isFullscreen}
 		<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-800">
 			<div class="flex items-start justify-between gap-4">
 				<!-- Album artwork or artist image -->
@@ -2277,15 +3224,26 @@
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
 		<div
 			bind:this={settings}
-			class="fixed bottom-16 right-4 z-[70] w-[90vw] max-w-md bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-4 py-3 max-h-[60vh] overflow-y-auto animate-fade-in"
+			class="fixed bottom-12 left-2 right-2 sm:left-auto sm:right-4 sm:w-[90vw] sm:max-w-md z-[70] bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 py-3 max-h-[70vh] overflow-y-auto animate-fade-in"
 			role="dialog"
 			on:click|stopPropagation
 		>
+			<!-- Header with close -->
+			<div class="flex items-center justify-between mb-2">
+				<span class="text-xs text-neutral-400 dark:text-neutral-500">Player settings</span>
+				<button
+					on:click={closeSettings}
+					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					title="Close"
+				>
+					<i class="material-icons !text-base">close</i>
+				</button>
+			</div>
 			<!-- Tab Navigation -->
-			<div class="flex mb-4 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
+			<div class="flex mb-3 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
 				<button
 					on:click={() => (activeSettingsTab = 'tracks')}
-					class="px-4 pb-2 text-sm font-medium transition-colors {activeSettingsTab === 'tracks'
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'tracks'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
@@ -2295,7 +3253,7 @@
 				</button>
 				<button
 					on:click={() => (activeSettingsTab = 'settings')}
-					class="px-4 pb-2 text-sm font-medium transition-colors {activeSettingsTab === 'settings'
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'settings'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
@@ -2307,8 +3265,7 @@
 
 					<!-- Settings Tab -->
 					{#if activeSettingsTab === 'settings'}
-						<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4" role="tabpanel" aria-label="Settings">
-							<!-- Volume Control -->
+						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3" role="tabpanel" aria-label="Settings">
 							<SettingSlider
 								bind:value={volume}
 								min={0}
@@ -2319,8 +3276,6 @@
 								iconOff="volume_off"
 								details="Mute / Reset playback volume"
 							/>
-
-							<!-- Speed Control -->
 							<SettingSlider
 								bind:value={speed}
 								min={0.1}
@@ -2331,8 +3286,6 @@
 								iconOff="speed"
 								details="Slow / Reset playback speed"
 							/>
-
-							<!-- Metronome -->
 							<SettingSlider
 								bind:value={metronome}
 								min={0}
@@ -2343,8 +3296,6 @@
 								iconOff="timer_off"
 								details="Mute / Max metronome volume"
 							/>
-
-							<!-- Scale Control -->
 							<SettingSlider
 								bind:value={tabScale}
 								min={0.3}
@@ -2358,247 +3309,319 @@
 							/>
 						</div>
 
-						<!-- Extra settings -->
-						<div class="mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-700 flex flex-wrap items-center gap-3">
-							<!-- Delay selector -->
-							<div class="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
-								<i class="material-icons !text-lg text-neutral-400 dark:text-neutral-500">access_time</i>
-								<select
-									name="delay"
-									class="bg-transparent outline-none border-none text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer rounded px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-									bind:value={delaying}
-									aria-label="Playback start delay"
+						<!-- Start delay + Loop info -->
+						<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-3">
+							<!-- Delay control: icon toggle + slider -->
+							<div class="flex items-center gap-2.5">
+								<button
+									on:click={() => { delaying = delaying > 0 ? 0 : 3000; }}
+									class="p-1.5 rounded-lg transition-colors flex-shrink-0 {delaying > 0 ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-500' : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+									title="{delaying > 0 ? 'Disable' : 'Enable'} start delay"
 								>
-									{#each Array(10).fill(0) as _, i}
-										<option value={i * 1000}>{i}s delay</option>
-									{/each}
-								</select>
+									<i class="material-icons !text-lg">timer</i>
+								</button>
+								<input
+									type="range"
+									min="0"
+									max="10000"
+									step="1000"
+									bind:value={delaying}
+									class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full
+										{delaying > 0 ? 'bg-violet-200 dark:bg-violet-900/40' : 'bg-neutral-200 dark:bg-neutral-700'}
+										[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
+										{delaying > 0 ? '[&::-webkit-slider-thumb]:bg-violet-500' : '[&::-webkit-slider-thumb]:bg-neutral-400'}
+										[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0
+										{delaying > 0 ? '[&::-moz-range-thumb]:bg-violet-500' : '[&::-moz-range-thumb]:bg-neutral-400'}
+										[&::-moz-range-progress]:rounded-full
+										{delaying > 0 ? '[&::-moz-range-progress]:bg-violet-500' : '[&::-moz-range-progress]:bg-neutral-400'}"
+									style="background: linear-gradient(to right, {delaying > 0 ? '#8C52FF' : '#a3a3a3'} {delaying / 10000 * 100}%, {delaying > 0 ? 'rgb(221,214,254)' : 'rgb(212,212,212)'} {delaying / 10000 * 100}%)"
+									aria-label="Start delay"
+								/>
+								<span class="text-xs font-mono w-8 text-right flex-shrink-0 {delaying > 0 ? 'text-violet-500 font-medium' : 'text-neutral-400'}">
+									{delaying > 0 ? `${delaying / 1000}s` : 'Off'}
+								</span>
 							</div>
 
-							<!-- Loop hint -->
-							{#if loopStart === null && loopEnd === null}
-								<span class="text-xs text-neutral-400 dark:text-neutral-500">
-									<i class="material-icons !text-xs align-middle">info_outline</i>
-									Drag on progress bar to create loop
-								</span>
-							{:else}
-								<div class="flex items-center gap-2">
-									<span class="text-xs {loopEnabled ? 'text-violet-500' : 'text-neutral-400'}">
-										Loop: {displayTime(Math.round((loopStart ?? 0) / 1000))} → {displayTime(Math.round((loopEnd ?? 0) / 1000))}
-									</span>
+							<!-- Loop info -->
+							{#if loopStart !== null && loopEnd !== null}
+								<div class="flex items-center gap-3">
+									<button
+										on:click={toggleLoopEnabled}
+										class="p-1.5 rounded-lg transition-colors {loopEnabled ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500' : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+									>
+										<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+									</button>
+									<div class="flex-1">
+										<p class="text-xs font-medium {loopEnabled ? 'text-pink-500' : 'text-neutral-500'}">
+											Loop {displayTime(Math.round((loopStart) / 1000))} → {displayTime(Math.round((loopEnd) / 1000))}
+										</p>
+									</div>
 									<button
 										on:click={clearLoopPoints}
-										class="text-xs text-neutral-400 hover:text-red-500 transition-colors"
-									>
-										Clear
-									</button>
+										class="text-xs text-neutral-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+									>Clear</button>
 								</div>
+							{:else}
+								<p class="text-[10px] text-neutral-400 dark:text-neutral-500 flex items-center gap-1">
+									<i class="material-icons !text-xs">info_outline</i>
+									Drag on progress bar to create a loop region
+								</p>
 							{/if}
 						</div>
-
 					{/if}
 
 					<!-- Tracks Tab -->
 					{#if activeSettingsTab === 'tracks'}
 						<!-- Track List -->
-						<div class="bg-neutral-50 dark:bg-black rounded-lg px-2 max-h-60 overflow-y-auto" role="listbox" aria-label="Track list">
-							<div class="grid gap-1">
-								{#each tracks as track, i}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class="flex items-center gap-3 p-3  rounded border cursor-pointer transition-all duration-200 bg-neutral-50 dark:bg-black text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800  {i ===
-										activeTrackIndex
-											? 'border-violet-500 shadow-sm'
-											: 'border-neutral-200 dark:border-neutral-700'}"
-										on:click={() => {
-											setActiveTrack(i);
-											activeSettingsTab = 'settings';
-											showSettings = false;
-										}}
-										role="option"
-										tabindex="0"
-										aria-selected={i === activeTrackIndex}
-									>
-										<!-- Track Info -->
-										<div class="flex-1 min-w-0 flex-shrink-1">
-											<div
-												class="text-sm font-medium truncate {i === activeTrackIndex
-													? 'text-violet-500'
-													: 'text-neutral-800 dark:text-neutral-200'}"
-											>
+						<div class="space-y-1.5 max-h-[45vh] overflow-y-auto" role="listbox" aria-label="Track list">
+							{#each tracks as track, i}
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<div
+									class="rounded-lg border p-2.5 cursor-pointer transition-all
+										{i === activeTrackIndex
+											? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
+											: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
+									on:click={() => {
+										setActiveTrack(i);
+									}}
+									role="option"
+									aria-selected={i === activeTrackIndex}
+								>
+									<!-- Row 1: Name + solo/mute buttons -->
+									<div class="flex items-center gap-2 mb-1.5">
+										<div class="flex-1 min-w-0">
+											<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
 												{track.name}
-											</div>
-											<div class="text-xs text-neutral-500 truncate">
-												{getTrackInfo(track)}
-											</div>
+											</p>
+											<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}</p>
 										</div>
-
-										<!-- Volume Control -->
-										<div class=" items-center gap-2 min-w-0 flex-shrink-1 hidden sm:flex">
-											<i class="material-icons !text-xl text-neutral-500">volume_up</i>
-											<input
-												type="range"
-												min="0"
-												max="2"
-												step="0.1"
-												bind:value={trackVolumes[i]}
-												on:input={() => updateTrackVolume(i, trackVolumes[i])}
-												on:click|stopPropagation
-												aria-label="Volume for track {track.name}"
-												aria-valuemin={0}
-												aria-valuemax={2}
-												aria-valuenow={trackVolumes[i]}
-												class="
-		w-24 h-4 cursor-pointer rounded bg-transparent
-		accent-violet-600 dark:accent-violet-400 appearance-none
-
-		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-neutral-300 dark:[&::-webkit-slider-runnable-track]:bg-neutral-700 [&::-webkit-slider-runnable-track]:rounded
-		[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-violet-600 dark:[&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:focus:outline-none
-
-		[&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-neutral-300 dark:[&::-moz-range-track]:bg-neutral-700 [&::-moz-range-track]:rounded
-		[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:bg-violet-600 dark:[&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:rounded-sm [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:focus:outline-none
-		[&::-moz-range-progress]:bg-violet-600 dark:[&::-moz-range-progress]:bg-violet-400 [&::-moz-range-progress]:h-1 [&::-moz-range-progress]:rounded
-	"
-											/>
-											<span class="text-sm text-neutral-600 dark:text-neutral-400 w-8 text-right">
-												{Math.round(trackVolumes[i] * 100)}%
-											</span>
-										</div>
-
-										<!-- Control Buttons -->
 										<div class="flex gap-1 flex-shrink-0">
 											<button
 												on:click|stopPropagation={() => toggleTrackSolo(i)}
-												class="p-1 rounded transition-all duration-200 active:scale-95 {trackSolos[
-													i
-												]
-													? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
-													: 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
-												title="Solo Track"
-												aria-label="Solo track {track.name}"
+												class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+													{trackSolos[i]
+														? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
+														: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+												title="Solo"
 											>
-												<i class="material-icons !text-xl"
-													>{trackSolos[i] ? 'headphones' : 'headset_off'}</i
-												>
+												<i class="material-icons !text-base">{trackSolos[i] ? 'headphones' : 'headset_off'}</i>
 											</button>
-
 											<button
 												on:click|stopPropagation={() => toggleTrackMute(i)}
-												class="p-1 rounded transition-all duration-200 active:scale-95 {trackMutes[
-													i
-												]
-													? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
-													: 'hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
-												title="Mute Track"
-												aria-label="Mute track {track.name}"
+												class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+													{trackMutes[i]
+														? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
+														: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+												title="Mute"
 											>
-												<i class="material-icons !text-xl"
-													>{trackMutes[i] ? 'music_off' : 'music_note'}</i
-												>
+												<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
 											</button>
 										</div>
 									</div>
-								{/each}
-							</div>
+									<!-- Row 2: Volume slider (always visible) -->
+									<div class="flex items-center gap-2">
+										<input
+											type="range"
+											min="0"
+											max="2"
+											step="0.1"
+											bind:value={trackVolumes[i]}
+											on:input={() => updateTrackVolume(i, trackVolumes[i])}
+											on:click|stopPropagation
+											aria-label="Volume for {track.name}"
+											class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+												[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
+												[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
+												[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
+											style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
+										/>
+										<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
+									</div>
+								</div>
+							{/each}
 						</div>
+
 						<!-- Quick Controls -->
-						<div class="mt-4 flex flex-wrap gap-2">
+						<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 grid grid-cols-2 gap-2">
 							<button
 								on:click={() => toggleTrackSolo(activeTrackIndex)}
-								class="px-3 py-1 text-xs rounded-full border transition-all duration-200 active:scale-95 {trackSolos[
-									activeTrackIndex
-								]
-									? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300'
-									: 'border-neutral-300 dark:border-neutral-600'}"
-								aria-label="Solo current track"
-							>
-								Solo current
-							</button>
+								class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
+									{trackSolos[activeTrackIndex]
+										? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
+										: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
+							>Solo current</button>
 							<button
 								on:click={resetAllVolumes}
-								class="px-3 py-1 text-xs bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300 rounded-full hover:bg-violet-200 dark:hover:bg-violet-800 transition-colors"
-								aria-label="Reset all track volume levels"
-							>
-								Reset levels
-							</button>
+								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+							>Reset levels</button>
 							<button
 								on:click={muteAllTracks}
-								class="px-3 py-1 text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-full hover:bg-red-200 dark:hover:bg-red-800 transition-colors"
-								aria-label="Mute all tracks"
-							>
-								Mute All
-							</button>
+								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+							>Mute all</button>
 							<button
 								on:click={unmuteAllTracks}
-								class="px-3 py-1 text-xs bg-neutral-200 dark:bg-neutral-700 rounded-full hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
-								aria-label="Unmute all tracks"
-							>
-								Unmute All
-							</button>
+								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+							>Unmute all</button>
 						</div>
 					{/if}
 
 			</div>
 	{/if}
 
-	<!-- Countdown overlay -->
+	<!-- Countdown overlay (click anywhere outside center to cancel) -->
 	{#if rest > 0}
-		<button
-			class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[300] cursor-pointer"
-			on:click={() => { clearInterval(countdownInterval); rest = 0; }}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<div
+			class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[300] cursor-pointer"
+			on:click={cancelCountdown}
+			role="dialog"
+			aria-modal="true"
+			aria-label="Countdown to play"
 		>
-			<div class="text-center">
-				<div class="relative w-24 h-24 mx-auto mb-4">
-					<svg class="w-24 h-24 transform -rotate-90" viewBox="0 0 128 128">
-						<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="8" class="text-neutral-600" />
-						<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"
-							class="text-violet-500 transition-all duration-75"
-							style="stroke-dasharray: 351.86; stroke-dashoffset: {351.86 * (rest / delaying)};" />
-					</svg>
-					<div class="absolute inset-0 flex items-center justify-center">
-						<span class="text-4xl font-bold text-white">{Math.ceil(rest / 1000)}</span>
-					</div>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div class="text-center cursor-default" on:click|stopPropagation>
+				<!-- Circular countdown with +/- -->
+				<div class="flex items-center justify-center gap-5 mb-6">
+					<!-- Minus: restart with 1s less -->
+					<button
+						on:click={() => adjustCountdownTime(-1000)}
+						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
+						title="1 second less (restarts)"
+					>
+						<i class="material-icons !text-xl">remove</i>
+					</button>
+
+					<!-- Ring + number (hover shows pause icon) -->
+					<button
+						on:click={toggleCountdownPause}
+						class="relative w-32 h-32 group"
+						title="{countdownPaused ? 'Resume' : 'Pause'}"
+					>
+						<svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128">
+							<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="6" class="text-white/10" />
+							<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"
+								class="text-violet-400 transition-all duration-75"
+								style="stroke-dasharray: 351.86; stroke-dashoffset: {351.86 * (rest / delaying)};" />
+						</svg>
+						<div class="absolute inset-0 flex items-center justify-center">
+							{#if countdownPaused}
+								<i class="material-icons !text-5xl text-violet-300">play_arrow</i>
+							{:else}
+								<span class="text-5xl font-bold text-white tabular-nums">{Math.ceil(rest / 1000)}</span>
+								<!-- Pause icon on hover only -->
+								<div class="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+									<i class="material-icons !text-4xl text-white/80">pause</i>
+								</div>
+							{/if}
+						</div>
+					</button>
+
+					<!-- Plus: restart with 1s more -->
+					<button
+						on:click={() => adjustCountdownTime(1000)}
+						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
+						title="1 second more (restarts)"
+					>
+						<i class="material-icons !text-xl">add</i>
+					</button>
 				</div>
-				<p class="text-white text-sm opacity-75">Click to cancel</p>
+
+				<p class="text-white/40 text-xs mb-6">
+					{#if countdownPaused}
+						Paused
+					{:else}
+						{delaying / 1000}s delay
+					{/if}
+				</p>
+
+				<!-- Action buttons -->
+				<div class="flex items-center justify-center gap-3">
+					<button
+						on:click={startPlaybackNow}
+						class="px-6 py-2.5 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-full transition-colors shadow-lg shadow-violet-500/25"
+					>
+						<i class="material-icons !text-base align-middle mr-1">play_arrow</i>
+						Play now
+					</button>
+					<button
+						on:click={() => { cancelCountdown(); delaying = 0; }}
+						class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white/70 text-sm rounded-full transition-colors"
+						title="Disable delay and cancel"
+					>
+						<i class="material-icons !text-base align-middle mr-1">timer_off</i>
+						Clear delay
+					</button>
+				</div>
 			</div>
-		</button>
+		</div>
+	{/if}
+
+	<!-- Loop position minimap on scrollbar -->
+	{#if loopMinimapVisible && scoreLoaded}
+		<div
+			class="fixed right-0 pointer-events-none z-[9999] flex flex-col items-end"
+			style="top: {loopMinimapTop}; height: {loopMinimapHeight}; width: 14px;"
+		>
+			<!-- [ top bracket -->
+			<div class="w-[6px] flex">
+				<div class="w-[2px] h-[4px] bg-pink-500/80"></div>
+				<div class="w-[4px] h-[2px] bg-pink-500/80"></div>
+			</div>
+			<!-- Bar fill -->
+			<div class="flex-1 w-[6px] bg-pink-400/30"></div>
+			<!-- ] bottom bracket -->
+			<div class="w-[6px] flex items-end">
+				<div class="w-[2px] h-[4px] bg-pink-500/80"></div>
+				<div class="w-[4px] h-[2px] bg-pink-500/80 self-end"></div>
+			</div>
+		</div>
 	{/if}
 
 	<!-- Keyboard shortcuts overlay -->
 	{#if showKeyboardShortcuts}
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 		<div
-			class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[400]"
+			class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[400]"
 			on:click={() => (showKeyboardShortcuts = false)}
 			role="dialog"
 			aria-modal="true"
 		>
-			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-			<div class="bg-white dark:bg-neutral-900 rounded-lg shadow-2xl p-6 max-w-md w-full mx-4" role="document" on:click|stopPropagation>
-				<div class="flex items-center justify-between mb-4">
-					<h2 class="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Keyboard Shortcuts</h2>
-					<button on:click={() => (showKeyboardShortcuts = false)} class="p-1 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close shortcuts">
-						<i class="material-icons !text-xl">close</i>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto animate-fade-in" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 sticky top-0 bg-white dark:bg-neutral-900 z-10 rounded-t-2xl">
+					<div class="flex items-center gap-2">
+						<i class="material-icons !text-xl text-violet-500">keyboard</i>
+						<h2 class="text-base font-semibold text-neutral-800 dark:text-neutral-200">Keyboard shortcuts</h2>
+					</div>
+					<button on:click={() => (showKeyboardShortcuts = false)} class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+						<i class="material-icons !text-lg">close</i>
 					</button>
 				</div>
-				<div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-					{#each [
-						['Space', 'Play / Pause'],
-						['L', 'Toggle loop'],
-						['T', 'Tracks panel'],
-						['S', 'Settings panel'],
-						['F', 'Fullscreen'],
-												['Drag', 'Drag progress bar to set loop'],
-						['Esc', 'Clear loop region'],
-						['A / B', 'Set loop A/B at position'],
-						['Left / Right', 'Seek by bar'],
-						['+ / -', 'Adjust tempo'],
-						['M', 'Mute track'],
-						['1-9', 'Switch track'],
-					] as [key, desc]}
-						<kbd class="px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-xs font-mono">{key}</kbd>
-						<span class="text-neutral-500 dark:text-neutral-400">{desc}</span>
+
+				<div class="px-5 py-4 space-y-5">
+					{#each shortcutSections as section}
+						<div>
+							<div class="flex items-center gap-1.5 mb-2">
+								<i class="material-icons !text-sm text-violet-500">{section.icon}</i>
+								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">{section.title}</h3>
+							</div>
+							<div class="space-y-1">
+								{#each section.shortcuts as [key, icon, desc]}
+									<div class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
+										<kbd class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300">{key}</kbd>
+										<i class="material-icons !text-base text-neutral-400 dark:text-neutral-500">{icon}</i>
+										<span class="text-sm text-neutral-600 dark:text-neutral-400">{desc}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
 					{/each}
+				</div>
+
+				<!-- Footer -->
+				<div class="px-5 py-3 border-t border-neutral-200 dark:border-neutral-800 text-center">
+					<p class="text-[10px] text-neutral-400 dark:text-neutral-500">Press <kbd class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono">?</kbd> to toggle &middot; <kbd class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono">Esc</kbd> to close</p>
 				</div>
 			</div>
 		</div>

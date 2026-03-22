@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	const artistImageCache: Record<string, string | null> = {};
+</script>
+
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -33,8 +37,30 @@
 
 	async function fetchArtwork(tabs: any[], artworkMap: Record<string, string>, setter: (m: Record<string, string>) => void) {
 		if (!SEARCH_API_BASE_URL_META) return;
-		for (const tab of tabs.slice(0, 8)) {
-			if (artworkMap[tab.id]) continue;
+		const tabsToFetch = tabs.slice(0, 8).filter(t => !artworkMap[t.id]);
+
+		// First: batch-fetch artist images in parallel for all unique artists
+		const uniqueArtists = new Set(tabsToFetch.map((t: any) => t.artist || '').filter(Boolean));
+		const promises: Promise<void>[] = [];
+		for (const artist of uniqueArtists) {
+			if (artist in artistImageCache) continue;
+			promises.push(
+				fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artist/${encodeURIComponent(artist)}`)
+					.then(async (resp) => {
+						if (resp.ok) {
+							const data = await resp.json();
+							artistImageCache[artist] = data.image || null;
+						} else {
+							artistImageCache[artist] = null;
+						}
+					})
+					.catch(() => { artistImageCache[artist] = null; })
+			);
+		}
+		await Promise.allSettled(promises);
+
+		// Second: fetch song artwork, fallback to artist image
+		for (const tab of tabsToFetch) {
 			try {
 				const resp = await fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artwork?artist=${encodeURIComponent(tab.artist || '')}&title=${encodeURIComponent(tab.title)}`);
 				if (resp.ok) {
@@ -42,9 +68,16 @@
 					if (data.artworkUrl) {
 						artworkMap[tab.id] = data.artworkUrl;
 						setter({ ...artworkMap });
+						continue;
 					}
 				}
 			} catch {}
+			// Fallback: use cached artist image
+			const artist = tab.artist || '';
+			if (artist && artistImageCache[artist]) {
+				artworkMap[tab.id] = artistImageCache[artist]!;
+				setter({ ...artworkMap });
+			}
 		}
 	}
 
@@ -94,12 +127,22 @@
 				exclude.forEach((id) => params.append('exclude', id));
 				url = `${SEARCH_API_BASE_URL}/api/recommendations?${params}`;
 			} else {
+				// No history/favorites yet - show random tabs as default recommendations
 				url = `${SEARCH_API_BASE_URL}/api/random?count=8`;
 			}
 			const res = await fetch(url);
 			if (res.ok) {
 				const data = await res.json();
-				recommended = mapResults(data.results || data);
+				// Handle grouped response format (new API) or flat results (fallback)
+				if (data.groups && Array.isArray(data.groups)) {
+					const allResults: any[] = [];
+					for (const group of data.groups) {
+						if (group.results) allResults.push(...group.results);
+					}
+					recommended = mapResults(allResults);
+				} else {
+					recommended = mapResults(data.results || data);
+				}
 				fetchArtwork(recommended, recommendedArtwork, (m) => { recommendedArtwork = m; });
 			}
 		} catch {
@@ -242,14 +285,16 @@
 				</div>
 			</div>
 		{:else}
-			<div class="md:col-span-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 flex items-center justify-center py-10">
-				<p class="text-sm text-neutral-400 dark:text-neutral-500">Search for tabs to get started</p>
+			<div class="md:col-span-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 flex flex-col items-center justify-center min-h-[160px]">
+				<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">search</i>
+				<p class="text-sm text-neutral-500 dark:text-neutral-400 mb-1">Search for guitar tabs</p>
+				<p class="text-xs text-neutral-400 dark:text-neutral-500">Use the search bar above or import a file</p>
 			</div>
 		{/if}
 	</div>
 
 	<!-- Two-column grid: Recommended + Discover -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[40vh]">
 		<!-- Recommended For You -->
 		{#if true}
 			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
@@ -265,9 +310,10 @@
 						{/each}
 					</div>
 				{:else if recommended.length === 0}
-					<div class="flex flex-col items-center justify-center py-8 text-center">
-						<i class="material-icons !text-3xl text-neutral-200 dark:text-neutral-700 mb-2">recommend</i>
-						<p class="text-xs text-neutral-400 dark:text-neutral-500">Play some tabs to get recommendations</p>
+					<div class="flex flex-col items-center justify-center text-center px-4" style="min-height: 300px;">
+						<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">recommend</i>
+						<p class="text-sm text-neutral-400 dark:text-neutral-500">No recommendations available</p>
+						<p class="text-xs text-neutral-300 dark:text-neutral-600 mt-1">Try searching for tabs to build your taste profile</p>
 					</div>
 				{:else}
 					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[400px] overflow-y-auto">
@@ -304,9 +350,9 @@
 						{/each}
 					</div>
 				{:else if discover.length === 0}
-					<div class="flex flex-col items-center justify-center py-8 text-center">
-						<i class="material-icons !text-3xl text-neutral-200 dark:text-neutral-700 mb-2">explore</i>
-						<p class="text-xs text-neutral-400 dark:text-neutral-500">Tabs to discover will appear here</p>
+					<div class="flex flex-col items-center justify-center h-full min-h-[200px] text-center px-4">
+						<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">explore</i>
+						<p class="text-sm text-neutral-400 dark:text-neutral-500">No tabs to discover yet</p>
 					</div>
 				{:else}
 					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[400px] overflow-y-auto">

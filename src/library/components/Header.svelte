@@ -57,7 +57,7 @@
 
 		<!-- Search bar (desktop) -->
 		{#if showSearch}
-			<div class="flex-1 hidden sm:flex justify-center">
+			<div class="flex-1 hidden sm:flex justify-center px-6 lg:px-12">
 				<SearchBar
 					bind:this={searchBar}
 					value={searchValue}

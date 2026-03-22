@@ -172,7 +172,7 @@
 			aria-expanded={showDropdown}
 			aria-controls="search-dropdown"
 			aria-activedescendant={showDropdown && highlightedIndex >= 0 ? 'item-' + highlightedIndex : undefined}
-			class="w-full pl-10 pr-4 py-2.5 text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl outline-none transition-all
+			class="w-full pl-10 pr-4 py-2 text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl outline-none transition-all
 				focus:border-violet-500 dark:focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:shadow-lg focus:shadow-violet-500/5
 				{compact ? 'py-1.5 text-xs rounded-full' : ''}"
 			{value}

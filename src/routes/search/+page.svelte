@@ -19,6 +19,14 @@
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
 
+	interface TabVariant {
+		id: string;
+		source: string;
+		sourceUrl: string;
+		trackCount?: number;
+		instruments?: string[];
+	}
+
 	interface TabResult {
 		id: string;
 		title: string;
@@ -27,11 +35,12 @@
 		type?: string;
 		source: string;
 		trackCount?: number;
+		variants?: TabVariant[];
 	}
 
 	let tabs: TabResult[] = [];
 	let tabArtwork: Record<string, string> = {};
-	let artistHero: { name: string; image: string | null; bio: string | null; country: string | null; tags: string[] } | null = null;
+	let artistHeroes: Array<{name: string; image: string|null; bio: string|null; country: string|null; tags: string[]; tabCount: number}> = [];
 	let loading = false;
 	let error = '';
 	let apiAvailable = true;
@@ -67,7 +76,8 @@
 				album: t.album || '',
 				type: t.tabType || t.type || '',
 				source: t.source || '',
-				trackCount: t.trackCount
+				trackCount: t.trackCount,
+				variants: [{ id: t.id || '', source: t.source || '', sourceUrl: t.sourceUrl || '', trackCount: t.trackCount, instruments: t.instruments }]
 			}));
 	}
 
@@ -121,19 +131,45 @@
 	}
 
 	function mergeResults(existing: TabResult[], incoming: TabResult[]): TabResult[] {
-		const merged = new Map<string, TabResult>();
-		for (const tab of existing) {
-			if (tab.id) merged.set(tab.id, tab);
+		const byKey = new Map<string, TabResult>();
+		const byId = new Map<string, TabResult>();
+
+		function normalizeKey(tab: TabResult): string {
+			const a = normalizeArtist(tab.artist || 'unknown');
+			const t = (tab.title || '').toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+			return `${a}|${t}`;
 		}
-		for (const tab of incoming) {
-			if (tab.id) merged.set(tab.id, tab);
-			else merged.set(`${tab.title}-${tab.artist}-${tab.source}`, tab);
+
+		function addTab(tab: TabResult) {
+			const key = normalizeKey(tab);
+			const existing = byKey.get(key);
+			if (existing) {
+				// Merge variants
+				const existingVariants = existing.variants || [];
+				const newVariants = tab.variants || [];
+				const seenIds = new Set(existingVariants.map(v => v.id));
+				for (const v of newVariants) {
+					if (!seenIds.has(v.id)) {
+						existingVariants.push(v);
+						seenIds.add(v.id);
+					}
+				}
+				existing.variants = existingVariants;
+			} else {
+				byKey.set(key, { ...tab });
+				if (tab.id) byId.set(tab.id, byKey.get(key)!);
+			}
 		}
-		return Array.from(merged.values());
+
+		for (const tab of existing) addTab(tab);
+		for (const tab of incoming) addTab(tab);
+
+		return Array.from(byKey.values());
 	}
 
 	function normalizeArtist(name: string): string {
-		let n = name.toLowerCase().trim();
+		let n = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+		n = n.toLowerCase().trim();
 		n = n.replace(/\s*\(the\)\s*$/i, '');
 		n = n.replace(/^the\s+/i, '');
 		n = n.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -148,11 +184,16 @@
 		if (na.length > 3 && nb.length > 3) {
 			if (na.includes(nb) || nb.includes(na)) return true;
 		}
+		// Handle featuring variants
+		const stripFeat = (s: string) => s.replace(/\s*(feat\.?|ft\.?|featuring|&|and|vs\.?)\s+.*/i, '').trim();
+		const sna = normalizeArtist(stripFeat(a));
+		const snb = normalizeArtist(stripFeat(b));
+		if (sna.length > 0 && snb.length > 0 && (sna === snb || sna.includes(snb) || snb.includes(sna))) return true;
 		return false;
 	}
 
-	async function detectArtistHero(results: TabResult[]) {
-		artistHero = null;
+	async function detectArtistHeroes(results: TabResult[]) {
+		artistHeroes = [];
 		if (!SEARCH_API_BASE_URL || results.length < 1) return;
 
 		const groups: { canonical: string; names: string[]; count: number }[] = [];
@@ -179,32 +220,79 @@
 		if (groups.length === 0) return;
 
 		groups.sort((a, b) => b.count - a.count);
-		const topGroup = groups[0];
 
-		const queryMatchesArtist = artistsMatch(query, topGroup.canonical);
-		if (topGroup.count < 2 && !queryMatchesArtist) return;
+		// Select top 3 qualifying groups
+		const qualifying = groups.filter(group => {
+			const queryMatchesArtist = artistsMatch(query, group.canonical);
+			if (group.count >= 2 || queryMatchesArtist) {
+				// Apply ratio threshold only when there are multiple groups AND group count >= 2
+				if (groups.length > 1 && group.count >= 2) {
+					const ratio = group.count / results.length;
+					if (ratio < 0.15) return false;
+				}
+				return true;
+			}
+			return false;
+		}).slice(0, 3);
 
-		if (groups.length > 1 && topGroup.count >= 2) {
-			const ratio = topGroup.count / results.length;
-			if (ratio < 0.3) return;
-		}
+		if (qualifying.length === 0) return;
 
 		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(topGroup.canonical)}`);
-			if (resp.ok) {
-				const data = await resp.json();
-				artistHero = {
-					name: data.name || topGroup.canonical,
-					image: data.image || null,
-					bio: data.bio || null,
-					country: data.country || null,
-					tags: data.tags || []
-				};
-			}
+			const heroResults = await Promise.all(
+				qualifying.map(async (group) => {
+					try {
+						const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(group.canonical)}`);
+						if (resp.ok) {
+							const data = await resp.json();
+							return {
+								name: data.name || group.canonical,
+								image: data.image || null,
+								bio: data.bio || null,
+								country: data.country || null,
+								tags: data.tags || [],
+								tabCount: group.count
+							};
+						}
+					} catch {}
+					return {
+						name: group.canonical,
+						image: null,
+						bio: null,
+						country: null,
+						tags: [],
+						tabCount: group.count
+					};
+				})
+			);
+			artistHeroes = heroResults;
 		} catch {}
 	}
 
+	const artistImageCache: Record<string, string | null> = {};
+
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
+		// First pass: batch-fetch artist images for unique artists (avoids sequential delays)
+		const uniqueArtists = new Set(tabList.map(t => t.artist || '').filter(Boolean));
+		const artistFetchPromises: Promise<void>[] = [];
+		for (const artist of uniqueArtists) {
+			if (artist in artistImageCache) continue;
+			artistFetchPromises.push(
+				fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`)
+					.then(async (resp) => {
+						if (resp.ok) {
+							const data = await resp.json();
+							artistImageCache[artist] = data.image || null;
+						} else {
+							artistImageCache[artist] = null;
+						}
+					})
+					.catch(() => { artistImageCache[artist] = null; })
+			);
+		}
+		// Fetch all artist images in parallel
+		await Promise.allSettled(artistFetchPromises);
+
+		// Second pass: fetch song artwork, fallback to artist image
 		for (const tab of tabList) {
 			if (tabArtwork[tab.id]) continue;
 			try {
@@ -216,9 +304,16 @@
 					if (data.artworkUrl) {
 						tabArtwork[tab.id] = data.artworkUrl;
 						tabArtwork = tabArtwork;
+						continue;
 					}
 				}
 			} catch {}
+			// Fallback: use cached artist image
+			const artist = tab.artist || '';
+			if (artist && artistImageCache[artist]) {
+				tabArtwork[tab.id] = artistImageCache[artist]!;
+				tabArtwork = tabArtwork;
+			}
 		}
 	}
 
@@ -235,7 +330,7 @@
 		if (currentPage === 1) loading = true;
 		searchLoading = true;
 		error = '';
-		if (currentPage === 1) artistHero = null;
+		if (currentPage === 1) artistHeroes = [];
 
 		try {
 			if (currentPage === 1) {
@@ -265,14 +360,14 @@
 				} finally {
 					searchingMore = false;
 				}
-				detectArtistHero(tabs);
-				fetchArtworkForTabs(tabs.slice(0, 10));
+				detectArtistHeroes(tabs);
+				fetchArtworkForTabs(tabs);
 			} else {
 				const liveData = await performLiveSearch();
 				tabs = [...tabs, ...liveData.tabs];
 				totalResults = liveData.total;
 				hasMorePages = liveData.hasMore;
-				fetchArtworkForTabs(liveData.tabs.slice(0, 10));
+				fetchArtworkForTabs(liveData.tabs);
 			}
 		} catch (err: any) {
 			if (err?.name === 'AbortError') {
@@ -437,7 +532,7 @@
 <div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
-		<div class="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)] gap-4">
 			<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
 			<p class="text-sm text-neutral-400 dark:text-neutral-500">
 				{#if searchingMore}
@@ -450,7 +545,7 @@
 
 	{:else if error}
 		<!-- Error -->
-		<div class="flex flex-col items-center justify-center min-h-[60vh]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
 			<p class="text-neutral-600 dark:text-neutral-400 mb-4">{error}</p>
 			<button
@@ -462,56 +557,36 @@
 		</div>
 
 	{:else if tabs.length > 0}
-		<!-- Artist hero section (when search matches an artist) -->
-		{#if artistHero}
-			<div class="py-4 px-3 flex items-start gap-4 border-b border-neutral-100 dark:border-neutral-800">
-				{#if artistHero.image}
-					<img src={artistHero.image} alt="" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 shadow-md" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
-				{:else}
-					<div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0">
-						<i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600">person</i>
-					</div>
-				{/if}
-				<div class="flex-1 min-w-0">
-					<div class="flex items-center gap-2">
-						<h2 class="text-xl sm:text-2xl font-bold text-neutral-900 dark:text-neutral-100">{artistHero.name}</h2>
-						<button
-							on:click={() => {
-								if (favoriteArtistsStore.isArtist(artistHero?.name || '')) {
-									favoriteArtistsStore.removeArtist(artistHero?.name || '');
-								} else {
-									favoriteArtistsStore.addArtist({ name: artistHero?.name || '', image: artistHero?.image || undefined });
-								}
-								artistHero = artistHero;
-							}}
-							class="p-1.5 rounded-full transition-all duration-150 active:scale-90
-								{favoriteArtistsStore.isArtist(artistHero?.name || '') ? 'text-red-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-red-400'}"
-							title="{favoriteArtistsStore.isArtist(artistHero?.name || '') ? 'Unfollow' : 'Follow'} artist"
-						>
-							<i class="material-icons !text-xl">{favoriteArtistsStore.isArtist(artistHero?.name || '') ? 'favorite' : 'favorite_border'}</i>
-						</button>
-					</div>
-					{#if artistHero.country}
-						<p class="text-sm text-neutral-400 dark:text-neutral-500 mt-0.5">{artistHero.country}</p>
-					{/if}
-					{#if artistHero.tags.length > 0}
-						<div class="flex flex-wrap gap-1 mt-1.5">
-							{#each artistHero.tags.slice(0, 6) as tag}
-								<span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">{tag}</span>
-							{/each}
+		<!-- Artist hero cards (when search matches artists) -->
+		{#if artistHeroes.length > 0}
+			<div class="flex gap-3 overflow-x-auto py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+				{#each artistHeroes as hero}
+					<button
+						class="flex items-center gap-3 flex-shrink-0 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-700 hover:border-violet-400 dark:hover:border-violet-500 transition-all bg-white dark:bg-neutral-900 min-w-[200px] max-w-[280px] text-left"
+						on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
+					>
+						{#if hero.image}
+							<img src={hero.image} alt={hero.name} class="w-12 h-12 rounded-full object-cover flex-shrink-0" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+						{:else}
+							<div class="w-12 h-12 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
+								<i class="material-icons text-neutral-400 !text-xl">person</i>
+							</div>
+						{/if}
+						<div class="min-w-0">
+							<p class="font-medium text-sm text-neutral-800 dark:text-neutral-100 truncate">{hero.name}</p>
+							{#if hero.country}
+								<p class="text-[11px] text-neutral-400 truncate">{hero.country}</p>
+							{/if}
+							<p class="text-[11px] text-violet-500">{hero.tabCount} tabs</p>
 						</div>
-					{/if}
-					{#if artistHero.bio}
-						<p class="text-xs text-neutral-500 dark:text-neutral-400 mt-2 leading-relaxed line-clamp-2" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{artistHero.bio}</p>
-					{/if}
-					<p class="text-xs text-neutral-400 mt-1.5">{totalResults} tab{totalResults !== 1 ? 's' : ''} available</p>
-				</div>
+					</button>
+				{/each}
 			</div>
 		{/if}
 
 		<!-- Results -->
 		<div class="py-3">
-			{#if !artistHero}
+			{#if artistHeroes.length === 0}
 				<p class="text-xs text-neutral-400 dark:text-neutral-500 mb-2 px-3">
 					{totalResults} result{totalResults !== 1 ? 's' : ''}
 				</p>
@@ -535,6 +610,8 @@
 						type={tab.type || ''}
 						trackCount={tab.trackCount}
 						artworkUrl={tabArtwork[tab.id] || ''}
+						variants={tab.variants}
+						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source })}
 						onClick={() => openTab(tab)}
 					/>
 				{/each}
@@ -553,20 +630,20 @@
 
 	{:else if query.length >= 2}
 		<!-- No results -->
-		<div class="flex flex-col items-center justify-center min-h-[60vh]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search_off</i>
 			<p class="text-neutral-600 dark:text-neutral-400">No results for "{query}"</p>
 		</div>
 
 	{:else if query.length > 0 && query.length < 2}
 		<!-- Too short -->
-		<div class="flex flex-col items-center justify-center min-h-[60vh]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Type at least 2 characters to search</p>
 		</div>
 
 	{:else}
 		<!-- Empty search - show prompt -->
-		<div class="flex flex-col items-center justify-center min-h-[60vh]">
+		<div class="flex flex-col items-center justify-center h-[calc(100vh-7rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search</i>
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>

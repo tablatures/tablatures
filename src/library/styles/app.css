@@ -191,12 +191,11 @@
   }
 
   .player-host-mini #player-host {
-    /* 800px scaled to fill ~480px container → needs ~0.6 scale, but we want full width
-       so we set width to what the container needs at the given scale */
+    /* Bigger scale on mobile for better readability — driven by --mini-player-scale-mobile preference */
     transform-origin: top left;
-    transform: scale(0.5);
-    width: 200%;
-    height: 440px;
+    transform: scale(var(--mini-player-scale-mobile, 0.7));
+    width: calc(100% / var(--mini-player-scale-mobile, 0.7));
+    height: calc(220px / var(--mini-player-scale-mobile, 0.7));
   }
 }
 
@@ -246,12 +245,35 @@
   stroke: #a06cff;
 }
 
+/* Hide alphaTab's native selection rendering entirely.
+ * We render our own overlay (plain positioned divs) for consistent styling. */
 .at-selection div {
-  background: rgba(140, 82, 255, 0.15) !important;
+  display: none !important;
 }
 
+/* Dark mode */
 .dark .at-selection div {
-  background: rgba(140, 82, 255, 0.25) !important;
+  background: rgba(236, 72, 153, 0.14) !important;
+}
+
+.dark .at-selection div::before {
+  background: rgba(236, 72, 153, 0.4) !important;
+}
+
+.dark .at-selection div::after {
+  background: rgba(236, 72, 153, 0.4) !important;
+}
+
+.dark .at-selection div:first-child::before {
+  background: rgba(236, 72, 153, 0.7) !important;
+  border-top-color: rgba(236, 72, 153, 0.4) !important;
+  border-bottom-color: rgba(236, 72, 153, 0.4) !important;
+}
+
+.dark .at-selection div:last-child::after {
+  background: rgba(236, 72, 153, 0.7) !important;
+  border-top-color: rgba(236, 72, 153, 0.4) !important;
+  border-bottom-color: rgba(236, 72, 153, 0.4) !important;
 }
 
 .at {

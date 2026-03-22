@@ -5,6 +5,12 @@ export interface UserPreferences {
 	soundFontUrl: string;
 	defaultSpeed: number;
 	defaultMetronomeVolume: number;
+	tabScaleDesktop: number;
+	tabScaleMobile: number;
+	miniPlayerScaleMobile: number;
+	audioSourcePreference: 'tab' | 'video';
+	autoPlayOnLoad: boolean;
+	showMiniPlayerPreview: boolean;
 }
 
 const STORAGE_KEY = 'user-preferences';
@@ -12,10 +18,35 @@ const STORAGE_KEY = 'user-preferences';
 export const DEFAULT_SOUNDFONT =
 	'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.5.0/dist/soundfont/sonivox.sf2';
 
+export const SOUNDFONT_PRESETS = [
+	{
+		id: 'sonivox',
+		name: 'Sonivox',
+		description: 'Default alphaTab soundfont, lightweight and fast loading',
+		size: '~1.3 MB',
+		tier: 'light' as const,
+		url: DEFAULT_SOUNDFONT
+	},
+	{
+		id: 'generaluser',
+		name: 'GeneralUser GS',
+		description: 'Full General MIDI set, clear instruments, good quality',
+		size: '~10 MB',
+		tier: 'balanced' as const,
+		url: 'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@24e5f18b6a6a5f1c56a56b7d9d589f52161cf490/soundfonts/GeneralUserGS.sf3'
+	}
+];
+
 const DEFAULTS: UserPreferences = {
 	soundFontUrl: DEFAULT_SOUNDFONT,
 	defaultSpeed: 1.0,
-	defaultMetronomeVolume: 0
+	defaultMetronomeVolume: 0,
+	tabScaleDesktop: 1.0,
+	tabScaleMobile: 0.6,
+	miniPlayerScaleMobile: 0.7,
+	audioSourcePreference: 'tab',
+	autoPlayOnLoad: false,
+	showMiniPlayerPreview: true
 };
 
 function load(): UserPreferences {

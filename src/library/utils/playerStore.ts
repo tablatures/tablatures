@@ -62,3 +62,21 @@ export function getApi(): any {
 // Video player state
 export const activeVideoId = writable<string | null>(null);
 export const videoPlayerRef = writable<any>(null);
+
+// Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio
+export const audioSource = writable<'tab' | 'video'>('tab');
+
+// Video sync offset (seconds), shared between TabViewer and MiniPlayer
+export const videoSyncOffset = writable<number>(0);
+
+// Flag to skip smooth-scroll during DOM reparenting transitions
+export const isTransitioning = writable<boolean>(false);
+
+// Source variants for the currently playing tab (same song from different sources)
+export interface SourceVariant {
+	id: string;
+	source: string;
+	sourceUrl?: string;
+	trackCount?: number;
+}
+export const sourceVariants = writable<SourceVariant[]>([]);

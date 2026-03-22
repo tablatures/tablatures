@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { base } from '$app/paths';
-	import { playerApi, playerState, updatePlayerState, activeVideoId } from '../utils/playerStore';
+	import { playerApi, playerState, updatePlayerState, activeVideoId, audioSource, videoSyncOffset, sourceVariants, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
+	import { openTabById } from '../utils/openTab';
 	import { displayTime } from '../utils/format';
 	import ProgressBar from './ProgressBar.svelte';
 	import ArtistTooltip from './ArtistTooltip.svelte';
@@ -53,6 +54,7 @@
 
 	let artworkUrl: string | null = null;
 	let lastFetchedTab = '';
+	let artworkFetchGeneration = 0;
 
 	$: {
 		const tabKey = (state.title || currentTab?.title || '') + '|' + (state.artist || currentTab?.artist || '');
@@ -68,17 +70,87 @@
 		if (!artist || !title) return;
 		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 		if (!SEARCH_API_BASE_URL) return;
+		const generation = ++artworkFetchGeneration;
 		try {
+			// Try song artwork first
 			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`);
+			if (generation !== artworkFetchGeneration) return;
 			if (resp.ok) {
 				const data = await resp.json();
-				artworkUrl = data.artworkUrl || null;
+				if (generation !== artworkFetchGeneration) return;
+				if (data.artworkUrl) {
+					artworkUrl = data.artworkUrl;
+					return;
+				}
+			}
+			// Fallback: use artist image
+			if (!artist) return;
+			const artistResp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`);
+			if (generation !== artworkFetchGeneration) return;
+			if (artistResp.ok) {
+				const artistData = await artistResp.json();
+				if (generation !== artworkFetchGeneration) return;
+				artworkUrl = artistData.image || null;
 			}
 		} catch {}
 	}
 
 	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
+
+	function nudgeOffset(delta: number) {
+		videoSyncOffset.update(v => Math.round((v + delta) * 10) / 10);
+		// Persist to localStorage
+		try {
+			const stored = localStorage.getItem('video-offsets');
+			const offsets = stored ? JSON.parse(stored) : {};
+			const key = `${currentTab?.tabId || 'local'}::${$activeVideoId || ''}`;
+			offsets[key] = $videoSyncOffset;
+			localStorage.setItem('video-offsets', JSON.stringify(offsets));
+		} catch {}
+	}
+
+	function toggleSource() {
+		audioSource.update(s => s === 'tab' ? 'video' : 'tab');
+	}
+
+	$: variants = $sourceVariants;
+	$: currentSource = currentTab?.source || '';
+	$: hasVariants = variants.length > 1;
+
+	let switchingSource = false;
+
+	function getSourceLabel(source: string): string {
+		const s = source.toLowerCase();
+		if (s.includes('songsterr')) return 'Songsterr';
+		if (s.includes('ultimate') || s === 'ug') return 'UG';
+		if (s.includes('guitarprotab')) return 'GP Tabs';
+		if (s === 'local') return 'Local';
+		return source.slice(0, 8);
+	}
+
+	function getSourceDotColor(source: string): string {
+		const s = source.toLowerCase();
+		if (s.includes('songsterr')) return 'bg-orange-500';
+		if (s.includes('ultimate') || s === 'ug') return 'bg-amber-500';
+		if (s.includes('guitarprotab') || s === 'local') return 'bg-emerald-500';
+		return 'bg-neutral-400';
+	}
+
+	async function switchToVariant(variant: SourceVariant) {
+		if (switchingSource || variant.id === currentTab?.tabId) return;
+		switchingSource = true;
+		try {
+			await openTabById({
+				id: variant.id,
+				title: state.title || currentTab?.title || '',
+				artist: state.artist || currentTab?.artist || '',
+				source: variant.source
+			}, false);
+		} finally {
+			switchingSource = false;
+		}
+	}
 </script>
 
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
@@ -128,6 +200,52 @@
 				{/if}
 			</p>
 		</div>
+
+		<!-- Source variant switcher -->
+		{#if hasVariants}
+			<div class="flex items-center gap-1 flex-shrink-0">
+				{#each variants as variant}
+					<button
+						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors
+							{variant.id === (currentTab?.tabId || '')
+								? 'bg-violet-500/20 border-violet-400 text-violet-300'
+								: 'border-neutral-600 text-neutral-500 hover:text-neutral-300 hover:border-neutral-400'}"
+						on:click|stopPropagation={() => switchToVariant(variant)}
+						disabled={switchingSource}
+						title="Switch to {getSourceLabel(variant.source)}"
+					>
+						<span class="w-1.5 h-1.5 rounded-full {getSourceDotColor(variant.source)}"></span>
+						{getSourceLabel(variant.source)}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		<!-- Audio source toggle + sync offset (when video active) -->
+		{#if $activeVideoId}
+			<div class="flex items-center gap-0.5 flex-shrink-0">
+				<button
+					on:click={toggleSource}
+					class="p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : 'text-neutral-500 hover:text-white'}"
+					title="{$audioSource === 'video' ? 'Video audio' : 'Tab audio'} - tap to switch"
+				>
+					<i class="material-icons !text-base">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
+				</button>
+				<button
+					on:click={() => nudgeOffset(-0.1)}
+					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
+					title="Sync -0.1s"
+				>-</button>
+				<span class="text-[10px] text-neutral-400 font-mono min-w-[2rem] text-center">
+					{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s
+				</span>
+				<button
+					on:click={() => nudgeOffset(0.1)}
+					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
+					title="Sync +0.1s"
+				>+</button>
+			</div>
+		{/if}
 
 		<!-- Share link -->
 		{#if currentTab?.tabId}
