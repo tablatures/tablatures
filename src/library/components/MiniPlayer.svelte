@@ -15,6 +15,7 @@
 	$: state = $playerState;
 	$: api = $playerApi;
 	$: currentTab = $tabStore;
+	$: soundFontLoading = !state.soundFontLoaded && state.soundFontProgress < 100;
 
 	function togglePlayPause() {
 		if (!api) return;
@@ -135,6 +136,18 @@
 </script>
 
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
+	<!-- Soundfont loading overlay -->
+	{#if soundFontLoading}
+		<div class="absolute inset-x-0 top-0 z-10">
+			<div class="h-0.5 bg-neutral-700 overflow-hidden">
+				<div class="h-full bg-violet-500 transition-all duration-300" style="width: {state.soundFontProgress}%" />
+			</div>
+			<div class="text-center py-0.5">
+				<span class="text-[9px] text-neutral-400">Loading soundfont<span class="animate-ellipsis"></span> {state.soundFontProgress}%</span>
+			</div>
+		</div>
+	{/if}
+
 	<!-- Progress bar -->
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
@@ -142,10 +155,12 @@
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
-			class="flex-shrink-0 text-white hover:text-violet-400 transition-colors active:scale-95"
+			class="flex-shrink-0 transition-colors active:scale-95
+				{soundFontLoading ? 'text-neutral-600 cursor-not-allowed' : 'text-white hover:text-violet-400'}"
 			aria-label={state.playing ? 'Pause' : 'Play'}
+			disabled={soundFontLoading}
 		>
-			<i class="material-icons !text-2xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+			<i class="material-icons !text-2xl">{soundFontLoading ? 'hourglass_top' : state.playing ? 'pause' : 'play_arrow'}</i>
 		</button>
 
 		<!-- Artwork thumbnail -->
