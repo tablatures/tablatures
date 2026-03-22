@@ -62,7 +62,7 @@
 	<!-- Icon -->
 	<div class="flex-shrink-0 w-11 h-11 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30">
 		{#if artworkUrl}
-			<img src={artworkUrl} alt="" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+			<img src={artworkUrl} alt="" class="w-full h-full object-cover" on:error={(e) => { e.currentTarget.style.display = 'none'; }} />
 		{:else}
 			<i class="material-icons !text-xl text-neutral-400 dark:text-neutral-500 group-hover:text-violet-500">{typeIcon(type)}</i>
 		{/if}

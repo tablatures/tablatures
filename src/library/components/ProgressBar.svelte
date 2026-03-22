@@ -39,7 +39,7 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	bind:this={barEl}
 	class="relative w-full h-1 hover:h-3 overflow-visible cursor-pointer select-none group transition-all duration-200"

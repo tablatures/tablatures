@@ -1,4 +1,4 @@
-<script lang="ts">
+<script>
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 
@@ -30,10 +30,10 @@
 	let dragCounter = 0;
 
 	// Persistent player host element
-	let playerHostEl: HTMLDivElement;
-	let playerHostAnchor: HTMLDivElement; // Hidden anchor in layout
+	let playerHostEl;
+	let playerHostAnchor; // Hidden anchor in layout
 
-	function handleDragEnter(e: DragEvent) {
+	function handleDragEnter(e) {
 		e.preventDefault();
 		dragCounter++;
 		if (e.dataTransfer?.types?.includes('Files')) {
@@ -41,11 +41,11 @@
 		}
 	}
 
-	function handleDragOver(e: DragEvent) {
+	function handleDragOver(e) {
 		e.preventDefault();
 	}
 
-	function handleDragLeave(e: DragEvent) {
+	function handleDragLeave(e) {
 		e.preventDefault();
 		dragCounter--;
 		if (dragCounter <= 0) {
@@ -54,7 +54,7 @@
 		}
 	}
 
-	async function handleDrop(e: DragEvent) {
+	async function handleDrop(e) {
 		e.preventDefault();
 		dragCounter = 0;
 		dragOverlay = false;
@@ -196,11 +196,11 @@
 		playerTarget.set(playerHostEl);
 	}
 
-	function applyTheme(api: AlphaTab.Api) {
+	function applyTheme(api) {
 		if (!api) return;
 		const isDark = get(themeStore);
 
-		function atColor(r: number, g: number, b: number, a = 255) {
+		function atColor(r, g, b, a = 255) {
 			const at = window.alphaTab;
 			if (at?.model?.Color) return new at.model.Color(r, g, b, a);
 			if (at?.Color) return new at.Color(r, g, b, a);
