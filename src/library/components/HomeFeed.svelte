@@ -19,6 +19,7 @@
 	let recommended: any[] = [];
 	let discover: any[] = [];
 	let stats: { totalTabs?: number; totalArtists?: number } = {};
+	let recentArtwork: Record<string, string> = {};
 
 	let loadingRecommended = true;
 	let loadingDiscover = true;
@@ -27,36 +28,22 @@
 	let dragActive = false;
 	let fileInput: HTMLInputElement;
 
-	const SEARCH_API_BASE_URL_META = import.meta.env.VITE_SEARCH_API_BASE_URL;
+	import { fetchArtworkBatch } from '../utils/artwork';
+
 	let recommendedArtwork: Record<string, string> = {};
 	let discoverArtwork: Record<string, string> = {};
-
+	
 	async function fetchArtwork(tabs: any[], artworkMap: Record<string, string>, setter: (m: Record<string, string>) => void) {
-		if (!SEARCH_API_BASE_URL_META) return;
-		const toFetch = tabs.slice(0, 8).filter((t: any) => !artworkMap[t.id]);
-		if (toFetch.length === 0) return;
-
-		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL_META}/api/metadata/artwork/batch`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(toFetch.map((t: any) => ({
-					id: t.id,
-					artist: t.artist || '',
-					title: t.title || ''
-				})))
-			});
-			if (resp.ok) {
-				const data = await resp.json();
-				for (const [id, url] of Object.entries(data)) {
-					if (url) artworkMap[id] = url as string;
-				}
-				setter({ ...artworkMap });
-			}
-		} catch {}
+		const updated = await fetchArtworkBatch(tabs.slice(0, 12), artworkMap);
+		setter(updated);
 	}
 
 	$: recentItems = $historyStore.slice(0, 4);
+	let recentArtworkFetched = false;
+	$: if (recentItems.length > 0 && !recentArtworkFetched) {
+		recentArtworkFetched = true;
+		fetchArtworkBatch(recentItems, recentArtwork).then(m => { recentArtwork = m; });
+	}
 
 	function getArtists(): string[] {
 		const history = get(historyStore);
@@ -200,7 +187,7 @@
 	});
 </script>
 
-<div class="py-6 min-h-[calc(100vh-3.5rem)]">
+<div class="py-6">
 	<!-- Top row: Import + Recently Viewed side by side on desktop, stacked on mobile -->
 	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 		<!-- Import card (1 col on desktop) -->
@@ -245,7 +232,7 @@
 					</span>
 					<a href="{base}/collection" class="text-[11px] text-violet-500 hover:underline">See all</a>
 				</div>
-				<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[220px] overflow-y-auto">
+				<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[30vh] overflow-y-auto">
 					{#each recentItems as item}
 						<ResultCard
 							id={item.id}
@@ -254,6 +241,7 @@
 							source={item.source}
 							type={item.type || ''}
 							album={item.album || ''}
+							artworkUrl={recentArtwork[item.id] || ''}
 							onClick={() => openTab(item)}
 						/>
 					{/each}
@@ -291,7 +279,7 @@
 						<p class="text-xs text-neutral-300 dark:text-neutral-600 mt-1">Try searching for tabs to build your taste profile</p>
 					</div>
 				{:else}
-					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[400px] overflow-y-auto">
+					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[50vh] overflow-y-auto">
 						{#each recommended as tab}
 							<ResultCard
 								id={tab.id}
@@ -330,7 +318,7 @@
 						<p class="text-sm text-neutral-400 dark:text-neutral-500">No tabs to discover yet</p>
 					</div>
 				{:else}
-					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[400px] overflow-y-auto">
+					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[50vh] overflow-y-auto">
 						{#each discover as tab}
 							<ResultCard
 								id={tab.id}

@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import Header from '../../library/components/Header.svelte';
 	import ResultCard from '../../library/components/ResultCard.svelte';
 	import { favoritesStore } from '../../library/utils/favorites';
@@ -14,6 +15,7 @@
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { toastStore } from '../../library/utils/toast';
 	import { openTabById } from '../../library/utils/openTab';
+	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
@@ -80,40 +82,19 @@
 		}
 	}
 
+	let favArtworkFetched = false;
+	let histArtworkFetched = false;
+
 	async function fetchFavArtwork() {
-		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
-		if (!SEARCH_API_BASE_URL) return;
-		for (const item of favorites.slice(0, 12)) {
-			if (favArtwork[item.id]) continue;
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(item.artist)}&title=${encodeURIComponent(item.title)}`);
-				if (resp.ok) {
-					const data = await resp.json();
-					if (data.artworkUrl) {
-						favArtwork[item.id] = data.artworkUrl;
-						favArtwork = favArtwork;
-					}
-				}
-			} catch {}
-		}
+		if (favArtworkFetched) return;
+		favArtworkFetched = true;
+		favArtwork = await fetchArtworkBatch(favorites.slice(0, 20), favArtwork);
 	}
 
 	async function fetchHistArtwork() {
-		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
-		if (!SEARCH_API_BASE_URL) return;
-		for (const item of historyItems.slice(0, 10)) {
-			if (histArtwork[item.id]) continue;
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(item.artist)}&title=${encodeURIComponent(item.title)}`);
-				if (resp.ok) {
-					const data = await resp.json();
-					if (data.artworkUrl) {
-						histArtwork[item.id] = data.artworkUrl;
-						histArtwork = histArtwork;
-					}
-				}
-			} catch {}
-		}
+		if (histArtworkFetched) return;
+		histArtworkFetched = true;
+		histArtwork = await fetchArtworkBatch(historyItems.slice(0, 20), histArtwork);
 	}
 
 	$: if (favorites.length > 0) fetchFavArtwork();
@@ -324,7 +305,7 @@
 		</div>
 	{:else if activeTab === 'favorites'}
 		<!-- ==================== FAVORITES TAB - SIDE BY SIDE ==================== -->
-		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4" transition:fade={{ duration: 150 }}>
 			<!-- LEFT COLUMN (2/3 width) -->
 			<div class="lg:col-span-2 space-y-6">
 				<!-- Favorite Artists (horizontal scroll) -->
@@ -491,7 +472,7 @@
 
 	{:else if activeTab === 'history'}
 		<!-- ==================== HISTORY TAB - GROUPED BY DAY ==================== -->
-		<div>
+		<div transition:fade={{ duration: 150 }}>
 			<div class="flex items-center justify-between mb-3">
 				<h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
 					<i class="material-icons !text-lg text-neutral-400">history</i>
@@ -553,7 +534,7 @@
 
 	{:else if activeTab === 'settings'}
 		<!-- ==================== SETTINGS TAB ==================== -->
-		<div class="overflow-x-hidden">
+		<div class="overflow-x-hidden" transition:fade={{ duration: 150 }}>
 
 			<!-- ===== AUDIO SECTION ===== -->
 			<div class="flex items-center gap-2 mb-3 mt-0">

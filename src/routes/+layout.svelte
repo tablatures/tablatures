@@ -20,7 +20,7 @@
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
-	$: showMiniPlayer = currentTab?.fileAsB64 && !isOnPlay;
+	$: showMiniPlayer = !!(currentTab?.fileAsB64) && !isOnPlay;
 
 	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
 	let miniHovered = false;
@@ -228,6 +228,27 @@
 		try { api.render(); } catch {}
 	}
 
+	// Track the current soundfont URL to detect changes
+	let currentSoundFontUrl = get(preferencesStore).soundFontUrl;
+
+	// Subscribe to soundfont URL changes and apply at runtime
+	$: if (browser && $preferencesStore.soundFontUrl && $preferencesStore.soundFontUrl !== currentSoundFontUrl) {
+		const newUrl = $preferencesStore.soundFontUrl;
+		currentSoundFontUrl = newUrl;
+		const api = get(playerApi);
+		if (api) {
+			// Pause playback before changing soundfont
+			try { api.pause(); } catch {}
+			// Update the soundfont setting and reload
+			api.settings.player.soundFont = newUrl;
+			api.updateSettings();
+			// Reset soundfont loaded state so UI shows loading progress
+			updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
+			// loadSoundFont triggers re-download; soundFontLoaded event will fire when done
+			api.loadSoundFont(newUrl, false);
+		}
+	}
+
 	// Subscribe to theme changes to apply to alphaTab even when not on /play route
 	$: if (browser && $themeStore !== undefined) {
 		const api = get(playerApi);
@@ -407,7 +428,7 @@
 		{/if}
 	</div>
 
-	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[280px] sm:pb-14' : 'pb-14') : ''}">
+	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
 		<slot />
 	</main>
 
