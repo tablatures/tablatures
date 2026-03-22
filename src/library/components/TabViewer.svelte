@@ -261,7 +261,7 @@
 				if (Math.abs(clampedProgress - progress) > 1) {
 					progress = clampedProgress;
 					api.player.timePosition = (progress / 100) * duration;
-					bindDuration = true;
+					seekDebounce();
 				}
 			} catch {}
 		}, 500);
@@ -354,7 +354,9 @@
 	$: if (loopEnabled && loopStart !== null && loopEnd !== null && api && duration > 0) {
 		const currentTime = (progress / 100) * duration;
 		if (currentTime >= loopEnd) {
+			progress = (loopStart / duration) * 100;
 			api.player.timePosition = loopStart;
+			seekDebounce();
 			// Ensure playback continues after looping back
 			if (!playing) {
 				setTimeout(() => { if (api) api.playPause(); }, 50);
@@ -568,8 +570,9 @@
 				// Single click = seek
 				const seekPct = getProgressPercent(me.clientX);
 				progress = seekPct;
+				bindDuration = false;
 				api.player.timePosition = (progress / 100) * duration;
-				bindDuration = true;
+				seekDebounce();
 			}
 		};
 
@@ -647,7 +650,7 @@
 		// Touch seek
 		progress = percentage;
 		api.player.timePosition = (progress / 100) * duration;
-		bindDuration = true;
+		seekDebounce();
 	}
 
 	// Favorite toggle for current tab
@@ -807,6 +810,7 @@
 		const newProgress = ((newBar + 0.5) / totalBars) * 100;
 		progress = newProgress;
 		api.player.timePosition = (progress / 100) * duration;
+		seekDebounce();
 	}
 
 	// Store references for cleanup
@@ -1342,6 +1346,15 @@
 		setTimeout(() => { videoSyncLock = false; }, 300);
 	}
 
+	// After seeking, alphaTab may fire one last playerPositionChanged event
+	// with the OLD position before the seek completes. Suppress it briefly.
+	let seekDebounceTimeout: NodeJS.Timeout;
+	function seekDebounce() {
+		bindDuration = false;
+		clearTimeout(seekDebounceTimeout);
+		seekDebounceTimeout = setTimeout(() => { bindDuration = true; }, 100);
+	}
+
 	// pause the progress while dragging
 	function progressInput() {
 		bindDuration = false;
@@ -1440,7 +1453,7 @@
 	// update the progress on click
 	function progressChange() {
 		api.player.timePosition = (progress / 100) * duration;
-		bindDuration = true;
+		seekDebounce();
 
 		// Sync video seek (with offset)
 		const ytPlayer = $videoPlayerRef;
@@ -1782,7 +1795,7 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-					on:click={() => { if (loopStart !== null && api) { api.player.timePosition = loopStart; if (!playing) clickPlay(); } }}
+					on:click={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) clickPlay(); } }}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -1884,7 +1897,7 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStart !== null && api) { api.player.timePosition = loopStart; if (!playing) clickPlay(); } }}
+						on:click|stopPropagation={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) clickPlay(); } }}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
