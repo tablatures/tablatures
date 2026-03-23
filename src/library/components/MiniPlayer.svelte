@@ -8,6 +8,7 @@
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
 	import ArtistTooltip from './ArtistTooltip.svelte';
+	import LoadingScore from './LoadingScore.svelte';
 
 	export let showPreview = true;
 	const dispatch = createEventDispatcher();
@@ -15,6 +16,7 @@
 	$: state = $playerState;
 	$: api = $playerApi;
 	$: currentTab = $tabStore;
+	$: soundFontLoading = !state.soundFontLoaded;
 
 	function togglePlayPause() {
 		if (!api) return;
@@ -135,6 +137,13 @@
 </script>
 
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
+	<!-- Soundfont loading overlay -->
+	{#if soundFontLoading}
+		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">
+			<LoadingScore progress={state.soundFontProgress} message="Loading soundfont" size="sm" />
+		</div>
+	{/if}
+
 	<!-- Progress bar -->
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
@@ -142,10 +151,12 @@
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
-			class="flex-shrink-0 text-white hover:text-violet-400 transition-colors active:scale-95"
+			class="flex-shrink-0 transition-colors active:scale-95
+				{soundFontLoading ? 'text-neutral-600 cursor-not-allowed' : 'text-white hover:text-violet-400'}"
 			aria-label={state.playing ? 'Pause' : 'Play'}
+			disabled={soundFontLoading}
 		>
-			<i class="material-icons !text-2xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+			<i class="material-icons !text-2xl">{soundFontLoading ? 'hourglass_top' : state.playing ? 'pause' : 'play_arrow'}</i>
 		</button>
 
 		<!-- Artwork thumbnail -->

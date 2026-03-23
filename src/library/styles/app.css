@@ -79,6 +79,17 @@
   .hover-lift {
     @apply transition-transform duration-200 hover:-translate-y-0.5;
   }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent 0%, rgba(139, 92, 246, 0.3) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s ease-in-out infinite;
+  }
 }
 
 /* Progress bar */

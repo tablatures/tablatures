@@ -16,6 +16,7 @@
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
+	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -43,6 +44,7 @@
 	let tabArtwork: Record<string, string> = {};
 	let artistHeroes: Array<{name: string; image: string|null; bio: string|null; country: string|null; tags: string[]; tabCount: number}> = [];
 	let loading = false;
+	let downloadingTab = false;
 	let error = '';
 	let apiAvailable = true;
 	let totalResults = 0;
@@ -390,7 +392,7 @@
 	}
 
 	async function openTab(tab: TabResult): Promise<void> {
-		loading = true;
+		downloadingTab = true;
 		error = '';
 		try {
 			const response = await fetchWithTimeout(
@@ -432,7 +434,7 @@
 			error = err?.message || 'Download failed.';
 			tabStore.clearTab();
 		} finally {
-			loading = false;
+			downloadingTab = false;
 		}
 	}
 
@@ -494,18 +496,17 @@
 	on:openTab={handleOpenTab}
 />
 
+{#if downloadingTab}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
+		<LoadingScore message="Downloading tablature" size="lg" />
+	</div>
+{/if}
+
 <div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)] gap-4">
-			<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
-			<p class="text-sm text-neutral-400 dark:text-neutral-500">
-				{#if searchingMore}
-					Fetching from sources<span class="animate-ellipsis"></span>
-				{:else}
-					Searching local database<span class="animate-ellipsis"></span>
-				{/if}
-			</p>
+		<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+			<LoadingScore messages={['Searching local database', 'Fetching from sources']} size="lg" />
 		</div>
 
 	{:else if error}
@@ -592,10 +593,9 @@
 			{/if}
 
 			{#if searchingMore}
-				<p class="text-xs text-neutral-400 flex items-center gap-1 px-3 mb-2">
-					<span class="animate-spin rounded-full h-3 w-3 border border-neutral-300 border-t-violet-500"></span>
-					Searching more sources...
-				</p>
+				<div class="px-3 mb-2">
+					<LoadingScore message="Searching more sources" size="sm" />
+				</div>
 			{/if}
 
 			<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50">
@@ -617,8 +617,8 @@
 			</div>
 
 			{#if loadingMore}
-				<div class="py-6 text-center">
-					<div class="animate-spin rounded-full h-5 w-5 border-2 border-neutral-300 border-t-violet-500 mx-auto" />
+				<div class="py-4">
+					<LoadingScore message="Loading more results" size="sm" />
 				</div>
 			{/if}
 

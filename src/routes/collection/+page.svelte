@@ -19,6 +19,7 @@
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
+	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -299,11 +300,12 @@
 	</div>
 
 	{#if loading}
-		<div class="flex flex-col items-center justify-center min-h-[50vh] gap-3">
-			<div class="animate-spin rounded-full h-10 w-10 border-2 border-neutral-300 border-t-violet-500" />
-			<p class="text-sm text-neutral-400 dark:text-neutral-500">Opening tab<span class="animate-ellipsis"></span></p>
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
+			<LoadingScore message="Opening tab" size="lg" />
 		</div>
-	{:else if activeTab === 'favorites'}
+	{/if}
+
+	{#if activeTab === 'favorites'}
 		<!-- ==================== FAVORITES TAB - SIDE BY SIDE ==================== -->
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4" transition:fade={{ duration: 150 }}>
 			<!-- LEFT COLUMN (2/3 width) -->

@@ -46,7 +46,7 @@ export const SOUNDFONT_PRESETS = [
 		description: 'Default alphaTab soundfont, lightweight and fast loading',
 		size: '~1.3 MB',
 		tier: 'light' as const,
-		url: DEFAULT_SOUNDFONT
+		url: SOUNDFONT_LIGHT
 	},
 	{
 		id: 'generaluser',
