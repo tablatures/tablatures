@@ -6,13 +6,13 @@ export default defineConfig({
 	retries: 1,
 	expect: { timeout: 10000 },
 	use: {
-		baseURL: 'http://localhost:5173',
+		baseURL: 'http://localhost:5177',
 		headless: true,
 	},
 	webServer: {
-		command: 'pnpm start',
-		url: 'http://localhost:5173',
-		reuseExistingServer: true,
+		command: 'npx vite dev --port 5177',
+		url: 'http://localhost:5177',
+		reuseExistingServer: false,
 		timeout: 30000,
 	},
 });
