@@ -16,7 +16,7 @@
 	$: state = $playerState;
 	$: api = $playerApi;
 	$: currentTab = $tabStore;
-	$: soundFontLoading = !state.soundFontLoaded && state.soundFontProgress < 100;
+	$: soundFontLoading = !state.soundFontLoaded;
 
 	function togglePlayPause() {
 		if (!api) return;

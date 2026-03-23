@@ -300,10 +300,12 @@
 	</div>
 
 	{#if loading}
-		<div class="flex flex-col items-center justify-center min-h-[50vh] gap-3">
-			<LoadingScore message="Opening tab" size="md" />
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
+			<LoadingScore message="Opening tab" size="lg" />
 		</div>
-	{:else if activeTab === 'favorites'}
+	{/if}
+
+	{#if activeTab === 'favorites'}
 		<!-- ==================== FAVORITES TAB - SIDE BY SIDE ==================== -->
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4" transition:fade={{ duration: 150 }}>
 			<!-- LEFT COLUMN (2/3 width) -->

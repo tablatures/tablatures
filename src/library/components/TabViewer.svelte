@@ -117,6 +117,9 @@
 	let soundFontLoaded = false;
 	let soundFontProgress = 0;
 	let isRendering = false;
+	let loadingTimedOut = false;
+	let loadingTimeoutId: NodeJS.Timeout;
+	let debugLoading = false;
 
 	// Bar tracking
 	let currentBar = 0;
@@ -374,6 +377,46 @@
 	$: if (browser && scoreLoaded) {
 		volume, speed, metronome, delaying, tabScale, activeTrackIndex;
 		saveSettings();
+	}
+
+	// Loading state: true when showing loading overlay
+	$: isLoading = hasSheet && !scoreLoaded && !apiError && !loadingTimedOut;
+
+	// Disable body scroll while loading to keep the overlay centered
+	$: if (browser) {
+		if (isLoading) {
+			document.body.style.overflow = 'hidden';
+		} else {
+			document.body.style.overflow = '';
+		}
+	}
+
+	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
+	// This prevents the user from being permanently stuck on the loading screen
+	$: if (browser && hasSheet && !scoreLoaded && !apiError) {
+		clearTimeout(loadingTimeoutId);
+		loadingTimeoutId = setTimeout(() => {
+			if (!scoreLoaded && !apiError) {
+				console.warn('Loading timed out after 30s — dismissing loading overlay');
+				loadingTimedOut = true;
+			}
+		}, 30_000);
+	}
+
+	// Keep loading state in sync with global playerState store
+	// This prevents getting stuck if scoreLoaded fires in the layout before our listener is attached
+	$: if (browser && $playerState.scoreLoaded && !scoreLoaded) {
+		scoreLoaded = true;
+		isRendering = false;
+	}
+	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
+		soundFontLoaded = true;
+	}
+
+	// Reset timeout flag when a new score actually loads
+	$: if (scoreLoaded) {
+		loadingTimedOut = false;
+		clearTimeout(loadingTimeoutId);
 	}
 
 	/** Set loop from ms values (progress bar). Clears stored ticks. */
@@ -1302,20 +1345,22 @@
 	}
 
 	$: if (api && tracks.length > 0 && scoreLoaded) {
-		const track = tracks[activeTrackIndex];
-		api.renderTracks([track]);
+		const track = tracks[activeTrackIndex] || tracks[0];
+		if (track) {
+			api.renderTracks([track]);
 
-		// reset solo and mute
-		for (let track of tracks) {
-			track.playbackInfo.isSolo = false;
-			track.playbackInfo.isMute = false;
+			// reset solo and mute
+			for (let t of tracks) {
+				t.playbackInfo.isSolo = false;
+				t.playbackInfo.isMute = false;
+			}
+
+			api.changeTrackSolo(tracks, false);
+			api.changeTrackMute(tracks, false);
+
+			solo = track.playbackInfo.isSolo;
+			mute = track.playbackInfo.isMute;
 		}
-
-		api.changeTrackSolo(tracks, false);
-		api.changeTrackMute(tracks, false);
-
-		solo = tracks[activeTrackIndex].playbackInfo.isSolo;
-		mute = tracks[activeTrackIndex].playbackInfo.isMute;
 	}
 
 	$: if (api) {
@@ -2040,6 +2085,9 @@
 		clearInterval(countdownInterval);
 		clearTimeout(longPressTimer);
 		clearInterval(videoSyncInterval);
+		clearTimeout(loadingTimeoutId);
+		// Restore body scroll in case we're destroyed while loading
+		document.body.style.overflow = '';
 	});
 
 	let countdownInterval: NodeJS.Timeout;
@@ -2627,8 +2675,8 @@
 					</button>
 				</div>
 			</div>
-		{:else if hasSheet && !scoreLoaded}
-			<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+		{:else if isLoading}
+			<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
 				{#if !soundFontLoaded}
 					<LoadingScore progress={soundFontProgress} message="Preparing audio engine" size="lg" />
 				{:else if isRendering}
@@ -2639,8 +2687,24 @@
 			</div>
 		{/if}
 
+		<!-- DEBUG: Loading overlay preview (uncomment to test)
+		{#if debugLoading}
+			<div class="fixed inset-0 z-[300] flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm pointer-events-none">
+				<div class="pointer-events-auto">
+					<LoadingScore message="Debug loading preview" size="lg" debug={true} />
+				</div>
+			</div>
+		{/if}
+		<button
+			class="fixed bottom-20 left-3 z-[301] px-2 py-1 text-[10px] bg-red-500 text-white rounded opacity-50 hover:opacity-100 transition-opacity"
+			on:click={() => { debugLoading = !debugLoading; }}
+		>
+			{debugLoading ? 'Hide' : 'Show'} Loading
+		</button>
+		-->
+
 		<div
-			class="relative z-0 {hasSheet && scoreLoaded ? 'min-h-[500px] pt-4' : 'min-h-1 opacity-0'}"
+			class="relative z-0 {hasSheet && (scoreLoaded || loadingTimedOut) ? 'min-h-[500px] pt-4' : 'min-h-1 opacity-0'}"
 			bind:this={target}
 		/>
 
@@ -2714,7 +2778,7 @@
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
-			{scoreLoaded ? '' : 'pointer-events-none opacity-30'}
+			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		role="toolbar"
 		tabindex="0"
