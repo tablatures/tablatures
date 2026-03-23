@@ -124,7 +124,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: 'pnpm dev',
+    command: 'pnpm start',
     url: 'http://localhost:5173',
     reuseExistingServer: true,
     timeout: 30000,
@@ -132,7 +132,9 @@ export default defineConfig({
 });
 ```
 
-**Required changes to `package.json`:** Add `"test:e2e": "playwright test"` to the `scripts` block. Also add `@playwright/test` to `devDependencies` if not already installed.
+**Required changes to `package.json`:** Add `"test:e2e": "playwright test"` to the `scripts` block. `@playwright/test` is currently NOT in `devDependencies` and MUST be added.
+
+Note: `pnpm start` maps to `vite dev` in this project (not `vite preview` as in standard SvelteKit). This is correct — we need dev mode so `import.meta.env.DEV` is true and the `__testApi` bridge is exposed. The existing `playwright.config.ts` also uses `pnpm dev` but that script doesn't exist; the config must be updated to `pnpm start`.
 
 **Changes from existing `playwright.config.ts`:** The existing config has no `retries` or `expect` block. These are additions.
 
