@@ -10,9 +10,11 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"postbuild": "cp build/index.html build/404.html"
+		"postbuild": "cp build/index.html build/404.html",
+		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.58.2",
 		"@sveltejs/adapter-static": "^3.0.0",
 		"@sveltejs/kit": "^2.0.0",
 		"@sveltejs/vite-plugin-svelte": "^3.0.0",

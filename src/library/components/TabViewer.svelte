@@ -1765,6 +1765,38 @@
 			setupFullPlayerListeners(api);
 		}
 
+		// --- Test API bridge (dev mode only) ---
+		if (import.meta.env.DEV) {
+			(window as any).__testApi = {
+				getProgress: () => progress,
+				getDuration: () => duration,
+				getLoopBounds: () =>
+					loopStart !== null && loopEnd !== null
+						? { start: loopStart, end: loopEnd, enabled: loopEnabled }
+						: null,
+				isPlaying: () => playing,
+				getCurrentBar: () => currentBar,
+				getTotalBars: () => totalBars,
+				getSpeed: () => speed,
+				getVolume: () => volume,
+				getBarPositions: () => {
+					try {
+						const lookup = api?.renderer?.boundsLookup;
+						if (!lookup?.staffSystems) return [];
+						const bars: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
+						for (const sg of lookup.staffSystems) {
+							if (!sg.bars) continue;
+							for (const mbb of sg.bars) {
+								const b = mbb.realBounds;
+								if (b && b.w > 0) bars.push({ index: mbb.index, x: b.x, y: b.y, w: b.w, h: b.h });
+							}
+						}
+						return bars;
+					} catch { return []; }
+				},
+			};
+		}
+
 		// --- Theme subscription ---
 		// Skip the initial subscription call to avoid triggering api.render() during adoption
 		let themeInitialized = false;
