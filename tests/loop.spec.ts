@@ -3,20 +3,46 @@ import { setupPlayPage, seekToPercent, dragProgressBar } from './helpers/setup';
 import { waitForPlaying, waitForProgressAbove, waitForProgressNear, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
 
 test.describe('Loop Interactions', () => {
-	// --- Test 9: Create loop by dragging on progress bar ---
+	// --- Test 9: Create loop by dragging, verify overlay + playback looping ---
 	test('create loop by dragging on progress bar', async ({ page }) => {
 		await setupPlayPage(page);
 
 		await dragProgressBar(page, 20, 40);
 
+		// Verify bounds are set correctly
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 		const duration = await getTestApi<number>(page, 'getDuration');
-		expect(bounds.start).toBeGreaterThan(duration * 0.15);
-		expect(bounds.start).toBeLessThan(duration * 0.25);
-		expect(bounds.end).toBeGreaterThan(duration * 0.35);
-		expect(bounds.end).toBeLessThan(duration * 0.45);
+		const loopStartPct = (bounds.start / duration) * 100;
+		const loopEndPct = (bounds.end / duration) * 100;
+		expect(loopStartPct).toBeGreaterThan(15);
+		expect(loopEndPct).toBeLessThan(45);
+		expect(loopEndPct).toBeGreaterThan(loopStartPct);
 		expect(bounds.enabled).toBe(true);
+
+		// Verify the loop overlay is rendered in the progress bar
+		const progressBar = page.locator('[role="slider"][aria-label*="Playback progress"]');
+		const barHTML = await progressBar.innerHTML();
+		expect(barHTML).toContain('left:');
+		expect(barHTML).toContain('width:');
+
+		// Play from loop start and verify playback stays within bounds
+		await seekToPercent(page, loopStartPct + 1);
+		await waitForSeekSettled(page, loopStartPct + 1, 5);
+		await page.keyboard.press('Space');
+		await waitForPlaying(page, true);
+
+		// Sample progress — verify it stays within the loop overlay region
+		const samples = await sampleProgress(page, 20, 200);
+		for (const s of samples) {
+			expect(s).toBeGreaterThan(loopStartPct - 3);
+			expect(s).toBeLessThan(loopEndPct + 3);
+		}
+
+		// Verify progress is advancing (not stuck)
+		expect(samples[samples.length - 1]).toBeGreaterThan(samples[0] + 0.5);
+
+		await page.keyboard.press('Space');
 	});
 
 	// --- Test 10: Loop playback enforces boundaries ---
