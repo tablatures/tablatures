@@ -1815,7 +1815,7 @@
 			// Safety net: if the tab in the store wasn't loaded into alphaTab
 			// (e.g., due to race between reactive block, navigation, and reparenting),
 			// trigger the load now that the DOM is in its final position.
-			if (data.fileAsB64 && get(playerState).soundFontLoaded) {
+			if (data.fileAsB64) {
 				const loaded = get(loadedTabB64);
 				if (data.fileAsB64 !== loaded) {
 					updatePlayerState({ scoreLoaded: false, isRendering: true });
