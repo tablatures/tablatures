@@ -266,7 +266,8 @@
 				// API not yet created - ensure init (soundFont load will trigger tab load)
 				ensureApiInitialized();
 			} else if (get(playerState).soundFontLoaded) {
-				// API ready, load immediately
+				// Reset score state so UI shows loading during transition
+				updatePlayerState({ scoreLoaded: false, isRendering: true });
 				api.load(base64ToArrayBuffer(currentTab.fileAsB64));
 				loadedTabB64.set(currentTab.fileAsB64);
 			}
