@@ -12,13 +12,15 @@ test.describe('Loop Interactions', () => {
 		// Verify bounds are set correctly
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
+		expect(bounds.startBar).toBeLessThan(bounds.endBar);
+		expect(bounds.enabled).toBe(true);
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (bounds.start / duration) * 100;
-		const loopEndPct = (bounds.end / duration) * 100;
+		const loopStartPct = (loopMs.start / duration) * 100;
+		const loopEndPct = (loopMs.end / duration) * 100;
 		expect(loopStartPct).toBeGreaterThan(15);
 		expect(loopEndPct).toBeLessThan(45);
 		expect(loopEndPct).toBeGreaterThan(loopStartPct);
-		expect(bounds.enabled).toBe(true);
 
 		// Verify the loop overlay is rendered in the progress bar
 		const progressBar = page.locator('[role="slider"][aria-label*="Playback progress"]');
@@ -53,9 +55,10 @@ test.describe('Loop Interactions', () => {
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (bounds.start / duration) * 100;
-		const loopEndPct = (bounds.end / duration) * 100;
+		const loopStartPct = (loopMs.start / duration) * 100;
+		const loopEndPct = (loopMs.end / duration) * 100;
 
 		await seekToPercent(page, loopStartPct + 2);
 		await waitForSeekSettled(page, loopStartPct + 2, 5);
@@ -90,7 +93,7 @@ test.describe('Loop Interactions', () => {
 		);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
-		expect(bounds.start).toBeLessThan(bounds.end);
+		expect(bounds.startBar).toBeLessThan(bounds.endBar);
 	});
 
 	// --- Test 12: Create loop by dragging on sheet (OPTIONAL) ---
@@ -192,9 +195,10 @@ test.describe('Loop Interactions', () => {
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (bounds.start / duration) * 100;
-		const loopEndPct = (bounds.end / duration) * 100;
+		const loopStartPct = (loopMs.start / duration) * 100;
+		const loopEndPct = (loopMs.end / duration) * 100;
 
 		await seekToPercent(page, loopStartPct + 1);
 		await waitForSeekSettled(page, loopStartPct + 1, 5);
@@ -257,9 +261,9 @@ test.describe('Loop Interactions', () => {
 		await dragProgressBar(page, 85, 99);
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
 
-		const bounds = await getTestApi<any>(page, 'getLoopBounds');
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (bounds.start / duration) * 100;
+		const loopStartPct = (loopMs.start / duration) * 100;
 
 		await seekToPercent(page, loopStartPct + 1);
 		await waitForSeekSettled(page, loopStartPct + 1, 5);
@@ -280,13 +284,14 @@ test.describe('Loop Interactions', () => {
 		await dragProgressBar(page, 30, 60);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 
 		const bar = page.locator('[role="slider"][aria-label*="Playback progress"]');
 		const box = await bar.boundingBox();
 		if (!box) throw new Error('Progress bar not found');
 
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const startX = box.x + (bounds.start / duration) * box.width;
+		const startX = box.x + (loopMs.start / duration) * box.width;
 		const newStartX = box.x + 0.2 * box.width;
 		const y = box.y + box.height / 2;
 
@@ -301,8 +306,9 @@ test.describe('Loop Interactions', () => {
 		);
 		const newBounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(newBounds).not.toBeNull();
-		expect(newBounds.start).toBeLessThan(bounds.start);
-		expect(Math.abs(newBounds.end - bounds.end)).toBeLessThan(duration * 0.05);
+		expect(newBounds.startBar).toBeLessThan(bounds.startBar);
+		const newLoopMs = await getTestApi<any>(page, 'getLoopMs');
+		expect(Math.abs(newLoopMs.end - loopMs.end)).toBeLessThan(duration * 0.05);
 	});
 
 	// --- Test 20: Move entire loop via drag ---
@@ -312,14 +318,15 @@ test.describe('Loop Interactions', () => {
 		await dragProgressBar(page, 20, 40);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
-		const loopWidth = bounds.end - bounds.start;
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
+		const loopWidth = loopMs.end - loopMs.start;
 
 		const bar = page.locator('[role="slider"][aria-label*="Playback progress"]');
 		const box = await bar.boundingBox();
 		if (!box) throw new Error('Progress bar not found');
 
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const midX = box.x + ((bounds.start + bounds.end) / 2 / duration) * box.width;
+		const midX = box.x + ((loopMs.start + loopMs.end) / 2 / duration) * box.width;
 		const y = box.y + box.height / 2;
 		const shiftPx = box.width * 0.2;
 
@@ -329,17 +336,18 @@ test.describe('Loop Interactions', () => {
 		await page.mouse.up();
 
 		await page.waitForFunction(
-			(origStart) => {
+			(origStartBar) => {
 				const b = (window as any).__testApi?.getLoopBounds();
-				return b && b.start > origStart;
+				return b && b.startBar > origStartBar;
 			},
-			bounds.start,
+			bounds.startBar,
 			{ timeout: 2000 }
 		);
 		const newBounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(newBounds).not.toBeNull();
-		expect(newBounds.start).toBeGreaterThan(bounds.start);
-		const newWidth = newBounds.end - newBounds.start;
+		expect(newBounds.startBar).toBeGreaterThan(bounds.startBar);
+		const newLoopMs = await getTestApi<any>(page, 'getLoopMs');
+		const newWidth = newLoopMs.end - newLoopMs.start;
 		expect(Math.abs(newWidth - loopWidth)).toBeLessThan(duration * 0.05);
 	});
 
@@ -360,9 +368,10 @@ test.describe('Loop Interactions', () => {
 			);
 		}
 
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (bounds.start / duration) * 100;
-		const loopEndPct = (bounds.end / duration) * 100;
+		const loopStartPct = (loopMs.start / duration) * 100;
+		const loopEndPct = (loopMs.end / duration) * 100;
 
 		await seekToPercent(page, loopStartPct + 2);
 		await waitForSeekSettled(page, loopStartPct + 2, 5);

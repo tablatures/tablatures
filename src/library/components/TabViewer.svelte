@@ -1764,6 +1764,10 @@
 					loopStartBar !== null && loopEndBar !== null
 						? { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
 						: null,
+				getLoopMs: () =>
+					loopStartBar !== null && loopEndBar !== null
+						? { start: barToMs(loopStartBar), end: barEndToMs(loopEndBar) }
+						: null,
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
 				getTotalBars: () => totalBars,
