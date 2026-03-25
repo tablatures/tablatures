@@ -493,20 +493,34 @@
 	// "Last occurrence" strategy: for repeated bars, always use the last expanded
 	// entry so that selections spanning repeat boundaries produce contiguous ranges.
 
-	/** Convert bar index range to expanded (playback) tick range */
+	/** Convert bar index range to expanded (playback) tick range.
+	 *  Finds the last occurrence of endBar, then scans backwards to find the
+	 *  closest preceding occurrence of startBar. This handles alternate endings
+	 *  where the last occurrence of startBar might be chronologically after the
+	 *  last occurrence of endBar (e.g. 1st ending followed by a 2nd repeat pass). */
 	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
 		if (!api) return null;
 		try {
 			const entries = api._tickCache?.masterBars;
 			if (!entries || entries.length === 0) return null;
-			let expandedStart: number | null = null;
-			let expandedEnd: number | null = null;
-			for (const entry of entries) {
-				const idx = entry.masterBar.index;
-				if (idx === startBar) expandedStart = entry.start;
-				if (idx === endBar) expandedEnd = entry.end;
+			// Find the last occurrence of endBar
+			let endEntryIdx = -1;
+			for (let i = 0; i < entries.length; i++) {
+				if (entries[i].masterBar.index === endBar) endEntryIdx = i;
 			}
-			if (expandedStart !== null && expandedEnd !== null && expandedEnd > expandedStart) {
+			if (endEntryIdx === -1) return null;
+			// Scan backwards from endBar's entry to find the closest occurrence of startBar
+			let startEntryIdx = -1;
+			for (let i = endEntryIdx; i >= 0; i--) {
+				if (entries[i].masterBar.index === startBar) {
+					startEntryIdx = i;
+					break;
+				}
+			}
+			if (startEntryIdx === -1) return null;
+			const expandedStart = entries[startEntryIdx].start;
+			const expandedEnd = entries[endEntryIdx].end;
+			if (expandedEnd > expandedStart) {
 				return { startTick: expandedStart, endTick: expandedEnd };
 			}
 		} catch {}
