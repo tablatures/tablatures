@@ -894,12 +894,15 @@
 		// Immediately invalidate score selection - it won't track the drag
 		invalidateScoreSelection();
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			const dx = me.clientX - startX;
 			const refWidth = (barRect && barRect.width) ? barRect.width : window.innerWidth;
 			const timeDelta = (dx / refWidth) * duration;
 			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
-			const newStartBar = msToBar(newMs);
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
 			loopStartBar = newStartBar;
 			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
@@ -1031,6 +1034,7 @@
 		// For score drag: record the time at the drag start point
 		const origDragTime = useScore ? mouseToTimeViaScore(e.clientX, e.clientY) : null;
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			let timeDelta: number;
 			if (useScore && origDragTime !== null) {
@@ -1044,7 +1048,9 @@
 				return;
 			}
 			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
-			const newStartBar = msToBar(newMs);
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
 			loopStartBar = newStartBar;
 			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
@@ -1094,7 +1100,8 @@
 			} else {
 				time = percentToTime(getProgressPercent(e.clientX));
 			}
-			const barIdx = msToBar(time);
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const barIdx = Math.min(msToBar(time), maxBar);
 			if (edge === 'start') {
 				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
@@ -1229,7 +1236,8 @@
 			if (!e.touches[0]) return;
 			const pct = getProgressPercent(e.touches[0].clientX);
 			const time = percentToTime(pct);
-			const barIdx = msToBar(time);
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const barIdx = Math.min(msToBar(time), maxBar);
 			if (edge === 'start') {
 				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
@@ -1255,12 +1263,15 @@
 		const startTouchX = event.touches[0].clientX;
 		const origStartMs = barToMs(loopStartBar);
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
 			const dx = e.touches[0].clientX - startTouchX;
 			const timeDelta = (dx / rect.width) * duration;
 			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
-			const newStartBar = msToBar(newMs);
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
 			loopStartBar = newStartBar;
 			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
