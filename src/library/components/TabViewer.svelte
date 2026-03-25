@@ -8,7 +8,7 @@
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { favoritesStore } from '../utils/favorites';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning } from '../utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning, loadedTabB64 } from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
@@ -1811,6 +1811,18 @@
 
 			// Add detailed event listeners for the full player view
 			setupFullPlayerListeners(api);
+
+			// Safety net: if the tab in the store wasn't loaded into alphaTab
+			// (e.g., due to race between reactive block, navigation, and reparenting),
+			// trigger the load now that the DOM is in its final position.
+			if (data.fileAsB64 && get(playerState).soundFontLoaded) {
+				const loaded = get(loadedTabB64);
+				if (data.fileAsB64 !== loaded) {
+					updatePlayerState({ scoreLoaded: false, isRendering: true });
+					api.load(base64ToArrayBuffer(data.fileAsB64));
+					loadedTabB64.set(data.fileAsB64);
+				}
+			}
 		}
 
 		// --- Test API bridge (dev mode only) ---
