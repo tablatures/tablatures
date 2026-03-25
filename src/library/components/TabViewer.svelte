@@ -529,32 +529,42 @@
 
 	/** Get ms position for a bar's start (last occurrence for repeated bars) */
 	function barToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return 0;
+		if (!api || !duration || duration <= 0) return -1;
 		try {
 			const entries = api._tickCache?.masterBars;
-			if (!entries || entries.length === 0) return 0;
+			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return 0;
+			if (totalExpanded <= 0) return -1;
+			let found = false;
 			let expandedTick = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) expandedTick = entry.start;
+				if (entry.masterBar.index === barIdx) { expandedTick = entry.start; found = true; }
+			}
+			if (!found) {
+				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
+				return -1;
 			}
 			return (expandedTick / totalExpanded) * duration;
 		} catch {}
-		return 0;
+		return -1;
 	}
 
 	/** Get ms position for a bar's end (last occurrence for repeated bars) */
 	function barEndToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return 0;
+		if (!api || !duration || duration <= 0) return -1;
 		try {
 			const entries = api._tickCache?.masterBars;
-			if (!entries || entries.length === 0) return 0;
+			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return 0;
+			if (totalExpanded <= 0) return -1;
+			let found = false;
 			let expandedEnd = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) expandedEnd = entry.end;
+				if (entry.masterBar.index === barIdx) { expandedEnd = entry.end; found = true; }
+			}
+			if (!found) {
+				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
+				return -1;
 			}
 			return (expandedEnd / totalExpanded) * duration;
 		} catch {}
@@ -770,6 +780,7 @@
 					e.stopPropagation();
 					if (loopStartBar !== null && api) {
 						const startMs = barToMs(loopStartBar);
+						if (startMs < 0) return;
 						progress = (startMs / duration) * 100;
 						api.player.timePosition = startMs;
 						if (typeof seekDebounce === 'function') seekDebounce();
@@ -1678,8 +1689,10 @@
 						// Move cursor to start of selection
 						if (api && !playing) {
 							const startMs = barToMs(sBar);
-							progress = (startMs / duration) * 100;
-							api.player.timePosition = startMs;
+							if (startMs >= 0) {
+								progress = (startMs / duration) * 100;
+								api.player.timePosition = startMs;
+							}
 						}
 					}
 				} catch {}
@@ -2712,7 +2725,7 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+					on:click={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -2847,7 +2860,7 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
