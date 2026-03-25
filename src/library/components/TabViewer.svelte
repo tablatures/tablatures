@@ -1602,7 +1602,7 @@
 				const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
 				const startBar = Math.min(bar1, bar2);
 				const endBar = Math.max(bar1, bar2);
-				if (endBar <= startBar) return;
+				if (endBar < startBar) return;
 
 				renderOverlayForBars(startBar, endBar);
 			} catch {}
