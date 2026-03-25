@@ -500,6 +500,83 @@
 	/** No-op - kept for compat with score drag detection code */
 	function markScoreSelectionLive() {}
 
+	// --- Bar-based loop helpers (single source of truth) ---
+	// All use MidiTickLookup (api._tickCache) for repeat-aware conversion.
+	// "Last occurrence" strategy: for repeated bars, always use the last expanded
+	// entry so that selections spanning repeat boundaries produce contiguous ranges.
+
+	/** Convert bar index range to expanded (playback) tick range */
+	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
+		if (!api) return null;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return null;
+			let expandedStart: number | null = null;
+			let expandedEnd: number | null = null;
+			for (const entry of entries) {
+				const idx = entry.masterBar.index;
+				if (idx === startBar) expandedStart = entry.start;
+				if (idx === endBar) expandedEnd = entry.end;
+			}
+			if (expandedStart !== null && expandedEnd !== null && expandedEnd > expandedStart) {
+				return { startTick: expandedStart, endTick: expandedEnd };
+			}
+		} catch {}
+		return null;
+	}
+
+	/** Get ms position for a bar's start (last occurrence for repeated bars) */
+	function barToMs(barIdx: number): number {
+		if (!api || !duration || duration <= 0) return 0;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return 0;
+			const totalExpanded = entries[entries.length - 1].end;
+			if (totalExpanded <= 0) return 0;
+			let expandedTick = 0;
+			for (const entry of entries) {
+				if (entry.masterBar.index === barIdx) expandedTick = entry.start;
+			}
+			return (expandedTick / totalExpanded) * duration;
+		} catch {}
+		return 0;
+	}
+
+	/** Get ms position for a bar's end (last occurrence for repeated bars) */
+	function barEndToMs(barIdx: number): number {
+		if (!api || !duration || duration <= 0) return 0;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return 0;
+			const totalExpanded = entries[entries.length - 1].end;
+			if (totalExpanded <= 0) return 0;
+			let expandedEnd = 0;
+			for (const entry of entries) {
+				if (entry.masterBar.index === barIdx) expandedEnd = entry.end;
+			}
+			return (expandedEnd / totalExpanded) * duration;
+		} catch {}
+		return 0;
+	}
+
+	/** Convert ms position to bar index (snaps to bar boundary) */
+	function msToBar(ms: number): number {
+		if (!api || !duration || duration <= 0) return 0;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return 0;
+			const totalExpanded = entries[entries.length - 1].end;
+			const expandedTick = (ms / duration) * totalExpanded;
+			for (const entry of entries) {
+				if (expandedTick >= entry.start && expandedTick < entry.end) {
+					return entry.masterBar.index;
+				}
+			}
+			return entries[entries.length - 1].masterBar.index;
+		} catch {}
+		return 0;
+	}
+
 	function msToTick(ms: number): number {
 		if (!api?.score || !duration || duration <= 0) return 0;
 		try {
