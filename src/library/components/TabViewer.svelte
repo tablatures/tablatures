@@ -483,7 +483,7 @@
 	// No editing from the alphaTab score - only reselect via drag on score.
 
 	/** Dismiss selection popover and refresh score overlay */
-	function invalidateScoreSelection() {
+	function dismissPopoverAndRefresh() {
 		showSelectionPopover = false;
 		updateScoreSelection();
 	}
@@ -523,7 +523,7 @@
 			if (expandedEnd > expandedStart) {
 				return { startTick: expandedStart, endTick: expandedEnd };
 			}
-		} catch {}
+		} catch (e) { console.warn('barToExpandedRange error:', e); }
 		return null;
 	}
 
@@ -545,7 +545,7 @@
 				return -1;
 			}
 			return (expandedTick / totalExpanded) * duration;
-		} catch {}
+		} catch (e) { console.warn('barToMs error:', e); }
 		return -1;
 	}
 
@@ -567,7 +567,7 @@
 				return -1;
 			}
 			return (expandedEnd / totalExpanded) * duration;
-		} catch {}
+		} catch (e) { console.warn('barEndToMs error:', e); }
 		return 0;
 	}
 
@@ -585,7 +585,7 @@
 				}
 			}
 			return entries[entries.length - 1].masterBar.index;
-		} catch {}
+		} catch (e) { console.warn('msToBar error:', e); }
 		return 0;
 	}
 
@@ -917,7 +917,7 @@
 		const barRect = barEl?.getBoundingClientRect();
 
 		// Immediately invalidate score selection - it won't track the drag
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
@@ -1005,7 +1005,7 @@
 
 			if (dx > 10) {
 				if (!didDrag) {
-					invalidateScoreSelection();
+					dismissPopoverAndRefresh();
 				}
 				didDrag = true;
 				isDraggingLoop = true;
@@ -1051,7 +1051,7 @@
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
 		if (loopStartBar === null || loopEndBar === null || !duration) return;
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
 		const origStartMs = barToMs(loopStartBar);
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
@@ -1091,7 +1091,6 @@
 		document.addEventListener('mouseup', onUp);
 	}
 
-	/** Snap a time (ms) to the nearest bar boundary */
 	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
 	 *  This handles multi-line score layout correctly (uses both X and Y). */
 	function mouseToTimeViaScore(clientX: number, clientY: number): number | null {
@@ -1115,7 +1114,7 @@
 
 	function startLoopEdgeDrag(edge: 'start' | 'end', useScore: boolean = false) {
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
 			let time: number;
 			if (useScore) {
@@ -1213,7 +1212,7 @@
 		if (!range || !duration || !event.touches[0]) return;
 		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
 		if (dx > 10) {
-			if (!touchDidDrag) invalidateScoreSelection();
+			if (!touchDidDrag) dismissPopoverAndRefresh();
 			touchDidDrag = true;
 			clearTimeout(longPressTimer);
 			isDraggingLoop = true;
@@ -1256,7 +1255,7 @@
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
 			const pct = getProgressPercent(e.touches[0].clientX);
@@ -1282,7 +1281,7 @@
 	function startLoopMoveDragTouch(event: TouchEvent) {
 		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0]) return;
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
 		const rect = range.getBoundingClientRect();
 		const startTouchX = event.touches[0].clientX;
