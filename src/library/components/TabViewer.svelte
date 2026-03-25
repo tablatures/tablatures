@@ -297,6 +297,10 @@
 			const ytPlayer = $videoPlayerRef;
 			if (!ytPlayer || !api || !duration) return;
 
+			// Don't override playback position when a loop is active —
+			// the loop owns the playback range and position.
+			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) return;
+
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
 				const videoDuration = ytPlayer.getDuration?.() || 0;
@@ -1823,6 +1827,25 @@
 						}
 						return bars;
 					} catch { return []; }
+				},
+				setMockVideo: (currentTimeSec: number, durationSec: number) => {
+					const mockPlayer = {
+						getCurrentTime: () => currentTimeSec,
+						getDuration: () => durationSec,
+						getPlayerState: () => 1,
+						pauseVideo: () => {},
+						playVideo: () => {},
+						seekTo: () => {},
+						mute: () => {},
+						unMute: () => {},
+						setVolume: () => {},
+					};
+					activeVideoId.set('mock-video-id');
+					videoPlayerRef.set(mockPlayer);
+				},
+				clearMockVideo: () => {
+					activeVideoId.set(null);
+					videoPlayerRef.set(null);
 				},
 			};
 		}

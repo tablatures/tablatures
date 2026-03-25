@@ -386,4 +386,49 @@ test.describe('Loop Interactions', () => {
 
 		await page.keyboard.press('Space');
 	});
+
+	// --- Test 22: Loop works when YouTube mini player is active ---
+	// Regression: video sync interval overrides api.player.timePosition every 200ms,
+	// ignoring the loop range and pushing playback past the loop end.
+	test('loop stays within bounds when video is active', async ({ page }) => {
+		await setupPlayPage(page);
+
+		// Create a loop in the 30-50% range
+		await dragProgressBar(page, 30, 50);
+		const bounds = await getTestApi<any>(page, 'getLoopBounds');
+		expect(bounds).not.toBeNull();
+
+		const loopMs = await getTestApi<any>(page, 'getLoopMs');
+		const duration = await getTestApi<number>(page, 'getDuration');
+		const loopStartPct = (loopMs.start / duration) * 100;
+		const loopEndPct = (loopMs.end / duration) * 100;
+
+		// Seek to loop start and begin playback BEFORE activating video
+		await seekToPercent(page, loopStartPct + 1);
+		await waitForSeekSettled(page, loopStartPct + 1, 5);
+		await page.keyboard.press('Space');
+		await waitForPlaying(page, true);
+
+		// NOW activate a mock video that reports time PAST the loop end (80% of song).
+		// The video sync interval will try to push playback to 80%, which is outside the loop.
+		const videoTimeSec = (duration / 1000) * 0.8;
+		const videoDurationSec = duration / 1000;
+		await page.evaluate(
+			({ t, d }) => (window as any).__testApi.setMockVideo(t, d),
+			{ t: videoTimeSec, d: videoDurationSec }
+		);
+
+		// Wait for video sync to fire a few times (200ms interval)
+		await page.waitForTimeout(600);
+
+		// Sample progress — should stay within loop bounds despite video sync
+		const samples = await sampleProgress(page, 15, 200);
+		for (const s of samples) {
+			expect(s).toBeGreaterThan(loopStartPct - 5);
+			expect(s).toBeLessThan(loopEndPct + 5);
+		}
+
+		await page.keyboard.press('Space');
+		await page.evaluate(() => (window as any).__testApi.clearMockVideo());
+	});
 });
