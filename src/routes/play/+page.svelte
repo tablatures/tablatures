@@ -36,59 +36,66 @@
 	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
 	$: hasTab = currentTab?.fileAsB64;
 
-	// Debounced URL sync - keeps ?tab=, ?video=, ?t= in sync
+	// URL sync - ?tab= and ?video= update immediately, ?t= is debounced
 	let urlSyncTimeout: NodeJS.Timeout;
 
-	function syncUrlParams() {
+	function syncStableParams() {
+		if (!browser) return;
+		const url = new URL(window.location.href);
+		let changed = false;
+
+		// ?tab=
+		if (currentTabId) {
+			if (url.searchParams.get('tab') !== currentTabId) {
+				url.searchParams.set('tab', currentTabId);
+				changed = true;
+			}
+		} else if (url.searchParams.has('tab')) {
+			url.searchParams.delete('tab');
+			changed = true;
+		}
+
+		// ?video= (YouTube video ID)
+		const vid = $activeVideoId;
+		if (vid) {
+			if (url.searchParams.get('video') !== vid) {
+				url.searchParams.set('video', vid);
+				changed = true;
+			}
+		} else if (url.searchParams.has('video')) {
+			url.searchParams.delete('video');
+			changed = true;
+		}
+
+		if (changed) {
+			window.history.replaceState(window.history.state, '', url.toString());
+		}
+	}
+
+	function syncPlaybackTime() {
 		if (!browser) return;
 		clearTimeout(urlSyncTimeout);
 		urlSyncTimeout = setTimeout(() => {
-			const url = new URL(window.location.href);
-			let changed = false;
-
-			// ?tab=
-			if (currentTabId) {
-				if (url.searchParams.get('tab') !== currentTabId) {
-					url.searchParams.set('tab', currentTabId);
-					changed = true;
-				}
-			} else if (url.searchParams.has('tab')) {
-				url.searchParams.delete('tab');
-				changed = true;
-			}
-
-			// ?video= (YouTube video ID)
-			const vid = $activeVideoId;
-			if (vid) {
-				if (url.searchParams.get('video') !== vid) {
-					url.searchParams.set('video', vid);
-					changed = true;
-				}
-			} else if (url.searchParams.has('video')) {
-				url.searchParams.delete('video');
-				changed = true;
-			}
-
-			// ?t= (playback time in seconds, rounded)
 			const state = $playerState;
 			if (state.duration > 0 && state.progress > 0) {
+				const url = new URL(window.location.href);
 				const timeSec = Math.round((state.progress / 100) * (state.duration / 1000));
-				const currentT = url.searchParams.get('t');
-				if (currentT !== String(timeSec)) {
+				if (url.searchParams.get('t') !== String(timeSec)) {
 					url.searchParams.set('t', String(timeSec));
-					changed = true;
+					window.history.replaceState(window.history.state, '', url.toString());
 				}
 			}
-
-			if (changed) {
-				window.history.replaceState(window.history.state, '', url.toString());
-			}
-		}, 2000); // Update every 2s max to avoid thrashing
+		}, 2000);
 	}
 
 	$: if (browser) {
-		currentTabId, $activeVideoId, $playerState.progress;
-		syncUrlParams();
+		currentTabId, $activeVideoId;
+		syncStableParams();
+	}
+
+	$: if (browser) {
+		$playerState.progress;
+		syncPlaybackTime();
 	}
 
 	function loadPlayerSettings(tab: TabData | null) {
