@@ -842,8 +842,7 @@
 		const sBar = Math.min(bar1, bar2);
 		const eBar = Math.max(bar1, bar2);
 
-		// Must span at least 1 bar
-		if (eBar - sBar < 1) return;
+		// bar1 === bar2 is valid (single-bar loop)
 
 		loopStartBar = sBar;
 		loopEndBar = eBar;
@@ -1097,9 +1096,9 @@
 			}
 			const barIdx = msToBar(time);
 			if (edge === 'start') {
-				loopStartBar = Math.min(barIdx, (loopEndBar ?? Infinity) - 1);
+				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
-				loopEndBar = Math.max(barIdx, (loopStartBar ?? 0) + 1);
+				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
 			}
 			updateScoreSelection();
 		};
@@ -1232,9 +1231,9 @@
 			const time = percentToTime(pct);
 			const barIdx = msToBar(time);
 			if (edge === 'start') {
-				loopStartBar = Math.min(barIdx, (loopEndBar ?? Infinity) - 1);
+				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
-				loopEndBar = Math.max(barIdx, (loopStartBar ?? 0) + 1);
+				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
 			}
 			updateScoreSelection();
 		};
@@ -1647,7 +1646,7 @@
 					const bar2 = beat.voice?.bar?.masterBar?.index ?? 0;
 					const sBar = Math.min(bar1, bar2);
 					const eBar = Math.max(bar1, bar2);
-					if (eBar > sBar) {
+					if (eBar >= sBar) {
 						loopStartBar = sBar;
 						loopEndBar = eBar;
 						loopEnabled = true;
