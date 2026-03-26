@@ -98,17 +98,9 @@
 	}
 
 	function applySuggestion(s: Suggestion) {
-		if (s.type === 'artist') {
-			value = s.value;
-			focused = false;
-			dispatch('search', value);
-		} else {
-			const parts = value.trimEnd().split(/\s+/);
-			parts[parts.length - 1] = s.value;
-			value = parts.join(' ') + ' ';
-			focused = false;
-			dispatch('search', value);
-		}
+		value = s.value;
+		focused = false;
+		dispatch('search', value);
 		inputEl?.focus();
 	}
 
@@ -125,13 +117,13 @@
 	}
 
 	async function fetchAutocomplete() {
-		if (!browser || !SEARCH_API_BASE_URL || queryLastWord.length < 1) {
+		if (!browser || !SEARCH_API_BASE_URL || value.trim().length < 1) {
 			suggestions = [];
 			return;
 		}
 
 		try {
-			const params = new URLSearchParams({ q: queryLastWord, limit: '8' });
+			const params = new URLSearchParams({ q: value.trim(), limit: '8' });
 			const response = await fetch(`${SEARCH_API_BASE_URL}/api/autocomplete?${params}`);
 			if (!response.ok) throw new Error();
 			const data = await response.json();
