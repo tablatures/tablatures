@@ -52,7 +52,14 @@ export function updatePlayerState(partial: Partial<PlayerState>) {
 }
 
 export function resetPlayerState() {
-	playerState.set({ ...DEFAULT_STATE });
+	// Preserve soundfont state: the soundfont belongs to the persistent API,
+	// not the current tab. Resetting it causes a permanent desync because
+	// the soundFontLoaded event won't fire again for an already-loaded font.
+	playerState.update(s => ({
+		...DEFAULT_STATE,
+		soundFontLoaded: s.soundFontLoaded,
+		soundFontProgress: s.soundFontProgress
+	}));
 }
 
 export function getApi(): any {
