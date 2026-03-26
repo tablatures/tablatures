@@ -45,6 +45,8 @@ jobs:
           ##   SEARCH_API_TIMEOUT = 30000
           VITE_SEARCH_API_BASE_URL: ${{ secrets.SEARCH_API_BASE_URL }}
           VITE_SEARCH_API_TIMEOUT: ${{ secrets.SEARCH_API_TIMEOUT }}
+          VITE_DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+          VITE_BASE_PATH: ${{ secrets.BASE_PATH }}
 
       - name: Create 404.html for SPA routing
         run: cp build/index.html build/404.html
