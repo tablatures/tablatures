@@ -54,12 +54,6 @@
 		}
 	}
 
-	$: queryLastWord = (() => {
-		const trimmed = value.trimEnd();
-		const parts = trimmed.split(/\s+/);
-		return parts[parts.length - 1] || '';
-	})();
-
 	function suggestionIcon(type?: string): string {
 		if (type === 'artist') return 'person';
 		if (type === 'song') return 'music_note';
