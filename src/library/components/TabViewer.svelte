@@ -128,11 +128,9 @@
 	// Keyboard shortcut overlay
 	let showKeyboardShortcuts = false;
 
-	// A-B Loop (ms for progress bar, ticks for alphaTab playbackRange)
-	let loopStart: number | null = null;
-	let loopEnd: number | null = null;
-	let loopStartTick: number | null = null;
-	let loopEndTick: number | null = null;
+	// A-B Loop (bar indices are the single source of truth)
+	let loopStartBar: number | null = null;
+	let loopEndBar: number | null = null;
 	let loopEnabled = true;
 	let loopSyncKey = '';
 
@@ -299,6 +297,10 @@
 			const ytPlayer = $videoPlayerRef;
 			if (!ytPlayer || !api || !duration) return;
 
+			// Don't override playback position when a loop is active —
+			// the loop owns the playback range and position.
+			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) return;
+
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
 				const videoDuration = ytPlayer.getDuration?.() || 0;
@@ -419,40 +421,36 @@
 		clearTimeout(loadingTimeoutId);
 	}
 
-	/** Set loop from ms values (progress bar). Clears stored ticks. */
-	function setLoopMs(startMs: number, endMs: number) {
-		loopStartTick = null;
-		loopEndTick = null;
-		loopStart = startMs;
-		loopEnd = endMs;
+	/** Set loop from bar indices */
+	function setLoopBars(startBar: number, endBar: number) {
+		loopStartBar = startBar;
+		loopEndBar = endBar;
 		loopEnabled = true;
 	}
 
 	function setLoopPoint(point: 'A' | 'B') {
 		const currentTime = duration > 0 ? (progress / 100) * duration : 0;
-		loopStartTick = null;
-		loopEndTick = null;
+		const currentBarIdx = msToBar(currentTime);
 		if (point === 'A') {
-			loopStart = currentTime;
-			if (loopEnd !== null && loopEnd <= currentTime) {
-				loopEnd = null;
+			loopStartBar = currentBarIdx;
+			if (loopEndBar !== null && loopEndBar <= currentBarIdx) {
+				loopEndBar = null;
 			}
 		} else {
-			loopEnd = currentTime;
-			if (loopStart !== null && loopStart >= currentTime) {
-				loopStart = null;
+			loopEndBar = currentBarIdx;
+			if (loopStartBar !== null && loopStartBar >= currentBarIdx) {
+				loopStartBar = null;
 			}
 		}
 	}
 
 	function clearLoopPoints() {
-		loopStart = null;
-		loopEnd = null;
-		loopStartTick = null;
-		loopEndTick = null;
+		loopStartBar = null;
+		loopEndBar = null;
 		selectionStartBeat = null;
 		selectionEndBeat = null;
-		invalidateScoreSelection();
+		showSelectionPopover = false;
+		clearScoreSelection();
 		removeOverlay();
 		if (api) {
 			try {
@@ -466,18 +464,17 @@
 	// at the audio sample level (no seek, no pause, no glitch). Set in syncPlaybackRange().
 
 	function toggleLoopEnabled() {
-		if (loopStart === null && loopEnd === null) return;
+		if (loopStartBar === null && loopEndBar === null) return;
 		loopEnabled = !loopEnabled;
 	}
 
 	// --- Loop ↔ alphaTab playbackRange synchronization ---
 	//
 	// Architecture:
-	// - loopStart/loopEnd (ms) + loopEnabled are the SOLE source of truth for the loop.
-	// - The progress bar overlay is the SOLE authoritative visual for the loop region.
-	// - api.playbackRange (ticks) is synced FROM loopStart/loopEnd for alphaTab's internal
-	//   playback looping, but alphaTab does NOT re-render .at-selection divs when
-	//   playbackRange is set programmatically.
+	// - loopStartBar/loopEndBar (bar indices) + loopEnabled are the SOLE source of truth.
+	// - ms values for the progress bar are derived via barToMs()/barEndToMs().
+	// - api.playbackRange (ticks) is synced via barToExpandedRange() which accounts
+	//   for repeats.
 	// - .at-selection divs are a bonus visual that only appears when the user drag-selects
 	//   on the score. They become stale when the loop is moved from the progress bar.
 	//   When stale, we clear them entirely rather than trying to reposition them.
@@ -489,45 +486,121 @@
 	// Selection is always driven by the bottom progress bar loop.
 	// No editing from the alphaTab score - only reselect via drag on score.
 
-	/** Re-render score selection from progress bar changes. Clears stored ticks. */
-	function invalidateScoreSelection() {
+	/** Dismiss selection popover and refresh score overlay */
+	function dismissPopoverAndRefresh() {
 		showSelectionPopover = false;
-		loopStartTick = null;
-		loopEndTick = null;
 		updateScoreSelection();
 	}
 
-	/** No-op - kept for compat with score drag detection code */
-	function markScoreSelectionLive() {}
+	// --- Bar-based loop helpers (single source of truth) ---
+	// All use MidiTickLookup (api._tickCache) for repeat-aware conversion.
+	// "Last occurrence" strategy: for repeated bars, always use the last expanded
+	// entry so that selections spanning repeat boundaries produce contiguous ranges.
 
-	function msToTick(ms: number): number {
-		if (!api?.score || !duration || duration <= 0) return 0;
+	/** Convert bar index range to expanded (playback) tick range.
+	 *  Finds the last occurrence of endBar, then scans backwards to find the
+	 *  closest preceding occurrence of startBar. This handles alternate endings
+	 *  where the last occurrence of startBar might be chronologically after the
+	 *  last occurrence of endBar (e.g. 1st ending followed by a 2nd repeat pass). */
+	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
+		if (!api) return null;
 		try {
-			const masterBars = api.score.masterBars;
-			let totalTicks = 0;
-			for (const bar of masterBars) {
-				totalTicks += bar.calculateDuration ? bar.calculateDuration() : 960 * 4;
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return null;
+			// Find the last occurrence of endBar
+			let endEntryIdx = -1;
+			for (let i = 0; i < entries.length; i++) {
+				if (entries[i].masterBar.index === endBar) endEntryIdx = i;
 			}
-			if (totalTicks === 0) return 0;
-			return Math.round((ms / duration) * totalTicks);
-		} catch {
-			return 0;
-		}
+			if (endEntryIdx === -1) return null;
+			// Scan backwards from endBar's entry to find the closest occurrence of startBar
+			let startEntryIdx = -1;
+			for (let i = endEntryIdx; i >= 0; i--) {
+				if (entries[i].masterBar.index === startBar) {
+					startEntryIdx = i;
+					break;
+				}
+			}
+			if (startEntryIdx === -1) return null;
+			const expandedStart = entries[startEntryIdx].start;
+			const expandedEnd = entries[endEntryIdx].end;
+			if (expandedEnd > expandedStart) {
+				return { startTick: expandedStart, endTick: expandedEnd };
+			}
+		} catch (e) { console.warn('barToExpandedRange error:', e); }
+		return null;
 	}
 
-	/** Sync api.playbackRange from our loop state.
-	 *  Always converts from ms to get ticks that account for repeats. */
+	/** Get ms position for a bar's start (last occurrence for repeated bars) */
+	function barToMs(barIdx: number): number {
+		if (!api || !duration || duration <= 0) return -1;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return -1;
+			const totalExpanded = entries[entries.length - 1].end;
+			if (totalExpanded <= 0) return -1;
+			let found = false;
+			let expandedTick = 0;
+			for (const entry of entries) {
+				if (entry.masterBar.index === barIdx) { expandedTick = entry.start; found = true; }
+			}
+			if (!found) {
+				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
+				return -1;
+			}
+			return (expandedTick / totalExpanded) * duration;
+		} catch (e) { console.warn('barToMs error:', e); }
+		return -1;
+	}
+
+	/** Get ms position for a bar's end (last occurrence for repeated bars) */
+	function barEndToMs(barIdx: number): number {
+		if (!api || !duration || duration <= 0) return -1;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return -1;
+			const totalExpanded = entries[entries.length - 1].end;
+			if (totalExpanded <= 0) return -1;
+			let found = false;
+			let expandedEnd = 0;
+			for (const entry of entries) {
+				if (entry.masterBar.index === barIdx) { expandedEnd = entry.end; found = true; }
+			}
+			if (!found) {
+				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
+				return -1;
+			}
+			return (expandedEnd / totalExpanded) * duration;
+		} catch (e) { console.warn('barEndToMs error:', e); }
+		return 0;
+	}
+
+	/** Convert ms position to bar index (snaps to bar boundary) */
+	function msToBar(ms: number): number {
+		if (!api || !duration || duration <= 0) return 0;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries || entries.length === 0) return 0;
+			const totalExpanded = entries[entries.length - 1].end;
+			const expandedTick = (ms / duration) * totalExpanded;
+			for (const entry of entries) {
+				if (expandedTick >= entry.start && expandedTick < entry.end) {
+					return entry.masterBar.index;
+				}
+			}
+			return entries[entries.length - 1].masterBar.index;
+		} catch (e) { console.warn('msToBar error:', e); }
+		return 0;
+	}
+
+/** Sync api.playbackRange from our bar-based loop state. */
 	function syncPlaybackRange() {
 		if (!api) return;
 		try {
-			if (loopStart !== null && loopEnd !== null && loopEnabled) {
-				// Always use ms→tick conversion which accounts for the full timeline
-				// (including expanded repeats). Stored ticks from bar boundaries may
-				// not include repeat expansions.
-				const startTick = msToTick(loopStart);
-				const endTick = msToTick(loopEnd);
-				if (endTick > startTick) {
-					api.playbackRange = { startTick, endTick };
+			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
+				const range = barToExpandedRange(loopStartBar, loopEndBar);
+				if (range && range.endTick > range.startTick) {
+					api.playbackRange = range;
 					api.isLooping = true;
 				} else {
 					api.playbackRange = null;
@@ -574,24 +647,10 @@
 		if (loopOverlayEl) { loopOverlayEl.remove(); loopOverlayEl = null; }
 	}
 
-	/** Convert ms to bar index using tick accumulation */
-	function msToBarIdx(ms: number): number {
-		if (!api?.score) return 0;
-		const tick = msToTick(ms);
-		const bars = api.score.masterBars;
-		let acc = 0;
-		for (let i = 0; i < bars.length; i++) {
-			const dur = bars[i].calculateDuration ? bars[i].calculateDuration() : 960 * 4;
-			if (tick >= acc && tick < acc + dur) return i;
-			acc += dur;
-		}
-		return bars.length - 1;
-	}
-
-	/** Render the loop selection overlay on the score */
+/** Render the loop selection overlay on the score */
 	function updateScoreSelection() {
 		if (!api || !scoreLoaded || !duration || duration <= 0 ||
-			loopStart === null || loopEnd === null || !loopEnabled) {
+			loopStartBar === null || loopEndBar === null || !loopEnabled) {
 			clearScoreSelection();
 			loopMinimapVisible = false;
 			return;
@@ -604,8 +663,8 @@
 			const lookup = api.renderer?.boundsLookup;
 			if (!lookup?.staffSystems) { clearScoreSelection(); return; }
 
-			const startBar = msToBarIdx(loopStart);
-			const endBar = msToBarIdx(loopEnd);
+			const startBar = loopStartBar;
+			const endBar = loopEndBar;
 
 			type Rect = { x: number; y: number; w: number; h: number };
 			const rects: Rect[] = [];
@@ -723,9 +782,11 @@
 				playBtn.title = 'Play from start';
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
-					if (loopStart !== null && api) {
-						progress = (loopStart / duration) * 100;
-						api.player.timePosition = loopStart;
+					if (loopStartBar !== null && api) {
+						const startMs = barToMs(loopStartBar);
+						if (startMs < 0) return;
+						progress = (startMs / duration) * 100;
+						api.player.timePosition = startMs;
 						if (typeof seekDebounce === 'function') seekDebounce();
 						if (!playing) playImmediate();
 					}
@@ -790,28 +851,13 @@
 	}
 
 	// React to loop changes: sync playbackRange and update score selection
-	$: loopSyncKey = `${loopStart}-${loopEnd}-${loopEnabled}`;
+	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}`;
 	$: if (api && scoreLoaded && duration > 0 && loopSyncKey) {
 		syncPlaybackRange();
 		updateScoreSelection();
 	}
 
 	// --- Sheet selection → auto-loop ---
-	function tickToMs(tick: number): number {
-		if (!api?.score || !duration) return 0;
-		try {
-			const masterBars = api.score.masterBars;
-			let totalTicks = 0;
-			for (const bar of masterBars) {
-				totalTicks += bar.calculateDuration ? bar.calculateDuration() : 960 * 4;
-			}
-			if (totalTicks === 0) return 0;
-			return (tick / totalTicks) * duration;
-		} catch {
-			return 0;
-		}
-	}
-
 	function processSelection(startBeat: any, endBeat: any) {
 		if (!startBeat || !endBeat || !api) return;
 
@@ -819,29 +865,17 @@
 		if (startBeat === endBeat) return;
 		if (startBeat.absoluteStart === endBeat.absoluteStart) return;
 
-		const startTick = Math.min(startBeat.absoluteStart, endBeat.absoluteStart);
-		const endTick = Math.max(
-			startBeat.absoluteStart + startBeat.duration,
-			endBeat.absoluteStart + endBeat.duration
-		);
+		// Extract bar indices from beats
+		const bar1 = startBeat.voice?.bar?.masterBar?.index ?? 0;
+		const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
+		const sBar = Math.min(bar1, bar2);
+		const eBar = Math.max(bar1, bar2);
 
-		// Must span at least ~2 beats (1920 ticks at 960 ticks/quarter)
-		if (endTick - startTick < 1800) return;
+		// bar1 === bar2 is valid (single-bar loop)
 
-		// Convert to ms for our progress bar overlay
-		const startMs = tickToMs(startTick);
-		const endMs = tickToMs(endTick);
-
-		if (endMs > startMs + 500) {
-			loopStart = startMs;
-			loopEnd = endMs;
-			loopEnabled = true;
-
-			// Only set alphaTab's playback range for valid multi-beat selections
-			try {
-				api.playbackRange = { startTick, endTick };
-			} catch {}
-		}
+		loopStartBar = sBar;
+		loopEndBar = eBar;
+		loopEnabled = true;
 
 		// Position popover above the selection
 		requestAnimationFrame(() => positionSelectionPopover());
@@ -873,34 +907,33 @@
 
 	// Drag the entire loop region (move both start and end together)
 	function startLoopDrag(e: MouseEvent) {
-		if (loopStart === null || loopEnd === null || !duration) return;
+		if (loopStartBar === null || loopEndBar === null || !duration) return;
 		e.preventDefault();
 		e.stopPropagation();
 
-		const loopDuration = loopEnd - loopStart;
+		const barSpan = loopEndBar - loopStartBar;
 		const startX = e.clientX;
-		const origStart = loopStart;
+		const origStartBar = loopStartBar;
+		const origStartMs = barToMs(loopStartBar);
 
 		// Get the progress bar or page width for calculating time from pixels
 		const barEl = range;
 		const barRect = barEl?.getBoundingClientRect();
 
 		// Immediately invalidate score selection - it won't track the drag
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			const dx = me.clientX - startX;
-			if (!barRect || !barRect.width) {
-				const timeDelta = (dx / window.innerWidth) * duration;
-				const newStart = Math.max(0, Math.min(duration - loopDuration, origStart + timeDelta));
-				loopStart = newStart;
-				loopEnd = newStart + loopDuration;
-			} else {
-				const timeDelta = (dx / barRect.width) * duration;
-				const newStart = Math.max(0, Math.min(duration - loopDuration, origStart + timeDelta));
-				loopStart = newStart;
-				loopEnd = newStart + loopDuration;
-			}
+			const refWidth = (barRect && barRect.width) ? barRect.width : window.innerWidth;
+			const timeDelta = (dx / refWidth) * duration;
+			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
+			loopStartBar = newStartBar;
+			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
 		};
 
@@ -943,9 +976,9 @@
 		const EDGE_THRESHOLD_PX = 10;
 
 		// Check if clicking near existing loop edges for resize, or inside for move
-		if (loopStart !== null && loopEnd !== null) {
-			const startX = (loopStart / duration) * rect.width;
-			const endX = (loopEnd / duration) * rect.width;
+		if (loopStartBar !== null && loopEndBar !== null) {
+			const startX = (barToMs(loopStartBar) / duration) * rect.width;
+			const endX = (barEndToMs(loopEndBar) / duration) * rect.width;
 
 			if (Math.abs(mouseX - startX) < EDGE_THRESHOLD_PX) {
 				e.preventDefault();
@@ -976,11 +1009,13 @@
 
 			if (dx > 10) {
 				if (!didDrag) {
-					invalidateScoreSelection();
+					dismissPopoverAndRefresh();
 				}
 				didDrag = true;
 				isDraggingLoop = true;
-				setLoopMs(percentToTime(Math.min(startPct, currentPct)), percentToTime(Math.max(startPct, currentPct)));
+				const minMs = percentToTime(Math.min(startPct, currentPct));
+				const maxMs = percentToTime(Math.max(startPct, currentPct));
+				setLoopBars(msToBar(minMs), msToBar(maxMs));
 				updateScoreSelection();
 			}
 		};
@@ -991,7 +1026,7 @@
 
 			if (didDrag) {
 				isDraggingLoop = false;
-				if (loopStart !== null && loopEnd !== null && Math.abs(loopEnd - loopStart) < 500) {
+				if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
 					clearLoopPoints();
 				}
 			} else {
@@ -1000,8 +1035,8 @@
 				const seekTime = percentToTime(seekPct);
 
 				// If clicking outside the current loop, disable it
-				if (loopStart !== null && loopEnd !== null && loopEnabled) {
-					if (seekTime < loopStart || seekTime > loopEnd) {
+				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
+					if (seekTime < barToMs(loopStartBar) || seekTime > barEndToMs(loopEndBar)) {
 						clearLoopPoints();
 					}
 				}
@@ -1018,16 +1053,17 @@
 	}
 
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
-		if (loopStart === null || loopEnd === null || !duration) return;
+		if (loopStartBar === null || loopEndBar === null || !duration) return;
 		isDraggingLoop = true;
-		invalidateScoreSelection();
-		const loopDur = loopEnd - loopStart;
-		const origStart = loopStart;
+		dismissPopoverAndRefresh();
+		const barSpan = loopEndBar - loopStartBar;
+		const origStartMs = barToMs(loopStartBar);
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
 		const startMouseX = e.clientX;
 		// For score drag: record the time at the drag start point
 		const origDragTime = useScore ? mouseToTimeViaScore(e.clientX, e.clientY) : null;
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			let timeDelta: number;
 			if (useScore && origDragTime !== null) {
@@ -1040,11 +1076,12 @@
 			} else {
 				return;
 			}
-			const newStart = Math.max(0, Math.min(duration - loopDur, origStart + timeDelta));
-			loopStart = newStart;
-			loopEnd = newStart + loopDur;
-			loopStartTick = null;
-			loopEndTick = null;
+			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
+			loopStartBar = newStartBar;
+			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
 		};
 
@@ -1056,28 +1093,6 @@
 
 		document.addEventListener('mousemove', onMove);
 		document.addEventListener('mouseup', onUp);
-	}
-
-	/** Snap a time (ms) to the nearest bar boundary */
-	function snapToBarBoundary(timeMs: number, snapToEnd: boolean): { ms: number; tick: number } {
-		if (!api?.score?.masterBars || !duration) return { ms: timeMs, tick: msToTick(timeMs) };
-		const tick = msToTick(timeMs);
-		const bars = api.score.masterBars;
-		let acc = 0;
-		for (let i = 0; i < bars.length; i++) {
-			const dur = bars[i].calculateDuration ? bars[i].calculateDuration() : 960 * 4;
-			const barEnd = acc + dur;
-			if (tick >= acc && tick < barEnd) {
-				// Snap to start or end of this bar
-				if (snapToEnd) {
-					return { ms: tickToMs(barEnd - 50), tick: barEnd - 50 };
-				} else {
-					return { ms: tickToMs(acc), tick: acc };
-				}
-			}
-			acc = barEnd;
-		}
-		return { ms: timeMs, tick: msToTick(timeMs) };
 	}
 
 	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
@@ -1094,8 +1109,8 @@
 			const y = clientY - hostRect.top + (host.scrollTop || 0);
 			const beat = lookup.getBeatAtPos(x, y);
 			if (beat) {
-				const tick = beat.absolutePlaybackStart || beat.absoluteStart || 0;
-				return tickToMs(tick);
+				const barIdx = beat.voice?.bar?.masterBar?.index ?? 0;
+				return barToMs(barIdx);
 			}
 		} catch {}
 		return null;
@@ -1103,7 +1118,7 @@
 
 	function startLoopEdgeDrag(edge: 'start' | 'end', useScore: boolean = false) {
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
 			let time: number;
 			if (useScore) {
@@ -1113,14 +1128,12 @@
 			} else {
 				time = percentToTime(getProgressPercent(e.clientX));
 			}
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const barIdx = Math.min(msToBar(time), maxBar);
 			if (edge === 'start') {
-				const snapped = snapToBarBoundary(time, false);
-				loopStart = Math.min(snapped.ms, (loopEnd ?? duration) - 500);
-				loopStartTick = snapped.tick;
+				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
-				const snapped = snapToBarBoundary(time, true);
-				loopEnd = Math.max(snapped.ms, (loopStart ?? 0) + 500);
-				loopEndTick = snapped.tick;
+				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
 			}
 			updateScoreSelection();
 		};
@@ -1129,9 +1142,8 @@
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
 			isDraggingLoop = false;
-			if (loopStart !== null && loopEnd !== null && loopStart > loopEnd) {
-				const tmp = loopStart; loopStart = loopEnd; loopEnd = tmp;
-				const tmpT = loopStartTick; loopStartTick = loopEndTick; loopEndTick = tmpT;
+			if (loopStartBar !== null && loopEndBar !== null && loopStartBar > loopEndBar) {
+				const tmp = loopStartBar; loopStartBar = loopEndBar; loopEndBar = tmp;
 			}
 		};
 
@@ -1171,9 +1183,9 @@
 		const EDGE_THRESHOLD_PX = 15;
 
 		// Check if touching near loop edges for resize
-		if (loopStart !== null && loopEnd !== null) {
-			const startX = (loopStart / duration) * rect.width;
-			const endX = (loopEnd / duration) * rect.width;
+		if (loopStartBar !== null && loopEndBar !== null) {
+			const startX = (barToMs(loopStartBar) / duration) * rect.width;
+			const endX = (barEndToMs(loopEndBar) / duration) * rect.width;
 
 			if (Math.abs(x - startX) < EDGE_THRESHOLD_PX) {
 				startLoopEdgeDragTouch(event, 'start');
@@ -1192,9 +1204,10 @@
 
 		// Long press to set loop point A
 		longPressTimer = setTimeout(() => {
+			const barIdx = msToBar(percentToTime(pct));
 			pendingLoopA = percentToTime(pct);
-			loopStart = pendingLoopA;
-			loopEnd = null;
+			loopStartBar = barIdx;
+			loopEndBar = null;
 			loopEnabled = true;
 		}, 500);
 	}
@@ -1203,12 +1216,14 @@
 		if (!range || !duration || !event.touches[0]) return;
 		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
 		if (dx > 10) {
-			if (!touchDidDrag) invalidateScoreSelection();
+			if (!touchDidDrag) dismissPopoverAndRefresh();
 			touchDidDrag = true;
 			clearTimeout(longPressTimer);
 			isDraggingLoop = true;
 			const currentPct = getProgressPercent(event.touches[0].clientX);
-			setLoopMs(percentToTime(Math.min(touchDragStartPct, currentPct)), percentToTime(Math.max(touchDragStartPct, currentPct)));
+			const minMs = percentToTime(Math.min(touchDragStartPct, currentPct));
+			const maxMs = percentToTime(Math.max(touchDragStartPct, currentPct));
+			setLoopBars(msToBar(minMs), msToBar(maxMs));
 			updateScoreSelection();
 		}
 	}
@@ -1217,7 +1232,7 @@
 		clearTimeout(longPressTimer);
 		if (touchDidDrag) {
 			isDraggingLoop = false;
-			if (loopStart !== null && loopEnd !== null && Math.abs(loopEnd - loopStart) < 500) {
+			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
 				clearLoopPoints();
 			}
 		} else if (pendingLoopA !== null) {
@@ -1230,8 +1245,8 @@
 			const seekTime = percentToTime(pct);
 
 			// If tapping outside the current loop, disable it
-			if (loopStart !== null && loopEnd !== null && loopEnabled) {
-				if (seekTime < loopStart || seekTime > loopEnd) {
+			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
+				if (seekTime < barToMs(loopStartBar) || seekTime > barEndToMs(loopEndBar)) {
 					clearLoopPoints();
 				}
 			}
@@ -1244,15 +1259,17 @@
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
 		isDraggingLoop = true;
-		invalidateScoreSelection();
+		dismissPopoverAndRefresh();
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
 			const pct = getProgressPercent(e.touches[0].clientX);
 			const time = percentToTime(pct);
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const barIdx = Math.min(msToBar(time), maxBar);
 			if (edge === 'start') {
-				loopStart = Math.min(time, (loopEnd ?? duration) - 500);
+				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
-				loopEnd = Math.max(time, (loopStart ?? 0) + 500);
+				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
 			}
 			updateScoreSelection();
 		};
@@ -1266,21 +1283,25 @@
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
-		if (loopStart === null || loopEnd === null || !range || !duration || !event.touches[0]) return;
+		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0]) return;
 		isDraggingLoop = true;
-		invalidateScoreSelection();
-		const loopDur = loopEnd - loopStart;
+		dismissPopoverAndRefresh();
+		const barSpan = loopEndBar - loopStartBar;
 		const rect = range.getBoundingClientRect();
 		const startTouchX = event.touches[0].clientX;
-		const origStart = loopStart;
+		const origStartMs = barToMs(loopStartBar);
 
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
 			const dx = e.touches[0].clientX - startTouchX;
 			const timeDelta = (dx / rect.width) * duration;
-			const newStart = Math.max(0, Math.min(duration - loopDur, origStart + timeDelta));
-			loopStart = newStart;
-			loopEnd = newStart + loopDur;
+			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
+			let newStartBar = msToBar(newMs);
+			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
+			if (newStartBar < 0) newStartBar = 0;
+			loopStartBar = newStartBar;
+			loopEndBar = newStartBar + barSpan;
 			updateScoreSelection();
 		};
 		const onEnd = () => {
@@ -1572,56 +1593,21 @@
 
 		// --- Sheet selection via alphaTab beat events ---
 		// During drag: show a lightweight preview overlay (no loop state changes).
-		// On release: commit the selection to loopStart/loopEnd.
+		// On release: commit the selection to loopStartBar/loopEndBar.
 		// This avoids heavy reactive updates during the drag.
 
 		let scoreDragStartBeat: any = null;
 		let scoreDragging = false;
 
-		/** Get the bar-level start tick for a beat (snap to bar start) */
-		function beatBarStartTick(beat: any): number {
-			try {
-				const bar = beat.voice?.bar;
-				if (bar?.masterBar) {
-					// masterBar.start gives the absolute tick start of the bar
-					return bar.masterBar.start ?? (beat.absolutePlaybackStart || beat.absoluteStart || 0);
-				}
-			} catch {}
-			return beat.absolutePlaybackStart || beat.absoluteStart || 0;
-		}
-
-		/** Get the bar-level end tick for a beat (snap to bar end).
-		 *  Subtracts 50 ticks (like alphaTab does internally) to keep the end
-		 *  inside the last bar and avoid the loop cutting off early. */
-		function beatBarEndTick(beat: any): number {
-			try {
-				const bar = beat.voice?.bar;
-				if (bar?.masterBar) {
-					const barStart = bar.masterBar.start ?? 0;
-					const barDur = bar.masterBar.calculateDuration ? bar.masterBar.calculateDuration() : 960 * 4;
-					return barStart + barDur - 50;
-				}
-			} catch {}
-			return (beat.absolutePlaybackStart || beat.absoluteStart || 0) +
-				(beat.playbackDuration || beat.duration || 0) - 50;
-		}
-
 		/** Show a lightweight preview overlay during score drag (no state changes) */
 		function showDragPreview(startBeat: any, endBeat: any) {
 			try {
-				const t1 = beatBarStartTick(startBeat);
-				const t2 = beatBarStartTick(endBeat);
-				const startTick = Math.min(t1, t2);
-				const endTick = t1 < t2 ? beatBarEndTick(endBeat) : beatBarEndTick(startBeat);
-				if (endTick <= startTick) return;
+				const bar1 = startBeat.voice?.bar?.masterBar?.index ?? 0;
+				const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
+				const startBar = Math.min(bar1, bar2);
+				const endBar = Math.max(bar1, bar2);
+				if (endBar < startBar) return;
 
-				const startMs = tickToMs(startTick);
-				const endMs = tickToMs(endTick);
-				if (endMs <= startMs + 100) return;
-
-				// Directly update the overlay without changing loopStart/loopEnd
-				const startBar = msToBarIdx(startMs);
-				const endBar = msToBarIdx(endMs);
 				renderOverlayForBars(startBar, endBar);
 			} catch {}
 		}
@@ -1688,29 +1674,25 @@
 		const onBeatMouseUp = (beat: any) => {
 			if (!scoreDragging) {
 				// Single click - clear loop
-				if (loopStart !== null || loopEnd !== null) {
+				if (loopStartBar !== null || loopEndBar !== null) {
 					clearLoopPoints();
 				}
 				showSelectionPopover = false;
 			} else {
-				// Drag complete - commit the selection with exact ticks
+				// Drag complete - commit the selection using bar indices
 				try {
-					const t1 = beatBarStartTick(scoreDragStartBeat);
-					const t2 = beatBarStartTick(beat);
-					const startTick = Math.min(t1, t2);
-					const endTick = t1 < t2 ? beatBarEndTick(beat) : beatBarEndTick(scoreDragStartBeat);
-					if (endTick > startTick) {
-						const startMs = tickToMs(startTick);
-						const endMs = tickToMs(endTick);
-						if (endMs > startMs + 200) {
-							// Store both ms (for progress bar) and ticks (for playbackRange)
-							loopStartTick = startTick;
-							loopEndTick = endTick;
-							loopStart = startMs;
-							loopEnd = endMs;
-							loopEnabled = true;
-							// Move cursor to start of selection
-							if (api && !playing) {
+					const bar1 = scoreDragStartBeat?.voice?.bar?.masterBar?.index ?? 0;
+					const bar2 = beat.voice?.bar?.masterBar?.index ?? 0;
+					const sBar = Math.min(bar1, bar2);
+					const eBar = Math.max(bar1, bar2);
+					if (eBar >= sBar) {
+						loopStartBar = sBar;
+						loopEndBar = eBar;
+						loopEnabled = true;
+						// Move cursor to start of selection
+						if (api && !playing) {
+							const startMs = barToMs(sBar);
+							if (startMs >= 0) {
 								progress = (startMs / duration) * 100;
 								api.player.timePosition = startMs;
 							}
@@ -1819,8 +1801,12 @@
 				getProgress: () => progress,
 				getDuration: () => duration,
 				getLoopBounds: () =>
-					loopStart !== null && loopEnd !== null
-						? { start: loopStart, end: loopEnd, enabled: loopEnabled }
+					loopStartBar !== null && loopEndBar !== null
+						? { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
+						: null,
+				getLoopMs: () =>
+					loopStartBar !== null && loopEndBar !== null
+						? { start: barToMs(loopStartBar), end: barEndToMs(loopEndBar) }
 						: null,
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
@@ -1841,6 +1827,25 @@
 						}
 						return bars;
 					} catch { return []; }
+				},
+				setMockVideo: (currentTimeSec: number, durationSec: number) => {
+					const mockPlayer = {
+						getCurrentTime: () => currentTimeSec,
+						getDuration: () => durationSec,
+						getPlayerState: () => 1,
+						pauseVideo: () => {},
+						playVideo: () => {},
+						seekTo: () => {},
+						mute: () => {},
+						unMute: () => {},
+						setVolume: () => {},
+					};
+					activeVideoId.set('mock-video-id');
+					videoPlayerRef.set(mockPlayer);
+				},
+				clearMockVideo: () => {
+					activeVideoId.set(null);
+					videoPlayerRef.set(null);
 				},
 			};
 		}
@@ -1990,7 +1995,7 @@
 				showSettings = false;
 			} else if (showVideoDropdown) {
 				showVideoDropdown = false;
-			} else if (loopStart !== null || loopEnd !== null) {
+			} else if (loopStartBar !== null || loopEndBar !== null) {
 				clearLoopPoints();
 			}
 		} else {
@@ -2356,7 +2361,7 @@
 
 	function clickLooping() {
 		// If a region loop is active, this toggle affects loopEnabled (our region loop)
-		if (loopStart !== null && loopEnd !== null) {
+		if (loopStartBar !== null && loopEndBar !== null) {
 			toggleLoopEnabled();
 		} else {
 			// No region loop - toggle alphaTab's global loop
@@ -2742,7 +2747,7 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) playImmediate(); } }}
+					on:click={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -2814,9 +2819,9 @@
 			</div>
 
 			<!-- Loop region overlay -->
-			{#if loopStart !== null && loopEnd !== null && duration > 0}
-				{@const startPct = (loopStart / duration) * 100}
-				{@const endPct = (loopEnd / duration) * 100}
+			{#if loopStartBar !== null && loopEndBar !== null && duration > 0}
+				{@const startPct = (barToMs(loopStartBar) / duration) * 100}
+				{@const endPct = (barEndToMs(loopEndBar) / duration) * 100}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled ? 'bg-pink-400/50' : 'bg-neutral-400/25'}"
@@ -2877,7 +2882,7 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStart !== null && api) { progress = (loopStart / duration) * 100; api.player.timePosition = loopStart; seekDebounce(); if (!playing) playImmediate(); } }}
+						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
@@ -3052,12 +3057,12 @@
 			{/if}
 
 			<!-- Loop indicator (shows when loop region exists) -->
-			{#if loopStart !== null && loopEnd !== null}
+			{#if loopStartBar !== null && loopEndBar !== null}
 				<button
 					on:click={toggleLoopEnabled}
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
-					title="{loopEnabled ? 'Disable' : 'Enable'} loop ({displayTime(Math.round(loopStart / 1000))} → {displayTime(Math.round(loopEnd / 1000))}) [Esc to clear]"
+					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
 				</button>
@@ -3423,7 +3428,7 @@
 							</div>
 
 							<!-- Loop info -->
-							{#if loopStart !== null && loopEnd !== null}
+							{#if loopStartBar !== null && loopEndBar !== null}
 								<div class="flex items-center gap-3">
 									<button
 										on:click={toggleLoopEnabled}
@@ -3433,7 +3438,7 @@
 									</button>
 									<div class="flex-1">
 										<p class="text-xs font-medium {loopEnabled ? 'text-pink-500' : 'text-neutral-500'}">
-											Loop {displayTime(Math.round((loopStart) / 1000))} → {displayTime(Math.round((loopEnd) / 1000))}
+											Loop bar {loopStartBar + 1} → {loopEndBar + 1}
 										</p>
 									</div>
 									<button
