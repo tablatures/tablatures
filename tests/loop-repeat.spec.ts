@@ -210,3 +210,48 @@ test.describe('Loop with Two Repeat Sections', () => {
 		expect(seq!.indexOf(11)).toBe(seq!.length - 1);
 	});
 });
+
+test.describe('Loop Edge Cases', () => {
+	test('single-bar loop on repeated bar', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.simpleRepeat);
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(6, 6)
+		);
+		expect(range).not.toBeNull();
+	});
+
+	test('loop on exact repeat-start bar', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.simpleRepeat);
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(4, 4)
+		);
+		expect(range).not.toBeNull();
+	});
+
+	test('loop on exact repeat-end bar', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.simpleRepeat);
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(9, 9)
+		);
+		expect(range).not.toBeNull();
+	});
+
+	test('score with no repeats — loop works normally', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.simple);
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		expect(seq).toEqual(EXPECTED_SEQUENCES.simple);
+
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(3, 8)
+		);
+		expect(range).not.toBeNull();
+	});
+
+	test('barToExpandedRange returns null for invalid bars', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.simple);
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(99, 100)
+		);
+		expect(range).toBeNull();
+	});
+});
