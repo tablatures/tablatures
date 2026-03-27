@@ -1847,6 +1847,24 @@
 					activeVideoId.set(null);
 					videoPlayerRef.set(null);
 				},
+				setLoop: (startBar: number, endBar: number) => {
+					loopStartBar = startBar;
+					loopEndBar = endBar;
+					loopEnabled = true;
+				},
+				clearLoop: () => {
+					clearLoopPoints();
+				},
+				getExpandedSequence: () => {
+					try {
+						const entries = api?._tickCache?.masterBars;
+						if (!entries) return null;
+						return entries.map((e: any) => e.masterBar.index);
+					} catch { return null; }
+				},
+				getExpandedRangeTicks: (startBar: number, endBar: number) => {
+					return barToExpandedRange(startBar, endBar);
+				},
 			};
 		}
 
