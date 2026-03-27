@@ -103,87 +103,38 @@ export const EXPECTED_SEQUENCES: Record<keyof typeof TEX_SCORES, number[]> = {
 /**
  * Load an alphaTeX score into the running alphaTab instance.
  *
- * The alphaTab API lives inside a Svelte closure and is not directly exposed.
- * We capture it by hooking the `boundsLookup` getter on the prototype — when
- * `__testApi.getBarPositions()` triggers a read, we grab the instance and
- * stash it as `window.__alphaTabApi` for reuse.
+ * Uses the __testApi.tex() bridge exposed by the Svelte component (dev mode)
+ * to call api.tex() directly, then polls until the score is loaded.
  */
 export async function loadAlphaTexScore(page: Page, tex: string): Promise<void> {
 	await page.evaluate((texString: string) => {
 		return new Promise<void>((resolve, reject) => {
 			const win = window as any;
-			let api = win.__alphaTabApi;
-
-			// If we already captured the API, use it directly
-			if (api) {
-				api.tex(texString);
-				pollUntilReady(resolve, reject);
-				return;
-			}
-
-			// Hook the boundsLookup getter on the prototype to capture the API instance
-			const proto = win.alphaTab?.AlphaTabApiBase?.prototype;
-			if (!proto) {
-				reject(new Error('alphaTab.AlphaTabApiBase.prototype not found'));
-				return;
-			}
-
-			const descriptor = Object.getOwnPropertyDescriptor(proto, 'boundsLookup');
-			if (!descriptor || !descriptor.get) {
-				reject(new Error('boundsLookup getter not found on prototype'));
-				return;
-			}
-
-			const originalGet = descriptor.get;
-			Object.defineProperty(proto, 'boundsLookup', {
-				get: function () {
-					// Capture this API instance
-					win.__alphaTabApi = this;
-					// Restore the original getter
-					Object.defineProperty(proto, 'boundsLookup', {
-						...descriptor,
-						get: originalGet
-					});
-					return originalGet.call(this);
-				},
-				configurable: true,
-				enumerable: descriptor.enumerable
-			});
-
-			// Trigger the hook by calling getBarPositions (reads boundsLookup)
 			const testApi = win.__testApi;
-			if (testApi) {
-				testApi.getBarPositions();
-			}
-
-			api = win.__alphaTabApi;
-			if (!api) {
-				reject(new Error('Failed to capture alphaTab API instance'));
+			if (!testApi || !testApi.tex) {
+				reject(new Error('__testApi.tex not available — is DEV mode enabled?'));
 				return;
 			}
 
-			api.tex(texString);
-			pollUntilReady(resolve, reject);
+			testApi.tex(texString);
 
-			function pollUntilReady(res: () => void, rej: (e: Error) => void) {
-				const timeout = 30000;
-				const interval = 500;
-				const start = Date.now();
+			const timeout = 30000;
+			const interval = 500;
+			const start = Date.now();
 
-				function check() {
-					const t = win.__testApi;
-					if (t && t.getDuration() > 0 && t.getExpandedSequence()) {
-						res();
-						return;
-					}
-					if (Date.now() - start > timeout) {
-						rej(new Error('Timed out waiting for alphaTeX score to load'));
-						return;
-					}
-					setTimeout(check, interval);
+			function check() {
+				const t = win.__testApi;
+				if (t && t.getDuration() > 0 && t.getExpandedSequence()) {
+					resolve();
+					return;
 				}
-				check();
+				if (Date.now() - start > timeout) {
+					reject(new Error('Timed out waiting for alphaTeX score to load'));
+					return;
+				}
+				setTimeout(check, interval);
 			}
+			check();
 		});
 	}, tex);
 }

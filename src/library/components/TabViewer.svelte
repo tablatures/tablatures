@@ -494,36 +494,47 @@
 
 	// --- Bar-based loop helpers (single source of truth) ---
 	// All use MidiTickLookup (api._tickCache) for repeat-aware conversion.
-	// "Last occurrence" strategy: for repeated bars, always use the last expanded
-	// entry so that selections spanning repeat boundaries produce contiguous ranges.
+	// Minimal contiguous range strategy: for repeated bars, find the smallest
+	// span across all occurrences so loops stay within a single repeat pass.
 
 	/** Convert bar index range to expanded (playback) tick range.
-	 *  Finds the last occurrence of endBar, then scans backwards to find the
-	 *  closest preceding occurrence of startBar. This handles alternate endings
-	 *  where the last occurrence of startBar might be chronologically after the
-	 *  last occurrence of endBar (e.g. 1st ending followed by a 2nd repeat pass). */
+	 *  Finds the smallest contiguous range across all occurrences of startBar/endBar
+	 *  in the expanded sequence. Prefers later occurrences when spans tie
+	 *  (e.g. alternate endings). */
 	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
 		if (!api) return null;
 		try {
 			const entries = api._tickCache?.masterBars;
 			if (!entries || entries.length === 0) return null;
-			// Find the last occurrence of endBar
-			let endEntryIdx = -1;
+			// Find all occurrences of endBar in the expanded sequence
+			const endOccurrences: number[] = [];
 			for (let i = 0; i < entries.length; i++) {
-				if (entries[i].masterBar.index === endBar) endEntryIdx = i;
+				if (entries[i].masterBar.index === endBar) endOccurrences.push(i);
 			}
-			if (endEntryIdx === -1) return null;
-			// Scan backwards from endBar's entry to find the closest occurrence of startBar
-			let startEntryIdx = -1;
-			for (let i = endEntryIdx; i >= 0; i--) {
-				if (entries[i].masterBar.index === startBar) {
-					startEntryIdx = i;
-					break;
+			if (endOccurrences.length === 0) return null;
+			// For each endBar occurrence (last-to-first), find the closest preceding startBar.
+			// Pick the pair with the smallest range. By iterating last-to-first, we prefer
+			// later occurrences when ranges tie (e.g. alternate endings).
+			let bestStart = -1;
+			let bestEnd = -1;
+			let bestSpan = Infinity;
+			for (let e = endOccurrences.length - 1; e >= 0; e--) {
+				const endIdx = endOccurrences[e];
+				for (let i = endIdx; i >= 0; i--) {
+					if (entries[i].masterBar.index === startBar) {
+						const span = endIdx - i;
+						if (span < bestSpan) {
+							bestStart = i;
+							bestEnd = endIdx;
+							bestSpan = span;
+						}
+						break;
+					}
 				}
 			}
-			if (startEntryIdx === -1) return null;
-			const expandedStart = entries[startEntryIdx].start;
-			const expandedEnd = entries[endEntryIdx].end;
+			if (bestStart === -1) return null;
+			const expandedStart = entries[bestStart].start;
+			const expandedEnd = entries[bestEnd].end;
 			if (expandedEnd > expandedStart) {
 				return { startTick: expandedStart, endTick: expandedEnd };
 			}
@@ -1864,6 +1875,9 @@
 				},
 				getExpandedRangeTicks: (startBar: number, endBar: number) => {
 					return barToExpandedRange(startBar, endBar);
+				},
+				tex: (texString: string) => {
+					if (api) api.tex(texString);
 				},
 			};
 		}
