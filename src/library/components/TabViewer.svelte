@@ -1036,6 +1036,8 @@
 		const startX = e.clientX;
 		const startPct = pct;
 		let didDrag = false;
+		let prevMaxPct = startPct;
+		let prevEndBar = 0;
 
 		const onMove = (me: MouseEvent) => {
 			const dx = Math.abs(me.clientX - startX);
@@ -1048,8 +1050,17 @@
 				didDrag = true;
 				isDraggingLoop = true;
 				const minMs = percentToTime(Math.min(startPct, currentPct));
-				const maxMs = percentToTime(Math.max(startPct, currentPct));
-				setLoopBars(msToBar(minMs), msToBar(maxMs));
+				const maxPct = Math.max(startPct, currentPct);
+				let eBar = msToBar(percentToTime(maxPct));
+				// When dragging rightward, prevent endBar from snapping backward
+				// at repeat boundaries (msToBar wraps to repeat-start indices).
+				// When dragging leftward, allow endBar to decrease naturally.
+				if (maxPct >= prevMaxPct && eBar < prevEndBar) {
+					eBar = prevEndBar;
+				}
+				prevMaxPct = maxPct;
+				prevEndBar = eBar;
+				setLoopBars(msToBar(minMs), eBar);
 				updateScoreSelection();
 			}
 		};

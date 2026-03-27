@@ -273,7 +273,7 @@ test.describe('Timeline drag across repeat boundary', () => {
 
 		const y = box.y + box.height / 2;
 		const startX = box.x + 0.10 * box.width; // ~10% = before repeat
-		const endX = box.x + 0.65 * box.width;   // ~65% = well into 2nd pass
+		const endX = box.x + 0.80 * box.width;   // ~80% = past both repeat passes
 
 		// Drag slowly in many steps to cross the boundary
 		await page.mouse.move(startX, y);
