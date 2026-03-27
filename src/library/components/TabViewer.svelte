@@ -1010,9 +1010,9 @@
 		const EDGE_THRESHOLD_PX = 10;
 
 		// Check if clicking near existing loop edges for resize, or inside for move
-		if (loopStartBar !== null && loopEndBar !== null) {
-			const startX = (barToMs(loopStartBar) / duration) * rect.width;
-			const endX = (barEndToMs(loopEndBar) / duration) * rect.width;
+		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
+			const startX = (_loopTimelinePct.start / 100) * rect.width;
+			const endX = (_loopTimelinePct.end / 100) * rect.width;
 
 			if (Math.abs(mouseX - startX) < EDGE_THRESHOLD_PX) {
 				e.preventDefault();
@@ -1080,8 +1080,10 @@
 				const seekTime = percentToTime(seekPct);
 
 				// If clicking outside the current loop, disable it
-				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
-					if (seekTime < barToMs(loopStartBar) || seekTime > barEndToMs(loopEndBar)) {
+				if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
+					const loopStartMs = (_loopTimelinePct.start / 100) * duration;
+					const loopEndMs = (_loopTimelinePct.end / 100) * duration;
+					if (seekTime < loopStartMs || seekTime > loopEndMs) {
 						clearLoopPoints();
 					}
 				}
@@ -1213,6 +1215,8 @@
 	let touchDragStartX = 0;
 	let touchDragStartPct = 0;
 	let touchDidDrag = false;
+	let touchPrevMaxPct = 0;
+	let touchPrevEndBar = 0;
 	let longPressTimer: NodeJS.Timeout;
 	let pendingLoopA: number | null = null;
 
@@ -1224,13 +1228,15 @@
 		touchDragStartX = event.touches[0].clientX;
 		touchDragStartPct = pct;
 		touchDidDrag = false;
+		touchPrevMaxPct = pct;
+		touchPrevEndBar = 0;
 
 		const EDGE_THRESHOLD_PX = 15;
 
 		// Check if touching near loop edges for resize
-		if (loopStartBar !== null && loopEndBar !== null) {
-			const startX = (barToMs(loopStartBar) / duration) * rect.width;
-			const endX = (barEndToMs(loopEndBar) / duration) * rect.width;
+		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
+			const startX = (_loopTimelinePct.start / 100) * rect.width;
+			const endX = (_loopTimelinePct.end / 100) * rect.width;
 
 			if (Math.abs(x - startX) < EDGE_THRESHOLD_PX) {
 				startLoopEdgeDragTouch(event, 'start');
@@ -1267,8 +1273,15 @@
 			isDraggingLoop = true;
 			const currentPct = getProgressPercent(event.touches[0].clientX);
 			const minMs = percentToTime(Math.min(touchDragStartPct, currentPct));
-			const maxMs = percentToTime(Math.max(touchDragStartPct, currentPct));
-			setLoopBars(msToBar(minMs), msToBar(maxMs));
+			const maxPct = Math.max(touchDragStartPct, currentPct);
+			let eBar = msToBar(percentToTime(maxPct));
+			// Prevent endBar snap at repeat boundaries (same guard as mouse handler)
+			if (maxPct >= touchPrevMaxPct && eBar < touchPrevEndBar) {
+				eBar = touchPrevEndBar;
+			}
+			touchPrevMaxPct = maxPct;
+			touchPrevEndBar = eBar;
+			setLoopBars(msToBar(minMs), eBar);
 			updateScoreSelection();
 		}
 	}
@@ -1290,8 +1303,10 @@
 			const seekTime = percentToTime(pct);
 
 			// If tapping outside the current loop, disable it
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
-				if (seekTime < barToMs(loopStartBar) || seekTime > barEndToMs(loopEndBar)) {
+			if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
+				const loopStartMs = (_loopTimelinePct.start / 100) * duration;
+				const loopEndMs = (_loopTimelinePct.end / 100) * duration;
+				if (seekTime < loopStartMs || seekTime > loopEndMs) {
 					clearLoopPoints();
 				}
 			}

@@ -116,6 +116,11 @@ export async function loadAlphaTexScore(page: Page, tex: string): Promise<void> 
 				return;
 			}
 
+			// Capture previous state to detect when the NEW score is loaded
+			// (prevents resolving on stale data from the previous score).
+			const prevDuration = testApi.getDuration();
+			const prevSeqLen = testApi.getExpandedSequence()?.length ?? 0;
+
 			testApi.tex(texString);
 
 			const timeout = 30000;
@@ -124,9 +129,14 @@ export async function loadAlphaTexScore(page: Page, tex: string): Promise<void> 
 
 			function check() {
 				const t = win.__testApi;
-				if (t && t.getDuration() > 0 && t.getExpandedSequence()) {
-					resolve();
-					return;
+				if (t) {
+					const dur = t.getDuration();
+					const seq = t.getExpandedSequence();
+					// Verify the score actually changed (duration or sequence length differs)
+					if (dur > 0 && seq && (dur !== prevDuration || seq.length !== prevSeqLen)) {
+						resolve();
+						return;
+					}
 				}
 				if (Date.now() - start > timeout) {
 					reject(new Error('Timed out waiting for alphaTeX score to load'));
