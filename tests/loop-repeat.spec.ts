@@ -124,3 +124,89 @@ test.describe('Loop with Simple Repeat (bars 5-10 repeat 2x)', () => {
 		expect(bar14Pos - bar11Pos).toBe(3);
 	});
 });
+
+test.describe('Loop with Alternate Endings', () => {
+	test.beforeEach(async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.alternateEndings);
+	});
+
+	test('expanded sequence matches expected structure', async ({ page }) => {
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		expect(seq).toEqual(EXPECTED_SEQUENCES.alternateEndings);
+	});
+
+	// Case 7: Loop within shared bars
+	test('Case 7: loop within shared bars — bars 2-3', async ({ page }) => {
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(2, 3)
+		);
+		expect(range).not.toBeNull();
+		// Bars 2-3 in both passes, span = 1 both times. Prefers later.
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		const allBar2 = seq!.map((v, i) => v === 2 ? i : -1).filter(i => i !== -1);
+		expect(allBar2.length).toBe(2); // appears in both passes
+	});
+
+	// Case 9: Loop from shared into 2nd ending
+	test('Case 9: loop into 2nd ending — bars 3-5', async ({ page }) => {
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(3, 5)
+		);
+		expect(range).not.toBeNull();
+		// Bar 5 (2nd ending) only appears once. Minimal range picks 2nd pass of bar 3.
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		const bar5Pos = seq!.indexOf(5);
+		expect(bar5Pos).toBeGreaterThan(-1);
+	});
+
+	// Case 10: Loop encompassing entire volta
+	test('Case 10: loop encompasses volta — bars 0-7', async ({ page }) => {
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(0, 7)
+		);
+		expect(range).not.toBeNull();
+		// Both bars appear once outside volta. Full expanded path included.
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		expect(seq!.indexOf(0)).toBe(0);
+		expect(seq!.indexOf(7)).toBe(seq!.length - 1);
+	});
+});
+
+test.describe('Loop with Two Repeat Sections', () => {
+	test.beforeEach(async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.twoRepeats);
+	});
+
+	test('expanded sequence matches expected structure', async ({ page }) => {
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		expect(seq).toEqual(EXPECTED_SEQUENCES.twoRepeats);
+	});
+
+	// Case 13: Loop spanning gap between two repeat sections
+	test('Case 13: loop spans gap between repeats — bars 2-8', async ({ page }) => {
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(2, 8)
+		);
+		expect(range).not.toBeNull();
+
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		const allBar2 = seq!.map((v, i) => v === 2 ? i : -1).filter(i => i !== -1);
+		const allBar8 = seq!.map((v, i) => v === 8 ? i : -1).filter(i => i !== -1);
+		const minSpan = Math.min(
+			...allBar8.flatMap(e => allBar2.filter(s => s <= e).map(s => e - s))
+		);
+		expect(minSpan).toBeLessThan(8);
+	});
+
+	// Case 14: Loop encompassing both repeats
+	test('Case 14: loop encompasses both repeats — bars 0-11', async ({ page }) => {
+		const range = await page.evaluate(() =>
+			(window as any).__testApi.getExpandedRangeTicks(0, 11)
+		);
+		expect(range).not.toBeNull();
+
+		const seq = await getTestApi<number[]>(page, 'getExpandedSequence');
+		expect(seq!.indexOf(0)).toBe(0);
+		expect(seq!.indexOf(11)).toBe(seq!.length - 1);
+	});
+});
