@@ -512,13 +512,14 @@
 				if (entries[i].masterBar.index === endBar) endOccurrences.push(i);
 			}
 			if (endOccurrences.length === 0) return null;
-			// For each endBar occurrence (last-to-first), find the closest preceding startBar.
-			// Pick the pair with the smallest range. By iterating last-to-first, we prefer
-			// later occurrences when ranges tie (e.g. alternate endings).
+			// For each endBar occurrence (first-to-last), find the closest preceding startBar.
+			// Pick the pair with the smallest range. By iterating first-to-last, earlier
+			// occurrences win ties — avoids "teleporting" playback to a later repeat pass
+			// when the user loops bars within a simple repeat section.
 			let bestStart = -1;
 			let bestEnd = -1;
 			let bestSpan = Infinity;
-			for (let e = endOccurrences.length - 1; e >= 0; e--) {
+			for (let e = 0; e < endOccurrences.length; e++) {
 				const endIdx = endOccurrences[e];
 				for (let i = endIdx; i >= 0; i--) {
 					if (entries[i].masterBar.index === startBar) {
@@ -811,7 +812,7 @@
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
 					if (loopStartBar !== null && api) {
-						const startMs = barToMs(loopStartBar);
+						const startMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 						if (startMs < 0) return;
 						progress = (startMs / duration) * 100;
 						api.player.timePosition = startMs;
@@ -948,7 +949,7 @@
 		const barSpan = loopEndBar - loopStartBar;
 		const startX = e.clientX;
 		const origStartBar = loopStartBar;
-		const origStartMs = barToMs(loopStartBar);
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 
 		// Get the progress bar or page width for calculating time from pixels
 		const barEl = range;
@@ -1036,8 +1037,8 @@
 		const startX = e.clientX;
 		const startPct = pct;
 		let didDrag = false;
-		let prevMaxPct = startPct;
-		let prevEndBar = 0;
+		let peakEndBar = 0;
+		let peakEndPct = startPct;
 
 		const onMove = (me: MouseEvent) => {
 			const dx = Math.abs(me.clientX - startX);
@@ -1052,14 +1053,20 @@
 				const minMs = percentToTime(Math.min(startPct, currentPct));
 				const maxPct = Math.max(startPct, currentPct);
 				let eBar = msToBar(percentToTime(maxPct));
-				// When dragging rightward, prevent endBar from snapping backward
-				// at repeat boundaries (msToBar wraps to repeat-start indices).
-				// When dragging leftward, allow endBar to decrease naturally.
-				if (maxPct >= prevMaxPct && eBar < prevEndBar) {
-					eBar = prevEndBar;
+				// Track peak endBar to prevent snapping at repeat boundaries.
+				// Only reset the peak when the user drags significantly backward
+				// (>2% hysteresis prevents wiggle-based bypass).
+				if (eBar > peakEndBar) {
+					peakEndBar = eBar;
+					peakEndPct = maxPct;
 				}
-				prevMaxPct = maxPct;
-				prevEndBar = eBar;
+				if (maxPct >= peakEndPct && eBar < peakEndBar) {
+					eBar = peakEndBar;
+				} else if (maxPct < peakEndPct - 2) {
+					// User is dragging clearly backward — reset peak
+					peakEndBar = eBar;
+					peakEndPct = maxPct;
+				}
 				setLoopBars(msToBar(minMs), eBar);
 				updateScoreSelection();
 			}
@@ -1104,7 +1111,7 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
-		const origStartMs = barToMs(loopStartBar);
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
 		const startMouseX = e.clientX;
 		// For score drag: record the time at the drag start point
@@ -1215,8 +1222,8 @@
 	let touchDragStartX = 0;
 	let touchDragStartPct = 0;
 	let touchDidDrag = false;
-	let touchPrevMaxPct = 0;
-	let touchPrevEndBar = 0;
+	let touchPeakEndBar = 0;
+	let touchPeakEndPct = 0;
 	let longPressTimer: NodeJS.Timeout;
 	let pendingLoopA: number | null = null;
 
@@ -1228,8 +1235,8 @@
 		touchDragStartX = event.touches[0].clientX;
 		touchDragStartPct = pct;
 		touchDidDrag = false;
-		touchPrevMaxPct = pct;
-		touchPrevEndBar = 0;
+		touchPeakEndBar = 0;
+		touchPeakEndPct = pct;
 
 		const EDGE_THRESHOLD_PX = 15;
 
@@ -1276,11 +1283,16 @@
 			const maxPct = Math.max(touchDragStartPct, currentPct);
 			let eBar = msToBar(percentToTime(maxPct));
 			// Prevent endBar snap at repeat boundaries (same guard as mouse handler)
-			if (maxPct >= touchPrevMaxPct && eBar < touchPrevEndBar) {
-				eBar = touchPrevEndBar;
+			if (eBar > touchPeakEndBar) {
+				touchPeakEndBar = eBar;
+				touchPeakEndPct = maxPct;
 			}
-			touchPrevMaxPct = maxPct;
-			touchPrevEndBar = eBar;
+			if (maxPct >= touchPeakEndPct && eBar < touchPeakEndBar) {
+				eBar = touchPeakEndBar;
+			} else if (maxPct < touchPeakEndPct - 2) {
+				touchPeakEndBar = eBar;
+				touchPeakEndPct = maxPct;
+			}
 			setLoopBars(msToBar(minMs), eBar);
 			updateScoreSelection();
 		}
@@ -1349,7 +1361,7 @@
 		const barSpan = loopEndBar - loopStartBar;
 		const rect = range.getBoundingClientRect();
 		const startTouchX = event.touches[0].clientX;
-		const origStartMs = barToMs(loopStartBar);
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (e: TouchEvent) => {
@@ -2828,7 +2840,7 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+					on:click={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -2963,7 +2975,7 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
