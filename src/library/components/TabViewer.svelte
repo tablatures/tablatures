@@ -542,6 +542,23 @@
 		return null;
 	}
 
+	/** Get ms start/end for the current loop range, consistent with playback. */
+	function loopRangeMs(): { startMs: number; endMs: number } | null {
+		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0) return null;
+		const range = barToExpandedRange(loopStartBar, loopEndBar);
+		if (!range) return null;
+		try {
+			const entries = api._tickCache?.masterBars;
+			if (!entries?.length) return null;
+			const total = entries[entries.length - 1].end;
+			if (total <= 0) return null;
+			return {
+				startMs: (range.startTick / total) * duration,
+				endMs: (range.endTick / total) * duration
+			};
+		} catch { return null; }
+	}
+
 	/** Get ms position for a bar's start (last occurrence for repeated bars) */
 	function barToMs(barIdx: number): number {
 		if (!api || !duration || duration <= 0) return -1;
@@ -1815,10 +1832,10 @@
 					loopStartBar !== null && loopEndBar !== null
 						? { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
 						: null,
-				getLoopMs: () =>
-					loopStartBar !== null && loopEndBar !== null
-						? { start: barToMs(loopStartBar), end: barEndToMs(loopEndBar) }
-						: null,
+				getLoopMs: () => {
+					const lm = loopRangeMs();
+					return lm ? { start: lm.startMs, end: lm.endMs } : null;
+				},
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
 				getTotalBars: () => totalBars,
@@ -2852,8 +2869,9 @@
 
 			<!-- Loop region overlay -->
 			{#if loopStartBar !== null && loopEndBar !== null && duration > 0}
-				{@const startPct = (barToMs(loopStartBar) / duration) * 100}
-				{@const endPct = (barEndToMs(loopEndBar) / duration) * 100}
+				{@const _loopMs = loopRangeMs()}
+				{@const startPct = _loopMs ? (_loopMs.startMs / duration) * 100 : 0}
+				{@const endPct = _loopMs ? (_loopMs.endMs / duration) * 100 : 0}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled ? 'bg-pink-400/50' : 'bg-neutral-400/25'}"
