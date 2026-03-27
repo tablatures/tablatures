@@ -885,6 +885,12 @@
 		updateScoreSelection();
 	}
 
+	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
+	// so Svelte tracks them as dependencies (it can't see through loopRangeMs()).
+	$: _loopTimelinePct = loopStartBar !== null && loopEndBar !== null && duration > 0
+		? (() => { const lm = loopRangeMs(); return lm ? { start: (lm.startMs / duration) * 100, end: (lm.endMs / duration) * 100 } : null; })()
+		: null;
+
 	// --- Sheet selection → auto-loop ---
 	function processSelection(startBeat: any, endBeat: any) {
 		if (!startBeat || !endBeat || !api) return;
@@ -2868,10 +2874,9 @@
 			</div>
 
 			<!-- Loop region overlay -->
-			{#if loopStartBar !== null && loopEndBar !== null && duration > 0}
-				{@const _loopMs = loopRangeMs()}
-				{@const startPct = _loopMs ? (_loopMs.startMs / duration) * 100 : 0}
-				{@const endPct = _loopMs ? (_loopMs.endMs / duration) * 100 : 0}
+			{#if loopStartBar !== null && loopEndBar !== null && duration > 0 && _loopTimelinePct}
+				{@const startPct = _loopTimelinePct.start}
+				{@const endPct = _loopTimelinePct.end}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled ? 'bg-pink-400/50' : 'bg-neutral-400/25'}"
