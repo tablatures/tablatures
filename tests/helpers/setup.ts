@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { setupMockApi } from './mock-api';
 import { waitForScoreLoaded } from './wait';
+import { loadAlphaTexScore } from './alphatex';
 
 /**
  * Set up mock API and navigate to the play page with the test fixture loaded.
@@ -59,4 +60,16 @@ export async function dragProgressBar(
 		);
 	}
 	await page.mouse.up();
+}
+
+/**
+ * Set up mock API, navigate to the play page, load the default fixture,
+ * then replace it with an alphaTeX score via api.tex().
+ * Use this for tests that need a specific repeat structure.
+ */
+export async function setupPlayPageWithTex(page: Page, tex: string): Promise<void> {
+	await setupMockApi(page);
+	await page.goto('/play?tab=test-tab');
+	await waitForScoreLoaded(page);
+	await loadAlphaTexScore(page, tex);
 }
