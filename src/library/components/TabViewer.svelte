@@ -2923,6 +2923,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing ? 'text-violet-500' : 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => { playing ? clickPause() : clickPlay(); }}
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
+				aria-label={playing ? 'Pause' : 'Play'}
 			>
 				<i class="material-icons {isFullscreen ? '!text-xl' : '!text-2xl'}">{playing ? 'pause' : 'play_arrow'}</i>
 			</button>
@@ -2931,6 +2932,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
+				aria-label="Previous bar"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_previous</i>
 			</button>
@@ -2939,6 +2941,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
+				aria-label="Next bar"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_next</i>
 			</button>
@@ -2960,6 +2963,7 @@
 						{volume === 0 ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-600 dark:text-neutral-400'}"
 					on:click={() => { if (volume > 0) { volumeBeforeMute = volume; volume = 0; } else { volume = volumeBeforeMute || 1; } }}
 					title="{volume === 0 ? 'Unmute' : 'Mute'}"
+					aria-label="{volume === 0 ? 'Unmute' : 'Mute'}"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i>
 				</button>
@@ -3011,6 +3015,7 @@
 						class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
+						aria-label="Play video"
 					>
 						<i class="material-icons !text-xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
@@ -3063,6 +3068,7 @@
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
+					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
 				</button>
@@ -3072,6 +3078,7 @@
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
+					aria-label="Toggle loop"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
@@ -3082,6 +3089,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
+				aria-label="Settings"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{showSettings ? 'close' : 'tune'}</i>
 			</button>
@@ -3091,6 +3099,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Fullscreen [F]"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i>
 			</button>
@@ -3099,6 +3108,7 @@
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
+				aria-label="Keyboard shortcuts"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">keyboard</i>
 			</button>
@@ -3267,6 +3277,7 @@
 							class="p-2 rounded-full transition-all duration-150 active:scale-90
 								{isFavorite ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 							title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
+							aria-label="{isFavorite ? 'Remove from' : 'Add to'} favorites"
 						>
 							<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
 						</button>
@@ -3276,6 +3287,7 @@
 						on:click={clickShare}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Share"
+						aria-label="Share"
 					>
 						<i class="material-icons !text-xl">share</i>
 					</button>
@@ -3284,6 +3296,7 @@
 						on:click={clickDownload}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Download"
+						aria-label="Download"
 					>
 						<i class="material-icons !text-xl">download</i>
 					</button>
@@ -3292,6 +3305,7 @@
 						on:click={clickPrint}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Print"
+						aria-label="Print"
 					>
 						<i class="material-icons !text-xl">print</i>
 					</button>
