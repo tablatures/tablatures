@@ -87,3 +87,17 @@ export interface SourceVariant {
 	trackCount?: number;
 }
 export const sourceVariants = writable<SourceVariant[]>([]);
+
+// --- Debounced volume control ---
+// AlphaTab's masterVolume setter posts a message to the synth worker on every call,
+// causing audio rebuffering when the volume slider fires dozens of times per second.
+// Debouncing limits worker messages to ~7/sec which avoids the rollbacks.
+let volumeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function setMasterVolumeDebounced(api: any, vol: number) {
+	if (!api) return;
+	if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
+	volumeDebounceTimer = setTimeout(() => {
+		api.masterVolume = vol;
+	}, 150);
+}

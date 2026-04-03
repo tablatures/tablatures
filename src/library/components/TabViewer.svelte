@@ -8,7 +8,7 @@
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { favoritesStore } from '../utils/favorites';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning } from '../utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning, setMasterVolumeDebounced } from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
@@ -1457,9 +1457,9 @@
 	}
 
 	$: if (api) {
-		// Only apply tab volume when audio source is 'tab' (not when video is active with video audio)
+		// Debounce volume changes to avoid synth worker rebuffering on every slider tick
 		if ($audioSource === 'tab' || !hasActiveVideo) {
-			api.masterVolume = volume;
+			setMasterVolumeDebounced(api, volume);
 		}
 	}
 	$: if (api) {
