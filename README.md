@@ -84,19 +84,6 @@ pnpm run build
 pnpm run preview
 ```
 
-## Environment Variables
-
-The Tablatures frontend uses environment variables to configure API endpoints, deployment behavior, and runtime options. These must be defined in your environment (e.g., `.env` files, CI/CD, or hosting platform settings).
-
-| Variable | Description | Example |
-|----------|------------|--------|
-| `VITE_SEARCH_API_BASE_URL` | Base URL for the Search API used by the frontend | `https://example.com` |
-| `VITE_SEARCH_API_TIMEOUT` | Timeout for Search API requests (milliseconds) | `10000` |
-| `VITE_DEPLOY_TARGET` | Deployment target: `'static'` for static hosting, `'server'` for SSR | `static` |
-| `VITE_BASE_PATH` | Base path for frontend URLs (for GitHub Pages or repo subpaths) | `/tablatures` |
-
-> **Note:** All frontend environment variables must start with `VITE_` to be accessible in the browser.
-
 ## Tech Stack
 
 - **SvelteKit** + TypeScript

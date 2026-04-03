@@ -10,7 +10,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"postbuild": "if [ \"$VITE_DEPLOY_TARGET\" = \"static\" ]; then cp build/index.html build/404.html; fi",
+		"postbuild": "cp build/index.html build/404.html",
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
@@ -44,7 +44,6 @@
 	"type": "module",
 	"packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef",
 	"dependencies": {
-		"@sveltejs/adapter-vercel": "^6.3.3",
-		"install": "^0.13.0"
+		"pitchy": "^4.1.0"
 	}
 }
