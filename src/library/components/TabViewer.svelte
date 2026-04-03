@@ -2539,6 +2539,10 @@
 
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
+		// Rebind scroll listener to the correct target (window vs page element)
+		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		mountScrollTarget = isFullscreen && page ? page : window;
+		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
