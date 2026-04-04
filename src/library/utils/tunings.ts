@@ -34,6 +34,11 @@ export function midiToLabel(midi: number): string {
 	return `${midiToNoteName(midi)}${midiToOctave(midi)}`;
 }
 
+/** Format tuning strings as note names low to high, e.g. "E A D G B E" */
+export function formatTuningNotes(tuning: Tuning): string {
+	return tuning.strings.map((s) => s.note).join(' ');
+}
+
 export function frequencyToMidi(freq: number): number {
 	return Math.round(69 + 12 * Math.log2(freq / 440));
 }
@@ -101,8 +106,8 @@ export const TUNING_PRESETS: Tuning[] = [
 	tuning('bass5-drop-a', 'Drop A', 'Bass (5-String)', [21, 28, 33, 38, 43]),
 
 	// Ukulele
-	tuning('uke-standard', 'Standard (GCEA)', 'Ukulele', [67, 60, 64, 69]),
-	tuning('uke-baritone', 'Baritone (DGBE)', 'Ukulele', [50, 55, 59, 64]),
+	tuning('uke-standard', 'Standard', 'Ukulele', [67, 60, 64, 69]),
+	tuning('uke-baritone', 'Baritone', 'Ukulele', [50, 55, 59, 64]),
 
 	// Banjo
 	tuning('banjo-open-g', 'Standard Open G', 'Banjo', [67, 50, 55, 59, 62])

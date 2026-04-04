@@ -7,7 +7,8 @@
 		CATEGORIES,
 		getTuningById,
 		getTuningsByCategory,
-		findClosestString
+		findClosestString,
+		formatTuningNotes
 	} from '../utils/tunings';
 	import FieldLabel from './FieldLabel.svelte';
 
@@ -453,7 +454,7 @@
 							{#each CATEGORIES as cat}
 								<optgroup label={cat}>
 									{#each getTuningsByCategory(cat) as t}
-										<option value={t.id}>{t.name}</option>
+										<option value={t.id}>{t.name}  ({formatTuningNotes(t)})</option>
 									{/each}
 								</optgroup>
 							{/each}
