@@ -444,19 +444,28 @@
 				<!-- Tuning selector (single grouped dropdown) -->
 				<div class="w-full z-20 relative mb-2">
 					<FieldLabel text="Tuning" />
-					<select
-						value={state.selectedTuningId}
-						on:change={(e) => tunerStore.setTuning(e.currentTarget.value)}
-						class="w-full px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-					>
-						{#each CATEGORIES as cat}
-							<optgroup label={cat}>
-								{#each getTuningsByCategory(cat) as t}
-									<option value={t.id}>{t.name}</option>
-								{/each}
-							</optgroup>
-						{/each}
-					</select>
+					<div class="relative">
+						<select
+							value={state.selectedTuningId}
+							on:change={(e) => tunerStore.setTuning(e.currentTarget.value)}
+							class="w-full px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-sm text-transparent cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50 tuner-select"
+						>
+							{#each CATEGORIES as cat}
+								<optgroup label={cat}>
+									{#each getTuningsByCategory(cat) as t}
+										<option value={t.id}>{t.name}</option>
+									{/each}
+								</optgroup>
+							{/each}
+						</select>
+						<!-- Custom display overlay -->
+						<div class="absolute inset-0 flex items-center px-3 pointer-events-none text-sm">
+							{#if activeTuning}
+								<span class="text-neutral-400 dark:text-neutral-500 mr-1.5">{activeTuning.category}</span>
+								<span class="text-neutral-700 dark:text-neutral-300">{activeTuning.name}</span>
+							{/if}
+						</div>
+					</div>
 				</div>
 
 				<!-- String selector -->
@@ -547,6 +556,17 @@
 {/if}
 
 <style>
+	/* Restore text color for dropdown options (select itself is text-transparent) */
+	.tuner-select option,
+	.tuner-select optgroup {
+		color: #404040;
+	}
+
+	:global(.dark) .tuner-select option,
+	:global(.dark) .tuner-select optgroup {
+		color: #d4d4d4;
+	}
+
 	@keyframes pulse-ring {
 		0% {
 			box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
