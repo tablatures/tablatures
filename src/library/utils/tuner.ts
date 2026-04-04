@@ -114,10 +114,6 @@ function createTunerStore() {
 		} else {
 			update((state) => ({
 				...state,
-				frequency: null,
-				note: null,
-				octave: null,
-				cents: 0,
 				clarity,
 				inTune: false
 			}));
