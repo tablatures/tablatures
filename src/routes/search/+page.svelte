@@ -133,13 +133,17 @@
 		};
 	}
 
+	function stripTrailingSuffix(title: string): string {
+		return title.replace(/\s*\(\d+\)\s*$/, '').trim();
+	}
+
 	function mergeResults(existing: TabResult[], incoming: TabResult[]): TabResult[] {
 		const byKey = new Map<string, TabResult>();
 		const byId = new Map<string, TabResult>();
 
 		function normalizeKey(tab: TabResult): string {
 			const a = normalizeArtist(tab.artist || 'unknown');
-			const t = (tab.title || '').toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+			const t = stripTrailingSuffix(tab.title || '').toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 			return `${a}|${t}`;
 		}
 
@@ -158,8 +162,10 @@
 					}
 				}
 				existing.variants = existingVariants;
+				// Use the clean title (without suffix) for display
+				existing.title = stripTrailingSuffix(existing.title);
 			} else {
-				byKey.set(key, { ...tab });
+				byKey.set(key, { ...tab, title: stripTrailingSuffix(tab.title) });
 				if (tab.id) byId.set(tab.id, byKey.get(key)!);
 			}
 		}
@@ -304,8 +310,8 @@
 				try {
 					const localResults = await performLocalSearch();
 					if (localResults.length > 0) {
-						tabs = localResults;
-						totalResults = localResults.length;
+						tabs = mergeResults([], localResults);
+						totalResults = tabs.length;
 						loading = false;
 					}
 				} catch {

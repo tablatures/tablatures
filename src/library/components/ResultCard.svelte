@@ -69,6 +69,24 @@
 		return src || 'Unknown';
 	}
 
+	interface GroupedVariant {
+		source: string;
+		items: Array<{id: string; source: string; sourceUrl: string; trackCount?: number; instruments?: string[]}>;
+	}
+
+	$: groupedVariants = (() => {
+		if (!variants || variants.length <= 1) return [];
+		const groups = new Map<string, GroupedVariant>();
+		for (const v of variants) {
+			const label = getSourceLabel(v.source);
+			if (!groups.has(label)) {
+				groups.set(label, { source: v.source, items: [] });
+			}
+			groups.get(label)!.items.push(v);
+		}
+		return Array.from(groups.values());
+	})();
+
 	$: dotColor = sourceDotColor(source);
 </script>
 
@@ -112,22 +130,33 @@
 				<span class="text-[11px] text-neutral-400 dark:text-neutral-500">{trackCount} tracks</span>
 			{/if}
 		</div>
-		{#if variants && variants.length > 1}
+		{#if groupedVariants.length > 0}
 			<div class="flex gap-1.5 mt-1.5 flex-wrap">
-				{#each variants as variant}
-					<button
-						class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
-							{variant.source === source
+				{#each groupedVariants as group}
+					{#if group.items.length === 1}
+						<button
+							class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
+								{group.items[0].source === source
+									? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+									: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-violet-300'}"
+							on:click|stopPropagation={() => onVariantClick?.(group.items[0])}
+						>
+							<span class="w-1.5 h-1.5 rounded-full {getSourceColor(group.source)}"></span>
+							{getSourceLabel(group.source)}
+							{#if group.items[0].trackCount}
+								<span class="text-neutral-400">({group.items[0].trackCount})</span>
+							{/if}
+						</button>
+					{:else}
+						<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border
+							{group.items[0].source === source
 								? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
-								: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-violet-300'}"
-						on:click|stopPropagation={() => onVariantClick?.(variant)}
-					>
-						<span class="w-1.5 h-1.5 rounded-full {getSourceColor(variant.source)}"></span>
-						{getSourceLabel(variant.source)}
-						{#if variant.trackCount}
-							<span class="text-neutral-400">({variant.trackCount})</span>
-						{/if}
-					</button>
+								: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400'}">
+							<span class="w-1.5 h-1.5 rounded-full {getSourceColor(group.source)}"></span>
+							{getSourceLabel(group.source)}
+							<span class="text-neutral-400">({group.items.length})</span>
+						</span>
+					{/if}
 				{/each}
 			</div>
 		{/if}
