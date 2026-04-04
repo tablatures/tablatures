@@ -193,6 +193,24 @@
 	let autoFollow = true;
 	let userScrolling = false;
 	let scrollCheckTimeout: NodeJS.Timeout;
+	let autoFollowDisengagedAt = 0;
+
+	function reEnableAutoFollow() {
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+		// Scroll to current cursor position
+		const cursor = api?._beatCursor;
+		if (!cursor?.element) return;
+		const el = cursor.element;
+		const containerRect = target?.getBoundingClientRect();
+		const elRect = el.getBoundingClientRect();
+		if (!target || !containerRect) return;
+		const scrollTop = target.scrollTop + (elRect.top - containerRect.top) -
+			(showSettings && controlsVisible ? settings?.getBoundingClientRect()?.height ?? 0 : 0);
+		const scrollElement = isFullscreen ? page : window;
+		if (!scrollElement) return;
+		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+	}
 
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -1099,6 +1117,8 @@
 				bindDuration = false;
 				api.player.timePosition = (progress / 100) * duration;
 				seekDebounce();
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 			}
 		};
 
@@ -1409,31 +1429,41 @@
 		$favoritesStore = $favoritesStore;
 	}
 
-	// Smart cursor follow: auto-follows when user is near the cursor, pauses when user scrolls away
-	function handleUserScroll() {
+	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
+	function handleUserScrollIntent() {
+		if (!playing) return;
+		if (autoFollow) {
+			autoFollow = false;
+			autoFollowDisengagedAt = Date.now();
+		}
+	}
+
+	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
+	function handleScroll() {
 		if (!playing) return;
 		userScrolling = true;
 		clearTimeout(scrollCheckTimeout);
 		scrollCheckTimeout = setTimeout(() => {
 			userScrolling = false;
-			// Check if cursor is visible in viewport
 			checkCursorVisibility();
 		}, 150);
 	}
 
 	function checkCursorVisibility() {
+		if (autoFollow) return;
+		// Don't re-engage within 1s of disengaging
+		if (Date.now() - autoFollowDisengagedAt < 1000) return;
+
 		const cursor = api?._beatCursor;
 		if (!cursor || !cursor.element) return;
 
 		const el = cursor.element;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
+		const grabBottom = viewportHeight * 0.15;
 
-		// If cursor is within the viewport, resume auto-follow
-		if (elRect.top >= -50 && elRect.bottom <= viewportHeight + 50) {
+		if (elRect.top >= 0 && elRect.top <= grabBottom) {
 			autoFollow = true;
-		} else {
-			autoFollow = false;
 		}
 	}
 
@@ -1547,6 +1577,8 @@
 		progress = newProgress;
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
 	}
 
 	// Store references for cleanup
@@ -1575,6 +1607,8 @@
 
 			if (isNewSheet) {
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 				// Scroll to top when a new tab is loaded
 				window.scrollTo({ top: 0, behavior: 'smooth' });
 				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1987,7 +2021,9 @@
 
 		// Smart cursor follow: detect user scrolling
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 
 		mountObserver = new IntersectionObserver(
 			([entry]) => {
@@ -2176,7 +2212,9 @@
 			page.removeEventListener('mouseenter', handleMouseEnter);
 		}
 		clearTimeout(hideTimeout);
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		clearTimeout(scrollCheckTimeout);
 
 		// Cleanup timers that may still be running
@@ -2539,10 +2577,14 @@
 
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
-		// Rebind scroll listener to the correct target (window vs page element)
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		// Rebind scroll listeners to the correct target (window vs page element)
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
@@ -2873,6 +2915,22 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Auto-follow paused banner -->
+	{#if playing && !autoFollow}
+		<button
+			on:click={reEnableAutoFollow}
+			class="sticky bottom-12 z-[51] mx-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full
+				bg-neutral-800/90 dark:bg-neutral-200/90 text-white dark:text-neutral-900
+				text-xs font-medium shadow-lg backdrop-blur-sm
+				hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors cursor-pointer
+				w-fit"
+			aria-label="Resume auto-follow"
+		>
+			<i class="material-icons !text-sm">vertical_align_bottom</i>
+			Auto-follow paused — click to resume
+		</button>
+	{/if}
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->
