@@ -67,6 +67,7 @@ declare global {
 			settings: { display: { resources: DisplayResources } };
 			score: Score;
 			load(data: ArrayBuffer): void;
+			play(): void;
 			pause(): void;
 			updateSettings(): void;
 			render(): void;
