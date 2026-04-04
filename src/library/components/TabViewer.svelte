@@ -15,6 +15,8 @@
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import VideoPlayer from '$components/VideoPlayer.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
+	import TuningTransposer from '$components/TuningTransposer.svelte';
+	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 
 	// Timeout constants (ms)
@@ -2410,6 +2412,16 @@
 		return parts.join(' . ') || 'Track';
 	}
 
+	function getTrackTuning(track: any): string {
+		const tuning = track?.staves?.[0]?.stringTuning?.tunings ?? track?.staves?.[0]?.tuning;
+		if (!tuning || tuning.length === 0) return '';
+		const match = TUNING_PRESETS.find(
+			(p) => p.strings.length === tuning.length && p.strings.every((s: any, i: number) => s.midi === tuning[i])
+		);
+		if (match) return match.name;
+		return tuning.map((m: number) => midiToNoteName(m)).join(' ');
+	}
+
 	function muteAllTracks() {
 		trackMutes = trackMutes.map(() => true);
 		tracks.forEach((track, i) => {
@@ -3158,10 +3170,10 @@
 				<button
 					on:click={toggleLoopEnabled}
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
+						{loopEnabled ? 'text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
+					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
 			{:else}
 				<button
@@ -3175,12 +3187,28 @@
 			{/if}
 
 			<button
-				on:click={() => { showSettings = !showSettings; }}
+				on:click={() => { if (showSettings && activeSettingsTab === 'tracks') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'tracks'; } }}
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					{showSettings && activeSettingsTab === 'tracks' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				title="Tracks"
+			>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">queue_music</i>
+			</button>
+			<button
+				on:click={() => { if (showSettings && activeSettingsTab === 'tuning') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'tuning'; } }}
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'tuning' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				title="Transpose"
+			>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">swap_vert</i>
+			</button>
+			<button
+				on:click={() => { if (showSettings && activeSettingsTab === 'settings') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'settings'; } }}
+				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'settings' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{showSettings ? 'close' : 'tune'}</i>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
 			<button
@@ -3406,23 +3434,12 @@
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
 		<div
 			bind:this={settings}
-			class="fixed bottom-12 left-2 right-2 sm:left-auto sm:right-4 sm:w-[90vw] sm:max-w-md z-[70] bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 py-3 max-h-[70vh] overflow-y-auto animate-fade-in"
+			class="fixed inset-0 top-0 bottom-14 sm:inset-auto sm:bottom-16 sm:right-4 sm:w-[90vw] sm:max-w-md sm:h-[60vh] z-[70] bg-white dark:bg-neutral-900 sm:rounded-xl shadow-2xl sm:border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 pb-3 overflow-y-auto animate-fade-in flex flex-col"
 			role="dialog"
 			on:click|stopPropagation
 		>
-			<!-- Header with close -->
-			<div class="flex items-center justify-between mb-2">
-				<span class="text-xs text-neutral-400 dark:text-neutral-500">Player settings</span>
-				<button
-					on:click={closeSettings}
-					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-					title="Close"
-				>
-					<i class="material-icons !text-base">close</i>
-				</button>
-			</div>
 			<!-- Tab Navigation -->
-			<div class="flex mb-3 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
+			<div class="flex pt-3 mb-3 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
 				<button
 					on:click={() => (activeSettingsTab = 'tracks')}
 					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'tracks'
@@ -3432,6 +3449,16 @@
 					aria-selected={activeSettingsTab === 'tracks'}
 				>
 					Tracks ({tracks.length})
+				</button>
+				<button
+					on:click={() => (activeSettingsTab = 'tuning')}
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'tuning'
+						? 'text-violet-500 border-b-2 border-violet-500'
+						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
+					role="tab"
+					aria-selected={activeSettingsTab === 'tuning'}
+				>
+					Tuning
 				</button>
 				<button
 					on:click={() => (activeSettingsTab = 'settings')}
@@ -3447,7 +3474,7 @@
 
 					<!-- Settings Tab -->
 					{#if activeSettingsTab === 'settings'}
-						<div class="grid grid-cols-2 sm:grid-cols-4 gap-3" role="tabpanel" aria-label="Settings">
+						<div class="grid grid-cols-1 gap-1" role="tabpanel" aria-label="Settings">
 							<SettingSlider
 								bind:value={volume}
 								min={0}
@@ -3526,21 +3553,33 @@
 
 							<!-- Loop info -->
 							{#if loopStartBar !== null && loopEndBar !== null}
-								<div class="flex items-center gap-3">
-									<button
-										on:click={toggleLoopEnabled}
-										class="p-1.5 rounded-lg transition-colors {loopEnabled ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500' : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
-									>
-										<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
-									</button>
-									<div class="flex-1">
-										<p class="text-xs font-medium {loopEnabled ? 'text-pink-500' : 'text-neutral-500'}">
-											Loop bar {loopStartBar + 1} → {loopEndBar + 1}
+								{@const range = loopRangeMs()}
+								{@const startSec = range ? Math.floor(range.startMs / 1000) : 0}
+								{@const endSec = range ? Math.floor(range.endMs / 1000) : 0}
+								{@const durationSec = endSec - startSec}
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<div
+									on:click={toggleLoopEnabled}
+									class="flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer transition-colors
+										{loopEnabled ? 'bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800' : 'bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700'}"
+								>
+									<i class="material-icons !text-2xl transition-colors {loopEnabled ? 'text-violet-500' : 'text-neutral-400'}">repeat</i>
+									<div class="flex-1 min-w-0">
+										<div class="flex items-center gap-1 text-sm font-mono {loopEnabled ? 'text-violet-600 dark:text-violet-400' : 'text-neutral-600 dark:text-neutral-400'}">
+											<span class="text-neutral-400 dark:text-neutral-500">[</span>
+											<span class="text-xs">{displayTime(startSec)}</span>
+											<span class="text-neutral-300 dark:text-neutral-600 mx-0.5">to</span>
+											<span class="text-xs">{displayTime(endSec)}</span>
+											<span class="text-neutral-400 dark:text-neutral-500">]</span>
+										</div>
+										<p class="text-[10px] mt-1 {loopEnabled ? 'text-violet-400 dark:text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}">
+											Bar {loopStartBar + 1} → {loopEndBar + 1} &middot; {durationSec}s
 										</p>
 									</div>
 									<button
-										on:click={clearLoopPoints}
-										class="text-xs text-neutral-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+										on:click|stopPropagation={clearLoopPoints}
+										class="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors px-2 py-1 rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-700"
 									>Clear</button>
 								</div>
 							{:else}
@@ -3554,97 +3593,106 @@
 
 					<!-- Tracks Tab -->
 					{#if activeSettingsTab === 'tracks'}
-						<!-- Track List -->
-						<div class="space-y-1.5 max-h-[45vh] overflow-y-auto" role="listbox" aria-label="Track list">
-							{#each tracks as track, i}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<div
-									class="rounded-lg border p-2.5 cursor-pointer transition-all
-										{i === activeTrackIndex
-											? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
-											: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
-									on:click={() => {
-										setActiveTrack(i);
-									}}
-									role="option"
-									aria-selected={i === activeTrackIndex}
-								>
-									<!-- Row 1: Name + solo/mute buttons -->
-									<div class="flex items-center gap-2 mb-1.5">
-										<div class="flex-1 min-w-0">
-											<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
-												{track.name}
-											</p>
-											<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}</p>
+						<div class="flex flex-col h-full">
+							<!-- Track List (scrollable, grows to fill) -->
+							<div class="flex-1 space-y-1.5 overflow-y-auto min-h-0" role="listbox" aria-label="Track list">
+								{#each tracks as track, i}
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="rounded-lg border p-2.5 cursor-pointer transition-all
+											{i === activeTrackIndex
+												? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
+												: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
+										on:click={() => { setActiveTrack(i); }}
+										role="option"
+										aria-selected={i === activeTrackIndex}
+									>
+										<!-- Row 1: Name + solo/mute buttons -->
+										<div class="flex items-center gap-2 mb-1.5">
+											<div class="flex-1 min-w-0">
+												<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
+													{track.name}
+												</p>
+												<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}{#if getTrackTuning(track)} &middot; <span class="text-violet-400 dark:text-violet-500">{getTrackTuning(track)}</span>{/if}</p>
+											</div>
+											<div class="flex gap-1 flex-shrink-0">
+												<button
+													on:click|stopPropagation={() => toggleTrackSolo(i)}
+													class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+														{trackSolos[i]
+															? 'text-violet-500'
+															: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+													title="Solo"
+												>
+													<i class="material-icons !text-base">headphones</i>
+												</button>
+												<button
+													on:click|stopPropagation={() => toggleTrackMute(i)}
+													class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+														{trackMutes[i]
+															? 'text-red-500'
+															: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+													title="Mute"
+												>
+													<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
+												</button>
+											</div>
 										</div>
-										<div class="flex gap-1 flex-shrink-0">
-											<button
-												on:click|stopPropagation={() => toggleTrackSolo(i)}
-												class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-													{trackSolos[i]
-														? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
-														: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-												title="Solo"
-											>
-												<i class="material-icons !text-base">{trackSolos[i] ? 'headphones' : 'headset_off'}</i>
-											</button>
-											<button
-												on:click|stopPropagation={() => toggleTrackMute(i)}
-												class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-													{trackMutes[i]
-														? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
-														: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-												title="Mute"
-											>
-												<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
-											</button>
+										<!-- Row 2: Volume slider -->
+										<div class="flex items-center gap-2">
+											<input
+												type="range"
+												min="0"
+												max="2"
+												step="0.1"
+												bind:value={trackVolumes[i]}
+												on:input={() => updateTrackVolume(i, trackVolumes[i])}
+												on:click|stopPropagation
+												aria-label="Volume for {track.name}"
+												class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+													[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
+													[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
+													[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
+												style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
+											/>
+											<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
 										</div>
 									</div>
-									<!-- Row 2: Volume slider (always visible) -->
-									<div class="flex items-center gap-2">
-										<input
-											type="range"
-											min="0"
-											max="2"
-											step="0.1"
-											bind:value={trackVolumes[i]}
-											on:input={() => updateTrackVolume(i, trackVolumes[i])}
-											on:click|stopPropagation
-											aria-label="Volume for {track.name}"
-											class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
-												[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
-												[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
-												[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
-											style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
-										/>
-										<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
-									</div>
-								</div>
-							{/each}
-						</div>
+								{/each}
+							</div>
 
-						<!-- Quick Controls -->
-						<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 grid grid-cols-2 gap-2">
-							<button
-								on:click={() => toggleTrackSolo(activeTrackIndex)}
-								class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
-									{trackSolos[activeTrackIndex]
-										? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
-										: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
-							>Solo current</button>
-							<button
-								on:click={resetAllVolumes}
-								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-							>Reset levels</button>
-							<button
-								on:click={muteAllTracks}
-								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-							>Mute all</button>
-							<button
-								on:click={unmuteAllTracks}
-								class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-							>Unmute all</button>
+							<!-- Quick Controls (fixed at bottom) -->
+							<div class="grid grid-cols-2 gap-2 pt-3 mt-2 border-t border-neutral-200 dark:border-neutral-700 flex-shrink-0">
+								<button
+									on:click={() => toggleTrackSolo(activeTrackIndex)}
+									class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
+										{trackSolos[activeTrackIndex]
+											? 'border-violet-300 dark:border-violet-700 text-violet-500 bg-violet-50 dark:bg-violet-900/20'
+											: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
+								><i class="material-icons !text-sm inline-block align-middle mr-1">headphones</i>Solo current</button>
+								<button
+									on:click={resetAllVolumes}
+									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+								><i class="material-icons !text-sm inline-block align-middle mr-1">restart_alt</i>Reset levels</button>
+								<button
+									on:click={muteAllTracks}
+									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+								><i class="material-icons !text-sm inline-block align-middle mr-1">volume_off</i>Mute all</button>
+								<button
+									on:click={unmuteAllTracks}
+									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+								><i class="material-icons !text-sm inline-block align-middle mr-1">volume_up</i>Unmute all</button>
+							</div>
 						</div>
+					{/if}
+
+					<!-- Tuning Tab -->
+					{#if activeSettingsTab === 'tuning'}
+						<TuningTransposer
+							api={$playerApi}
+							{activeTrackIndex}
+							trackName={tracks[activeTrackIndex]?.name ?? ''}
+						/>
 					{/if}
 
 			</div>

@@ -1,0 +1,347 @@
+<script lang="ts">
+	import { createEventDispatcher } from 'svelte';
+	import {
+		TUNING_PRESETS,
+		midiToNoteName,
+		midiToLabel,
+		formatTuningNotes
+	} from '$utils/tunings';
+	import {
+		transposeScore,
+		saveNoteState,
+		restoreNoteState,
+		type SavedNoteState,
+		type TranspositionResult
+	} from '$utils/transposition';
+
+	export let api: any;
+	export let activeTrackIndex: number = 0;
+	export let trackName: string = '';
+
+	const dispatch = createEventDispatcher<{ transposed: TranspositionResult }>();
+
+	// Source tuning (read from the score)
+	let sourceTuning: number[] = [];
+	let sourceCapo: number = 0;
+	let sourcePresetName: string | null = null;
+
+	// Target tuning (user selection)
+	let selectedPresetId: string = 'guitar-standard';
+	let customTuning: number[] = [];
+	let targetCapo: number = 0;
+	let octaveShift: number = 0;
+	let isCustom: boolean = false;
+
+	// State
+	let savedState: SavedNoteState[] | null = null;
+	let lastResult: TranspositionResult | null = null;
+	let isTransposed: boolean = false;
+
+	// MIDI range for custom tuning dropdowns
+	const MIN_MIDI = 24; // C1
+	const MAX_MIDI = 72; // C5
+
+	// Read source tuning from score (reactive on both api.score AND activeTrackIndex)
+	$: if (api?.score && activeTrackIndex !== undefined) {
+		readSourceTuning();
+	}
+
+	function readSourceTuning() {
+		const track = api?.score?.tracks?.[activeTrackIndex];
+		if (!track?.staves?.[0]) return;
+		const staff = track.staves[0];
+
+		const tuning = staff.stringTuning?.tunings ?? staff.tuning;
+		if (!tuning || tuning.length === 0) return;
+
+		sourceTuning = [...tuning];
+		sourceCapo = staff.capo ?? 0;
+
+		// Try to match source to a preset
+		const match = TUNING_PRESETS.find(
+			(p) =>
+				p.strings.length === sourceTuning.length &&
+				p.strings.every((s, i) => s.midi === sourceTuning[i])
+		);
+		sourcePresetName = match?.name ?? null;
+
+		customTuning = [...sourceTuning];
+		if (match) selectedPresetId = match.id;
+
+		// Reset transposition state when track changes
+		if (isTransposed) {
+			savedState = null;
+			lastResult = null;
+			isTransposed = false;
+		}
+	}
+
+	$: selectedPreset = TUNING_PRESETS.find((p) => p.id === selectedPresetId);
+	$: stringCount = sourceTuning.length;
+	$: availablePresets = TUNING_PRESETS.filter((p) => p.strings.length === stringCount);
+	$: availableCategories = [...new Set(availablePresets.map((p) => p.category))];
+
+	$: targetTuning = isCustom
+		? customTuning
+		: (selectedPreset?.strings.map((s) => s.midi) ?? sourceTuning);
+
+	$: isSameTuning =
+		sourceTuning.length > 0 &&
+		targetTuning.length === sourceTuning.length &&
+		targetTuning.every((v, i) => v === sourceTuning[i]) &&
+		targetCapo === sourceCapo &&
+		octaveShift === 0;
+
+	function handlePresetChange(e: Event) {
+		const value = (e.target as HTMLSelectElement).value;
+		if (value === 'custom') {
+			isCustom = true;
+			customTuning = [...sourceTuning];
+		} else {
+			isCustom = false;
+			selectedPresetId = value;
+		}
+	}
+
+	function applyTransposition() {
+		if (!api?.score) return;
+
+		if (!savedState) {
+			savedState = saveNoteState(api.score, activeTrackIndex);
+		}
+
+		const result = transposeScore(
+			api.score,
+			activeTrackIndex,
+			isTransposed ? targetTuning : sourceTuning,
+			isTransposed ? targetCapo : sourceCapo,
+			isCustom ? customTuning : targetTuning,
+			targetCapo,
+			octaveShift
+		);
+
+		try {
+			api.score.finish(api.settings);
+		} catch {
+			// finish() may not exist on all versions
+		}
+		api.render();
+
+		lastResult = result;
+		isTransposed = true;
+		dispatch('transposed', result);
+	}
+
+	function resetTransposition() {
+		if (!api?.score || !savedState) return;
+
+		restoreNoteState(api.score, activeTrackIndex, savedState);
+
+		const staves = api.score.tracks[activeTrackIndex]?.staves;
+		if (staves) {
+			for (const staff of staves) {
+				if (staff.stringTuning) {
+					staff.stringTuning.tunings = [...sourceTuning];
+				}
+				if (staff.tuning) {
+					for (let i = 0; i < sourceTuning.length && i < staff.tuning.length; i++) {
+						staff.tuning[i] = sourceTuning[i];
+					}
+				}
+				staff.capo = sourceCapo;
+			}
+		}
+
+		try {
+			api.score.finish(api.settings);
+		} catch {
+			// finish() may not exist on all versions
+		}
+		api.render();
+
+		savedState = null;
+		lastResult = null;
+		isTransposed = false;
+		octaveShift = 0;
+	}
+
+	function formatSourceTuning(midi: number[]): string {
+		return midi.map((m) => midiToNoteName(m)).join(' ');
+	}
+</script>
+
+<div class="space-y-4" role="tabpanel" aria-label="Tuning">
+	<!-- Original tab tuning (always visible, read-only) -->
+	<div class="px-4 py-3 rounded-xl bg-neutral-100 dark:bg-neutral-800">
+		<div class="flex items-center justify-between mb-1">
+			<p class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium">
+				Original tab tuning
+			</p>
+			{#if trackName}
+				<span class="text-[10px] text-violet-500 font-medium">{trackName}</span>
+			{/if}
+		</div>
+		{#if sourceTuning.length > 0}
+			<div class="flex items-center gap-2 flex-wrap">
+				<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{sourcePresetName ?? 'Custom'}</span>
+				<span class="text-xs font-mono text-neutral-400 dark:text-neutral-500">{formatSourceTuning(sourceTuning)}</span>
+				{#if sourceCapo > 0}
+					<span class="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400">
+						Capo {sourceCapo}
+					</span>
+				{/if}
+			</div>
+		{:else}
+			<span class="text-xs text-neutral-400 italic">No tuning data available</span>
+		{/if}
+	</div>
+
+	{#if sourceTuning.length > 0}
+		<!-- Target tuning selector -->
+		<div>
+			<p class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium">
+				Transpose to
+			</p>
+			<select
+				value={isCustom ? 'custom' : selectedPresetId}
+				on:change={handlePresetChange}
+				class="w-full px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+			>
+				{#each availableCategories as cat}
+					<optgroup label={cat}>
+						{#each availablePresets.filter((p) => p.category === cat) as t}
+							<option value={t.id}>{t.name}  ({formatTuningNotes(t)})</option>
+						{/each}
+					</optgroup>
+				{/each}
+				<option value="custom">Custom...</option>
+			</select>
+		</div>
+
+		<!-- Custom tuning editor -->
+		{#if isCustom}
+			<div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+				{#each customTuning as midi, i}
+					<div class="text-center">
+						<label class="text-[9px] text-neutral-400 dark:text-neutral-500 block mb-1">
+							String {customTuning.length - i}
+						</label>
+						<select
+							bind:value={customTuning[i]}
+							class="w-full px-1.5 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-mono text-neutral-700 dark:text-neutral-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+						>
+							{#each Array.from({ length: MAX_MIDI - MIN_MIDI + 1 }, (_, j) => MIN_MIDI + j) as m}
+								<option value={m}>{midiToLabel(m)}</option>
+							{/each}
+						</select>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<!-- Capo -->
+		<div>
+			<p class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium">
+				Capo position
+			</p>
+			<div class="flex items-center gap-3">
+				<i class="material-icons !text-lg text-neutral-400 flex-shrink-0">straighten</i>
+				<input
+					type="range"
+					min="0"
+					max="12"
+					step="1"
+					bind:value={targetCapo}
+					class="flex-1 h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
+						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
+						[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
+					style="background: linear-gradient(to right, #8C52FF {(targetCapo / 12) * 100}%, {'rgb(212,212,212)'} {(targetCapo / 12) * 100}%)"
+					aria-label="Capo position"
+				/>
+				<span
+					class="text-sm font-mono w-10 text-center flex-shrink-0 px-2 py-1 rounded-lg
+						{targetCapo > 0
+						? 'text-violet-500 font-semibold bg-violet-50 dark:bg-violet-900/20'
+						: 'text-neutral-400 bg-neutral-50 dark:bg-neutral-800'}"
+				>
+					{targetCapo > 0 ? `Fret ${targetCapo}` : 'Off'}
+				</span>
+			</div>
+		</div>
+
+		<!-- Octave shift -->
+		<div>
+			<div class="flex items-center justify-between mb-2">
+				<p class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium">
+					Octave shift
+				</p>
+				<p class="text-[10px] text-neutral-400 dark:text-neutral-500">
+					Shift all notes up or down by octaves
+				</p>
+			</div>
+			<div class="flex items-center gap-1.5">
+				{#each [-2, -1, 0, 1, 2] as shift}
+					<button
+						on:click={() => { octaveShift = shift; }}
+						class="flex-1 py-2.5 text-sm font-mono rounded-lg transition-colors
+							{octaveShift === shift
+							? 'bg-violet-500 text-white shadow-sm'
+							: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
+					>
+						{shift > 0 ? '+' : ''}{shift}
+					</button>
+				{/each}
+			</div>
+		</div>
+
+		<!-- Actions -->
+		<div class="pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-2">
+			<button
+				on:click={applyTransposition}
+				disabled={isSameTuning && !isTransposed}
+				class="w-full px-4 py-3 text-sm font-semibold rounded-lg transition-colors active:scale-[0.98]
+					{isSameTuning && !isTransposed
+					? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'
+					: 'bg-violet-500 hover:bg-violet-600 text-white shadow-sm'}"
+			>
+				<i class="material-icons !text-base align-middle mr-1.5">swap_vert</i>
+				Transpose
+			</button>
+			{#if isTransposed}
+				<button
+					on:click={resetTransposition}
+					class="w-full px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors active:scale-[0.98]"
+				>
+					<i class="material-icons !text-base align-middle mr-1.5">undo</i>
+					Reset to original
+					<span class="text-neutral-400 dark:text-neutral-500 ml-1">({sourcePresetName ?? formatSourceTuning(sourceTuning)})</span>
+				</button>
+			{/if}
+		</div>
+
+		<!-- Result feedback -->
+		{#if lastResult}
+			<div
+				class="text-xs px-4 py-3 rounded-lg {lastResult.success
+					? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+					: 'bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400'}"
+			>
+				{#if lastResult.success}
+					<i class="material-icons !text-sm align-middle mr-1">check_circle</i>
+					Transposed {lastResult.transposedCount} notes successfully
+				{:else}
+					<i class="material-icons !text-sm align-middle mr-1">warning</i>
+					{lastResult.transposedCount} transposed, {lastResult.unplayableNotes.length} out of range
+					{#if octaveShift === 0 && lastResult.unplayableNotes.length > 10}
+						<span class="block mt-1 text-violet-500">Try adjusting the octave shift above</span>
+					{/if}
+				{/if}
+			</div>
+		{/if}
+	{:else}
+		<p class="text-xs text-neutral-400 dark:text-neutral-500 italic">
+			No string tuning data available for this track.
+		</p>
+	{/if}
+</div>
