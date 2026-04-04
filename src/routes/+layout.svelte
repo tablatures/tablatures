@@ -178,6 +178,12 @@
 				api.load(base64ToArrayBuffer(tab.fileAsB64));
 				loadedTabB64.set(tab.fileAsB64);
 			}
+			// Resume playback if it was active before the soundfont change
+			// (AlphaTab's loadSoundFont always pauses the synth internally)
+			if (wasPlayingBeforeSoundFontChange) {
+				wasPlayingBeforeSoundFontChange = false;
+				try { api.play(); } catch {}
+			}
 		});
 
 		api.renderStarted?.on(() => {
@@ -230,6 +236,7 @@
 
 	// Track the current soundfont URL to detect changes
 	let currentSoundFontUrl = get(preferencesStore).soundFontUrl;
+	let wasPlayingBeforeSoundFontChange = false;
 
 	// Subscribe to soundfont URL changes and apply at runtime
 	$: if (browser && $preferencesStore.soundFontUrl && $preferencesStore.soundFontUrl !== currentSoundFontUrl) {
@@ -237,14 +244,11 @@
 		currentSoundFontUrl = newUrl;
 		const api = get(playerApi);
 		if (api) {
-			// Pause playback before changing soundfont
-			try { api.pause(); } catch {}
-			// Update the soundfont setting and reload
+			// AlphaTab's loadSoundFont() internally calls pause(), so track state to resume after
+			wasPlayingBeforeSoundFontChange = get(playerState).playing;
 			api.settings.player.soundFont = newUrl;
 			api.updateSettings();
-			// Reset soundfont loaded state so UI shows loading progress
 			updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
-			// loadSoundFont triggers re-download; soundFontLoaded event will fire when done
 			api.loadSoundFont(newUrl, false);
 		}
 	}
