@@ -143,20 +143,47 @@ function createTunerStore() {
 
 			// Create AudioContext AFTER getting the stream so the sample rate matches
 			// (fixes Chrome on macOS where context and mic sample rates can mismatch)
+			// Try with stream's sample rate first, fall back to default (Firefox throws
+			// NotSupportedError if the requested rate doesn't match hardware output)
 			const streamSampleRate = mediaStream.getAudioTracks()[0]?.getSettings()?.sampleRate;
-			audioContext = new AudioContext(
-				streamSampleRate ? { sampleRate: streamSampleRate } : undefined
-			);
+			try {
+				audioContext = new AudioContext(
+					streamSampleRate ? { sampleRate: streamSampleRate } : undefined
+				);
+			} catch {
+				audioContext = new AudioContext();
+			}
 
 			if (audioContext.state === 'suspended') {
 				await audioContext.resume();
 			}
 
 			const source = audioContext.createMediaStreamSource(mediaStream);
+
+			// BiquadFilter chain: highpass + lowpass to reduce noise before analysis
+			// (improves pitchy's autocorrelation accuracy)
+			const highpass = audioContext.createBiquadFilter();
+			highpass.type = 'highpass';
+			highpass.frequency.value = Math.max(20, currentFreqRange.min * 0.8);
+
+			const lowpass = audioContext.createBiquadFilter();
+			lowpass.type = 'lowpass';
+			lowpass.frequency.value = Math.min(20000, currentFreqRange.max * 1.2);
+
 			analyserNode = audioContext.createAnalyser();
 			analyserNode.fftSize = 4096;
 			analyserNode.smoothingTimeConstant = 0;
-			source.connect(analyserNode);
+
+			// Connect through a silent GainNode to context.destination
+			// (Safari requires a destination connection for AnalyserNode to work)
+			const silentGain = audioContext.createGain();
+			silentGain.gain.value = 0;
+
+			source.connect(highpass);
+			highpass.connect(lowpass);
+			lowpass.connect(analyserNode);
+			analyserNode.connect(silentGain);
+			silentGain.connect(audioContext.destination);
 
 			const detector = PitchDetector.forFloat32Array(4096);
 			const buffer = new Float32Array(4096);
