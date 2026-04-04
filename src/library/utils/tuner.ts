@@ -77,6 +77,17 @@ function createTunerStore() {
 		if (!analyserNode) return;
 
 		analyserNode.getFloatTimeDomainData(buffer);
+
+		// Skip all-zero buffers (broken audio pipeline, e.g. macOS permission issue)
+		let hasSignal = false;
+		for (let i = 0; i < buffer.length; i++) {
+			if (buffer[i] !== 0) { hasSignal = true; break; }
+		}
+		if (!hasSignal) {
+			animationFrameId = requestAnimationFrame(() => detect(detector, buffer, sampleRate));
+			return;
+		}
+
 		const [frequency, clarity] = detector.findPitch(buffer, sampleRate);
 
 		if (clarity >= CLARITY_THRESHOLD && frequency >= currentFreqRange.min && frequency <= currentFreqRange.max) {
@@ -137,21 +148,21 @@ function createTunerStore() {
 				}
 			});
 
-			// Create AudioContext AFTER getting the stream so the sample rate matches
-			// (fixes Chrome on macOS where context and mic sample rates can mismatch)
-			// Try with stream's sample rate first, fall back to default (Firefox throws
-			// NotSupportedError if the requested rate doesn't match hardware output)
-			const streamSampleRate = mediaStream.getAudioTracks()[0]?.getSettings()?.sampleRate;
-			try {
-				audioContext = new AudioContext(
-					streamSampleRate ? { sampleRate: streamSampleRate } : undefined
-				);
-			} catch {
-				audioContext = new AudioContext();
-			}
+			// Create AudioContext with default hardware rate. Do NOT specify sampleRate --
+			// Chrome on macOS silently produces zero buffers when the specified rate
+			// differs from the hardware output rate (broken internal resampling).
+			audioContext = new AudioContext();
 
 			if (audioContext.state === 'suspended') {
 				await audioContext.resume();
+			}
+
+			// Verify microphone is actually delivering audio
+			// (macOS system-level permission can cause getUserMedia to succeed
+			// but return a silent stream)
+			const track = mediaStream.getAudioTracks()[0];
+			if (!track || track.muted) {
+				throw new Error('Microphone appears silent. On macOS, check System Settings > Privacy & Security > Microphone.');
 			}
 
 			const source = audioContext.createMediaStreamSource(mediaStream);
