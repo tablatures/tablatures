@@ -3,6 +3,7 @@
 	import { fade } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import { tunerStore } from '../utils/tuner';
+	import { toastStore } from '../utils/toast';
 	import {
 		CATEGORIES,
 		getTuningById,
@@ -230,6 +231,19 @@
 
 	$: prevOpen = open;
 
+	async function safeToggle() {
+		try {
+			await tunerStore.toggle();
+		} catch (err: any) {
+			const msg = err?.name === 'NotAllowedError'
+				? 'Microphone access denied'
+				: err?.name === 'NotFoundError'
+					? 'No microphone found'
+					: 'Could not start tuner';
+			toastStore.error(msg);
+		}
+	}
+
 	function handleClose() {
 		tunerStore.stop();
 		dispatch('close');
@@ -243,7 +257,7 @@
 			!['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)
 		) {
 			e.preventDefault();
-			tunerStore.toggle();
+			safeToggle();
 		}
 	}
 
@@ -524,7 +538,7 @@
 				<!-- Start/Stop button -->
 				<div class="w-full flex flex-col items-center gap-1.5">
 					<button
-						on:click={() => tunerStore.toggle()}
+						on:click={safeToggle}
 						class="w-full rounded-xl py-4 font-bold text-base text-white transition-all duration-150 active:scale-[0.98]
 							flex items-center justify-center gap-2.5
 							{state.active ? 'bg-red-500 hover:bg-red-600' : 'bg-violet-500 hover:bg-violet-600'}

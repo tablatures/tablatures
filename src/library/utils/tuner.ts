@@ -114,6 +114,10 @@ function createTunerStore() {
 		} else {
 			update((state) => ({
 				...state,
+				frequency: null,
+				note: null,
+				octave: null,
+				cents: 0,
 				clarity,
 				inTune: false
 			}));
@@ -128,13 +132,25 @@ function createTunerStore() {
 		}
 
 		try {
-			audioContext = new AudioContext();
+			// Get mic stream FIRST with raw audio (no processing that breaks pitch detection)
+			mediaStream = await navigator.mediaDevices.getUserMedia({
+				audio: {
+					echoCancellation: false,
+					noiseSuppression: false,
+					autoGainControl: false
+				}
+			});
+
+			// Create AudioContext AFTER getting the stream so the sample rate matches
+			// (fixes Chrome on macOS where context and mic sample rates can mismatch)
+			const streamSampleRate = mediaStream.getAudioTracks()[0]?.getSettings()?.sampleRate;
+			audioContext = new AudioContext(
+				streamSampleRate ? { sampleRate: streamSampleRate } : undefined
+			);
 
 			if (audioContext.state === 'suspended') {
 				await audioContext.resume();
 			}
-
-			mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
 			const source = audioContext.createMediaStreamSource(mediaStream);
 			analyserNode = audioContext.createAnalyser();
