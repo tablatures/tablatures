@@ -193,6 +193,24 @@
 	let autoFollow = true;
 	let userScrolling = false;
 	let scrollCheckTimeout: NodeJS.Timeout;
+	let autoFollowDisengagedAt = 0;
+
+	function reEnableAutoFollow() {
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+		// Scroll to current cursor position
+		const cursor = api?._beatCursor;
+		if (!cursor?.element) return;
+		const el = cursor.element;
+		const containerRect = target?.getBoundingClientRect();
+		const elRect = el.getBoundingClientRect();
+		if (!target || !containerRect) return;
+		const scrollTop = target.scrollTop + (elRect.top - containerRect.top) -
+			(showSettings && controlsVisible ? settings?.getBoundingClientRect()?.height ?? 0 : 0);
+		const scrollElement = isFullscreen ? page : window;
+		if (!scrollElement) return;
+		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+	}
 
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -1099,6 +1117,8 @@
 				bindDuration = false;
 				api.player.timePosition = (progress / 100) * duration;
 				seekDebounce();
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 			}
 		};
 
@@ -1409,31 +1429,41 @@
 		$favoritesStore = $favoritesStore;
 	}
 
-	// Smart cursor follow: auto-follows when user is near the cursor, pauses when user scrolls away
-	function handleUserScroll() {
+	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
+	function handleUserScrollIntent() {
+		if (!playing) return;
+		if (autoFollow) {
+			autoFollow = false;
+			autoFollowDisengagedAt = Date.now();
+		}
+	}
+
+	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
+	function handleScroll() {
 		if (!playing) return;
 		userScrolling = true;
 		clearTimeout(scrollCheckTimeout);
 		scrollCheckTimeout = setTimeout(() => {
 			userScrolling = false;
-			// Check if cursor is visible in viewport
 			checkCursorVisibility();
 		}, 150);
 	}
 
 	function checkCursorVisibility() {
+		if (autoFollow) return;
+		// Don't re-engage within 1s of disengaging
+		if (Date.now() - autoFollowDisengagedAt < 1000) return;
+
 		const cursor = api?._beatCursor;
 		if (!cursor || !cursor.element) return;
 
 		const el = cursor.element;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
+		const grabBottom = viewportHeight * 0.15;
 
-		// If cursor is within the viewport, resume auto-follow
-		if (elRect.top >= -50 && elRect.bottom <= viewportHeight + 50) {
+		if (elRect.top >= 0 && elRect.top <= grabBottom) {
 			autoFollow = true;
-		} else {
-			autoFollow = false;
 		}
 	}
 
@@ -1547,6 +1577,8 @@
 		progress = newProgress;
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
 	}
 
 	// Store references for cleanup
@@ -1575,6 +1607,8 @@
 
 			if (isNewSheet) {
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 				// Scroll to top when a new tab is loaded
 				window.scrollTo({ top: 0, behavior: 'smooth' });
 				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1987,7 +2021,9 @@
 
 		// Smart cursor follow: detect user scrolling
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 
 		mountObserver = new IntersectionObserver(
 			([entry]) => {
@@ -2176,7 +2212,9 @@
 			page.removeEventListener('mouseenter', handleMouseEnter);
 		}
 		clearTimeout(hideTimeout);
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		clearTimeout(scrollCheckTimeout);
 
 		// Cleanup timers that may still be running
@@ -2539,10 +2577,14 @@
 
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
-		// Rebind scroll listener to the correct target (window vs page element)
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		// Rebind scroll listeners to the correct target (window vs page element)
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
@@ -2874,6 +2916,25 @@
 		{/if}
 	</div>
 
+	<!-- Auto-follow paused banner -->
+	{#if playing && !autoFollow}
+		<button
+			on:click={reEnableAutoFollow}
+			class="sticky bottom-16 z-[51] mx-auto flex items-center gap-1.5 px-4 py-2 rounded-full
+				bg-violet-600 dark:bg-violet-500 text-white
+				text-sm font-medium shadow-lg
+				hover:bg-violet-700 dark:hover:bg-violet-400 transition-colors cursor-pointer
+				w-fit"
+			aria-label="Resume auto-follow"
+		>
+			<i class="material-icons !text-base">vertical_align_bottom</i>
+			<span class="flex flex-col leading-tight">
+				<span>Auto-follow paused</span>
+				<span class="text-white/70 text-xs">click to resume</span>
+			</span>
+		</button>
+	{/if}
+
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->
 	<div
@@ -3020,6 +3081,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing ? 'text-violet-500' : 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => { playing ? clickPause() : clickPlay(); }}
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
+				aria-label={playing ? 'Pause' : 'Play'}
 			>
 				<i class="material-icons {isFullscreen ? '!text-xl' : '!text-2xl'}">{playing ? 'pause' : 'play_arrow'}</i>
 			</button>
@@ -3028,6 +3090,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
+				aria-label="Previous bar"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_previous</i>
 			</button>
@@ -3036,6 +3099,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
+				aria-label="Next bar"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_next</i>
 			</button>
@@ -3057,6 +3121,7 @@
 						{volume === 0 ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-600 dark:text-neutral-400'}"
 					on:click={() => { if (volume > 0) { volumeBeforeMute = volume; volume = 0; } else { volume = volumeBeforeMute || 1; } }}
 					title="{volume === 0 ? 'Unmute' : 'Mute'}"
+					aria-label="{volume === 0 ? 'Unmute' : 'Mute'}"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i>
 				</button>
@@ -3108,6 +3173,7 @@
 						class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
+						aria-label="Play video"
 					>
 						<i class="material-icons !text-xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
@@ -3160,6 +3226,7 @@
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
+					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
 				</button>
@@ -3169,6 +3236,7 @@
 					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
+					aria-label="Toggle loop"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
@@ -3179,6 +3247,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
+				aria-label="Settings"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{showSettings ? 'close' : 'tune'}</i>
 			</button>
@@ -3188,6 +3257,7 @@
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Fullscreen [F]"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i>
 			</button>
@@ -3196,6 +3266,7 @@
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
 				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
+				aria-label="Keyboard shortcuts"
 			>
 				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">keyboard</i>
 			</button>
@@ -3364,6 +3435,7 @@
 							class="p-2 rounded-full transition-all duration-150 active:scale-90
 								{isFavorite ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 							title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
+							aria-label="{isFavorite ? 'Remove from' : 'Add to'} favorites"
 						>
 							<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
 						</button>
@@ -3373,6 +3445,7 @@
 						on:click={clickShare}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Share"
+						aria-label="Share"
 					>
 						<i class="material-icons !text-xl">share</i>
 					</button>
@@ -3381,6 +3454,7 @@
 						on:click={clickDownload}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Download"
+						aria-label="Download"
 					>
 						<i class="material-icons !text-xl">download</i>
 					</button>
@@ -3389,6 +3463,7 @@
 						on:click={clickPrint}
 						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 						title="Print"
+						aria-label="Print"
 					>
 						<i class="material-icons !text-xl">print</i>
 					</button>
