@@ -245,6 +245,7 @@
 				on:click={copyShareLink}
 				class="flex-shrink-0 transition-colors hidden sm:block {shareJustCopied ? 'text-green-400' : 'text-neutral-500 hover:text-white'}"
 				title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
+				aria-label="Share"
 			>
 				<i class="material-icons !text-lg">{shareJustCopied ? 'check' : 'share'}</i>
 			</button>
@@ -264,6 +265,7 @@
 			on:click={() => dispatch('togglePreview')}
 			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
 			title="{showPreview ? 'Hide' : 'Show'} tab preview"
+			aria-label="{showPreview ? 'Hide' : 'Show'} tab preview"
 		>
 			<i class="material-icons !text-lg">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
 		</button>
@@ -273,6 +275,7 @@
 			on:click={stopPlayer}
 			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
 			title="Close player"
+			aria-label="Close player"
 		>
 			<i class="material-icons !text-lg">close</i>
 		</button>
