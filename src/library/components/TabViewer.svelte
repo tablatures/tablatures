@@ -8,7 +8,7 @@
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { favoritesStore } from '../utils/favorites';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning, setMasterVolumeDebounced } from '../utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning, setMasterVolumeDebounced, beatCursorEl } from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
@@ -1422,7 +1422,7 @@
 	}
 
 	function checkCursorVisibility() {
-		const el = target?.querySelector('.at-cursor-beat') as HTMLElement | null;
+		const el = get(beatCursorEl);
 		if (!el) return;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
@@ -1608,7 +1608,7 @@
 		// Auto-scroll cursor
 		const onPositionScroll = (e: any) => {
 			if (!autoFollow || userScrolling) return;
-			const el = target?.querySelector('.at-cursor-beat') as HTMLElement | null;
+			const el = get(beatCursorEl);
 			if (!el) return;
 			const containerRect = target?.getBoundingClientRect();
 			const elRect = el.getBoundingClientRect();

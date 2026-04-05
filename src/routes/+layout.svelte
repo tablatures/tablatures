@@ -11,7 +11,7 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource } from '../library/utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
@@ -123,7 +123,7 @@
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
 			if (!get(isTransitioning) && !get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
-				const el = playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null;
+				const el = get(beatCursorEl);
 				if (el) {
 					const anchorRect = playerHostAnchor.getBoundingClientRect();
 					const elRect = el.getBoundingClientRect();
@@ -191,6 +191,10 @@
 
 		api.renderFinished?.on(() => {
 			updatePlayerState({ isRendering: false });
+			// Cache beat cursor element once after render (avoids per-frame DOM queries during playback)
+			if (!get(beatCursorEl)) {
+				beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
+			}
 		});
 
 		api.error?.on((error) => {
