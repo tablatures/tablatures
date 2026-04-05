@@ -502,7 +502,7 @@
 	</div>
 {/if}
 
-<div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
+<div class="max-w-4xl mx-auto px-3 sm:px-4 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
 		<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -525,9 +525,9 @@
 	{:else if tabs.length > 0}
 		<!-- Artist hero cards (when search matches artists) -->
 		{#if artistHeroes.length > 0}
-			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600 min-h-[140px]">
 				{#each artistHeroes as hero}
-					<div class="flex-shrink-0 snap-start w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+					<div class="flex-shrink-0 snap-start w-[220px] sm:w-[260px] md:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<!-- Top: image + name + follow -->
 						<button
 							class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"

@@ -48,7 +48,7 @@
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 
-<div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
+<div class="max-w-4xl mx-auto px-3 sm:px-4 min-h-[calc(100vh-3.5rem)]">
 	<HomeFeed {openTab} />
 </div>
 

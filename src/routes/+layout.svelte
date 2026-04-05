@@ -433,7 +433,7 @@
 		{/if}
 	</div>
 
-	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
+	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-11 sm:pb-[272px]' : 'pb-11 sm:pb-14') : ''}">
 		<slot />
 	</main>
 
@@ -447,7 +447,7 @@
 
 	<!-- Toast notifications -->
 	{#if $toastStore.length > 0}
-		<div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[500] flex flex-col items-center gap-2 pointer-events-none">
+		<div class="fixed bottom-16 sm:bottom-4 left-1/2 transform -translate-x-1/2 z-[500] flex flex-col items-center gap-2 pointer-events-none">
 			{#each $toastStore as toast (toast.id)}
 				<div
 					class="pointer-events-auto px-4 py-2 rounded-lg shadow-lg text-sm font-medium animate-fade-in flex items-center gap-2
@@ -479,8 +479,9 @@
 		height: 600px;
 	}
 
-	/* Wrapper for mini player + overlay */
+	/* Wrapper for mini player + overlay (hidden on mobile) */
 	.mini-player-wrapper {
+		display: none;
 		position: fixed;
 		bottom: 52px;
 		right: 8px;
@@ -488,6 +489,12 @@
 		height: 220px;
 		z-index: 85;
 		cursor: pointer;
+	}
+
+	@media (min-width: 640px) {
+		.mini-player-wrapper {
+			display: block;
+		}
 	}
 
 	/* Overlay covers the wrapper exactly */

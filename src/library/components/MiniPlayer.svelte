@@ -136,7 +136,7 @@
 	}
 </script>
 
-<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
+<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
 		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">
@@ -147,7 +147,7 @@
 	<!-- Progress bar -->
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
-	<div class="flex items-center px-4 py-2 gap-3">
+	<div class="flex items-center px-2 h-10 sm:h-auto sm:px-4 sm:py-2 gap-1.5 sm:gap-3 flex-nowrap overflow-hidden">
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
@@ -156,11 +156,11 @@
 			aria-label={state.playing ? 'Pause' : 'Play'}
 			disabled={soundFontLoading}
 		>
-			<i class="material-icons !text-2xl">{soundFontLoading ? 'hourglass_top' : state.playing ? 'pause' : 'play_arrow'}</i>
+			<i class="material-icons !text-xl sm:!text-2xl">{soundFontLoading ? 'hourglass_top' : state.playing ? 'pause' : 'play_arrow'}</i>
 		</button>
 
-		<!-- Artwork thumbnail -->
-		<a href="{base}/play" class="flex-shrink-0">
+		<!-- Artwork thumbnail (desktop only) -->
+		<a href="{base}/play" class="flex-shrink-0 hidden sm:block">
 			{#if artworkUrl}
 				<img src={artworkUrl} alt="" class="w-10 h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
@@ -170,35 +170,50 @@
 			{/if}
 		</a>
 
-		<!-- Title/artist -->
-		<div class="flex-1 min-w-0 text-left">
-			<a href="{base}/play" class="hover:opacity-80 transition-opacity">
-				<p class="text-sm font-medium truncate text-white">
-					{state.title || currentTab?.title || 'Now playing'}
-				</p>
-			</a>
-			<p class="text-xs text-neutral-400 truncate">
-				<span class="relative inline-block">
-					<ArtistTooltip artistName={state.artist || currentTab?.artist || ''} position="top">
-						<a
-							href="{base}/search?q={encodeURIComponent(state.artist || currentTab?.artist || '')}"
-							class="hover:text-violet-400 hover:underline transition-colors"
-							on:click|stopPropagation
-						>{state.artist || currentTab?.artist || ''}</a>
-					</ArtistTooltip>
-				</span>
+		<!-- Title/artist (tap to open player) -->
+		<a href="{base}/play" class="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
+			<p class="text-[11px] sm:text-sm font-medium truncate text-white leading-tight">
+				{state.title || currentTab?.title || 'Now playing'}
+			</p>
+			<p class="text-[9px] sm:text-xs text-neutral-400 truncate leading-tight">
+				{state.artist || currentTab?.artist || ''}
 				{#if state.duration > 0}
-					<span class="text-neutral-500"> &middot; {currentTime} / {totalTime}</span>
+					<span class="text-neutral-500">&middot; {currentTime}/{totalTime}</span>
 				{/if}
 			</p>
-		</div>
+		</a>
 
-		<!-- Source variant switcher -->
+		<!-- Audio source toggle (compact on mobile) -->
+		{#if $activeVideoId}
+			<button
+				on:click={toggleSource}
+				class="flex-shrink-0 p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : 'text-neutral-500 hover:text-white'}"
+				title="{$audioSource === 'video' ? 'Video audio' : 'Tab audio'}"
+			>
+				<i class="material-icons !text-base sm:!text-lg">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
+			</button>
+			<!-- Sync offset (desktop only) -->
+			<div class="hidden sm:flex items-center gap-0.5 flex-shrink-0">
+				<button
+					on:click={() => nudgeOffset(-0.1)}
+					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
+				>-</button>
+				<span class="text-[10px] text-neutral-400 font-mono min-w-[2rem] text-center">
+					{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s
+				</span>
+				<button
+					on:click={() => nudgeOffset(0.1)}
+					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
+				>+</button>
+			</div>
+		{/if}
+
+		<!-- Source variants (desktop only) -->
 		{#if hasVariants}
-			<div class="flex items-center gap-1 flex-shrink-0">
+			<div class="hidden sm:flex items-center gap-1 flex-shrink-0">
 				{#each variants as variant}
 					<button
-						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors
+						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors whitespace-nowrap
 							{variant.id === (currentTab?.tabId || '')
 								? 'bg-violet-500/20 border-violet-400 text-violet-300'
 								: 'border-neutral-600 text-neutral-500 hover:text-neutral-300 hover:border-neutral-400'}"
@@ -213,33 +228,7 @@
 			</div>
 		{/if}
 
-		<!-- Audio source toggle + sync offset (when video active) -->
-		{#if $activeVideoId}
-			<div class="flex items-center gap-0.5 flex-shrink-0">
-				<button
-					on:click={toggleSource}
-					class="p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : 'text-neutral-500 hover:text-white'}"
-					title="{$audioSource === 'video' ? 'Video audio' : 'Tab audio'} - tap to switch"
-				>
-					<i class="material-icons !text-base">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
-				</button>
-				<button
-					on:click={() => nudgeOffset(-0.1)}
-					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
-					title="Sync -0.1s"
-				>-</button>
-				<span class="text-[10px] text-neutral-400 font-mono min-w-[2rem] text-center">
-					{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s
-				</span>
-				<button
-					on:click={() => nudgeOffset(0.1)}
-					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
-					title="Sync +0.1s"
-				>+</button>
-			</div>
-		{/if}
-
-		<!-- Share link -->
+		<!-- Desktop-only actions -->
 		{#if currentTab?.tabId}
 			<button
 				on:click={copyShareLink}
@@ -249,8 +238,6 @@
 				<i class="material-icons !text-lg">{shareJustCopied ? 'check' : 'share'}</i>
 			</button>
 		{/if}
-
-		<!-- Open full player -->
 		<a
 			href="{base}/play"
 			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors hidden sm:block"
@@ -258,17 +245,15 @@
 		>
 			<i class="material-icons !text-lg">keyboard_arrow_up</i>
 		</a>
-
-		<!-- Toggle preview -->
 		<button
 			on:click={() => dispatch('togglePreview')}
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
+			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors hidden sm:block"
 			title="{showPreview ? 'Hide' : 'Show'} tab preview"
 		>
 			<i class="material-icons !text-lg">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
 		</button>
 
-		<!-- Close -->
+		<!-- Close (always visible) -->
 		<button
 			on:click={stopPlayer}
 			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"

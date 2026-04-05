@@ -307,7 +307,7 @@
 
 	{#if activeTab === 'favorites'}
 		<!-- ==================== FAVORITES TAB - SIDE BY SIDE ==================== -->
-		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4" transition:fade={{ duration: 150 }}>
+		<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-[400px]" transition:fade={{ duration: 150 }}>
 			<!-- LEFT COLUMN (2/3 width) -->
 			<div class="lg:col-span-2 space-y-6">
 				<!-- Favorite Artists (horizontal scroll) -->
@@ -474,7 +474,7 @@
 
 	{:else if activeTab === 'history'}
 		<!-- ==================== HISTORY TAB - GROUPED BY DAY ==================== -->
-		<div transition:fade={{ duration: 150 }}>
+		<div class="min-h-[300px]" transition:fade={{ duration: 150 }}>
 			<div class="flex items-center justify-between mb-3">
 				<h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
 					<i class="material-icons !text-lg text-neutral-400">history</i>
@@ -536,7 +536,7 @@
 
 	{:else if activeTab === 'settings'}
 		<!-- ==================== SETTINGS TAB ==================== -->
-		<div class="overflow-x-hidden" transition:fade={{ duration: 150 }}>
+		<div class="overflow-x-hidden min-h-[600px]" transition:fade={{ duration: 150 }}>
 
 			<!-- ===== AUDIO SECTION ===== -->
 			<div class="flex items-center gap-2 mb-3 mt-0">
@@ -545,7 +545,7 @@
 			</div>
 
 			<!-- Sound Font - card selector (full width) -->
-			<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 mb-3">
+			<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 mb-3 min-h-[200px]">
 				<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Sound Font</label>
 				<p class="text-[11px] text-neutral-400 dark:text-neutral-500 mt-0.5 mb-2">Choose a sound font for MIDI playback</p>
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">

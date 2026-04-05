@@ -2879,7 +2879,7 @@
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
-		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
+		class="sticky bottom-0 z-[50] player-controls-bar bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		role="toolbar"
@@ -3203,8 +3203,8 @@
 
 	<!-- Video player (PiP position, above controls bar + settings) - hidden in fullscreen -->
 	{#if hasActiveVideo && $activeVideoId && !isFullscreen}
-		<div class="fixed bottom-40 right-4 z-[75] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black">
-			<div class="relative">
+		<div class="fixed left-0 right-0 sm:bottom-40 sm:left-auto sm:right-4 sm:w-[340px] z-[49] sm:z-[75] sm:rounded-xl overflow-hidden shadow-2xl sm:border border-neutral-200 dark:border-neutral-700 bg-black video-pip mobile-video-pip">
+			<div class="relative aspect-video">
 				<VideoPlayer
 					videoId={$activeVideoId}
 					width={340}
@@ -3315,11 +3315,11 @@
 
 	<!-- Metadata row (title, artist, actions) - hidden in fullscreen -->
 	{#if scoreLoaded && !isFullscreen}
-		<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-800">
-			<div class="flex items-start justify-between gap-4">
-				<!-- Album artwork or artist image -->
+		<div class="px-2 py-1.5 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
+			<div class="flex items-center sm:items-start justify-between gap-2 sm:gap-4">
+				<!-- Album artwork or artist image (hidden on mobile) -->
 				{#if songArtwork || artistImage}
-					<div class="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800">
+					<div class="flex-shrink-0 w-8 h-8 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800">
 						<img
 							src={songArtwork || artistImage}
 							alt=""
@@ -3329,8 +3329,8 @@
 					</div>
 				{/if}
 				<div class="min-w-0 flex-1">
-					<h1 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">{title.split(' - ')[0] || title}</h1>
-					<p class="text-sm text-neutral-500 dark:text-neutral-400 truncate">
+					<h1 class="text-sm sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">{title.split(' - ')[0] || title}</h1>
+					<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
 						{#if currentArtistName}
 							<span class="relative inline-block">
 								<ArtistTooltip artistName={currentArtistName} position="bottom">
@@ -3346,7 +3346,7 @@
 						{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0 ? ` \u00B7 ${totalBars} bars` : ''}
 					</p>
 					{#if artistInfo?.tags && artistInfo.tags.length > 0}
-						<div class="flex items-center gap-1.5 mt-1 flex-wrap">
+						<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
 							{#if artistInfo.country}
 								<span class="text-[11px] text-neutral-400 dark:text-neutral-500">{artistInfo.country}</span>
 								<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
@@ -3809,3 +3809,29 @@
 		</div>
 	{/if}
 </div>
+
+
+<style>
+	/* Make YouTube iframe fill container on mobile */
+	.video-pip :global(iframe) {
+		width: 100% !important;
+		height: 100% !important;
+		position: absolute;
+		top: 0;
+		left: 0;
+	}
+
+	/* On mobile, both use fixed positioning for proper z-index stacking */
+	@media (max-width: 639px) {
+		.mobile-video-pip {
+			bottom: 117px;
+		}
+		.player-controls-bar {
+			position: fixed !important;
+			bottom: 0;
+			left: 0;
+			right: 0;
+			z-index: 100 !important;
+		}
+	}
+</style>

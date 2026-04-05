@@ -189,7 +189,7 @@
 
 <div class="py-6">
 	<!-- Top row: Import + Recently Viewed side by side on desktop, stacked on mobile -->
-	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 min-h-[200px]">
 		<!-- Import card (1 col on desktop) -->
 		<div
 			class="rounded-xl border-2 border-dashed transition-all cursor-pointer
@@ -205,7 +205,7 @@
 			role="button"
 			tabindex="0"
 		>
-			<div class="flex flex-col items-center justify-center py-8 px-4 text-center h-full min-h-[160px]">
+			<div class="flex flex-col items-center justify-center py-5 sm:py-8 px-3 sm:px-4 text-center h-full min-h-[160px]">
 				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2">{dragActive ? 'file_download' : 'upload_file'}</i>
 				<p class="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
 					Drop or <span class="text-violet-500 dark:text-violet-400 font-medium">browse</span>
@@ -257,10 +257,10 @@
 	</div>
 
 	<!-- Two-column grid: Recommended + Discover -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[40vh]">
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 		<!-- Recommended For You -->
 		{#if true}
-			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden min-h-[300px]">
 				<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
 					<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
 						<i class="material-icons !text-sm">recommend</i> Recommended
@@ -300,7 +300,7 @@
 
 		<!-- Discover -->
 		{#if true}
-			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden min-h-[300px]">
 				<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
 					<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
 						<i class="material-icons !text-sm">explore</i> Discover

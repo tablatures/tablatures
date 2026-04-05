@@ -37,6 +37,44 @@
 			showTooltip = true;
 		}
 	}
+
+	function computePctFromTouch(touch: Touch): number {
+		if (!barEl) return 0;
+		const rect = barEl.getBoundingClientRect();
+		return Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100));
+	}
+
+	function handleTouchStart(e: TouchEvent) {
+		if (!barEl || !e.touches[0]) return;
+		const pct = computePctFromTouch(e.touches[0]);
+		dispatch('seek', pct);
+	}
+
+	function handleTouchMove(e: TouchEvent) {
+		if (!barEl || !e.touches[0]) return;
+		const touch = e.touches[0];
+		const rect = barEl.getBoundingClientRect();
+		hoverPct = computePctFromTouch(touch);
+		hovering = true;
+		if (duration > 0) {
+			const timeSeconds = (hoverPct / 100) * (duration / 1000);
+			tooltipTime = displayTime(Math.round(timeSeconds));
+			tooltipX = Math.max(20, Math.min(rect.width - 20, touch.clientX - rect.left));
+			showTooltip = true;
+		}
+	}
+
+	function handleTouchEnd(e: TouchEvent) {
+		if (!barEl) return;
+		const lastTouch = e.changedTouches[0];
+		if (lastTouch) {
+			const pct = computePctFromTouch(lastTouch);
+			dispatch('seek', pct);
+		}
+		hovering = false;
+		hoverPct = 0;
+		showTooltip = false;
+	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
@@ -46,6 +84,9 @@
 	on:click={handleClick}
 	on:mousemove={handleHover}
 	on:mouseleave={() => { hovering = false; hoverPct = 0; showTooltip = false; }}
+	on:touchstart|preventDefault={handleTouchStart}
+	on:touchmove|preventDefault={handleTouchMove}
+	on:touchend={handleTouchEnd}
 	role="progressbar"
 	aria-valuenow={Math.round(progress)}
 	aria-valuemin={0}
