@@ -16,7 +16,7 @@ export interface UserPreferences {
 const STORAGE_KEY = 'user-preferences';
 
 export const SOUNDFONT_LIGHT =
-	'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.5.0/dist/soundfont/sonivox.sf2';
+	'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.1/dist/soundfont/sonivox.sf2';
 
 export const SOUNDFONT_QUALITY =
 	'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@24e5f18b6a6a5f1c56a56b7d9d589f52161cf490/soundfonts/GeneralUserGS.sf3';

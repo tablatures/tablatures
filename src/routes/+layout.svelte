@@ -103,7 +103,7 @@
 			},
 			player: {
 				scrollMode: 0,
-				enablePlayer: true,
+				playerMode: 2, // EnabledSynthesizer — enablePlayer is broken in v1.8.x
 				enableUserInteraction: true,
 				enableCursor: true,
 				soundFont: prefs.soundFontUrl
@@ -123,9 +123,8 @@
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
 			if (!get(isTransitioning) && !get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
-				const cursor = api?._beatCursor;
-				if (cursor?.element) {
-					const el = cursor.element;
+				const el = playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null;
+				if (el) {
 					const anchorRect = playerHostAnchor.getBoundingClientRect();
 					const elRect = el.getBoundingClientRect();
 					if (anchorRect.width > 0 && elRect.width > 0) {

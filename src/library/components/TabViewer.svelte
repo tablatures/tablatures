@@ -493,7 +493,7 @@
 	}
 
 	// --- Bar-based loop helpers (single source of truth) ---
-	// All use MidiTickLookup (api._tickCache) for repeat-aware conversion.
+	// All use MidiTickLookup (api.tickCache) for repeat-aware conversion.
 	// Minimal contiguous range strategy: for repeated bars, find the smallest
 	// span across all occurrences so loops stay within a single repeat pass.
 
@@ -504,7 +504,7 @@
 	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
 		if (!api) return null;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return null;
 			// Find all occurrences of endBar in the expanded sequence
 			const endOccurrences: number[] = [];
@@ -549,7 +549,7 @@
 		const range = barToExpandedRange(loopStartBar, loopEndBar);
 		if (!range) return null;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries?.length) return null;
 			const total = entries[entries.length - 1].end;
 			if (total <= 0) return null;
@@ -564,7 +564,7 @@
 	function barToMs(barIdx: number): number {
 		if (!api || !duration || duration <= 0) return -1;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
 			if (totalExpanded <= 0) return -1;
@@ -586,7 +586,7 @@
 	function barEndToMs(barIdx: number): number {
 		if (!api || !duration || duration <= 0) return -1;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
 			if (totalExpanded <= 0) return -1;
@@ -608,7 +608,7 @@
 	function msToBar(ms: number): number {
 		if (!api || !duration || duration <= 0) return 0;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return 0;
 			const totalExpanded = entries[entries.length - 1].end;
 			const expandedTick = (ms / duration) * totalExpanded;
@@ -1422,10 +1422,8 @@
 	}
 
 	function checkCursorVisibility() {
-		const cursor = api?._beatCursor;
-		if (!cursor || !cursor.element) return;
-
-		const el = cursor.element;
+		const el = target?.querySelector('.at-cursor-beat') as HTMLElement | null;
+		if (!el) return;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
 
@@ -1610,9 +1608,8 @@
 		// Auto-scroll cursor
 		const onPositionScroll = (e: any) => {
 			if (!autoFollow || userScrolling) return;
-			const cursor = apiRef?._beatCursor;
-			if (!cursor?.element) return;
-			const el = cursor.element;
+			const el = target?.querySelector('.at-cursor-beat') as HTMLElement | null;
+			if (!el) return;
 			const containerRect = target?.getBoundingClientRect();
 			const elRect = el.getBoundingClientRect();
 			if (!target || !containerRect) return;
@@ -1929,7 +1926,7 @@
 				},
 				getExpandedSequence: () => {
 					try {
-						const entries = api?._tickCache?.masterBars;
+						const entries = api?.tickCache?.masterBars;
 						if (!entries) return null;
 						return entries.map((e: any) => e.masterBar.index);
 					} catch { return null; }
