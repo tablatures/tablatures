@@ -2920,15 +2920,18 @@
 	{#if playing && !autoFollow}
 		<button
 			on:click={reEnableAutoFollow}
-			class="sticky bottom-12 z-[51] mx-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full
-				bg-neutral-800/90 dark:bg-neutral-200/90 text-white dark:text-neutral-900
-				text-xs font-medium shadow-lg backdrop-blur-sm
-				hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors cursor-pointer
+			class="sticky bottom-16 z-[51] mx-auto flex items-center gap-1.5 px-4 py-2 rounded-full
+				bg-violet-600 dark:bg-violet-500 text-white
+				text-sm font-medium shadow-lg
+				hover:bg-violet-700 dark:hover:bg-violet-400 transition-colors cursor-pointer
 				w-fit"
 			aria-label="Resume auto-follow"
 		>
-			<i class="material-icons !text-sm">vertical_align_bottom</i>
-			Auto-follow paused — click to resume
+			<i class="material-icons !text-base">vertical_align_bottom</i>
+			<span class="flex flex-col leading-tight">
+				<span>Auto-follow paused</span>
+				<span class="text-white/70 text-xs">click to resume</span>
+			</span>
 		</button>
 	{/if}
 
