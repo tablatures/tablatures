@@ -1649,7 +1649,12 @@
 		};
 		apiRef.renderStarted.on(onRenderStart);
 
-		const onRenderEnd = () => { isRendering = false; };
+		const onRenderEnd = () => {
+			isRendering = false;
+			if (loopStartBar !== null && loopEndBar !== null) {
+				updateScoreSelection();
+			}
+		};
 		apiRef.renderFinished?.on(onRenderEnd);
 
 		// SoundFont progress (might already be loaded)
@@ -1676,11 +1681,14 @@
 			try {
 				const bar1 = startBeat.voice?.bar?.masterBar?.index ?? 0;
 				const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
-				const startBar = Math.min(bar1, bar2);
-				const endBar = Math.max(bar1, bar2);
-				if (endBar < startBar) return;
-
-				renderOverlayForBars(startBar, endBar);
+				const sBar = Math.min(bar1, bar2);
+				const eBar = Math.max(bar1, bar2);
+				if (eBar < sBar) return;
+				// Temporarily set loop bars so updateScoreSelection renders the full UI
+				loopStartBar = sBar;
+				loopEndBar = eBar;
+				loopEnabled = true;
+				updateScoreSelection();
 			} catch {}
 		}
 
@@ -1730,13 +1738,17 @@
 			} catch {}
 		}
 
+		let mobileLoopSelecting = false;
+
 		const onBeatMouseDown = (beat: any) => {
+			if (mobileLoopSelecting) return;
 			scoreDragStartBeat = beat;
 			scoreDragging = false;
 		};
 		apiRef.beatMouseDown.on(onBeatMouseDown);
 
 		const onBeatMouseMove = (beat: any) => {
+			if (mobileLoopSelecting) return;
 			if (!scoreDragStartBeat || beat === scoreDragStartBeat) return;
 			scoreDragging = true;
 			showDragPreview(scoreDragStartBeat, beat);
@@ -1744,11 +1756,14 @@
 		apiRef.beatMouseMove.on(onBeatMouseMove);
 
 		const onBeatMouseUp = (beat: any) => {
+			if (mobileLoopSelecting) {
+				scoreDragStartBeat = null;
+				scoreDragging = false;
+				return;
+			}
+
 			if (!scoreDragging) {
-				// Single click - clear loop
-				if (loopStartBar !== null || loopEndBar !== null) {
-					clearLoopPoints();
-				}
+				// Don't clear loop on click - only via clear button or new selection
 				showSelectionPopover = false;
 			} else {
 				// Drag complete - commit the selection using bar indices
@@ -1776,6 +1791,180 @@
 			scoreDragging = false;
 		};
 		apiRef.beatMouseUp.on(onBeatMouseUp);
+
+		// --- Mobile touch loop selection ---
+		// Uses a transparent overlay with touch-action:none and CSS pointer-events
+		// toggled via @media (pointer: coarse). Desktop mouse clicks pass through.
+		{
+			const scoreHost = document.getElementById('player-host');
+			if (scoreHost) {
+				scoreHost.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+
+				// Safari workaround (dnd-kit pattern)
+				window.addEventListener('touchmove', () => {}, { passive: false });
+
+				let mobileStartBar: number | null = null;
+				let autoScrollRAF: number | null = null;
+				let resizingEdge: 'start' | 'end' | null = null;
+				let touchLpTimer: ReturnType<typeof setTimeout> | null = null;
+				let touchStartX = 0, touchStartY = 0;
+				let lastX = 0, lastY = 0;
+				let scrolling = false;
+				let lastBarUpdate = 0;
+				const LONG_PRESS_MS = 300;
+				const MOVE_THRESHOLD = 15;
+				const EDGE_GRAB_THRESHOLD = 40;
+
+				function barAtClientPos(cx: number, cy: number): number | null {
+					try {
+						const lookup = api?.renderer?.boundsLookup;
+						const sh = scoreHost;
+						if (!lookup || !sh) return null;
+						const r = sh.getBoundingClientRect();
+						const beat = lookup.getBeatAtPos(cx - r.left, cy - r.top + (sh.scrollTop || 0));
+						return beat?.voice?.bar?.masterBar?.index ?? null;
+					} catch { return null; }
+				}
+
+				function getLoopEdgeAtPos(cx: number, cy: number): 'start' | 'end' | null {
+					if (loopStartBar === null || loopEndBar === null) return null;
+					try {
+						const lookup = api?.renderer?.boundsLookup;
+						if (!lookup?.staffSystems) return null;
+						const hostRect = scoreHost!.getBoundingClientRect();
+						let sX = Infinity, eX = -Infinity, sY = 0, eY = 0;
+						for (const sg of lookup.staffSystems) {
+							if (!sg.bars) continue;
+							for (const mbb of sg.bars) {
+								const b = mbb.realBounds;
+								if (!b) continue;
+								if (mbb.index === loopStartBar) { const x = hostRect.left + b.x; if (x < sX) { sX = x; sY = hostRect.top + b.y + b.h/2; } }
+								if (mbb.index === loopEndBar) { const x = hostRect.left + b.x + b.w; if (x > eX) { eX = x; eY = hostRect.top + b.y + b.h/2; } }
+							}
+						}
+						const dS = Math.sqrt((cx-sX)**2 + (cy-sY)**2);
+						const dE = Math.sqrt((cx-eX)**2 + (cy-eY)**2);
+						if (dS < EDGE_GRAB_THRESHOLD && dS < dE) return 'start';
+						if (dE < EDGE_GRAB_THRESHOLD) return 'end';
+					} catch {}
+					return null;
+				}
+
+				function startAutoScroll(clientY: number) {
+					stopAutoScroll();
+					const vh = window.innerHeight;
+					const zone = 80;
+					let speed = 0;
+					if (clientY < zone) speed = -2 * ((zone - clientY) / zone);
+					else if (clientY > vh - zone) speed = 2 * ((clientY - (vh - zone)) / zone);
+					if (Math.abs(speed) > 0.3) {
+						(document.scrollingElement || document.documentElement).scrollTop += speed;
+						autoScrollRAF = requestAnimationFrame(() => startAutoScroll(clientY));
+					}
+				}
+
+				function stopAutoScroll() {
+					if (autoScrollRAF) { cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
+				}
+
+				// Create overlay (CSS controls pointer-events via @media (pointer: coarse))
+				const touchOverlay = document.createElement('div');
+				touchOverlay.className = 'score-touch-overlay';
+				scoreHost.appendChild(touchOverlay);
+
+				touchOverlay.addEventListener('touchstart', (e: TouchEvent) => {
+					if (e.touches.length !== 1) return;
+					if (mobileLoopSelecting) return;
+					e.preventDefault();
+					const t = e.touches[0];
+					touchStartX = t.clientX; touchStartY = t.clientY;
+					lastX = t.clientX; lastY = t.clientY;
+					scrolling = false; resizingEdge = null;
+
+					// Check edge grab on existing loop
+					const edge = getLoopEdgeAtPos(t.clientX, t.clientY);
+					if (edge && loopStartBar !== null && loopEndBar !== null) {
+						resizingEdge = edge;
+						mobileLoopSelecting = true;
+						mobileStartBar = edge === 'start' ? loopEndBar : loopStartBar;
+						try { navigator.vibrate?.(15); } catch {}
+						return;
+					}
+
+					// Start long-press timer
+					touchLpTimer = setTimeout(() => {
+						touchLpTimer = null;
+						if (scrolling) return;
+						const bar = barAtClientPos(touchStartX, touchStartY);
+						if (bar === null) return;
+						mobileLoopSelecting = true;
+						mobileStartBar = bar;
+						loopStartBar = bar; loopEndBar = bar; loopEnabled = true;
+						updateScoreSelection();
+						try { navigator.vibrate?.(30); } catch {}
+					}, LONG_PRESS_MS);
+				}, { passive: false });
+
+				touchOverlay.addEventListener('touchmove', (e: TouchEvent) => {
+					if (!e.touches[0]) return;
+					e.preventDefault();
+					const t = e.touches[0];
+
+					if (mobileLoopSelecting) {
+						stopAutoScroll(); startAutoScroll(t.clientY);
+						const now = Date.now();
+						if (now - lastBarUpdate < 33) return;
+						lastBarUpdate = now;
+						const bar = barAtClientPos(t.clientX, t.clientY);
+						if (bar !== null && mobileStartBar !== null) {
+							loopStartBar = Math.min(mobileStartBar, bar);
+							loopEndBar = Math.max(mobileStartBar, bar);
+							updateScoreSelection();
+						}
+					} else {
+						const dx = Math.abs(t.clientX - touchStartX);
+						const dy = Math.abs(t.clientY - touchStartY);
+						if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) {
+							if (touchLpTimer) { clearTimeout(touchLpTimer); touchLpTimer = null; }
+							scrolling = true;
+						}
+						if (scrolling) {
+							(document.scrollingElement || document.documentElement).scrollTop -= (t.clientY - lastY);
+						}
+					}
+					lastX = t.clientX; lastY = t.clientY;
+				}, { passive: false });
+
+				touchOverlay.addEventListener('touchend', (e: TouchEvent) => {
+					if (touchLpTimer) { clearTimeout(touchLpTimer); touchLpTimer = null; }
+					stopAutoScroll();
+					if (mobileLoopSelecting) {
+						if (loopStartBar !== null && loopEndBar !== null) loopEnabled = true;
+						mobileStartBar = null; resizingEdge = null;
+						// Re-render with full handles ([ ] brackets)
+						updateScoreSelection();
+						setTimeout(() => { mobileLoopSelecting = false; }, 400);
+					} else if (!scrolling && e.changedTouches?.[0]) {
+						// Tap: simulate click through overlay to alphaTab
+						const t = e.changedTouches[0];
+						touchOverlay.style.display = 'none';
+						const el = document.elementFromPoint(t.clientX, t.clientY);
+						touchOverlay.style.display = '';
+						if (el) {
+							el.dispatchEvent(new MouseEvent('mousedown', { clientX: t.clientX, clientY: t.clientY, bubbles: true }));
+							el.dispatchEvent(new MouseEvent('mouseup', { clientX: t.clientX, clientY: t.clientY, bubbles: true }));
+						}
+					}
+					scrolling = false;
+				});
+
+				touchOverlay.addEventListener('touchcancel', () => {
+					if (touchLpTimer) { clearTimeout(touchLpTimer); touchLpTimer = null; }
+					stopAutoScroll();
+					mobileLoopSelecting = false; mobileStartBar = null; resizingEdge = null; scrolling = false;
+				});
+			}
+		}
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -3822,6 +4011,23 @@
 	}
 
 	/* On mobile, both use fixed positioning for proper z-index stacking */
+	/* Touch overlay: invisible to mouse, active on touch devices */
+	:global(.score-touch-overlay) {
+		position: absolute;
+		inset: 0;
+		z-index: 10;
+		touch-action: none;
+		-webkit-touch-callout: none;
+		user-select: none;
+		-webkit-user-select: none;
+		pointer-events: none;
+	}
+	@media (pointer: coarse) {
+		:global(.score-touch-overlay) {
+			pointer-events: auto;
+		}
+	}
+
 	@media (max-width: 639px) {
 		.mobile-video-pip {
 			bottom: 117px;
@@ -3832,6 +4038,7 @@
 			left: 0;
 			right: 0;
 			z-index: 100 !important;
+			padding-bottom: env(safe-area-inset-bottom, 0px);
 		}
 	}
 </style>
