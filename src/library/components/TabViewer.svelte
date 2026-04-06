@@ -89,8 +89,6 @@
 	let mountScrollTarget: Window | HTMLElement | undefined;
 	let mountHandleResize: (() => void) | undefined;
 
-	let solo: boolean = false;
-	let mute: boolean = false;
 	let apiError = '';
 	let activeSettingsTab = 'settings';
 
@@ -1471,18 +1469,6 @@
 		const track = tracks[activeTrackIndex] || tracks[0];
 		if (track) {
 			api.renderTracks([track]);
-
-			// reset solo and mute
-			for (let t of tracks) {
-				t.playbackInfo.isSolo = false;
-				t.playbackInfo.isMute = false;
-			}
-
-			api.changeTrackSolo(tracks, false);
-			api.changeTrackMute(tracks, false);
-
-			solo = track.playbackInfo.isSolo;
-			mute = track.playbackInfo.isMute;
 		}
 	}
 
@@ -1494,13 +1480,6 @@
 	}
 	$: if (api) {
 		api.playbackSpeed = speed;
-		// Changing playbackSpeed resets the synth worker's internal state
-		// (track mute/solo/volume). The reset is async (worker message), so
-		// re-sync multiple times to cover the worker round-trip.
-		// See: https://github.com/tablatures/tablatures/issues/129
-		setTimeout(() => resyncTrackSettings(), 50);
-		setTimeout(() => resyncTrackSettings(), 200);
-		setTimeout(() => resyncTrackSettings(), 500);
 	}
 	$: if (api) {
 		api.metronomeVolume = metronome;
@@ -2410,27 +2389,6 @@
 		progressChange();
 	}
 
-	/** Push all local track mute/solo/volume state back into the alphaTab API.
-	 *  Called after operations that may reset the synth worker (e.g. speed change). */
-	function resyncTrackSettings() {
-		if (!api || tracks.length === 0 || trackMutes.length === 0) return;
-		for (let i = 0; i < tracks.length; i++) {
-			const track = tracks[i];
-			if (trackMutes[i]) {
-				track.playbackInfo.isMute = true;
-				api.changeTrackMute([track], true);
-			}
-			if (trackSolos[i]) {
-				track.playbackInfo.isSolo = true;
-				api.changeTrackSolo([track], true);
-			}
-			if (trackVolumes[i] !== undefined && trackVolumes[i] !== 1.0) {
-				track.playbackInfo.volume = trackVolumes[i];
-				api.changeTrackVolume([track], trackVolumes[i]);
-			}
-		}
-	}
-
 	function toggleTrackSolo(trackIndex: number) {
 		if (trackSolos[trackIndex]) {
 			trackSolos[trackIndex] = false;
@@ -2450,7 +2408,6 @@
 			api.changeTrackSolo([track], true);
 		}
 
-		solo = trackSolos[activeTrackIndex];
 	}
 
 	function toggleTrackMute(trackIndex: number) {
@@ -2458,10 +2415,6 @@
 		const track = tracks[trackIndex];
 		track.playbackInfo.isMute = trackMutes[trackIndex];
 		api.changeTrackMute([track], trackMutes[trackIndex]);
-
-		if (trackIndex === activeTrackIndex) {
-			mute = trackMutes[trackIndex];
-		}
 	}
 
 	function updateTrackVolume(trackIndex: number, volume: number) {
@@ -2474,9 +2427,6 @@
 	function setActiveTrack(trackIndex: number) {
 		activeTrackIndex = trackIndex;
 		api.renderTracks([tracks[trackIndex]]);
-
-		solo = trackSolos[trackIndex];
-		mute = trackMutes[trackIndex];
 	}
 
 	function getTrackInfo(track: any): string {
@@ -2492,7 +2442,6 @@
 			track.playbackInfo.isMute = true;
 			api.changeTrackMute([track], true);
 		});
-		mute = trackMutes[activeTrackIndex];
 	}
 
 	function unmuteAllTracks() {
@@ -2501,7 +2450,6 @@
 			track.playbackInfo.isMute = false;
 			api.changeTrackMute([track], false);
 		});
-		mute = false;
 	}
 
 	function resetAllVolumes() {

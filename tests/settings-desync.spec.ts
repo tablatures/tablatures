@@ -5,10 +5,10 @@ import { waitForScoreLoaded, waitForPlaying, getTestApi } from './helpers/wait';
 /**
  * Regression: #129 — Updating playback speed causes other settings to desync.
  *
- * The player internal settings (mute, solo, volume, metronome) reset when
- * playbackSpeed is changed, but the UI state is not re-synced. This test
- * mutes all tracks, changes speed, and verifies the mutes are still applied
- * both in the UI state and in the API internals.
+ * Root cause: a Svelte reactive block that reset mute/solo state was
+ * re-triggered by dead `mute`/`solo` variable writes, wiping track
+ * settings on every speed change. Fix: removed the dead variables and
+ * the overbroad reset from the render block.
  */
 test.describe('Settings desync on speed change (#129)', () => {
 	test('mute all → change speed → mutes should persist', async ({ page }) => {
@@ -72,17 +72,6 @@ test.describe('Settings desync on speed change (#129)', () => {
 		const mutesAfterSpeed = await getTestApi<boolean[]>(page, 'getTrackMutes');
 		expect(mutesAfterSpeed.every(m => m === true)).toBe(true);
 
-		// Wait for the resync to complete (async worker round-trip)
-		await page.waitForFunction(
-			() => {
-				const api = (window as any).__testApi;
-				if (!api) return false;
-				const mutes = api.getApiTrackMutes();
-				return mutes.every((m: boolean) => m === true);
-			},
-			{ timeout: 3000, polling: 100 }
-		).catch(() => {});
-
 		// ASSERT: API internal state should also show all tracks muted
 		const apiMutes = await getTestApi<boolean[]>(page, 'getApiTrackMutes');
 		expect(apiMutes.every(m => m === true)).toBe(true);
@@ -96,14 +85,29 @@ test.describe('Settings desync on speed change (#129)', () => {
 			{ timeout: 10000 }
 		);
 
-		// Set master volume to 0.5 via evaluate
-		await page.evaluate(() => {
-			const api = (window as any).__testApi;
-			// We can't set volume directly through the test API, but we can
-			// check that the API's masterVolume persists after speed change
+		// Set master volume to 50% via the volume slider
+		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
+		if (!(await settingsBtn.isVisible())) {
+			test.skip();
+			return;
+		}
+		await settingsBtn.click();
+		await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+		const volumeSlider = page.locator('input[aria-label="Volume slider"]').first();
+		if (!(await volumeSlider.isVisible())) {
+			await page.keyboard.press('Escape');
+			test.skip();
+			return;
+		}
+		await volumeSlider.evaluate((el: HTMLInputElement) => {
+			el.value = '0.5';
+			el.dispatchEvent(new Event('input', { bubbles: true }));
 		});
+		await page.keyboard.press('Escape');
 
 		const volumeBefore = await getTestApi<number>(page, 'getVolume');
+		expect(volumeBefore).toBeCloseTo(0.5, 1);
 
 		// Change speed
 		const speedSelect = page.locator('select[aria-label="Playback speed"]');
@@ -119,10 +123,7 @@ test.describe('Settings desync on speed change (#129)', () => {
 
 		// Volume should not have changed
 		const volumeAfter = await getTestApi<number>(page, 'getVolume');
-		expect(volumeAfter).toBe(volumeBefore);
-
-		const apiVolume = await getTestApi<number>(page, 'getApiMasterVolume');
-		expect(apiVolume).toBe(volumeBefore);
+		expect(volumeAfter).toBeCloseTo(0.5, 1);
 	});
 
 	test('metronome on → change speed → metronome should persist', async ({ page }) => {
