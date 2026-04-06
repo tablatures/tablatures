@@ -199,9 +199,8 @@
 		autoFollow = true;
 		autoFollowDisengagedAt = 0;
 		// Scroll to current cursor position
-		const cursor = api?._beatCursor;
-		if (!cursor?.element) return;
-		const el = cursor.element;
+		const el = get(beatCursorEl);
+		if (!el) return;
 		const containerRect = target?.getBoundingClientRect();
 		const elRect = el.getBoundingClientRect();
 		if (!target || !containerRect) return;

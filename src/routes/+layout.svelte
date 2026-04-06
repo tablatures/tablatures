@@ -191,10 +191,8 @@
 
 		api.renderFinished?.on(() => {
 			updatePlayerState({ isRendering: false });
-			// Cache beat cursor element once after render (avoids per-frame DOM queries during playback)
-			if (!get(beatCursorEl)) {
-				beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
-			}
+			// Re-query cursor element on every render (still avoids per-frame DOM queries)
+			beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
 		});
 
 		api.error?.on((error) => {
