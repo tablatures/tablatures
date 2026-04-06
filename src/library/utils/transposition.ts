@@ -63,13 +63,22 @@ function stateCost(state: BeatState): number {
 	// Prefer lower fret positions
 	cost += state.avgFret * 0.05;
 
-	// Penalize wide fret span within a chord
 	if (state.positions.length > 1) {
-		const frets = state.positions.filter((p) => p.fret > 0).map((p) => p.fret);
+		const frettedPositions = state.positions.filter((p) => p.fret > 0);
+		const frets = frettedPositions.map((p) => p.fret);
+
 		if (frets.length > 1) {
+			// Penalize wide fret span within a chord
 			const span = Math.max(...frets) - Math.min(...frets);
 			if (span > MAX_COMFORTABLE_SPAN) {
 				cost += (span - MAX_COMFORTABLE_SPAN) ** 2;
+			}
+
+			// Finger count constraint: count unique frets (same fret = 1 barre finger)
+			const uniqueFrets = new Set(frets);
+			const fingerCount = uniqueFrets.size;
+			if (fingerCount > 4) {
+				cost += (fingerCount - 4) * 10;
 			}
 		}
 	}
@@ -382,6 +391,50 @@ export function transposeScore(
 		note.fret = pos.fret;
 		note.string = pos.string;
 		transposedCount++;
+	}
+
+	// Post-transposition collision check: ensure no beat has two notes on the same string
+	for (const beat of beats) {
+		const stringUsage = new Map<number, any[]>();
+		for (const note of beat.notes) {
+			const existing = stringUsage.get(note.string);
+			if (existing) {
+				existing.push(note);
+			} else {
+				stringUsage.set(note.string, [note]);
+			}
+		}
+		// Resolve collisions: keep the note with the lowest fret, try to reassign others
+		for (const [str, notes] of stringUsage) {
+			if (notes.length <= 1) continue;
+			// Sort by fret (keep lowest)
+			notes.sort((a: any, b: any) => a.fret - b.fret);
+			for (let i = 1; i < notes.length; i++) {
+				const note = notes[i];
+				const midi = note.fret + targetTuning[note.string - 1] + targetCapo;
+				// Try to find an alternative string
+				let reassigned = false;
+				for (let s = 0; s < targetTuning.length; s++) {
+					const altString = s + 1;
+					if (stringUsage.has(altString) && stringUsage.get(altString)!.length > 0 && altString !== str) {
+						// Check if this string is already used in this beat
+						const usedInBeat = beat.notes.some((n: any) => n !== note && n.string === altString);
+						if (usedInBeat) continue;
+					}
+					const altFret = midi - targetTuning[s] - targetCapo;
+					if (altFret >= 0 && altFret <= 24 && altString !== str) {
+						note.string = altString;
+						note.fret = altFret;
+						reassigned = true;
+						break;
+					}
+				}
+				if (!reassigned) {
+					// Mark as unplayable by setting fret to -1
+					note.fret = 0;
+				}
+			}
+		}
 	}
 
 	// Build unplayable notes list
