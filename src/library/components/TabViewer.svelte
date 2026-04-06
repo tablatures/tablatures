@@ -1494,6 +1494,13 @@
 	}
 	$: if (api) {
 		api.playbackSpeed = speed;
+		// Changing playbackSpeed resets the synth worker's internal state
+		// (track mute/solo/volume). The reset is async (worker message), so
+		// re-sync multiple times to cover the worker round-trip.
+		// See: https://github.com/tablatures/tablatures/issues/129
+		setTimeout(() => resyncTrackSettings(), 50);
+		setTimeout(() => resyncTrackSettings(), 200);
+		setTimeout(() => resyncTrackSettings(), 500);
 	}
 	$: if (api) {
 		api.metronomeVolume = metronome;
@@ -1974,6 +1981,16 @@
 				tex: (texString: string) => {
 					if (api) api.tex(texString);
 				},
+				getMetronome: () => metronome,
+				getTrackMutes: () => [...trackMutes],
+				getTrackSolos: () => [...trackSolos],
+				getTrackVolumes: () => [...trackVolumes],
+				getTrackCount: () => tracks.length,
+				// Read the actual API internal state (not our UI copy)
+				getApiTrackMutes: () => tracks.map(t => t.playbackInfo.isMute),
+				getApiMasterVolume: () => api?.masterVolume ?? -1,
+				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1,
 			};
 		}
 
@@ -2391,6 +2408,27 @@
 		progress = computed * 100;
 
 		progressChange();
+	}
+
+	/** Push all local track mute/solo/volume state back into the alphaTab API.
+	 *  Called after operations that may reset the synth worker (e.g. speed change). */
+	function resyncTrackSettings() {
+		if (!api || tracks.length === 0 || trackMutes.length === 0) return;
+		for (let i = 0; i < tracks.length; i++) {
+			const track = tracks[i];
+			if (trackMutes[i]) {
+				track.playbackInfo.isMute = true;
+				api.changeTrackMute([track], true);
+			}
+			if (trackSolos[i]) {
+				track.playbackInfo.isSolo = true;
+				api.changeTrackSolo([track], true);
+			}
+			if (trackVolumes[i] !== undefined && trackVolumes[i] !== 1.0) {
+				track.playbackInfo.volume = trackVolumes[i];
+				api.changeTrackVolume([track], trackVolumes[i]);
+			}
+		}
 	}
 
 	function toggleTrackSolo(trackIndex: number) {
