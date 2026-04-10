@@ -38,6 +38,9 @@ export const playerApi = writable<any>(null);
 // The persistent DOM element where alphaTab renders
 export const playerTarget = writable<HTMLElement | null>(null);
 
+// Cached beat cursor element (set via querySelector after render, avoids per-frame DOM queries)
+export const beatCursorEl = writable<HTMLElement | null>(null);
+
 // Reactive player state for UI binding
 export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });
 
