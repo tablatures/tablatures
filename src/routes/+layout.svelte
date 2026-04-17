@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
+	import 'material-icons/iconfont/outlined.css';
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
@@ -17,6 +18,8 @@
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
+	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import { tunerOpen } from '../library/utils/tuner';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
@@ -433,6 +436,9 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Guitar Tuner panel (global, floats below header) -->
+	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
 
 	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
 		<slot />
