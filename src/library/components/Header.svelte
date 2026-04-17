@@ -6,6 +6,7 @@
 	import ThemeToggle from './ThemeToggle.svelte';
 	import IconButton from './IconButton.svelte';
 	import SearchBar from './SearchBar.svelte';
+	import { tunerOpen } from '../utils/tuner';
 
 	export let showSearch: boolean = true;
 	export let searchValue: string = '';
@@ -15,6 +16,7 @@
 	let mobileSearchOpen = false;
 	let searchBar: SearchBar;
 	let scrolled = false;
+	let tunerHovered = false;
 
 	// Check if we're on the search page
 	$: isOnSearch = $page.url.pathname.includes('/search');
@@ -39,9 +41,15 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+		const tag = (e.target as HTMLElement)?.tagName;
+		if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+
+		if (e.key === '/') {
 			e.preventDefault();
 			searchBar?.focus();
+		} else if (e.key === 'g' || e.key === 'G') {
+			e.preventDefault();
+			tunerOpen.update(v => !v);
 		}
 	}
 </script>
@@ -83,6 +91,33 @@
 					<IconButton icon="search" label="Search" on:click={() => (mobileSearchOpen = !mobileSearchOpen)} />
 				</div>
 			{/if}
+
+			<div
+				class="relative"
+				role="group"
+				data-tuner-toggle
+				on:mouseenter={() => (tunerHovered = true)}
+				on:mouseleave={() => (tunerHovered = false)}
+			>
+				<button
+					on:click={() => tunerOpen.update(v => !v)}
+					class="inline-flex items-center justify-center rounded-full transition-all duration-150 active:scale-90 cursor-pointer !text-xl p-1.5
+						{$tunerOpen
+							? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
+							: 'text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+					title="Guitar Tuner"
+					aria-label="Guitar Tuner"
+				>
+					<i class="material-icons-outlined !text-xl">compass_calibration</i>
+				</button>
+				{#if tunerHovered && !$tunerOpen}
+					<div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1.5 rounded-lg shadow-md whitespace-nowrap pointer-events-none z-[110]
+						bg-neutral-800 dark:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-medium">
+						Guitar Tuner
+						<kbd class="ml-1.5 px-1 py-0.5 rounded text-[10px] font-mono bg-neutral-700 dark:bg-neutral-300">G</kbd>
+					</div>
+				{/if}
+			</div>
 
 			<a
 				href="{base}/collection"

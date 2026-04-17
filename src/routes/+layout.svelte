@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
+	import 'material-icons/iconfont/outlined.css';
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
@@ -11,12 +12,14 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource } from '../library/utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
+	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import { tunerOpen } from '../library/utils/tuner';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
@@ -103,7 +106,7 @@
 			},
 			player: {
 				scrollMode: 0,
-				enablePlayer: true,
+				playerMode: 2, // EnabledSynthesizer — enablePlayer is broken in v1.8.x
 				enableUserInteraction: true,
 				enableCursor: true,
 				soundFont: prefs.soundFontUrl
@@ -123,9 +126,8 @@
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
 			if (!get(isTransitioning) && !get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
-				const cursor = api?._beatCursor;
-				if (cursor?.element) {
-					const el = cursor.element;
+				const el = get(beatCursorEl);
+				if (el) {
 					const anchorRect = playerHostAnchor.getBoundingClientRect();
 					const elRect = el.getBoundingClientRect();
 					if (anchorRect.width > 0 && elRect.width > 0) {
@@ -192,6 +194,8 @@
 
 		api.renderFinished?.on(() => {
 			updatePlayerState({ isRendering: false });
+			// Re-query cursor element on every render (still avoids per-frame DOM queries)
+			beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
 		});
 
 		api.error?.on((error) => {
@@ -432,6 +436,9 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Guitar Tuner panel (global, floats below header) -->
+	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
 
 	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-11 sm:pb-[272px]' : 'pb-11 sm:pb-14') : ''}">
 		<slot />

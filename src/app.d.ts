@@ -71,7 +71,7 @@ declare global {
 			pause(): void;
 			updateSettings(): void;
 			render(): void;
-			_beatCursor?: { element?: HTMLElement };
+			tickCache?: { masterBars: any[] } | null;
 		}
 
 		interface Gp7Exporter {
