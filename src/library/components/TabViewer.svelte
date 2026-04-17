@@ -89,8 +89,6 @@
 	let mountScrollTarget: Window | HTMLElement | undefined;
 	let mountHandleResize: (() => void) | undefined;
 
-	let solo: boolean = false;
-	let mute: boolean = false;
 	let apiError = '';
 	let activeSettingsTab = 'settings';
 
@@ -1468,18 +1466,6 @@
 		const track = tracks[activeTrackIndex] || tracks[0];
 		if (track) {
 			api.renderTracks([track]);
-
-			// reset solo and mute
-			for (let t of tracks) {
-				t.playbackInfo.isSolo = false;
-				t.playbackInfo.isMute = false;
-			}
-
-			api.changeTrackSolo(tracks, false);
-			api.changeTrackMute(tracks, false);
-
-			solo = track.playbackInfo.isSolo;
-			mute = track.playbackInfo.isMute;
 		}
 	}
 
@@ -1970,6 +1956,16 @@
 				tex: (texString: string) => {
 					if (api) api.tex(texString);
 				},
+				getMetronome: () => metronome,
+				getTrackMutes: () => [...trackMutes],
+				getTrackSolos: () => [...trackSolos],
+				getTrackVolumes: () => [...trackVolumes],
+				getTrackCount: () => tracks.length,
+				// Read the actual API internal state (not our UI copy)
+				getApiTrackMutes: () => tracks.map(t => t.playbackInfo.isMute),
+				getApiMasterVolume: () => api?.masterVolume ?? -1,
+				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1,
 			};
 		}
 
@@ -2408,7 +2404,6 @@
 			api.changeTrackSolo([track], true);
 		}
 
-		solo = trackSolos[activeTrackIndex];
 	}
 
 	function toggleTrackMute(trackIndex: number) {
@@ -2416,10 +2411,6 @@
 		const track = tracks[trackIndex];
 		track.playbackInfo.isMute = trackMutes[trackIndex];
 		api.changeTrackMute([track], trackMutes[trackIndex]);
-
-		if (trackIndex === activeTrackIndex) {
-			mute = trackMutes[trackIndex];
-		}
 	}
 
 	function updateTrackVolume(trackIndex: number, volume: number) {
@@ -2432,9 +2423,6 @@
 	function setActiveTrack(trackIndex: number) {
 		activeTrackIndex = trackIndex;
 		api.renderTracks([tracks[trackIndex]]);
-
-		solo = trackSolos[trackIndex];
-		mute = trackMutes[trackIndex];
 	}
 
 	function getTrackInfo(track: any): string {
@@ -2450,7 +2438,6 @@
 			track.playbackInfo.isMute = true;
 			api.changeTrackMute([track], true);
 		});
-		mute = trackMutes[activeTrackIndex];
 	}
 
 	function unmuteAllTracks() {
@@ -2459,7 +2446,6 @@
 			track.playbackInfo.isMute = false;
 			api.changeTrackMute([track], false);
 		});
-		mute = false;
 	}
 
 	function resetAllVolumes() {
