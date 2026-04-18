@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { historyStore } from '../utils/history';
 	import type { HistoryItem } from '../utils/history';
+	import LoadingScore from './LoadingScore.svelte';
 
 	export let value: string = '';
 	export let placeholder: string = 'Search for tabs...';
@@ -147,7 +148,7 @@
 
 <div class="relative {compact ? '' : 'w-full max-w-2xl'}">
 	<div class="relative flex items-center">
-		<i class="material-icons !text-lg absolute left-3 text-neutral-400 dark:text-neutral-500 pointer-events-none">search</i>
+		<i class="material-icons !text-lg absolute left-3 text-neutral-500 dark:text-neutral-400 pointer-events-none">search</i>
 		<!-- svelte-ignore a11y-autofocus -->
 		<input
 			bind:this={inputEl}
@@ -169,7 +170,7 @@
 		/>
 		{#if loading}
 			<div class="absolute right-3">
-				<div class="animate-spin rounded-full h-4 w-4 border-2 border-neutral-300 border-t-violet-500" />
+				<LoadingScore size="xs" message="" />
 			</div>
 		{/if}
 	</div>
@@ -181,7 +182,7 @@
 			<!-- Recent items (when input is empty) -->
 			{#if showRecent}
 				<div class="px-3 pt-3 pb-1">
-					<span class="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">Recent</span>
+					<span class="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Recent</span>
 				</div>
 				{#each recentItems as item, i}
 					<button
@@ -199,12 +200,12 @@
 							{#if recentArtwork[item.id]}
 								<img src={recentArtwork[item.id]} alt="" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 							{:else}
-								<i class="material-icons !text-base text-neutral-400 dark:text-neutral-500">history</i>
+								<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">history</i>
 							{/if}
 						</div>
 						<div class="flex-1 min-w-0">
 							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{item.title}</div>
-							<div class="text-xs text-neutral-400 dark:text-neutral-500 truncate">{item.artist}</div>
+							<div class="text-xs text-neutral-500 dark:text-neutral-400 truncate">{item.artist}</div>
 						</div>
 						<button
 							class="flex-shrink-0 p-1 rounded-full text-neutral-300 dark:text-neutral-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
@@ -223,7 +224,7 @@
 				{#each suggestions as s, i}
 					{#if i === 0 || s.type !== suggestions[i - 1]?.type}
 						<div class="px-3 pt-2 pb-1">
-							<span class="text-[11px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
+							<span class="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
 								{s.type === 'song' ? 'Songs' : s.type === 'album' ? 'Albums' : s.type === 'artist' ? 'Artists' : 'Suggestions'}
 							</span>
 						</div>
@@ -240,16 +241,16 @@
 						on:pointerdown|preventDefault={() => applySuggestion(s)}
 					>
 						<div class="flex-shrink-0 w-9 h-9 rounded-lg {s.type === 'artist' ? 'bg-violet-100 dark:bg-violet-900/30' : 'bg-neutral-100 dark:bg-neutral-800'} flex items-center justify-center">
-							<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}">{suggestionIcon(s.type)}</i>
+							<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
 						</div>
 						<div class="flex-1 min-w-0">
 							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200">{s.value}</div>
 							{#if s.info}
-								<div class="text-xs text-neutral-400 dark:text-neutral-500">{s.info}</div>
+								<div class="text-xs text-neutral-500 dark:text-neutral-400">{s.info}</div>
 							{/if}
 						</div>
 						{#if s.type}
-							<span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 flex-shrink-0">{s.type}</span>
+							<span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 flex-shrink-0">{s.type}</span>
 						{/if}
 					</button>
 				{/each}
@@ -258,7 +259,7 @@
 			<!-- Hint -->
 			{#if showRecent}
 				<div class="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
-					<span class="text-[11px] text-neutral-400 dark:text-neutral-500">
+					<span class="text-[11px] text-neutral-500 dark:text-neutral-400">
 						<kbd class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono">/</kbd> to focus &middot; Type to search
 					</span>
 				</div>

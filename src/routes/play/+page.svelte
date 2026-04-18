@@ -12,7 +12,7 @@
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState } from '../../library/utils/playerStore';
+	import { activeVideoId, playerState, updatePlayerState } from '../../library/utils/playerStore';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -174,6 +174,22 @@
 		// No-op on play - search triggers on Enter via handleSearchFromPlay
 	}
 
+	/** Best-effort parse of a tab ID like "guitarprotaborg_gorillaz_white_light" into
+	 *  { source, artist, title } for optimistic display before the file loads. */
+	function parseTabId(tabId: string): { source?: string; artist?: string; title?: string } {
+		const parts = tabId.split('_');
+		if (parts.length < 2) return {};
+		const source = parts[0];
+		const rest = parts.slice(1);
+		if (rest.length === 0) return { source };
+		// Heuristic: first segment is artist, remaining segments are the title.
+		const titleize = (s: string) =>
+			s.split('-').join(' ').replace(/\b\w/g, (c) => c.toUpperCase());
+		const artist = titleize(rest[0]);
+		const title = rest.length > 1 ? titleize(rest.slice(1).join(' ')) : '';
+		return { source, artist, title };
+	}
+
 	async function fetchSharedTab(tabId: string) {
 		if (!browser || !SEARCH_API_BASE_URL) return;
 		loadingSharedTab = true;
@@ -196,7 +212,24 @@
 			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Tab file is empty');
 
 			const b64 = arrayBufferToBase64(arrayBuffer);
-			tabStore.setTab({ fileAsB64: b64, tabId });
+			// Prefill title/artist/source from the ID so the UI has something to show
+			// even if the downloaded file has no embedded metadata. The alphaTab scoreLoaded
+			// event will override these with real values from the file if present.
+			const parsed = parseTabId(tabId);
+			tabStore.setTab({
+				fileAsB64: b64,
+				tabId,
+				source: parsed.source,
+				title: parsed.title,
+				artist: parsed.artist
+			});
+			// Also pre-fill playerState so TabViewer shows the fallback title until scoreLoaded fires
+			if (parsed.title || parsed.artist) {
+				updatePlayerState({
+					title: parsed.title || '',
+					artist: parsed.artist || ''
+				});
+			}
 		} catch (err: any) {
 			console.error('Failed to fetch shared tab:', err);
 			sharedTabError = err?.message || 'Failed to load tab';

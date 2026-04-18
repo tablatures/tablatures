@@ -48,9 +48,9 @@
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 
-<div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
+<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-3.5rem)]">
 	<HomeFeed {openTab} />
-</div>
+</main>
 
 <!-- Minimal footer -->
 <div class="text-center py-6 text-xs text-neutral-400 dark:text-neutral-600">

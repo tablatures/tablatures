@@ -1,71 +1,58 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import ResultCard from './ResultCard.svelte';
-	import SectionHeader from './SectionHeader.svelte';
-	import SkeletonCard from './SkeletonCard.svelte';
+	import TabCard from './TabCard.svelte';
+	import SkeletonTabCard from './SkeletonTabCard.svelte';
+	import LoadingScore from './LoadingScore.svelte';
 	import { historyStore } from '../utils/history';
 	import { favoritesStore } from '../utils/favorites';
+	import { favoriteArtistsStore } from '../utils/favoriteArtists';
 	import { tabStore } from '../utils/store';
+	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
+	import { fetchArtworkBatch } from '../utils/artwork';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
 	export let openTab: (tab: any) => Promise<void>;
 
-	let recentItems: any[] = [];
-	let recommended: any[] = [];
-	let discover: any[] = [];
-	let stats: { totalTabs?: number; totalArtists?: number } = {};
-	let recentArtwork: Record<string, string> = {};
+	/** One continuous deduplicated feed of tabs */
+	let feedTabs: any[] = [];
+	let feedArtwork: Record<string, string> = {};
+	const seenIds = new Set<string>();
+	/** Tabs whose artwork fetch is still in-flight — drives card pulse */
+	let artworkLoadingIds = new Set<string>();
 
-	let loadingRecommended = true;
-	let loadingDiscover = true;
-	let loadingStats = true;
+	let sentinelEl: HTMLDivElement | undefined;
+	let observer: IntersectionObserver | undefined;
+	let loadingFeed = false;
+	let exhausted = false;
+	/** Consecutive empty fetches — if too many, stop trying */
+	let emptyFetchesInARow = 0;
 
+	// Throttle / backoff state
+	const MIN_FETCH_INTERVAL_MS = 400;
+	const EMPTY_BACKOFF_MS = 800;
+	/** Stop trying after this many consecutive fetches that yielded zero new tabs. */
+	const EXHAUST_THRESHOLD = 15;
+	let lastFetchAt = 0;
+
+	// Playlist picker state
+	let playlistPickerTab: any | null = null;
+	let showNewInlinePlaylist = false;
+	let newInlinePlaylistName = '';
+	$: allPlaylists = $playlistStore;
+
+	// Import card
 	let dragActive = false;
 	let fileInput: HTMLInputElement;
-
-	import { fetchArtworkBatch } from '../utils/artwork';
-
-	let recommendedArtwork: Record<string, string> = {};
-	let discoverArtwork: Record<string, string> = {};
-	
-	async function fetchArtwork(tabs: any[], artworkMap: Record<string, string>, setter: (m: Record<string, string>) => void) {
-		const updated = await fetchArtworkBatch(tabs.slice(0, 12), artworkMap);
-		setter(updated);
-	}
-
-	$: recentItems = $historyStore.slice(0, 4);
-	let recentArtworkFetched = false;
-	$: if (recentItems.length > 0 && !recentArtworkFetched) {
-		recentArtworkFetched = true;
-		fetchArtworkBatch(recentItems, recentArtwork).then(m => { recentArtwork = m; });
-	}
-
-	function getArtists(): string[] {
-		const history = get(historyStore);
-		const favorites = get(favoritesStore);
-		const artistSet = new Set<string>();
-		for (const item of [...history, ...favorites]) {
-			if (item.artist && item.artist !== 'Unknown') {
-				artistSet.add(item.artist);
-			}
-		}
-		return Array.from(artistSet);
-	}
-
-	function getExcludeIds(): string[] {
-		const history = get(historyStore);
-		return history.map((h) => h.id).filter(Boolean);
-	}
 
 	function mapResults(results: any[]): any[] {
 		if (!Array.isArray(results)) return [];
 		return results
-			.filter((t: any) => t && typeof t.title === 'string')
+			.filter((t: any) => t && typeof t.title === 'string' && t.id)
 			.map((t: any) => ({
 				id: t.id || '',
 				title: t.title || 'Unknown',
@@ -77,82 +64,198 @@
 			}));
 	}
 
-	async function fetchRecommended() {
-		loadingRecommended = true;
-		try {
-			const artists = getArtists();
-			const exclude = getExcludeIds();
-			let url: string;
-			if (artists.length > 0) {
-				const params = new URLSearchParams({ limit: '8' });
-				artists.forEach((a) => params.append('artists', a));
-				exclude.forEach((id) => params.append('exclude', id));
-				url = `${SEARCH_API_BASE_URL}/api/recommendations?${params}`;
-			} else {
-				// No history/favorites yet - show random tabs as default recommendations
-				url = `${SEARCH_API_BASE_URL}/api/random?count=8`;
-			}
-			const res = await fetch(url);
-			if (res.ok) {
-				const data = await res.json();
-				// Handle grouped response format (new API) or flat results (fallback)
-				if (data.groups && Array.isArray(data.groups)) {
-					const allResults: any[] = [];
-					for (const group of data.groups) {
-						if (group.results) allResults.push(...group.results);
-					}
-					recommended = mapResults(allResults);
-				} else {
-					recommended = mapResults(data.results || data);
+	function getExcludeIds(): string[] {
+		const history = get(historyStore);
+		const historyIds = history.map((h) => h.id).filter(Boolean);
+		// Also exclude already-seen items in our feed
+		return [...new Set([...historyIds, ...seenIds])];
+	}
+
+	/** Pool of endpoints we'll cycle through for the continuous feed. */
+	let pool: Array<{ endpoint: () => string; minYield?: number }> = [];
+	let nextPoolIndex = 0;
+
+	function buildPool() {
+		const favArtistNames = Array.from(new Set(get(favoriteArtistsStore).map((a) => a.name))).slice(
+			0,
+			5
+		);
+		const historyArtists = Array.from(
+			new Set(
+				[...get(historyStore), ...get(favoritesStore)]
+					.map((i) => i.artist)
+					.filter((a) => a && a !== 'Unknown')
+			)
+		).slice(0, 10);
+
+		const allTasteArtists = Array.from(new Set([...favArtistNames, ...historyArtists]));
+
+		pool = [];
+
+		// Big mixed recommendations based on all taste
+		if (allTasteArtists.length > 0) {
+			pool.push({
+				endpoint: () => {
+					const params = new URLSearchParams({ limit: '20' });
+					allTasteArtists.forEach((a) => params.append('artists', a));
+					getExcludeIds().forEach((id) => params.append('exclude', id));
+					return `/api/recommendations?${params}`;
+				},
+				minYield: 5
+			});
+		}
+
+		// Per-artist recommendations (shuffled order) -- spread out, not labeled
+		const shuffled = [...allTasteArtists].sort(() => Math.random() - 0.5);
+		for (const artist of shuffled) {
+			pool.push({
+				endpoint: () => {
+					const params = new URLSearchParams({ limit: '12' });
+					params.append('artists', artist);
+					getExcludeIds().forEach((id) => params.append('exclude', id));
+					return `/api/recommendations?${params}`;
 				}
-				fetchArtwork(recommended, recommendedArtwork, (m) => { recommendedArtwork = m; });
-			}
-		} catch {
-			// silently fail
-		} finally {
-			loadingRecommended = false;
+			});
+		}
+
+		// Random batches — always available, cycles forever
+		for (let i = 0; i < 20; i++) {
+			pool.push({
+				endpoint: () => `/api/random?count=16`
+			});
 		}
 	}
 
-	async function fetchDiscover() {
-		loadingDiscover = true;
+	function markExhausted() {
+		if (emptyFetchesInARow >= EXHAUST_THRESHOLD) exhausted = true;
+	}
+
+	function resetAndRetry() {
+		emptyFetchesInARow = 0;
+		exhausted = false;
+		lastFetchAt = 0;
+		// Rebuild pool in case user state changed since mount
+		buildPool();
+		nextPoolIndex = 0;
+		fetchMore();
+	}
+
+	async function fetchMore() {
+		if (loadingFeed || exhausted) return;
+		// Throttle: don't fetch more often than MIN_FETCH_INTERVAL_MS
+		const now = Date.now();
+		if (now - lastFetchAt < MIN_FETCH_INTERVAL_MS) return;
+		lastFetchAt = now;
+
+		if (nextPoolIndex >= pool.length) {
+			// Wrap around to random pool for truly infinite scroll
+			if (pool.length > 0) {
+				nextPoolIndex = Math.max(0, pool.length - 20);
+				// Give wrapped random fetches a fresh chance — don't carry over empty streak
+				emptyFetchesInARow = Math.max(0, emptyFetchesInARow - 5);
+			} else {
+				exhausted = true;
+				return;
+			}
+		}
+
+		loadingFeed = true;
 		try {
-			const res = await fetch(`${SEARCH_API_BASE_URL}/api/random?count=8`);
-			if (res.ok) {
-				const data = await res.json();
-				discover = mapResults(data.results || data);
-				fetchArtwork(discover, discoverArtwork, (m) => { discoverArtwork = m; });
+			const config = pool[nextPoolIndex++];
+			const res = await fetch(`${SEARCH_API_BASE_URL}${config.endpoint()}`);
+			if (!res.ok) {
+				emptyFetchesInARow++;
+				markExhausted();
+				// Backoff so we don't hammer a failing server
+				await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
+				return;
 			}
+			const data = await res.json();
+
+			let incoming: any[];
+			if (data.groups && Array.isArray(data.groups)) {
+				const all: any[] = [];
+				for (const g of data.groups) if (g.results) all.push(...g.results);
+				incoming = mapResults(all);
+			} else {
+				incoming = mapResults(data.results || data);
+			}
+
+			// Dedupe against already-seen
+			const newTabs = incoming.filter((t) => {
+				if (!t.id || seenIds.has(t.id)) return false;
+				seenIds.add(t.id);
+				return true;
+			});
+
+			if (newTabs.length === 0) {
+				emptyFetchesInARow++;
+				markExhausted();
+				// Short backoff before next attempt
+				await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
+				return;
+			}
+
+			emptyFetchesInARow = 0;
+			feedTabs = [...feedTabs, ...newTabs];
+
+			// Mark these as "artwork loading" so cards show a pulse
+			for (const t of newTabs) artworkLoadingIds.add(t.id);
+			artworkLoadingIds = artworkLoadingIds;
+
+			// Fetch artwork for new tabs in background.
+			// IMPORTANT: merge only this batch's own fetched entries into the live map.
+			// Using `feedArtwork = m` would overwrite other in-flight batches' updates
+			// because each call to fetchArtworkBatch returns a new map based on its own
+			// starting snapshot.
+			fetchArtworkBatch(newTabs, {}).then((m) => {
+				const additions: Record<string, string> = {};
+				for (const t of newTabs) {
+					if (m[t.id]) additions[t.id] = m[t.id];
+				}
+				if (Object.keys(additions).length > 0) {
+					feedArtwork = { ...feedArtwork, ...additions };
+				}
+				for (const t of newTabs) artworkLoadingIds.delete(t.id);
+				artworkLoadingIds = artworkLoadingIds;
+			});
 		} catch {
-			// silently fail
+			emptyFetchesInARow++;
+			markExhausted();
+			await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
 		} finally {
-			loadingDiscover = false;
+			loadingFeed = false;
+			// Self-rearm: if the sentinel is still within the rootMargin zone after this fetch
+			// (batch didn't push it out of view, or viewport is tall), fire another fetch.
+			// IntersectionObserver only fires on transitions, so we manually re-trigger.
+			if (!exhausted && typeof window !== 'undefined' && sentinelEl) {
+				const rect = sentinelEl.getBoundingClientRect();
+				if (rect.top < window.innerHeight + 600) {
+					setTimeout(() => fetchMore(), 100);
+				}
+			}
 		}
 	}
 
-	async function fetchStats() {
-		loadingStats = true;
-		try {
-			const res = await fetch(`${SEARCH_API_BASE_URL}/api/stats`);
-			if (res.ok) {
-				stats = await res.json();
-			}
-		} catch {
-			// silently fail
-		} finally {
-			loadingStats = false;
-		}
+	// Import handlers
+	function handleDragEnter(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragActive = true;
 	}
-
-	// Import bar handlers
-	function handleDragEnter(e: DragEvent) { e.preventDefault(); e.stopPropagation(); dragActive = true; }
-	function handleDragLeave(e: DragEvent) { e.preventDefault(); e.stopPropagation(); dragActive = false; }
-	function handleDragOver(e: DragEvent) { e.preventDefault(); e.stopPropagation(); }
+	function handleDragLeave(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		dragActive = false;
+	}
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+	}
 
 	async function processFile(selectedFile: File) {
 		const validationError = validateFile(selectedFile);
 		if (validationError) return;
-
 		try {
 			const cleanBase64 = await fileToBase64(selectedFile);
 			tabStore.setTab({
@@ -161,9 +264,7 @@
 				source: 'upload'
 			});
 			await goto(`${base}/play`);
-		} catch {
-			// silently fail
-		}
+		} catch {}
 	}
 
 	async function handleDrop(e: DragEvent) {
@@ -180,170 +281,560 @@
 		if (selectedFile) await processFile(selectedFile);
 	}
 
+	// Playlist actions
+	function openPlaylistPicker(tab: any) {
+		playlistPickerTab = tab;
+		showNewInlinePlaylist = false;
+		newInlinePlaylistName = '';
+	}
+
+	function addToPickedPlaylist(playlistIndex: number) {
+		if (!playlistPickerTab) return;
+		playlistStore.addEntry(playlistIndex, {
+			id: playlistPickerTab.id,
+			title: playlistPickerTab.title,
+			artist: playlistPickerTab.artist,
+			source: playlistPickerTab.source || ''
+		});
+		playlistPickerTab = null;
+	}
+
+	function createAndAddToPlaylist() {
+		const name = newInlinePlaylistName.trim();
+		if (!name || !playlistPickerTab) return;
+		playlistStore.addPlaylist({
+			name,
+			entries: [
+				{
+					id: playlistPickerTab.id,
+					title: playlistPickerTab.title,
+					artist: playlistPickerTab.artist,
+					source: playlistPickerTab.source || ''
+				}
+			],
+			createdAt: Date.now()
+		});
+		playlistPickerTab = null;
+		newInlinePlaylistName = '';
+		showNewInlinePlaylist = false;
+	}
+
+	// Continue items (recent history) — count depends on grid width and Import size
+	let gridEl: HTMLDivElement | undefined;
+	let gridCols = 6; // sensible default until measured
+	/** Import layout mode:
+	 *  'full'   — mobile viewport, col-span-full aspect-square
+	 *  'card'   — 2-3 cols, 1 card-sized cell
+	 *  'medium' — 4-5 cols, 2×2 square
+	 *  'big'    — 6+ cols, 3×2 rectangle
+	 */
+	let importLayout: 'full' | 'card' | 'medium' | 'big' = 'full';
+	let gridResizeObserver: ResizeObserver | undefined;
+
+	function measureLayout() {
+		if (typeof window === 'undefined') return;
+		// Measure actual column count from the grid element
+		if (gridEl) {
+			const cs = getComputedStyle(gridEl);
+			const cols = cs.gridTemplateColumns.split(' ').filter((v) => v && v !== '0px').length;
+			if (cols > 0) gridCols = cols;
+		}
+		// Layout decision based on viewport + measured cols:
+		// - mobile viewport: Import full-width row
+		// - 7+ cols: Import 3×2 (big)
+		// - 4-6 cols: Import 2×2 (medium)
+		// - otherwise: single card cell
+		const w = window.innerWidth;
+		if (w < 640) importLayout = 'full';
+		else if (gridCols >= 7) importLayout = 'big';
+		else if (gridCols >= 4) importLayout = 'medium';
+		else importLayout = 'card';
+	}
+
+	/** Max "card slots" available for Continue items (excluding the Import tile itself). */
+	$: maxCardSlots = (() => {
+		if (importLayout === 'full') {
+			// Mobile: Import takes row 1 full width. Allow up to 3 rows of cards below.
+			return 3 * gridCols;
+		}
+		if (importLayout === 'card') {
+			// 2-3 cols: Import is 1 card cell. 2 rows of content; Import occupies 1 slot.
+			return 2 * gridCols - 1;
+		}
+		if (importLayout === 'medium') {
+			// 4-6 cols: Import is 2×2. Cards fill (cols-2) × 2 slots alongside + a full row below.
+			return 2 * Math.max(1, gridCols - 2) + gridCols;
+		}
+		// big (7+ cols): Import is 3×2. Cards fill (cols-3) × 2 slots alongside.
+		return 2 * Math.max(1, gridCols - 3);
+	})();
+
+	/** Reserve slots for See-all. At card layout reserve an extra one so See-all isn't squeezed. */
+	$: reservedSlots = importLayout === 'card' ? 2 : 1;
+
+	/** Compute how many recent cards to show so See-all lands on the last filled row.
+	 *  When (visible + 1 See-all) doesn't fill the last row cleanly, drop one card so it does.
+	 */
+	$: visibleRecentCount = (() => {
+		const history = $historyStore.length;
+		const cap = Math.max(1, maxCardSlots - reservedSlots);
+		let desired = Math.min(history, cap);
+
+		// On 'full' (mobile), cards + See-all should align to gridCols.
+		// Row 1 is Import (full-width), so subsequent rows need (desired + 1) % gridCols === 0.
+		if (importLayout === 'full' && gridCols > 0) {
+			while (desired > 0 && (desired + 1) % gridCols !== 0) desired--;
+		}
+		return desired;
+	})();
+	$: recentItems = $historyStore.slice(0, visibleRecentCount);
+	$: remainingCount = Math.max(0, $historyStore.length - recentItems.length);
+	let recentArtwork: Record<string, string> = {};
+	let recentArtworkFetched = false;
+	let recentArtworkLoading = false;
+	$: if (recentItems.length > 0 && !recentArtworkFetched) {
+		recentArtworkFetched = true;
+		recentArtworkLoading = true;
+		fetchArtworkBatch(recentItems, recentArtwork).then((m) => {
+			recentArtwork = m;
+			recentArtworkLoading = false;
+		});
+	}
+	// Pick a thumbnail for the "See all history" card — first artwork we have
+	$: seeAllThumb = (() => {
+		for (const item of recentItems) {
+			if (recentArtwork[item.id]) return recentArtwork[item.id];
+		}
+		return '';
+	})();
+
+	/** Becomes true after first client-side render tick — controls skeleton prefill for Continue. */
+	let mounted = false;
+
+	/** Scroll handler: if user scrolls within ~800px of the sentinel, fetch more. */
+	function handleScroll() {
+		if (loadingFeed || exhausted || !sentinelEl || typeof window === 'undefined') return;
+		const rect = sentinelEl.getBoundingClientRect();
+		if (rect.top < window.innerHeight + 800) {
+			fetchMore();
+		}
+	}
+
 	onMount(() => {
-		fetchRecommended();
-		fetchDiscover();
-		fetchStats();
+		mounted = true;
+		buildPool();
+		// Kick off first batch immediately, then another after delay
+		fetchMore();
+		setTimeout(() => fetchMore(), 200);
+
+		if (typeof IntersectionObserver !== 'undefined') {
+			observer = new IntersectionObserver(
+				(entries) => {
+					if (entries[0].isIntersecting) {
+						fetchMore();
+					}
+				},
+				{ rootMargin: '800px' }
+			);
+			if (sentinelEl) observer.observe(sentinelEl);
+		}
+
+		// Backup: scroll listener, in case IntersectionObserver misses edge cases
+		window.addEventListener('scroll', handleScroll, { passive: true });
+
+		// Measure grid columns (for dynamic Continue card count) + watch for resize
+		measureLayout();
+		if (typeof ResizeObserver !== 'undefined' && gridEl) {
+			gridResizeObserver = new ResizeObserver(measureLayout);
+			gridResizeObserver.observe(gridEl);
+		}
+		window.addEventListener('resize', measureLayout);
 	});
+
+	onDestroy(() => {
+		if (observer) observer.disconnect();
+		if (gridResizeObserver) gridResizeObserver.disconnect();
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('resize', measureLayout);
+			window.removeEventListener('scroll', handleScroll);
+		}
+	});
+
+	$: if (sentinelEl && observer) {
+		observer.observe(sentinelEl);
+	}
 </script>
 
-<div class="py-6">
-	<!-- Top row: Import + Recently Viewed side by side on desktop, stacked on mobile -->
-	<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-		<!-- Import card (1 col on desktop) -->
-		<div
-			class="rounded-xl border-2 border-dashed transition-all cursor-pointer
-				{dragActive
-					? 'border-violet-500 bg-violet-50 dark:bg-violet-900/10'
-					: 'border-neutral-200 dark:border-neutral-700 hover:border-violet-400 dark:hover:border-violet-600'}"
-			on:dragenter={handleDragEnter}
-			on:dragleave={handleDragLeave}
-			on:dragover={handleDragOver}
-			on:drop={handleDrop}
-			on:click={() => fileInput.click()}
-			on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } }}
-			role="button"
-			tabindex="0"
-		>
-			<div class="flex flex-col items-center justify-center py-8 px-4 text-center h-full min-h-[160px]">
-				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2">{dragActive ? 'file_download' : 'upload_file'}</i>
-				<p class="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
-					Drop or <span class="text-violet-500 dark:text-violet-400 font-medium">browse</span>
-				</p>
-				<p class="text-[11px] text-neutral-400 dark:text-neutral-500">
-					{SUPPORTED_TYPES.join(', ')}
-				</p>
+<div class="py-6 space-y-8">
+	<!-- Top section: unified grid with Continue cards + Import at top-right -->
+	<section aria-labelledby="continue-heading">
+		<!-- Heading row — mirrors the content grid so Import/Continue labels align with their tiles -->
+		{#if importLayout === 'full'}
+			<!-- Mobile: headings stacked — Import label, then Continue label (above its cards) -->
+			{#if recentItems.length > 0}
+				<div class="mb-3 flex items-center gap-2">
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">upload_file</i>
+					<h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100">Import</h2>
+				</div>
+			{:else}
+				<div class="mb-3">
+					<h2 id="continue-heading" class="text-xl font-bold text-neutral-900 dark:text-neutral-100">
+						Welcome to Tablatures
+					</h2>
+					<p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+						Search for tabs above, or drop a file to get started.
+					</p>
+				</div>
+			{/if}
+		{:else}
+			<!-- Desktop: grid headings aligned with Import tile width and Continue cards area -->
+			<div
+				class="grid gap-3 sm:gap-4 mb-3 items-end"
+				style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));"
+			>
+				<!-- Import heading spans Import's col count -->
+				<h2
+					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
+					style={importLayout === 'card'
+						? 'grid-column: 1 / 2;'
+						: importLayout === 'medium'
+							? 'grid-column: 1 / 3;'
+							: 'grid-column: 1 / 4;'}
+				>
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">upload_file</i>
+					<span>Import</span>
+				</h2>
+				<!-- Continue heading starts right after Import -->
+				<h2
+					id="continue-heading"
+					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
+					style={importLayout === 'card'
+						? 'grid-column: 2 / -1;'
+						: importLayout === 'medium'
+							? 'grid-column: 3 / -1;'
+							: 'grid-column: 4 / -1;'}
+				>
+					{#if recentItems.length > 0}
+						<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">play_circle</i>
+						<span>Continue</span>
+					{:else}
+						<span class="text-neutral-900 dark:text-neutral-100">Welcome to Tablatures</span>
+					{/if}
+				</h2>
 			</div>
-			<input
-				bind:this={fileInput}
-				on:change={handleFileSelect}
-				type="file"
-				accept={SUPPORTED_TYPES.join(',')}
-				class="hidden"
-			/>
+		{/if}
+
+		<div
+			bind:this={gridEl}
+			class="grid gap-3 sm:gap-4"
+			style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); grid-auto-flow: dense;"
+		>
+			<!-- Import tile — placed first; CSS spans it across breakpoints:
+				 mobile: col-span-full aspect-square (full-width row at top)
+				 sm-lg: col-span-1 (one card cell, height auto-matches row)
+				 lg+: col-span-2 row-span-2 at top-right
+			-->
+			<div
+				class="flex flex-col w-full cursor-pointer group
+					col-span-full sm:col-span-1
+					focus-visible:ring-2² focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
+				style={importLayout === 'big'
+					? 'grid-column: 1 / 4; grid-row: 1 / 3;'
+					: importLayout === 'medium'
+						? 'grid-column: 1 / 3; grid-row: 1 / 3;'
+						: ''}
+				on:dragenter={handleDragEnter}
+				on:dragleave={handleDragLeave}
+				on:dragover={handleDragOver}
+				on:drop={handleDrop}
+				on:click={() => fileInput.click()}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						fileInput.click();
+					}
+				}}
+				role="button"
+				tabindex="0"
+				aria-label="Upload tablature file"
+			>
+				<!-- Drop zone: aspect-square normally; stretches to fill 2-row cell when Import is 2×2 (big) -->
+				<div
+					class="relative rounded-xl border-2 border-dashed transition-color
+						{importLayout === 'big' || importLayout === 'medium' ? 'flex-1' : 'aspect-square'}
+						{dragActive
+						? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 ring-2 ring-violet-300 dark:ring-violet-700'
+						: 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 group-hover:border-violet-400 dark:group-hover:border-violet-600 group-hover:bg-violet-50/60 dark:group-hover:bg-violet-900/10'}"
+				>
+					<div class="h-full flex flex-col items-center justify-center text-center px-3 gap-1">
+						<p
+							class="text-sm lg:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-tight"
+						>
+							{dragActive ? 'Drop it' : 'Drop a file'}
+						</p>
+						<div
+							class="w-12 h-12 lg:w-20 lg:h-20 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/40"
+						>
+							<i
+								class="material-icons !text-3xl lg:!text-5xl text-violet-500 dark:text-violet-400"
+								aria-hidden="true"
+							>
+								{dragActive ? 'file_download' : 'upload_file'}
+							</i>
+						</div>
+						<p class="text-xs lg:text-sm text-neutral-500 dark:text-neutral-400 lg:mt-1">
+							or <span class="text-violet-500 dark:text-violet-400 font-medium underline"
+								>browse</span
+							>
+						</p>
+					</div>
+				</div>
+
+				<!-- Text area below (matches TabCard title/artist area so row heights align) -->
+				<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
+					<p
+						class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
+					>
+						Import a tab
+					</p>
+					<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+						{SUPPORTED_TYPES.join(', ')}
+					</p>
+				</div>
+			</div>
+
+			<!-- Mobile: Continue heading inside the grid, above the recent cards -->
+			{#if importLayout === 'full' && (recentItems.length > 0 || !mounted)}
+				<div class="col-span-full flex items-center gap-2 mt-1">
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">play_circle</i>
+					<h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100">Continue</h2>
+				</div>
+			{/if}
+
+			<!-- Continue recent items (or skeleton prefill during cold-start) -->
+			{#if !mounted}
+				{#each Array(Math.max(3, maxCardSlots)) as _}
+					<SkeletonTabCard />
+				{/each}
+			{:else}
+				{#each recentItems as item}
+					<TabCard
+						id={item.id}
+						title={item.title}
+						artist={item.artist}
+						album={item.album || ''}
+						source={item.source}
+						type={item.type || ''}
+						artworkUrl={recentArtwork[item.id] || ''}
+						artworkLoading={recentArtworkLoading && !recentArtwork[item.id]}
+						onClick={() => openTab(item)}
+						onAddToPlaylist={() => openPlaylistPicker(item)}
+					/>
+				{/each}
+			{/if}
+
+			<!-- "X more / See all" card -->
+			{#if recentItems.length > 0}
+				<a
+					href="{base}/repertoire?view=history"
+					class="group flex flex-col w-full rounded-xl overflow-hidden focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black transition-transform duration-150 active:scale-[0.98]"
+					aria-label="See all history — {$historyStore.length} tabs"
+				>
+					<div
+						class="relative w-full aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-violet-500 to-violet-700 dark:from-violet-600 dark:to-violet-800 flex items-center justify-center"
+					>
+						{#if seeAllThumb}
+							<img
+								src={seeAllThumb}
+								alt=""
+								class="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
+							/>
+						{/if}
+						<div class="relative z-10 flex flex-col items-center gap-1 text-white">
+							<i class="material-icons !text-4xl sm:!text-5xl" aria-hidden="true">more_horiz</i>
+							{#if remainingCount > 0}
+								<span class="text-base sm:text-lg font-bold">{remainingCount} more</span>
+							{:else}
+								<span class="text-sm font-semibold">See all</span>
+							{/if}
+						</div>
+					</div>
+					<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
+						<p
+							class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
+						>
+							Full history
+						</p>
+						<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+							{$historyStore.length}
+							{$historyStore.length === 1 ? 'tab' : 'tabs'} total
+						</p>
+					</div>
+				</a>
+			{/if}
 		</div>
 
-		<!-- Recently Viewed (2 cols on desktop) -->
-		{#if recentItems.length > 0}
-			<div class="md:col-span-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-				<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-					<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-						<i class="material-icons !text-sm">history</i> Recently Viewed
-					</span>
-					<a href="{base}/collection" class="text-[11px] text-violet-500 hover:underline">See all</a>
-				</div>
-				<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[30vh] overflow-y-auto">
-					{#each recentItems as item}
-						<ResultCard
-							id={item.id}
-							title={item.title}
-							artist={item.artist}
-							source={item.source}
-							type={item.type || ''}
-							album={item.album || ''}
-							artworkUrl={recentArtwork[item.id] || ''}
-							onClick={() => openTab(item)}
-						/>
-					{/each}
-				</div>
+		<input
+			bind:this={fileInput}
+			on:change={handleFileSelect}
+			type="file"
+			accept={SUPPORTED_TYPES.join(',')}
+			class="hidden"
+		/>
+	</section>
+
+	<!-- One continuous deduplicated feed -->
+	<section aria-labelledby="feed-heading">
+		<div class="flex items-end justify-between mb-3">
+			<h2
+				id="feed-heading"
+				class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
+			>
+				<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">recommend</i>
+				<span>Recommended for you</span>
+			</h2>
+		</div>
+
+		{#if feedTabs.length === 0 && !loadingFeed && exhausted}
+			<!-- Truly empty + exhausted: show nothing-to-show state -->
+			<div
+				class="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-neutral-50 dark:bg-neutral-900/50"
+			>
+				<i
+					class="material-icons !text-4xl text-neutral-300 dark:text-neutral-700 mb-2"
+					aria-hidden="true">explore</i
+				>
+				<p class="text-sm text-neutral-500 dark:text-neutral-400">No tabs to show right now</p>
 			</div>
 		{:else}
-			<div class="md:col-span-2 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 flex flex-col items-center justify-center min-h-[160px]">
-				<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">search</i>
-				<p class="text-sm text-neutral-500 dark:text-neutral-400 mb-1">Search for guitar tabs</p>
-				<p class="text-xs text-neutral-400 dark:text-neutral-500">Use the search bar above or import a file</p>
-			</div>
-		{/if}
-	</div>
+			<div
+				class="grid gap-3 sm:gap-4"
+				style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));"
+			>
+				{#each feedTabs as tab (tab.id)}
+					<TabCard
+						id={tab.id}
+						title={tab.title}
+						artist={tab.artist}
+						album={tab.album}
+						source={tab.source}
+						type={tab.type}
+						artworkUrl={feedArtwork[tab.id] || ''}
+						artworkLoading={artworkLoadingIds.has(tab.id)}
+						onClick={() => openTab(tab)}
+						onAddToPlaylist={() => openPlaylistPicker(tab)}
+					/>
+				{/each}
 
-	<!-- Two-column grid: Recommended + Discover -->
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[40vh]">
-		<!-- Recommended For You -->
-		{#if true}
-			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-				<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
-					<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-						<i class="material-icons !text-sm">recommend</i> Recommended
-					</span>
-				</div>
-				{#if loadingRecommended}
-					<div class="p-3 space-y-2">
-						{#each Array(3) as _}
-							<SkeletonCard />
-						{/each}
-					</div>
-				{:else if recommended.length === 0}
-					<div class="flex flex-col items-center justify-center text-center px-4" style="min-height: 300px;">
-						<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">recommend</i>
-						<p class="text-sm text-neutral-400 dark:text-neutral-500">No recommendations available</p>
-						<p class="text-xs text-neutral-300 dark:text-neutral-600 mt-1">Try searching for tabs to build your taste profile</p>
-					</div>
-				{:else}
-					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[50vh] overflow-y-auto">
-						{#each recommended as tab}
-							<ResultCard
-								id={tab.id}
-								title={tab.title}
-								artist={tab.artist || 'Unknown'}
-								album={tab.album || ''}
-								source={tab.source}
-								type={tab.type || ''}
-								trackCount={tab.trackCount}
-								artworkUrl={recommendedArtwork[tab.id] || ''}
-								onClick={() => openTab(tab)}
-							/>
-						{/each}
-					</div>
+				<!-- Skeleton placeholders: shown while fetching or while any artwork is still loading.
+				     Stable count (1 full row) prevents flicker between back-to-back fetches. -->
+				{#if (loadingFeed || artworkLoadingIds.size > 0) && !exhausted}
+					{#each Array(feedTabs.length === 0 ? Math.max(12, 2 * gridCols) : Math.max(6, gridCols)) as _}
+						<SkeletonTabCard />
+					{/each}
 				{/if}
 			</div>
 		{/if}
 
-		<!-- Discover -->
-		{#if true}
-			<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-				<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
-					<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 flex items-center gap-1.5">
-						<i class="material-icons !text-sm">explore</i> Discover
-					</span>
-				</div>
-				{#if loadingDiscover}
-					<div class="p-3 space-y-2">
-						{#each Array(3) as _}
-							<SkeletonCard />
-						{/each}
-					</div>
-				{:else if discover.length === 0}
-					<div class="flex flex-col items-center justify-center h-full min-h-[200px] text-center px-4">
-						<i class="material-icons !text-6xl text-neutral-200 dark:text-neutral-700 mb-3">explore</i>
-						<p class="text-sm text-neutral-400 dark:text-neutral-500">No tabs to discover yet</p>
-					</div>
-				{:else}
-					<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 max-h-[50vh] overflow-y-auto">
-						{#each discover as tab}
-							<ResultCard
-								id={tab.id}
-								title={tab.title}
-								artist={tab.artist || 'Unknown'}
-								album={tab.album || ''}
-								source={tab.source}
-								type={tab.type || ''}
-								trackCount={tab.trackCount}
-								artworkUrl={discoverArtwork[tab.id] || ''}
-								onClick={() => openTab(tab)}
-							/>
-						{/each}
-					</div>
-				{/if}
+		<!-- Loading more banner (below grid, always visible while fetching) -->
+		{#if loadingFeed && feedTabs.length > 0}
+			<div class="flex items-center justify-center gap-3 py-8" aria-live="polite">
+				<LoadingScore size="sm" message="" />
+				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400">Loading more tabs…</span>
 			</div>
 		{/if}
-	</div>
 
-	<!-- Stats Ribbon -->
-	{#if !loadingStats && (stats.totalTabs || stats.totalArtists)}
-		<p class="text-center text-xs text-neutral-400 dark:text-neutral-500 py-4 mt-4">
-			{#if stats.totalTabs}{stats.totalTabs} tabs{/if}
-			{#if stats.totalTabs && stats.totalArtists} &middot; {/if}
-			{#if stats.totalArtists}{stats.totalArtists} artists{/if}
-		</p>
-	{/if}
+		<!-- Infinite-scroll sentinel -->
+		{#if !exhausted}
+			<div bind:this={sentinelEl} class="h-10 mt-4" aria-hidden="true"></div>
+		{:else}
+			<div class="flex flex-col items-center gap-3 py-8">
+				<p class="text-xs text-neutral-500 dark:text-neutral-400">You've reached the end.</p>
+				<button
+					on:click={resetAndRetry}
+					class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg border border-violet-300 dark:border-violet-700 text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+				>
+					<i class="material-icons !text-sm" aria-hidden="true">refresh</i>
+					Load more
+				</button>
+			</div>
+		{/if}
+	</section>
 </div>
+
+<!-- Playlist picker modal -->
+{#if playlistPickerTab}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div
+		class="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+		on:click={() => {
+			playlistPickerTab = null;
+		}}
+		role="presentation"
+	>
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div
+			class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in"
+			on:click|stopPropagation
+		>
+			<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
+				<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Add to playlist</p>
+				<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+					{playlistPickerTab.title} - {playlistPickerTab.artist}
+				</p>
+			</div>
+			<div class="max-h-60 overflow-y-auto">
+				{#each allPlaylists as pl, i}
+					<button
+						on:click={() => addToPickedPlaylist(i)}
+						class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
+					>
+						<i class="material-icons !text-lg text-violet-500">queue_music</i>
+						<span class="flex-1 truncate">{pl.name}</span>
+						<span class="text-[10px] text-neutral-500">{pl.entries.length}</span>
+					</button>
+				{/each}
+				{#if allPlaylists.length === 0}
+					<p class="px-4 py-3 text-xs text-neutral-500 text-center">
+						No playlists yet. Create one below.
+					</p>
+				{/if}
+			</div>
+			<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-700">
+				{#if showNewInlinePlaylist}
+					<div class="flex gap-2">
+						<input
+							type="text"
+							bind:value={newInlinePlaylistName}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') createAndAddToPlaylist();
+								if (e.key === 'Escape') {
+									showNewInlinePlaylist = false;
+								}
+							}}
+							placeholder="Playlist name..."
+							class="flex-1 text-sm bg-neutral-50 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 rounded-lg px-3 py-1.5 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+						/>
+						<button
+							on:click={createAndAddToPlaylist}
+							disabled={!newInlinePlaylistName.trim()}
+							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors disabled:opacity-30"
+						>
+							Create
+						</button>
+					</div>
+				{:else}
+					<button
+						on:click={() => {
+							showNewInlinePlaylist = true;
+						}}
+						class="text-xs text-violet-500 hover:underline flex items-center gap-1"
+					>
+						<i class="material-icons !text-xs">add</i>
+						New playlist
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

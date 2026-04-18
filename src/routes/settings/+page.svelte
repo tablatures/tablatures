@@ -1,0 +1,399 @@
+<script lang="ts">
+	import { base } from '$app/paths';
+	import { browser } from '$app/environment';
+	import Header from '../../library/components/Header.svelte';
+	import { favoritesStore } from '../../library/utils/favorites';
+	import { historyStore } from '../../library/utils/history';
+	import { tabStore } from '../../library/utils/store';
+	import { activeVideoId } from '../../library/utils/playerStore';
+	import { toastStore } from '../../library/utils/toast';
+	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
+
+	let importDataInput: HTMLInputElement;
+	let customSfUrl = '';
+	let customMode = false;
+	let showClearConfirm = false;
+
+	// Preserve tab + video query params (same as other pages)
+	$: if (browser) {
+		const url = new URL(window.location.href);
+		const currentTab = $tabStore;
+		if (currentTab?.tabId) url.searchParams.set('tab', currentTab.tabId);
+		else url.searchParams.delete('tab');
+		if ($activeVideoId) url.searchParams.set('video', $activeVideoId);
+		else url.searchParams.delete('video');
+		window.history.replaceState({}, '', url.toString());
+	}
+
+	$: favorites = $favoritesStore;
+	$: historyItems = $historyStore;
+	$: prefs = $preferencesStore;
+	$: isCustomSf = !SOUNDFONT_PRESETS.some(p => p.url === prefs.soundFontUrl);
+	$: activePresetId = SOUNDFONT_PRESETS.find(p => p.url === prefs.soundFontUrl)?.id ?? 'custom';
+	$: customActive = customMode || isCustomSf;
+
+	$: if (isCustomSf && prefs.soundFontUrl !== 'custom') {
+		customSfUrl = prefs.soundFontUrl;
+	}
+
+	function handleSoundFontChange(url: string) {
+		preferencesStore.update(p => ({ ...p, soundFontUrl: url }));
+	}
+
+	function selectPreset(preset: typeof SOUNDFONT_PRESETS[0]) {
+		customMode = false;
+		handleSoundFontChange(preset.url);
+	}
+
+	function enableCustomMode() {
+		customMode = true;
+		if (customSfUrl.trim()) {
+			preferencesStore.update(p => ({ ...p, soundFontUrl: customSfUrl.trim() }));
+		}
+	}
+
+	function handleCustomSfUrl() {
+		if (customSfUrl.trim()) {
+			customMode = true;
+			preferencesStore.update(p => ({ ...p, soundFontUrl: customSfUrl.trim() }));
+		}
+	}
+
+	function exportData() {
+		const data = {
+			favorites: favorites,
+			history: historyItems,
+			preferences: prefs,
+			exportedAt: new Date().toISOString()
+		};
+		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+		const a = document.createElement('a');
+		a.download = `tablatures-data-${new Date().toISOString().slice(0, 10)}.json`;
+		a.href = URL.createObjectURL(blob);
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(a.href);
+		toastStore.success('Data exported');
+	}
+
+	function importData() {
+		importDataInput?.click();
+	}
+
+	async function handleImportData(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+		try {
+			const text = await file.text();
+			const data = JSON.parse(text);
+			if (data.favorites && Array.isArray(data.favorites)) {
+				for (const item of data.favorites) {
+					if (item.id && item.title) {
+						favoritesStore.addFavorite(item);
+					}
+				}
+			}
+			if (data.history && Array.isArray(data.history)) {
+				for (const item of data.history) {
+					if (item.id && item.title) {
+						historyStore.addToHistory(item);
+					}
+				}
+			}
+			if (data.preferences) {
+				preferencesStore.set({ ...prefs, ...data.preferences });
+			}
+			toastStore.success('Data imported');
+		} catch {
+			toastStore.error('Invalid data file');
+		}
+		target.value = '';
+	}
+
+	function clearAllData() {
+		if (!browser) return;
+		historyStore.clearHistory();
+		for (const f of [...favorites]) {
+			favoritesStore.removeFavorite(f.id);
+		}
+		preferencesStore.reset();
+		localStorage.removeItem('tabviewer-settings');
+		showClearConfirm = false;
+		toastStore.info('All local data cleared');
+	}
+</script>
+
+<svelte:head>
+	<title>Settings - Tablatures</title>
+</svelte:head>
+
+<Header showSearch={true} />
+
+<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100vh-3.5rem)]">
+	<!-- Page title -->
+	<div class="flex items-center justify-between mb-6">
+		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+			<i class="material-icons-outlined !text-2xl text-violet-500">settings</i>
+			Settings
+		</h1>
+	</div>
+
+	<!-- ===== AUDIO SECTION ===== -->
+	<div class="flex items-center gap-2 mb-3 mt-0">
+		<i class="material-icons-outlined text-violet-500 !text-xl">volume_up</i>
+		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Audio</h3>
+	</div>
+
+	<!-- Sound Font - card selector (full width) -->
+	<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 mb-3">
+		<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Sound Font</label>
+		<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Choose a sound font for MIDI playback</p>
+		<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+			{#each SOUNDFONT_PRESETS as preset}
+				<button
+					on:click={() => selectPreset(preset)}
+					class="text-left p-3 rounded-lg border-2 transition-all
+						{activePresetId === preset.id
+							? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
+							: 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600 bg-white dark:bg-neutral-900'}"
+				>
+					<div class="flex items-center justify-between mb-1">
+						<span class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{preset.name}</span>
+						<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full
+							{preset.tier === 'light' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+							 preset.tier === 'balanced' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' :
+							 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}"
+						>
+							{preset.tier}
+						</span>
+					</div>
+					<p class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">{preset.description}</p>
+					<span class="inline-block mt-1.5 text-[10px] font-medium text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">{preset.size}</span>
+				</button>
+			{/each}
+
+			<!-- Custom URL option — same grid as presets -->
+			<button
+				on:click={enableCustomMode}
+				class="text-left p-3 rounded-lg border-2 transition-all
+					{customActive
+						? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
+						: 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600 bg-white dark:bg-neutral-900'}"
+			>
+				<div class="flex items-center justify-between mb-1">
+					<span class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Custom URL</span>
+					<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">custom</span>
+				</div>
+				<p class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">Provide your own .sf2 soundfont URL</p>
+				<span class="inline-block mt-1.5 text-[10px] font-medium text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">any</span>
+			</button>
+		</div>
+
+		{#if customActive}
+			<input
+				type="url"
+				bind:value={customSfUrl}
+				on:blur={handleCustomSfUrl}
+				on:keydown={(e) => { if (e.key === 'Enter') handleCustomSfUrl(); }}
+				placeholder="https://example.com/soundfont.sf2"
+				class="w-full mt-3 text-sm bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+			/>
+		{/if}
+	</div>
+
+	<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+		<!-- Default Playback Speed -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Default Playback Speed</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Speed used when opening a new tab</p>
+			<div>
+				<select
+					bind:value={$preferencesStore.defaultSpeed}
+					class="w-full text-sm bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+				>
+					{#each [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as s}
+						<option value={s}>{s}x</option>
+					{/each}
+				</select>
+			</div>
+		</div>
+
+		<!-- Default Metronome Volume -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Default Metronome Volume</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Volume: {Math.round(prefs.defaultMetronomeVolume * 100)}%</p>
+			<div>
+				<input
+					type="range" min="0" max="1" step="0.1"
+					bind:value={$preferencesStore.defaultMetronomeVolume}
+					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
+						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
+				/>
+			</div>
+		</div>
+
+		<!-- Preferred Audio Source -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Preferred Audio Source</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Default audio source when both are available</p>
+			<div>
+				<select
+					bind:value={$preferencesStore.audioSourcePreference}
+					class="w-full text-sm bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+				>
+					<option value="tab">Tab Sound</option>
+					<option value="video">Video Sound</option>
+				</select>
+			</div>
+		</div>
+
+		<!-- Auto-play on Load -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Auto-play on Load</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Automatically start playback when a tab is opened</p>
+			<div>
+				<button
+					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.autoPlayOnLoad ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={() => $preferencesStore.autoPlayOnLoad = !$preferencesStore.autoPlayOnLoad}
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.autoPlayOnLoad ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== DISPLAY SECTION ===== -->
+	<div class="flex items-center gap-2 mb-3 mt-6">
+		<i class="material-icons-outlined text-violet-500 !text-xl">tune</i>
+		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Display</h3>
+	</div>
+
+	<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+		<!-- Tab Scale (Desktop) -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Tab Scale (Desktop)</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Scale: {$preferencesStore.tabScaleDesktop.toFixed(1)}</p>
+			<div>
+				<input
+					type="range" min="0.3" max="1.5" step="0.1"
+					bind:value={$preferencesStore.tabScaleDesktop}
+					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
+						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
+				/>
+			</div>
+		</div>
+
+		<!-- Tab Scale (Mobile) -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Tab Scale (Mobile)</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Scale: {$preferencesStore.tabScaleMobile.toFixed(1)}</p>
+			<div>
+				<input
+					type="range" min="0.3" max="1.0" step="0.1"
+					bind:value={$preferencesStore.tabScaleMobile}
+					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
+						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
+				/>
+			</div>
+		</div>
+
+		<!-- Mini Player Preview -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Mini Player Preview</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Show a preview thumbnail in the mini player</p>
+			<div>
+				<button
+					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.showMiniPlayerPreview ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={() => $preferencesStore.showMiniPlayerPreview = !$preferencesStore.showMiniPlayerPreview}
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.showMiniPlayerPreview ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<button
+		on:click={() => preferencesStore.reset()}
+		class="text-xs text-neutral-400 hover:text-violet-500 transition-colors mb-3"
+	>
+		Reset all preferences to defaults
+	</button>
+
+	<!-- ===== DATA SECTION ===== -->
+	<div class="flex items-center gap-2 mb-3 mt-6">
+		<i class="material-icons-outlined text-violet-500 !text-xl">storage</i>
+		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Data</h3>
+	</div>
+
+	<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 space-y-4">
+		<div class="flex items-center gap-3">
+			<img src="{base}/logos/icon.svg" width="24" height="24" alt="" />
+			<p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+				All your data (favorites, history, preferences) is stored <strong class="text-neutral-600 dark:text-neutral-300">locally in your browser</strong>. Nothing is sent to any server or database. Clearing your browser cache will erase this data.
+			</p>
+		</div>
+
+		<div class="flex flex-col sm:flex-row gap-2">
+			<!-- Export -->
+			<button
+				on:click={exportData}
+				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
+			>
+				<i class="material-icons !text-lg">download</i>
+				Export to JSON
+			</button>
+
+			<!-- Import -->
+			<button
+				on:click={importData}
+				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
+			>
+				<i class="material-icons !text-lg">upload</i>
+				Import from JSON
+			</button>
+			<input
+				bind:this={importDataInput}
+				on:change={handleImportData}
+				type="file"
+				accept=".json"
+				class="hidden"
+			/>
+
+			<!-- Clear -->
+			{#if showClearConfirm}
+				<div class="flex flex-col sm:flex-row gap-2 items-center">
+					<span class="text-sm text-red-500">Are you sure?</span>
+					<button
+						on:click={clearAllData}
+						class="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors w-full sm:w-auto"
+					>
+						Yes, clear all
+					</button>
+					<button
+						on:click={() => showClearConfirm = false}
+						class="px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors w-full sm:w-auto"
+					>
+						Cancel
+					</button>
+				</div>
+			{:else}
+				<button
+					on:click={() => showClearConfirm = true}
+					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors w-full sm:w-auto"
+				>
+					<i class="material-icons !text-lg">delete_outline</i>
+					Clear all data
+				</button>
+			{/if}
+		</div>
+
+		<p class="text-[11px] text-neutral-300 dark:text-neutral-600">
+			{favorites.length} favorites &middot; {historyItems.length} history items &middot; {Math.round((JSON.stringify({favorites, history: historyItems, preferences: prefs}).length) / 1024)}KB used
+		</p>
+	</div>
+</main>
