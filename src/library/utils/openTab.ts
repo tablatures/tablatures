@@ -5,18 +5,53 @@ import { tabStore } from './store';
 import { historyStore } from './history';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
+import { decodeTabFromUrl } from './shareTab';
 
 const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
+
+/**
+ * Open a tab from its share-URL hash payload (for file-imported entries
+ * persisted in history). Decodes the compressed bytes, pushes them into the
+ * tab store, and navigates to /play. Returns false on failure.
+ */
+export async function openTabFromHash(
+	hashPayload: string,
+	meta: { title: string; artist?: string; source?: string } = { title: 'Imported tab' },
+	navigate: boolean = true
+): Promise<boolean> {
+	if (!browser) return false;
+	try {
+		const buf = await decodeTabFromUrl(hashPayload);
+		if (!buf) throw new Error('Share link data is invalid.');
+		const b64 = arrayBufferToBase64(buf);
+		tabStore.setTab({
+			fileAsB64: b64,
+			source: meta.source || 'upload',
+			title: meta.title,
+			artist: meta.artist
+		});
+		if (navigate) goto(`${base}/play`);
+		return true;
+	} catch (err: any) {
+		toastStore.error(err?.message || 'Failed to open imported tab');
+		return false;
+	}
+}
 
 /**
  * Download and open a tab by its ID.
  * Adds to history, sets the tab store, and optionally navigates to /play.
  */
 export async function openTabById(
-	tab: { id: string; title: string; artist?: string; source?: string; type?: string; album?: string },
+	tab: { id: string; title: string; artist?: string; source?: string; type?: string; album?: string; hashPayload?: string },
 	navigate: boolean = true
 ): Promise<boolean> {
+	// Prefer the embedded hash payload for file-imported history entries;
+	// they have no catalog record to download from.
+	if (tab.hashPayload) {
+		return openTabFromHash(tab.hashPayload, { title: tab.title, artist: tab.artist, source: tab.source }, navigate);
+	}
 	if (!browser || !SEARCH_API_BASE_URL || !tab.id) return false;
 
 	try {

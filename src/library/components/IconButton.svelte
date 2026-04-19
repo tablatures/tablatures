@@ -16,7 +16,7 @@
 {#if href}
 	<a
 		{href}
-		class="inline-flex items-center justify-center rounded-full transition-all duration-150 active:scale-90 cursor-pointer
+		class="inline-flex items-center justify-center rounded-lg transition-all duration-150 active:scale-90 cursor-pointer
 			{sizeClasses[size]}
 			{active
 				? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
@@ -29,7 +29,7 @@
 {:else}
 	<button
 		on:click
-		class="inline-flex items-center justify-center rounded-full transition-all duration-150 active:scale-90 cursor-pointer
+		class="inline-flex items-center justify-center rounded-lg transition-all duration-150 active:scale-90 cursor-pointer
 			{sizeClasses[size]}
 			{active
 				? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
