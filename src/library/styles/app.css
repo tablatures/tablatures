@@ -3,324 +3,346 @@
 @tailwind utilities;
 
 @layer base {
-  html {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
-  }
+	html {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		text-rendering: optimizeLegibility;
+	}
 
-  .dark *:focus-visible {
-    outline: 2px solid #8C52FF;
-    outline-offset: 2px;
-  }
+	.dark *:focus-visible {
+		outline: 2px solid #8c52ff;
+		outline-offset: 2px;
+	}
 
-  *:focus-visible {
-    outline: 2px solid #8C52FF;
-    outline-offset: 2px;
-  }
+	*:focus-visible {
+		outline: 2px solid #8c52ff;
+		outline-offset: 2px;
+	}
 
-  /* Respect user's reduced-motion preference */
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+	/* Respect user's reduced-motion preference */
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+			scroll-behavior: auto !important;
+		}
+	}
 
-  /* Hide scrollbars on horizontal-scroll strips while keeping scroll */
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
-  .scrollbar-thin::-webkit-scrollbar {
-    height: 6px;
-  }
+	/* Hide scrollbars on horizontal-scroll strips while keeping scroll */
+	.scrollbar-thin {
+		scrollbar-width: thin;
+	}
+	.scrollbar-thin::-webkit-scrollbar {
+		height: 6px;
+	}
 }
 
 @layer components {
+	::-webkit-scrollbar {
+		width: 5px;
+		height: 5px;
+	}
 
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-  }
+	::-webkit-scrollbar-track {
+		background: #fafafa;
+	}
 
-  ::-webkit-scrollbar-track {
-    background: #fafafa;
-  }
+	.dark ::-webkit-scrollbar-track {
+		background: #171717;
+	}
 
-  .dark ::-webkit-scrollbar-track {
-    background: #171717;
-  }
+	::-webkit-scrollbar-thumb {
+		@apply bg-neutral-300;
+	}
 
-  ::-webkit-scrollbar-thumb {
-    @apply bg-neutral-300;
-  }
+	.dark ::-webkit-scrollbar-thumb {
+		@apply bg-neutral-600;
+	}
 
-  .dark ::-webkit-scrollbar-thumb {
-    @apply bg-neutral-600;
-  }
+	::-webkit-scrollbar-thumb:hover {
+		background: #8c52ff;
+	}
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: #8C52FF;
-  }
+	/* Page transition fade */
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
 
-  /* Page transition fade */
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+	.animate-fade-in {
+		animation: fadeIn 0.2s ease-out;
+	}
 
-  .animate-fade-in {
-    animation: fadeIn 0.2s ease-out;
-  }
+	/* Animated ellipsis for loading text */
+	@keyframes ellipsis {
+		0% {
+			content: '';
+		}
+		25% {
+			content: '.';
+		}
+		50% {
+			content: '..';
+		}
+		75% {
+			content: '...';
+		}
+	}
 
-  /* Animated ellipsis for loading text */
-  @keyframes ellipsis {
-    0% { content: ''; }
-    25% { content: '.'; }
-    50% { content: '..'; }
-    75% { content: '...'; }
-  }
+	.animate-ellipsis::after {
+		content: '';
+		animation: ellipsis 1.5s infinite step-end;
+	}
 
-  .animate-ellipsis::after {
-    content: '';
-    animation: ellipsis 1.5s infinite step-end;
-  }
+	/* Interactive button press effect */
+	.btn-press {
+		@apply transition-all duration-150 active:scale-95;
+	}
 
-  /* Interactive button press effect */
-  .btn-press {
-    @apply transition-all duration-150 active:scale-95;
-  }
+	/* Subtle hover lift */
+	.hover-lift {
+		@apply transition-transform duration-200 hover:-translate-y-0.5;
+	}
 
-  /* Subtle hover lift */
-  .hover-lift {
-    @apply transition-transform duration-200 hover:-translate-y-0.5;
-  }
+	@keyframes shimmer {
+		0% {
+			background-position: -200% 0;
+		}
+		100% {
+			background-position: 200% 0;
+		}
+	}
 
-  @keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
-  }
-
-  .animate-shimmer {
-    background: linear-gradient(90deg, transparent 0%, rgba(139, 92, 246, 0.3) 50%, transparent 100%);
-    background-size: 200% 100%;
-    animation: shimmer 2s ease-in-out infinite;
-  }
+	.animate-shimmer {
+		background: linear-gradient(
+			90deg,
+			transparent 0%,
+			rgba(139, 92, 246, 0.3) 50%,
+			transparent 100%
+		);
+		background-size: 200% 100%;
+		animation: shimmer 2s ease-in-out infinite;
+	}
 }
 
 /* Progress bar */
 .loading-bar {
-  width: 100%;
-  -webkit-appearance: none;
-  cursor: pointer;
+	width: 100%;
+	-webkit-appearance: none;
+	cursor: pointer;
 }
 
 .loading-bar::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-  width: 0px;
-  height: 25px;
-  background: #8C52FF;
-  box-shadow: -100em 0 0 100em #8C52FF;
+	-webkit-appearance: none;
+	appearance: none;
+	cursor: pointer;
+	width: 0px;
+	height: 25px;
+	background: #8c52ff;
+	box-shadow: -100em 0 0 100em #8c52ff;
 }
 
 .loading-bar::-moz-range-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-  width: 0px;
-  height: 25px;
-  background: #8C52FF;
-  box-shadow: -100em 0 0 100em #8C52FF;
+	-webkit-appearance: none;
+	appearance: none;
+	cursor: pointer;
+	width: 0px;
+	height: 25px;
+	background: #8c52ff;
+	box-shadow: -100em 0 0 100em #8c52ff;
 }
 
 /* Settings sliders */
 .input-range {
-  -webkit-appearance: none;
-  margin-top: 17px;
-  border-radius: 25px;
-  height: 5px;
-  background-color: rgb(224, 222, 222);
-  cursor: pointer;
+	-webkit-appearance: none;
+	margin-top: 17px;
+	border-radius: 25px;
+	height: 5px;
+	background-color: rgb(224, 222, 222);
+	cursor: pointer;
 }
 
 .input-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-  width: 10px;
-  height: 10px;
-  border-radius: 25px;
-  background: #8C52FF;
+	-webkit-appearance: none;
+	appearance: none;
+	cursor: pointer;
+	width: 10px;
+	height: 10px;
+	border-radius: 25px;
+	background: #8c52ff;
 }
 
 .input-range::-moz-range-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-  width: 10px;
-  height: 10px;
-  border-radius: 25px;
-  background: #8C52FF;
+	-webkit-appearance: none;
+	appearance: none;
+	cursor: pointer;
+	width: 10px;
+	height: 10px;
+	border-radius: 25px;
+	background: #8c52ff;
 }
 
 /* Persistent player host states */
 .player-host-full #player-host {
-  position: relative;
-  width: 100%;
-  min-height: 500px;
+	position: relative;
+	width: 100%;
+	min-height: 500px;
 }
 
 .player-host-mini {
-  position: fixed !important;
-  bottom: 52px !important;
-  right: 8px !important;
-  width: 340px !important;
-  height: 220px !important;
-  overflow: auto !important;
-  scrollbar-width: none !important; /* Firefox */
-  border-radius: 8px !important;
-  border: 1px solid rgba(128, 128, 128, 0.15) !important;
-  z-index: 85 !important;
-  visibility: visible !important;
-  left: auto !important;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
-  cursor: pointer;
+	position: fixed !important;
+	bottom: 58px !important;
+	right: 8px !important;
+	width: 340px !important;
+	height: 220px !important;
+	overflow: auto !important;
+	scrollbar-width: none !important; /* Firefox */
+	border-radius: 8px !important;
+	border: 1px solid rgba(128, 128, 128, 0.15) !important;
+	z-index: 75 !important;
+	visibility: visible !important;
+	left: auto !important;
+	box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+	cursor: pointer;
 }
 
 .player-host-mini::-webkit-scrollbar {
-  display: none;
+	display: none;
 }
 
 .player-host-mini #player-host {
-  transform-origin: top left;
-  transform: scale(0.425);
-  width: 800px;
-  height: 520px;
-  pointer-events: none;
+	transform-origin: top left;
+	transform: scale(0.425);
+	width: 800px;
+	height: 520px;
+	pointer-events: none;
 }
 
 /* Mobile: full width, positioned under the player bar */
 @media (max-width: 480px) {
-  .player-host-mini {
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    height: 220px !important;
-    overflow: auto !important;
-    scrollbar-width: none !important;
-    border-radius: 0 !important;
-    border-left: none !important;
-    border-right: none !important;
-    bottom: 52px !important;
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
-  }
+	.player-host-mini {
+		left: 0 !important;
+		right: 0 !important;
+		width: 100% !important;
+		height: 220px !important;
+		overflow: auto !important;
+		scrollbar-width: none !important;
+		border-radius: 0 !important;
+		border-left: none !important;
+		border-right: none !important;
+		bottom: 50px !important;
+		box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+	}
 
-  .player-host-mini #player-host {
-    /* Bigger scale on mobile for better readability — driven by --mini-player-scale-mobile preference */
-    transform-origin: top left;
-    transform: scale(var(--mini-player-scale-mobile, 0.7));
-    width: calc(100% / var(--mini-player-scale-mobile, 0.7));
-    height: calc(220px / var(--mini-player-scale-mobile, 0.7));
-  }
+	.player-host-mini #player-host {
+		/* Bigger scale on mobile for better readability — driven by --mini-player-scale-mobile preference */
+		transform-origin: top left;
+		transform: scale(var(--mini-player-scale-mobile, 0.7));
+		width: calc(100% / var(--mini-player-scale-mobile, 0.7));
+		height: calc(220px / var(--mini-player-scale-mobile, 0.7));
+	}
 }
 
 /* AlphaTab rendering */
 .at-surface {
-  background: white;
-  /* alphaTab sets overflow: hidden inline on this element which clips
+	background: white;
+	/* alphaTab sets overflow: hidden inline on this element which clips
      title glyph ascenders. Force visible so the extra vertical padding
      we set via settings.display.padding can actually show through. */
-  overflow: visible !important;
+	overflow: visible !important;
 }
 
 .dark .at-surface {
-  background: #171717;
+	background: #171717;
 }
 
 .at-surface * {
-  cursor: default;
-  vertical-align: top;
-  overflow: visible;
+	cursor: default;
+	vertical-align: top;
+	overflow: visible;
 }
 
 .at-surface-svg text {
-  dominant-baseline: central;
+	dominant-baseline: central;
 }
 
 .at-cursor-bar {
-  background: rgba(140, 82, 255, 0.2);
+	background: rgba(140, 82, 255, 0.2);
 }
 
 .dark .at-cursor-bar {
-  background: rgba(140, 82, 255, 0.25);
+	background: rgba(140, 82, 255, 0.25);
 }
 
 .at-cursor-beat {
-  background: #8C52FF;
-  width: 3px;
+	background: #8c52ff;
+	width: 3px;
 }
 
 .dark .at-cursor-beat {
-  background: #a06cff;
+	background: #a06cff;
 }
 
 .at-highlight * {
-  fill: #8C52FF;
-  stroke: #8C52FF;
+	fill: #8c52ff;
+	stroke: #8c52ff;
 }
 
 .dark .at-highlight * {
-  fill: #a06cff;
-  stroke: #a06cff;
+	fill: #a06cff;
+	stroke: #a06cff;
 }
 
 /* Hide alphaTab's native selection rendering entirely.
  * We render our own overlay (plain positioned divs) for consistent styling. */
 .at-selection div {
-  display: none !important;
+	display: none !important;
 }
 
 /* Dark mode */
 .dark .at-selection div {
-  background: rgba(236, 72, 153, 0.14) !important;
+	background: rgba(236, 72, 153, 0.14) !important;
 }
 
 .dark .at-selection div::before {
-  background: rgba(236, 72, 153, 0.4) !important;
+	background: rgba(236, 72, 153, 0.4) !important;
 }
 
 .dark .at-selection div::after {
-  background: rgba(236, 72, 153, 0.4) !important;
+	background: rgba(236, 72, 153, 0.4) !important;
 }
 
 .dark .at-selection div:first-child::before {
-  background: rgba(236, 72, 153, 0.7) !important;
-  border-top-color: rgba(236, 72, 153, 0.4) !important;
-  border-bottom-color: rgba(236, 72, 153, 0.4) !important;
+	background: rgba(236, 72, 153, 0.7) !important;
+	border-top-color: rgba(236, 72, 153, 0.4) !important;
+	border-bottom-color: rgba(236, 72, 153, 0.4) !important;
 }
 
 .dark .at-selection div:last-child::after {
-  background: rgba(236, 72, 153, 0.7) !important;
-  border-top-color: rgba(236, 72, 153, 0.4) !important;
-  border-bottom-color: rgba(236, 72, 153, 0.4) !important;
+	background: rgba(236, 72, 153, 0.7) !important;
+	border-top-color: rgba(236, 72, 153, 0.4) !important;
+	border-bottom-color: rgba(236, 72, 153, 0.4) !important;
 }
 
 .at {
-  font-family: "alphaTab";
-  speak: none;
-  font-style: normal;
-  font-weight: normal;
-  font-variant: normal;
-  text-transform: none;
-  line-height: 1;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-size: 34px;
-  overflow: visible !important;
+	font-family: 'alphaTab';
+	speak: none;
+	font-style: normal;
+	font-weight: normal;
+	font-variant: normal;
+	text-transform: none;
+	line-height: 1;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	font-size: 34px;
+	overflow: visible !important;
 }

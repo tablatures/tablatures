@@ -84,6 +84,15 @@ export const videoSyncOffset = writable<number>(0);
 // Flag to skip smooth-scroll during DOM reparenting transitions
 export const isTransitioning = writable<boolean>(false);
 
+/** Slot for component-level YouTube event handlers. The central VideoPlayer
+ *  lives in +layout.svelte so the iframe survives route changes, but TabViewer
+ *  still owns the tab↔video sync logic. TabViewer fills these on mount and
+ *  clears them on destroy. */
+export const videoHandlers = writable<{
+	onStateChange?: (state: number) => void;
+	onReady?: () => void;
+}>({});
+
 // Source variants for the currently playing tab (same song from different sources)
 export interface SourceVariant {
 	id: string;

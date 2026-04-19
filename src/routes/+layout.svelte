@@ -12,7 +12,7 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl } from '../library/utils/playerStore';
+	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl, videoHandlers, videoSyncOffset } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
@@ -48,6 +48,79 @@
 	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
 	let miniHovered = false;
 	$: playerHostClass = (!isOnPlay && showMiniPlayer && miniPreviewVisible) ? 'player-host-mini' : 'player-host-hidden';
+
+	// --- Mini-mode video overlay controls ---
+	// TabViewer owns audio-source application when mounted (big player view).
+	// When not on /play we need to replicate it here so the mini-mode overlay
+	// buttons (audio toggle, sync offset) behave the same.
+	let miniVolumeBeforeMute = 1;
+	function applyAudioSourceMini(source: 'tab' | 'video' | 'both') {
+		const api = get(playerApi);
+		const yt = get(videoPlayerRef);
+		if (source === 'video') {
+			if (api) {
+				if ((api.masterVolume ?? 0) > 0) miniVolumeBeforeMute = api.masterVolume;
+				api.masterVolume = 0;
+			}
+			if (yt) try { yt.unMute(); yt.setVolume(100); } catch {}
+		} else if (source === 'both') {
+			if (api) api.masterVolume = miniVolumeBeforeMute;
+			if (yt) try { yt.unMute(); yt.setVolume(100); } catch {}
+		} else {
+			if (api) api.masterVolume = miniVolumeBeforeMute;
+			if (yt) try { yt.mute(); } catch {}
+		}
+	}
+	function toggleAudioSourceMini() {
+		audioSource.update((s) => (s === 'tab' ? 'video' : s === 'video' ? 'both' : 'tab'));
+	}
+	$: if (browser && !$isFullPlayerView && $activeVideoId) {
+		applyAudioSourceMini($audioSource);
+	}
+
+	function persistVideoOffset() {
+		try {
+			const tab = get(tabStore);
+			const key = `${tab?.tabId || 'local'}::${get(activeVideoId) || ''}`;
+			const stored = localStorage.getItem('video-offsets');
+			const offsets = stored ? JSON.parse(stored) : {};
+			offsets[key] = get(videoSyncOffset);
+			localStorage.setItem('video-offsets', JSON.stringify(offsets));
+		} catch {}
+	}
+	function nudgeVideoOffset(delta: number) {
+		videoSyncOffset.update((v) => Math.round((v + delta) * 10) / 10);
+		persistVideoOffset();
+	}
+	function setMiniVideoOffset(val: number) {
+		videoSyncOffset.set(Math.round(val * 10) / 10);
+		persistVideoOffset();
+	}
+	function tapToSyncMini() {
+		const yt = get(videoPlayerRef);
+		const st = get(playerState);
+		if (!yt || st.duration <= 0) return;
+		try {
+			const videoTime = yt.getCurrentTime?.() || 0;
+			const tabTimeSec = (st.progress / 100) * (st.duration / 1000);
+			videoSyncOffset.set(Math.round((videoTime - tabTimeSec) * 10) / 10);
+			persistVideoOffset();
+		} catch {}
+	}
+	let showMiniOffsetControl = false;
+	function closeMiniVideo() {
+		const ytPlayer = get(videoPlayerRef);
+		if (ytPlayer) try { ytPlayer.pauseVideo(); } catch {}
+		videoPlayerRef.set(null);
+		audioSource.set('tab');
+		const api = get(playerApi);
+		if (api) try { api.masterVolume = miniVolumeBeforeMute || 1; } catch {}
+		activeVideoId.set(null);
+		// Drop hover state so the tab-preview close button (revealed when the
+		// video disappears) doesn't absorb a reflex second click in the same
+		// spot. User needs to hover again to see it.
+		miniHovered = false;
+	}
 
 	let dragOverlay = false;
 	let dragCounter = 0;
@@ -300,8 +373,25 @@
 				// API not yet created - ensure init (soundFont load will trigger tab load)
 				ensureApiInitialized();
 			} else if (get(playerState).soundFontLoaded) {
-				// Reset score state so UI shows loading during transition
-				updatePlayerState({ scoreLoaded: false, isRendering: true });
+				// Switching to a different tab: close any YouTube video tied to
+				// the previous tab, rewind the player to the start, and clear
+				// progress/duration so the cursor doesn't flash the old position.
+				const prevVideo = get(activeVideoId);
+				if (prevVideo) {
+					const yt = get(videoPlayerRef);
+					if (yt) try { yt.pauseVideo(); } catch {}
+					videoPlayerRef.set(null);
+					activeVideoId.set(null);
+					audioSource.set('tab');
+				}
+				try { api.player.timePosition = 0; } catch {}
+				updatePlayerState({
+					scoreLoaded: false,
+					isRendering: true,
+					playing: false,
+					progress: 0,
+					currentBar: 0
+				});
 				api.load(base64ToArrayBuffer(currentTab.fileAsB64));
 				loadedTabB64.set(currentTab.fileAsB64);
 			}
@@ -414,52 +504,157 @@
 		>
 			<div bind:this={playerHostEl} id="player-host" />
 		</div>
-		<!-- Video player overlay (when video is active in mini mode) -->
-		{#if showMiniPlayer && miniPreviewVisible && $activeVideoId}
-			<div class="mini-player-overlay z-[87] pointer-events-auto">
+		<!-- Persistent YouTube video host. One instance across all routes so the
+			 iframe survives navigation between /play (full view) and other pages
+			 (mini mode). Positioned/sized via $isFullPlayerView. TabViewer owns
+			 the overlay buttons (audio toggle, sync offset) on top of this. -->
+		{#if $activeVideoId}
+			<div
+				class="{$isFullPlayerView
+					? 'big-player-video-frame fixed bottom-[156px] right-4 z-[10] w-[340px] h-[220px] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
+					: (showMiniPlayer && miniPreviewVisible
+						? 'mini-player-overlay pointer-events-auto overflow-hidden rounded-xl'
+						: 'fixed -left-[9999px] top-0 w-[340px] h-[220px] opacity-0 pointer-events-none')}"
+			>
 				<VideoPlayer
 					videoId={$activeVideoId}
 					width={340}
-					height={220}
+					height={$isFullPlayerView ? 200 : 220}
+					autoplay={false}
+					on:stateChange={(e) => get(videoHandlers).onStateChange?.(e.detail)}
+					on:ready={() => get(videoHandlers).onReady?.()}
 				/>
-				<!-- Close video mini -->
-				<button
-					class="absolute top-1 right-1 z-[88] p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 transition-colors pointer-events-auto"
-					on:click|stopPropagation={() => {
-						const ytPlayer = get(videoPlayerRef);
-						if (ytPlayer) try { ytPlayer.pauseVideo(); } catch {}
-						videoPlayerRef.set(null);
-						audioSource.set('tab');
-						// Restore tab volume in case it was muted for video audio
-						const api = get(playerApi);
-						if (api) try { api.masterVolume = 1; } catch {}
-						activeVideoId.set(null);
-					}}
-					title="Close video"
-				>
-					<i class="material-icons !text-sm">close</i>
-				</button>
+				{#if !$isFullPlayerView && showMiniPlayer && miniPreviewVisible}
+					<!-- Mini-mode overlay — same markup/styling as TabViewer's big mode. -->
+					<div
+						class="absolute top-0 left-0 right-0 flex items-center justify-between p-1 pointer-events-auto z-[88] bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+					>
+						<div class="flex items-center gap-1.5">
+							<button
+								on:click|stopPropagation={toggleAudioSourceMini}
+								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+									{$audioSource === 'video'
+										? 'bg-violet-500 text-white hover:bg-violet-600'
+										: $audioSource === 'both'
+											? 'bg-emerald-500 text-white hover:bg-emerald-600'
+											: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title="{$audioSource === 'video'
+									? 'Video audio only — click for both'
+									: $audioSource === 'both'
+										? 'Both tab + video audio — click for tab only'
+										: 'Tab audio only — click for video'}"
+							>
+								<i class="material-icons !text-lg"
+									>{$audioSource === 'video'
+										? 'videocam'
+										: $audioSource === 'both'
+											? 'headphones'
+											: 'music_note'}</i
+								>
+								<span>{$audioSource === 'video' ? 'Video' : $audioSource === 'both' ? 'Both' : 'Tab'}</span>
+							</button>
+							<button
+								on:click|stopPropagation={() => (showMiniOffsetControl = !showMiniOffsetControl)}
+								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+									{showMiniOffsetControl
+										? 'bg-violet-500 text-white hover:bg-violet-600'
+										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title="Sync offset: {$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s"
+							>
+								<i class="material-icons !text-lg">sync</i>
+								{#if $videoSyncOffset !== 0}
+									<span>{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s</span>
+								{/if}
+							</button>
+						</div>
+						<button
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							on:click|stopPropagation={closeMiniVideo}
+							title="Close video"
+							aria-label="Close video"
+						>
+							<i class="material-icons !text-xl">close</i>
+						</button>
+					</div>
+
+					{#if showMiniOffsetControl}
+						<div class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto z-[88]">
+							<div class="flex items-center gap-2">
+								<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
+								<input
+									type="range"
+									min="-10"
+									max="10"
+									step="0.1"
+									value={$videoSyncOffset}
+									on:input|stopPropagation={(e) =>
+										setMiniVideoOffset(parseFloat(e.currentTarget.value))}
+									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+										[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
+										[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
+								/>
+								<span class="text-xs text-white font-mono min-w-[3.5rem] text-center">
+									{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s
+								</span>
+							</div>
+							<div class="flex items-center gap-1.5 justify-center">
+								<button
+									on:click|stopPropagation={() => setMiniVideoOffset($videoSyncOffset - 1)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="-1 second">-1s</button
+								>
+								<button
+									on:click|stopPropagation={() => setMiniVideoOffset($videoSyncOffset - 0.1)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="-0.1 second">-0.1</button
+								>
+								<button
+									on:click|stopPropagation={tapToSyncMini}
+									class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
+									title="Auto-sync to current video position"
+								>
+									<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
+									Tap to sync
+								</button>
+								<button
+									on:click|stopPropagation={() => setMiniVideoOffset($videoSyncOffset + 0.1)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="+0.1 second">+0.1</button
+								>
+								<button
+									on:click|stopPropagation={() => setMiniVideoOffset($videoSyncOffset + 1)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="+1 second">+1s</button
+								>
+							</div>
+							{#if $videoSyncOffset !== 0}
+								<div class="text-center">
+									<button
+										on:click|stopPropagation={() => setMiniVideoOffset(0)}
+										class="text-[10px] text-white/40 hover:text-white transition-colors"
+										>Reset offset</button
+									>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				{/if}
 			</div>
 		{/if}
 
-		<!-- Hover overlay (sibling, not inside the scrollable area) -->
+		<!-- Close-preview button. Sits directly inside the wrapper (no full
+			 overlay covering the tablature) so the alphaTab mini preview is
+			 always visible beneath. Only shown on hover. -->
 		{#if showMiniPlayer && miniPreviewVisible && !$activeVideoId}
-			<div
-				class="mini-player-overlay flex items-center justify-center pointer-events-none transition-colors duration-200
-					{miniHovered ? 'bg-black/50 dark:bg-black/50' : 'bg-transparent'}"
-			>
-				<i
-					class="material-icons !text-4xl text-white transition-opacity duration-200 drop-shadow-md dark:drop-shadow-none
-						{miniHovered ? 'opacity-100' : 'opacity-0'}"
-				>fullscreen</i>
-				<!-- Close preview button (on hover) -->
+			<div class="pointer-events-none absolute top-1 right-1 z-[90]">
 				<button
-					class="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/70 transition-all pointer-events-auto
+					class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150 pointer-events-auto
 						{miniHovered ? 'opacity-100' : 'opacity-0'}"
 					on:click|stopPropagation={() => { miniPreviewVisible = false; }}
 					title="Hide preview"
+					aria-label="Hide preview"
 				>
-					<i class="material-icons !text-sm">close</i>
+					<i class="material-icons !text-xl">close</i>
 				</button>
 			</div>
 		{/if}
@@ -514,26 +709,44 @@
 		height: 600px;
 	}
 
-	/* Wrapper for mini player + overlay */
+	/* Wrapper for mini player + overlay. Sits slightly above the viewport
+	   bottom so the iframe/preview pass behind the MiniPlayer bar's lower
+	   edge (bar is at z-80; this wrapper at z-75 is covered where they
+	   overlap). */
 	.mini-player-wrapper {
 		position: fixed;
-		bottom: 52px;
+		bottom: 58px;
 		right: 8px;
 		width: 340px;
 		height: 220px;
-		z-index: 85;
+		z-index: 75;
 		cursor: pointer;
 	}
 
-	/* Overlay covers the wrapper exactly */
+	/* Overlay exactly covers the wrapper — same geometry as the tablature
+	   preview so both share the same position. Black background + flex
+	   centering so the YouTube iframe (which keeps its 16:9 aspect) is
+	   centered in the 340x220 box with the empty area filled in black. */
 	.mini-player-overlay {
 		position: absolute;
 		top: 0;
 		left: 0;
 		right: 0;
 		bottom: 0;
-		z-index: 86;
-		border-radius: 8px;
+		z-index: 76;
+		border-radius: 0.75rem; /* match rounded-xl used by the big player frame */
+		background: #000;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	/* Big-mode video frame — same treatment so 340x200 container has black
+	   letterbox bars top/bottom when the iframe is shorter than the box. */
+	:global(.big-player-video-frame) {
+		display: flex !important;
+		justify-content: center !important;
+		align-items: center !important;
 	}
 
 	@media (max-width: 480px) {
@@ -542,10 +755,44 @@
 			right: 0;
 			width: 100%;
 			height: 220px;
+			bottom: 50px;
 			border-radius: 0;
 		}
 		.mini-player-overlay {
 			border-radius: 0;
+		}
+		/* YouTube iframe has a hard-coded width from the YT API — stretch it
+		   and its wrapper to the full viewport on small screens so it mirrors
+		   the mini-player preview's full-width layout. */
+		.mini-player-overlay,
+		.mini-player-overlay > div,
+		.mini-player-overlay iframe {
+			width: 100% !important;
+		}
+		/* Same treatment in the big (on /play) video frame + TabViewer's
+		   overlay-buttons wrapper so they line up and span the viewport. */
+		:global(.big-player-video-frame),
+		:global(.big-player-video-overlay) {
+			left: 0 !important;
+			right: 0 !important;
+			width: 100% !important;
+			border-radius: 0 !important;
+		}
+		/* Flex-center is a safety net: if YouTube's iframe keeps its own
+		   fixed width despite our width:100%, it's at least horizontally
+		   centered inside the full-width frame. */
+		:global(.big-player-video-frame) {
+			display: flex !important;
+			justify-content: center !important;
+			align-items: center !important;
+		}
+		:global(.big-player-video-frame) > div,
+		:global(.big-player-video-frame) iframe {
+			display: block !important;
+			width: 100% !important;
+			max-width: 100% !important;
+			margin-left: auto !important;
+			margin-right: auto !important;
 		}
 	}
 </style>

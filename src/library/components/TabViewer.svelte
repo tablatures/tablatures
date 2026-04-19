@@ -20,13 +20,13 @@
 		setMasterVolumeDebounced,
 		beatCursorEl,
 		sourceVariants,
+		videoHandlers,
 		type SourceVariant
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
-	import VideoPlayer from '$components/VideoPlayer.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -58,12 +58,15 @@
 		if (switchingSource || variant.id === tabId) return;
 		switchingSource = true;
 		try {
-			await openTabById({
-				id: variant.id,
-				title: title.split(' - ')[0] || title,
-				artist: currentArtistName || '',
-				source: variant.source
-			}, false);
+			await openTabById(
+				{
+					id: variant.id,
+					title: title.split(' - ')[0] || title,
+					artist: currentArtistName || '',
+					source: variant.source
+				},
+				false
+			);
 		} finally {
 			switchingSource = false;
 		}
@@ -264,8 +267,10 @@
 		const containerRect = target?.getBoundingClientRect();
 		const elRect = el.getBoundingClientRect();
 		if (!target || !containerRect) return;
-		const scrollTop = target.scrollTop + (elRect.top - containerRect.top) -
-			(showSettings && controlsVisible ? settings?.getBoundingClientRect()?.height ?? 0 : 0);
+		const scrollTop =
+			target.scrollTop +
+			(elRect.top - containerRect.top) -
+			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
 		const scrollElement = isFullscreen ? page : window;
 		if (!scrollElement) return;
 		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
@@ -352,11 +357,19 @@
 		if (source === 'video') {
 			// Mute tab, unmute video
 			if (api) api.masterVolume = 0;
-			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
+			if (ytPlayer)
+				try {
+					ytPlayer.unMute();
+					ytPlayer.setVolume(100);
+				} catch {}
 		} else if (source === 'both') {
 			// Keep tab volume at user's setting AND unmute video
 			if (api) api.masterVolume = volume;
-			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
+			if (ytPlayer)
+				try {
+					ytPlayer.unMute();
+					ytPlayer.setVolume(100);
+				} catch {}
 		} else {
 			// Restore tab volume, mute video
 			if (api) api.masterVolume = volume;
@@ -389,7 +402,9 @@
 			try {
 				const ytState = ytPlayer.getPlayerState?.();
 				if (ytState !== 1) return;
-			} catch { return; }
+			} catch {
+				return;
+			}
 
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
@@ -411,8 +426,10 @@
 						const loopEndPct = (lr.endMs / duration) * 100;
 						// If video time falls outside the loop range, seek video back to loop start
 						if (targetProgress < loopStartPct - 1 || targetProgress > loopEndPct + 1) {
-							const loopStartSec = (lr.startMs / 1000) + $videoSyncOffset;
-							try { ytPlayer.seekTo(loopStartSec, true); } catch {}
+							const loopStartSec = lr.startMs / 1000 + $videoSyncOffset;
+							try {
+								ytPlayer.seekTo(loopStartSec, true);
+							} catch {}
 						}
 					}
 					return;
@@ -620,7 +637,10 @@
 	 *  Finds the smallest contiguous range across all occurrences of startBar/endBar
 	 *  in the expanded sequence. Prefers later occurrences when spans tie
 	 *  (e.g. alternate endings). */
-	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
+	function barToExpandedRange(
+		startBar: number,
+		endBar: number
+	): { startTick: number; endTick: number } | null {
 		if (!api) return null;
 		try {
 			const entries = api.tickCache?.masterBars;
@@ -658,13 +678,16 @@
 			if (expandedEnd > expandedStart) {
 				return { startTick: expandedStart, endTick: expandedEnd };
 			}
-		} catch (e) { console.warn('barToExpandedRange error:', e); }
+		} catch (e) {
+			console.warn('barToExpandedRange error:', e);
+		}
 		return null;
 	}
 
 	/** Get ms start/end for the current loop range, consistent with playback. */
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
-		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0) return null;
+		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0)
+			return null;
 		const range = barToExpandedRange(loopStartBar, loopEndBar);
 		if (!range) return null;
 		try {
@@ -676,7 +699,9 @@
 				startMs: (range.startTick / total) * duration,
 				endMs: (range.endTick / total) * duration
 			};
-		} catch { return null; }
+		} catch {
+			return null;
+		}
 	}
 
 	/** Get ms position for a bar's start (last occurrence for repeated bars) */
@@ -690,14 +715,19 @@
 			let found = false;
 			let expandedTick = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) { expandedTick = entry.start; found = true; }
+				if (entry.masterBar.index === barIdx) {
+					expandedTick = entry.start;
+					found = true;
+				}
 			}
 			if (!found) {
 				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
 				return -1;
 			}
 			return (expandedTick / totalExpanded) * duration;
-		} catch (e) { console.warn('barToMs error:', e); }
+		} catch (e) {
+			console.warn('barToMs error:', e);
+		}
 		return -1;
 	}
 
@@ -712,14 +742,19 @@
 			let found = false;
 			let expandedEnd = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) { expandedEnd = entry.end; found = true; }
+				if (entry.masterBar.index === barIdx) {
+					expandedEnd = entry.end;
+					found = true;
+				}
 			}
 			if (!found) {
 				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
 				return -1;
 			}
 			return (expandedEnd / totalExpanded) * duration;
-		} catch (e) { console.warn('barEndToMs error:', e); }
+		} catch (e) {
+			console.warn('barEndToMs error:', e);
+		}
 		return 0;
 	}
 
@@ -737,11 +772,13 @@
 				}
 			}
 			return entries[entries.length - 1].masterBar.index;
-		} catch (e) { console.warn('msToBar error:', e); }
+		} catch (e) {
+			console.warn('msToBar error:', e);
+		}
 		return 0;
 	}
 
-/** Sync api.playbackRange from our bar-based loop state. */
+	/** Sync api.playbackRange from our bar-based loop state. */
 	function syncPlaybackRange() {
 		if (!api) return;
 		try {
@@ -799,10 +836,17 @@
 		}
 	}
 
-/** Render the loop selection overlay on the score */
+	/** Render the loop selection overlay on the score */
 	function updateScoreSelection() {
-		if (!api || !scoreLoaded || !duration || duration <= 0 ||
-			loopStartBar === null || loopEndBar === null || !loopEnabled) {
+		if (
+			!api ||
+			!scoreLoaded ||
+			!duration ||
+			duration <= 0 ||
+			loopStartBar === null ||
+			loopEndBar === null ||
+			!loopEnabled
+		) {
 			clearScoreSelection();
 			loopMinimapVisible = false;
 			return;
@@ -1040,9 +1084,15 @@
 
 	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
 	// so Svelte tracks them as dependencies (it can't see through loopRangeMs()).
-	$: _loopTimelinePct = loopStartBar !== null && loopEndBar !== null && duration > 0
-		? (() => { const lm = loopRangeMs(); return lm ? { start: (lm.startMs / duration) * 100, end: (lm.endMs / duration) * 100 } : null; })()
-		: null;
+	$: _loopTimelinePct =
+		loopStartBar !== null && loopEndBar !== null && duration > 0
+			? (() => {
+					const lm = loopRangeMs();
+					return lm
+						? { start: (lm.startMs / duration) * 100, end: (lm.endMs / duration) * 100 }
+						: null;
+				})()
+			: null;
 
 	// --- Sheet selection → auto-loop ---
 	function processSelection(startBeat: any, endBeat: any) {
@@ -1124,7 +1174,7 @@
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			const dx = me.clientX - startX;
-			const refWidth = (barRect && barRect.width) ? barRect.width : window.innerWidth;
+			const refWidth = barRect && barRect.width ? barRect.width : window.innerWidth;
 			const timeDelta = (dx / refWidth) * duration;
 			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
 			let newStartBar = msToBar(newMs);
@@ -1362,7 +1412,9 @@
 			document.removeEventListener('mouseup', onUp);
 			isDraggingLoop = false;
 			if (loopStartBar !== null && loopEndBar !== null && loopStartBar > loopEndBar) {
-				const tmp = loopStartBar; loopStartBar = loopEndBar; loopEndBar = tmp;
+				const tmp = loopStartBar;
+				loopStartBar = loopEndBar;
+				loopEndBar = tmp;
 			}
 		};
 
@@ -1520,7 +1572,8 @@
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
-		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0]) return;
+		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0])
+			return;
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
@@ -2025,6 +2078,21 @@
 		}
 		isFullPlayerView.set(true);
 
+		// Register our video handlers so the layout's persistent VideoPlayer
+		// (the single YT iframe that survives route changes) can notify us.
+		videoHandlers.set({
+			onStateChange: handleVideoStateChange,
+			onReady: () => {
+				startVideoSync();
+				if (get(playerState).videoWasPlaying) {
+					try {
+						get(videoPlayerRef)?.playVideo();
+					} catch {}
+					updatePlayerState({ videoWasPlaying: false });
+				}
+			}
+		});
+
 		// --- Adopt persistent alphaTab API from layout ---
 		api = get(playerApi);
 		const playerHostEl = get(playerTarget);
@@ -2108,7 +2176,9 @@
 							}
 						}
 						return bars;
-					} catch { return []; }
+					} catch {
+						return [];
+					}
 				},
 				setMockVideo: (currentTimeSec: number, durationSec: number) => {
 					const mockPlayer = {
@@ -2120,7 +2190,7 @@
 						seekTo: () => {},
 						mute: () => {},
 						unMute: () => {},
-						setVolume: () => {},
+						setVolume: () => {}
 					};
 					activeVideoId.set('mock-video-id');
 					videoPlayerRef.set(mockPlayer);
@@ -2142,7 +2212,9 @@
 						const entries = api?.tickCache?.masterBars;
 						if (!entries) return null;
 						return entries.map((e: any) => e.masterBar.index);
-					} catch { return null; }
+					} catch {
+						return null;
+					}
 				},
 				getExpandedRangeTicks: (startBar: number, endBar: number) => {
 					return barToExpandedRange(startBar, endBar);
@@ -2156,10 +2228,10 @@
 				getTrackVolumes: () => [...trackVolumes],
 				getTrackCount: () => tracks.length,
 				// Read the actual API internal state (not our UI copy)
-				getApiTrackMutes: () => tracks.map(t => t.playbackInfo.isMute),
+				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
 				getApiMasterVolume: () => api?.masterVolume ?? -1,
 				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
-				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1,
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1
 			};
 		}
 
@@ -2344,6 +2416,9 @@
 		if (didReturnPlayerHost) return;
 		didReturnPlayerHost = true;
 		isFullPlayerView.set(false);
+		// Release the video-handler slot so the layout's VideoPlayer stops
+		// bouncing YT events into our (about-to-unmount) handlers.
+		videoHandlers.set({});
 
 		// Return the persistent player host to the layout's hidden anchor.
 		// alphaTab's audio runs in a Web Audio context that is NOT tied to the DOM
@@ -2362,7 +2437,9 @@
 		const ytPlayer = $videoPlayerRef;
 		let videoIsPlaying = false;
 		if (ytPlayer) {
-			try { videoIsPlaying = ytPlayer.getPlayerState?.() === 1; } catch {}
+			try {
+				videoIsPlaying = ytPlayer.getPlayerState?.() === 1;
+			} catch {}
 		}
 
 		// Save current state to the store (for MiniPlayer to display)
@@ -2564,7 +2641,7 @@
 		const ytPlayer = $videoPlayerRef;
 		if (!ytPlayer) return;
 		userSeekLockUntil = Date.now() + 600;
-		const videoSec = Math.max(0, (tabMs / 1000) + ($videoSyncOffset || 0));
+		const videoSec = Math.max(0, tabMs / 1000 + ($videoSyncOffset || 0));
 		try {
 			ytPlayer.seekTo(videoSec, true);
 		} catch {}
@@ -2594,9 +2671,8 @@
 	}
 
 	let videoSyncLock = false;
-	function handleVideoStateChange(e: CustomEvent<number>) {
+	function handleVideoStateChange(state: number) {
 		if (videoSyncLock) return;
-		const state = e.detail;
 		// YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
 		videoSyncLock = true;
 		if (state === 1 && !playing) {
@@ -2665,7 +2741,6 @@
 			track.playbackInfo.isSolo = true;
 			api.changeTrackSolo([track], true);
 		}
-
 	}
 
 	function toggleTrackMute(trackIndex: number) {
@@ -2928,7 +3003,8 @@
 			// File-imported tabs have no catalog ID; embed compressed bytes in
 			// the URL hash so the recipient can open the exact same tab.
 			try {
-				const { encodeTabForUrl, canShareViaUrl, LARGE_SHARE_BYTES } = await import('../utils/shareTab');
+				const { encodeTabForUrl, canShareViaUrl, LARGE_SHARE_BYTES } =
+					await import('../utils/shareTab');
 				if (!canShareViaUrl()) {
 					toastStore.error('This browser does not support sharing imported tabs via URL.');
 					return;
@@ -3151,7 +3227,16 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+					on:click={() => {
+						if (loopStartBar !== null && api) {
+							const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+							if (ms < 0) return;
+							progress = (ms / duration) * 100;
+							api.player.timePosition = ms;
+							seekDebounce();
+							if (!playing) playImmediate();
+						}
+					}}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -3329,7 +3414,16 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+						on:click|stopPropagation={() => {
+							if (loopStartBar !== null && api) {
+								const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+								if (ms < 0) return;
+								progress = (ms / duration) * 100;
+								api.player.timePosition = ms;
+								seekDebounce();
+								if (!playing) playImmediate();
+							}
+						}}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
@@ -3416,9 +3510,20 @@
 				on:mouseleave={() => (volumeHover = false)}
 			>
 				<button
-					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{volume === 0 ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-600 dark:text-neutral-400'}"
-					on:click={() => { if (volume > 0) { volumeBeforeMute = volume; volume = 0; } else { volume = volumeBeforeMute || 1; } }}
+					class="{isFullscreen
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{volume === 0
+						? 'text-neutral-400 dark:text-neutral-500'
+						: 'text-neutral-600 dark:text-neutral-400'}"
+					on:click={() => {
+						if (volume > 0) {
+							volumeBeforeMute = volume;
+							volume = 0;
+						} else {
+							volume = volumeBeforeMute || 1;
+						}
+					}}
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
@@ -3548,9 +3653,12 @@
 			{#if loopStartBar !== null && loopEndBar !== null}
 				<button
 					on:click={toggleLoopEnabled}
-					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					class="{isFullscreen
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
-					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
+					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
+						1}) [Esc to clear]"
 					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
 					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}"
@@ -3576,7 +3684,9 @@
 				class="{isFullscreen
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'tracks' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					{showSettings && activeSettingsTab === 'tracks'
+					? 'text-violet-500'
+					: 'text-neutral-500 dark:text-neutral-400'}"
 				title="Tracks [T]"
 				aria-label="Tracks"
 			>
@@ -3588,7 +3698,9 @@
 				class="{isFullscreen
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'settings' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					{showSettings && activeSettingsTab === 'settings'
+					? 'text-violet-500'
+					: 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 				aria-label="Settings"
 			>
@@ -3621,32 +3733,20 @@
 			</button>
 		</div>
 
-		<!-- Video player (PiP position, above controls bar + settings) - hidden in fullscreen -->
+		<!-- Video overlay buttons. The VideoPlayer iframe itself now lives in
+			 +layout.svelte (persists across route changes); this block provides
+			 the rich overlay UI that sits on top of it while in big player view. -->
 		{#if hasActiveVideo && $activeVideoId && !isFullscreen}
 			<div
-				class="fixed bottom-40 right-4 z-[75] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black"
+				class="big-player-video-overlay fixed bottom-[171px] right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
 			>
-				<div class="relative">
-					<VideoPlayer
-						videoId={$activeVideoId}
-						width={340}
-						height={200}
-						autoplay={false}
-						on:stateChange={handleVideoStateChange}
-						on:ready={() => {
-							startVideoSync();
-							if (get(playerState).videoWasPlaying) {
-								try { $videoPlayerRef?.playVideo(); } catch {}
-								updatePlayerState({ videoWasPlaying: false });
-							}
-						}}
-					/>
+				<div class="relative w-full h-full">
 					<!-- Top controls overlay. No play/pause button here — YouTube's
 					     own center "gesture-unlock" play button is shown for an
 					     unstarted video, and once playback is going the tab bar's
 					     play button drives both sides. -->
 					<div
-						class="absolute top-0 left-0 right-0 flex items-center justify-between p-2 bg-gradient-to-b from-black/60 to-transparent"
+						class="absolute top-0 left-0 right-0 flex items-center justify-between px-1 pb-1 pt-0 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
 					>
 						<div class="flex items-center gap-1.5">
 							<!-- Audio source toggle (tab / video / both) -->
@@ -3654,15 +3754,15 @@
 								on:click={toggleAudioSource}
 								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
 									{$audioSource === 'video'
-										? 'bg-violet-500 text-white hover:bg-violet-600'
-										: $audioSource === 'both'
-											? 'bg-emerald-500 text-white hover:bg-emerald-600'
-											: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
-								title="{$audioSource === 'video'
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: $audioSource === 'both'
+										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
 									: $audioSource === 'both'
 										? 'Both tab + video audio — click for tab only'
-										: 'Tab audio only — click for video'}"
+										: 'Tab audio only — click for video'}
 							>
 								<i class="material-icons !text-lg"
 									>{$audioSource === 'video'
@@ -3671,19 +3771,21 @@
 											? 'headphones'
 											: 'music_note'}</i
 								>
-								<span>{$audioSource === 'video'
-									? 'Video'
-									: $audioSource === 'both'
-										? 'Both'
-										: 'Tab'}</span>
+								<span
+									>{$audioSource === 'video'
+										? 'Video'
+										: $audioSource === 'both'
+											? 'Both'
+											: 'Tab'}</span
+								>
 							</button>
 							<!-- Offset control toggle -->
 							<button
 								on:click={() => (showOffsetControl = !showOffsetControl)}
 								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
 									{showOffsetControl
-										? 'bg-violet-500 text-white hover:bg-violet-600'
-										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
 							>
 								<i class="material-icons !text-lg">sync</i>
@@ -3704,7 +3806,9 @@
 
 					<!-- Enhanced offset control panel -->
 					{#if showOffsetControl}
-						<div class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2">
+						<div
+							class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
+						>
 							<!-- Slider for coarse adjustment -->
 							<div class="flex items-center gap-2">
 								<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
@@ -3828,14 +3932,16 @@
 						{/if}
 						{#if hasVariants}
 							<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-								<span class="text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5">Sources:</span>
+								<span class="text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
+									>Sources:</span
+								>
 								{#each variants as variant}
 									{@const vd = getSourceDisplay(variant.source)}
 									<button
 										class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50
 											{variant.id === tabId
-												? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
-												: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
+											? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+											: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
 										on:click={() => switchToVariant(variant)}
 										disabled={switchingSource || variant.id === tabId}
 										title={variant.id === tabId ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
@@ -4064,7 +4170,9 @@
 						<div class="flex items-center gap-3">
 							<button
 								on:click={toggleLoopEnabled}
-								class="p-1.5 rounded-lg transition-colors {loopEnabled ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500' : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+								class="p-1.5 rounded-lg transition-colors {loopEnabled
+									? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500'
+									: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
 							>
 								<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
 							</button>

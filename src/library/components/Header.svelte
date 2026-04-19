@@ -6,10 +6,7 @@
 	import ThemeToggle from './ThemeToggle.svelte';
 	import IconButton from './IconButton.svelte';
 	import SearchBar from './SearchBar.svelte';
-	import { debugEmptyContinue } from '../utils/debug';
 	import { tunerOpen } from '../utils/tuner';
-
-	const ISSUES_URL = 'https://github.com/tablatures/tablatures/issues';
 
 	export let showSearch: boolean = true;
 	export let searchValue: string = '';
@@ -166,30 +163,6 @@
 				<span class="hidden lg:inline">Settings</span>
 			</a>
 			<ThemeToggle />
-			<a
-				href={ISSUES_URL}
-				target="_blank"
-				rel="noopener noreferrer"
-				class="inline-flex items-center justify-center w-6 h-6 rounded-lg transition-colors text-neutral-300 dark:text-neutral-700 hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-				title="Report an issue"
-				aria-label="Report an issue on GitHub"
-			>
-				<i class="material-icons !text-sm">bug_report</i>
-			</a>
-			<!-- Debug: force "no continue data" state on Home for previewing the empty layout -->
-			<button
-				type="button"
-				on:click={() => debugEmptyContinue.update(v => !v)}
-				class="inline-flex items-center justify-center w-6 h-6 rounded-lg transition-colors
-					{$debugEmptyContinue
-						? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
-						: 'text-neutral-300 dark:text-neutral-700 hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
-				title="Toggle empty-continue debug ({$debugEmptyContinue ? 'on' : 'off'})"
-				aria-label="Toggle debug empty continue state"
-				aria-pressed={$debugEmptyContinue}
-			>
-				<i class="material-icons !text-sm">hide_source</i>
-			</button>
 		</div>
 	</div>
 

@@ -140,6 +140,50 @@
 		</h1>
 	</div>
 
+	<!-- ===== SUPPORT / FEEDBACK BANNER ===== -->
+	<div class="mb-6 p-4 rounded-lg border border-violet-200 dark:border-violet-900/50 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20">
+		<div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+			<div class="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+				<div class="flex-shrink-0 w-10 h-10 rounded-full bg-violet-500/10 dark:bg-violet-500/20 flex items-center justify-center">
+					<i class="material-icons-outlined !text-xl text-violet-500">campaign</i>
+				</div>
+				<div class="min-w-0">
+					<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Help improve Tablatures</p>
+					<p class="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">Report a bug, request a feature, or suggest a new tab source.</p>
+				</div>
+			</div>
+			<div class="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+				<a
+					href="https://github.com/tablatures/tablatures/issues/new?labels=bug&template=bug_report.md"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+				>
+					<i class="material-icons-outlined !text-base">bug_report</i>
+					Report issue
+				</a>
+				<a
+					href="https://github.com/tablatures/tablatures/issues/new?labels=source&template=source_request.md"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+				>
+					<i class="material-icons-outlined !text-base">library_add</i>
+					Suggest source
+				</a>
+				<a
+					href="https://github.com/tablatures/tablatures"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors"
+				>
+					<i class="material-icons-outlined !text-base">star_outline</i>
+					Star on GitHub
+				</a>
+			</div>
+		</div>
+	</div>
+
 	<!-- ===== AUDIO SECTION ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-0">
 		<i class="material-icons-outlined text-violet-500 !text-xl">volume_up</i>

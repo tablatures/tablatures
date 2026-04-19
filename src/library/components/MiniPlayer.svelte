@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { playerApi, playerState, updatePlayerState, activeVideoId, audioSource, videoSyncOffset, sourceVariants, type SourceVariant } from '../utils/playerStore';
+	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { displayTime } from '../utils/format';
@@ -81,22 +81,6 @@
 
 	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
-
-	function nudgeOffset(delta: number) {
-		videoSyncOffset.update(v => Math.round((v + delta) * 10) / 10);
-		// Persist to localStorage
-		try {
-			const stored = localStorage.getItem('video-offsets');
-			const offsets = stored ? JSON.parse(stored) : {};
-			const key = `${currentTab?.tabId || 'local'}::${$activeVideoId || ''}`;
-			offsets[key] = $videoSyncOffset;
-			localStorage.setItem('video-offsets', JSON.stringify(offsets));
-		} catch {}
-	}
-
-	function toggleSource() {
-		audioSource.update(s => s === 'tab' ? 'video' : s === 'video' ? 'both' : 'tab');
-	}
 
 	$: variants = $sourceVariants;
 	$: currentSource = currentTab?.source || '';
@@ -225,31 +209,7 @@
 			</div>
 		{/if}
 
-		<!-- Audio source toggle + sync offset (when video active) -->
-		{#if $activeVideoId}
-			<div class="flex items-center gap-0.5 flex-shrink-0">
-				<button
-					on:click={toggleSource}
-					class="p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : $audioSource === 'both' ? 'text-emerald-400' : 'text-neutral-500 hover:text-white'}"
-					title="{$audioSource === 'video' ? 'Video audio' : $audioSource === 'both' ? 'Both audio' : 'Tab audio'} - tap to switch"
-				>
-					<i class="material-icons !text-base">{$audioSource === 'video' ? 'videocam' : $audioSource === 'both' ? 'headphones' : 'music_note'}</i>
-				</button>
-				<button
-					on:click={() => nudgeOffset(-0.1)}
-					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
-					title="Sync -0.1s"
-				>-</button>
-				<span class="text-[10px] text-neutral-400 font-mono min-w-[2rem] text-center">
-					{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s
-				</span>
-				<button
-					on:click={() => nudgeOffset(0.1)}
-					class="px-0.5 text-neutral-500 hover:text-white transition-colors text-[10px] font-mono"
-					title="Sync +0.1s"
-				>+</button>
-			</div>
-		{/if}
+		<!-- Video audio / sync controls live in the YouTube overlay, not here -->
 
 		<!-- Share link -->
 		{#if currentTab?.tabId}
