@@ -14,6 +14,7 @@ export interface PlayerState {
 	tracks: any[];
 	activeTrackIndex: number;
 	isRendering: boolean;
+	videoWasPlaying: boolean;
 }
 
 const DEFAULT_STATE: PlayerState = {
@@ -29,7 +30,8 @@ const DEFAULT_STATE: PlayerState = {
 	totalBars: 0,
 	tracks: [],
 	activeTrackIndex: 0,
-	isRendering: false
+	isRendering: false,
+	videoWasPlaying: false
 };
 
 // The alphaTab API instance (not serializable, just a reference)
@@ -73,8 +75,8 @@ export function getApi(): any {
 export const activeVideoId = writable<string | null>(null);
 export const videoPlayerRef = writable<any>(null);
 
-// Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio
-export const audioSource = writable<'tab' | 'video'>('tab');
+// Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio, 'both' = both simultaneously
+export const audioSource = writable<'tab' | 'video' | 'both'>('tab');
 
 // Video sync offset (seconds), shared between TabViewer and MiniPlayer
 export const videoSyncOffset = writable<number>(0);

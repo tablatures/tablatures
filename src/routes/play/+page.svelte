@@ -37,41 +37,15 @@
 	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
 	$: hasTab = currentTab?.fileAsB64;
 
-	// URL sync - ?tab= and ?video= update immediately, ?t= is debounced
-	let urlSyncTimeout: NodeJS.Timeout;
-
-	function syncStableParams() {
-		if (!browser) return;
-		const url = new URL(window.location.href);
-		let changed = false;
-
-		// ?tab=
-		if (currentTabId) {
-			if (url.searchParams.get('tab') !== currentTabId) {
-				url.searchParams.set('tab', currentTabId);
-				changed = true;
-			}
-		} else if (url.searchParams.has('tab')) {
-			url.searchParams.delete('tab');
-			changed = true;
-		}
-
-		// ?video= (YouTube video ID)
-		const vid = $activeVideoId;
-		if (vid) {
-			if (url.searchParams.get('video') !== vid) {
-				url.searchParams.set('video', vid);
-				changed = true;
-			}
-		} else if (url.searchParams.has('video')) {
-			url.searchParams.delete('video');
-			changed = true;
-		}
-
-		if (changed) {
-			window.history.replaceState(window.history.state, '', url.toString());
-		}
-	}
+	// Stable-param writing (?tab, ?video, ?track) and playback-time syncing
+	// (?t) are handled globally in +layout.svelte via library/utils/urlState.ts
+	// so they persist across every route, not just /play.
+	//
+	// What still lives on this page:
+	//   - #tab=1.<data> hash encode/decode (heavy binary payload, /play-only)
+	//   - Initial-load reads for ?tab= / ?track= / ?t= / ?video= which drive
+	//     tab download + player seek.
+	let initialTrackIndex: number | undefined = undefined;
 
 	// Compress-and-embed the tab bytes in the URL hash whenever the current
 	// tab is file-imported (has bytes but no catalog ID). Runs once per unique
@@ -136,44 +110,6 @@
 	$: if (browser) {
 		currentTab?.fileAsB64, currentTabId;
 		syncImportedTabHash();
-	}
-
-	function syncPlaybackTime() {
-		if (!browser) return;
-		clearTimeout(urlSyncTimeout);
-		urlSyncTimeout = setTimeout(() => {
-			const state = $playerState;
-			const url = new URL(window.location.href);
-			let changed = false;
-			if (state.duration > 0 && state.progress > 0) {
-				const timeSec = Math.round((state.progress / 100) * (state.duration / 1000));
-				if (timeSec > 0) {
-					if (url.searchParams.get('t') !== String(timeSec)) {
-						url.searchParams.set('t', String(timeSec));
-						changed = true;
-					}
-				} else if (url.searchParams.has('t')) {
-					url.searchParams.delete('t');
-					changed = true;
-				}
-			} else if (url.searchParams.has('t')) {
-				url.searchParams.delete('t');
-				changed = true;
-			}
-			if (changed) {
-				window.history.replaceState(window.history.state, '', url.toString());
-			}
-		}, 2000);
-	}
-
-	$: if (browser) {
-		currentTabId, $activeVideoId;
-		syncStableParams();
-	}
-
-	$: if (browser) {
-		$playerState.progress;
-		syncPlaybackTime();
 	}
 
 	function loadPlayerSettings(tab: TabData | null) {
@@ -369,6 +305,15 @@
 			activeVideoId.set(sharedVideoId);
 		}
 
+		// Handle ?track= (restore active track index)
+		const sharedTrack = $page.url.searchParams.get('track');
+		if (sharedTrack) {
+			const trackIdx = parseInt(sharedTrack, 10);
+			if (!isNaN(trackIdx) && trackIdx >= 0) {
+				initialTrackIndex = trackIdx;
+			}
+		}
+
 		// Handle ?t= (restore playback position - applied after tab loads)
 		const sharedTime = $page.url.searchParams.get('t');
 		if (sharedTime) {
@@ -439,6 +384,7 @@
 	<TabViewer
 		{data}
 		tabId={currentTabId}
+		{initialTrackIndex}
 		{playerSettings}
 		on:settingsChanged={handleSettingsChanged}
 		on:sheetChanged={handleSheetChanged}

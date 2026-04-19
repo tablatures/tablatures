@@ -20,9 +20,29 @@
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
+	import { hydrateFromUrl, syncStableUrlFromState, syncPlaybackTime } from '../library/utils/urlState';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
+
+	// Centralized URL ↔ store sync.
+	// On first mount: read URL into stores so /play's initial render sees the URL's track etc.
+	// After that: whenever the relevant stores change, mirror them back to the URL.
+	// These run on every route (Home, Repertoire, Play, etc.) so ?tab=/?video=/?track=
+	// persist across navigation.
+	let urlHydrated = false;
+	onMount(() => {
+		hydrateFromUrl();
+		urlHydrated = true;
+	});
+	$: if (urlHydrated && browser) {
+		$tabStore, $activeVideoId, $playerState.activeTrackIndex;
+		syncStableUrlFromState();
+	}
+	$: if (urlHydrated && browser) {
+		$playerState.progress;
+		syncPlaybackTime();
+	}
 	$: showMiniPlayer = !!(currentTab?.fileAsB64) && !isOnPlay;
 
 	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
@@ -309,10 +329,12 @@
 		preferencesStore.update(p => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
 	}
 
-	// When a video becomes active, apply audioSourcePreference
+	// When a video becomes active, default to playing the YouTube audio
+	// (users expect the song's original audio when a video is open). User can
+	// still toggle to tab/both via the overlay button. Preference only matters
+	// as a tiebreak when no explicit state exists.
 	$: if (browser && $activeVideoId) {
-		const prefs = get(preferencesStore);
-		audioSource.set(prefs.audioSourcePreference);
+		audioSource.set('video');
 	}
 
 	// Set CSS custom property for miniPlayerScaleMobile from preferences

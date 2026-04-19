@@ -95,7 +95,7 @@
 	}
 
 	function toggleSource() {
-		audioSource.update(s => s === 'tab' ? 'video' : 'tab');
+		audioSource.update(s => s === 'tab' ? 'video' : s === 'video' ? 'both' : 'tab');
 	}
 
 	$: variants = $sourceVariants;
@@ -135,6 +135,7 @@
 			switchingSource = false;
 		}
 	}
+
 </script>
 
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
@@ -229,10 +230,10 @@
 			<div class="flex items-center gap-0.5 flex-shrink-0">
 				<button
 					on:click={toggleSource}
-					class="p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : 'text-neutral-500 hover:text-white'}"
-					title="{$audioSource === 'video' ? 'Video audio' : 'Tab audio'} - tap to switch"
+					class="p-1 rounded transition-colors {$audioSource === 'video' ? 'text-violet-400' : $audioSource === 'both' ? 'text-emerald-400' : 'text-neutral-500 hover:text-white'}"
+					title="{$audioSource === 'video' ? 'Video audio' : $audioSource === 'both' ? 'Both audio' : 'Tab audio'} - tap to switch"
 				>
-					<i class="material-icons !text-base">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
+					<i class="material-icons !text-base">{$audioSource === 'video' ? 'videocam' : $audioSource === 'both' ? 'headphones' : 'music_note'}</i>
 				</button>
 				<button
 					on:click={() => nudgeOffset(-0.1)}

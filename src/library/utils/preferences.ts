@@ -8,7 +8,7 @@ export interface UserPreferences {
 	tabScaleDesktop: number;
 	tabScaleMobile: number;
 	miniPlayerScaleMobile: number;
-	audioSourcePreference: 'tab' | 'video';
+	audioSourcePreference: 'tab' | 'video' | 'both';
 	autoPlayOnLoad: boolean;
 	showMiniPlayerPreview: boolean;
 }
@@ -89,7 +89,7 @@ const DEFAULTS: UserPreferences = {
 	tabScaleDesktop: 1.0,
 	tabScaleMobile: 0.6,
 	miniPlayerScaleMobile: 0.7,
-	audioSourcePreference: 'tab',
+	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
 	showMiniPlayerPreview: true
 };

@@ -78,6 +78,7 @@
 
 	export let data: { fileAsB64?: string };
 	export let tabId: string | undefined = undefined;
+	export let initialTrackIndex: number | undefined = undefined;
 	export let playerSettings: {
 		volume: number;
 		speed: number;
@@ -150,7 +151,7 @@
 	let hoverProgress = 0;
 
 	let tracks: any[] = [];
-	let activeTrackIndex: number;
+	let activeTrackIndex: number = get(playerState).activeTrackIndex ?? 0;
 	let showSettings = false;
 	let theme: boolean;
 	let isFullscreen = false;
@@ -341,21 +342,21 @@
 	// Audio source toggle
 	function toggleAudioSource() {
 		const current = $audioSource;
-		const next = current === 'tab' ? 'video' : 'tab';
+		const next = current === 'tab' ? 'video' : current === 'video' ? 'both' : 'tab';
 		audioSource.set(next);
 		applyAudioSource(next);
 	}
 
-	function applyAudioSource(source: 'tab' | 'video') {
+	function applyAudioSource(source: 'tab' | 'video' | 'both') {
 		const ytPlayer = $videoPlayerRef;
 		if (source === 'video') {
 			// Mute tab, unmute video
 			if (api) api.masterVolume = 0;
-			if (ytPlayer)
-				try {
-					ytPlayer.unMute();
-					ytPlayer.setVolume(100);
-				} catch {}
+			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
+		} else if (source === 'both') {
+			// Keep tab volume at user's setting AND unmute video
+			if (api) api.masterVolume = volume;
+			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
 		} else {
 			// Restore tab volume, mute video
 			if (api) api.masterVolume = volume;
@@ -379,10 +380,16 @@
 		videoSyncInterval = setInterval(() => {
 			const ytPlayer = $videoPlayerRef;
 			if (!ytPlayer || !api || !duration) return;
-
-			// Don't override playback position when a loop is active —
-			// the loop owns the playback range and position.
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) return;
+			// Don't read video time while YouTube is still settling a seek we
+			// just issued — the old position would fight the user's drag.
+			if (Date.now() < userSeekLockUntil) return;
+			// Only pull from video when it is actively playing. When paused
+			// the video's time is frozen and would drag the tab back to that
+			// stale position every 200ms, blocking user progress-bar seeks.
+			try {
+				const ytState = ytPlayer.getPlayerState?.();
+				if (ytState !== 1) return;
+			} catch { return; }
 
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
@@ -395,12 +402,29 @@
 				if (tabDurationSec <= 0) return;
 
 				const targetProgress = (adjustedVideoTime / tabDurationSec) * 100;
+
+				// When a loop is active, clamp video sync to loop boundaries
+				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
+					const lr = loopRangeMs();
+					if (lr) {
+						const loopStartPct = (lr.startMs / duration) * 100;
+						const loopEndPct = (lr.endMs / duration) * 100;
+						// If video time falls outside the loop range, seek video back to loop start
+						if (targetProgress < loopStartPct - 1 || targetProgress > loopEndPct + 1) {
+							const loopStartSec = (lr.startMs / 1000) + $videoSyncOffset;
+							try { ytPlayer.seekTo(loopStartSec, true); } catch {}
+						}
+					}
+					return;
+				}
+
 				const clampedProgress = Math.max(0, Math.min(100, targetProgress));
 
 				// Sync if difference > 0.5% for tighter coupling
 				if (Math.abs(clampedProgress - progress) > 0.5) {
 					progress = clampedProgress;
 					api.player.timePosition = (progress / 100) * duration;
+					skipVideoDriveOnce = true;
 					seekDebounce();
 				}
 			} catch {}
@@ -1754,8 +1778,15 @@
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
 			if (bindDuration) {
+				const prev = progress;
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
+				// A jump of >2% between position events is not natural playback —
+				// it's a seek (e.g. alphaTab's built-in beat click). Propagate it
+				// to the video so the sync poller doesn't undo the user's click.
+				if (Math.abs(progress - prev) > 2 && duration > 0) {
+					driveVideoSeek(e.currentTime);
+				}
 			}
 			if (totalBars > 0 && duration > 0) {
 				currentBar = Math.floor((e.currentTime / e.endTime) * totalBars);
@@ -1986,6 +2017,12 @@
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
+		// Seed playerState.activeTrackIndex from URL so adoption sync below
+		// sees the URL value as authoritative. Otherwise the adoption sync
+		// would overwrite our URL-supplied track with a stale state value.
+		if (initialTrackIndex !== undefined && initialTrackIndex >= 0) {
+			updatePlayerState({ activeTrackIndex: initialTrackIndex });
+		}
 		isFullPlayerView.set(true);
 
 		// --- Adopt persistent alphaTab API from layout ---
@@ -2010,6 +2047,10 @@
 			scoreLoaded = state.scoreLoaded;
 			if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
 			if (state.tracks.length > 0) tracks = state.tracks;
+			if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
+				// Accept any non-negative index; bounds check happens once tracks load.
+				activeTrackIndex = state.activeTrackIndex;
+			}
 			if (state.totalBars > 0) totalBars = state.totalBars;
 			playing = state.playing;
 			progress = state.progress;
@@ -2256,11 +2297,13 @@
 			if (api) {
 				api.player.timePosition = 0;
 				progress = 0;
+				driveVideoSeek(0);
 			}
 		} else if (event.code === 'End') {
 			event.preventDefault();
 			if (api && duration > 0) {
 				api.player.timePosition = duration - 100;
+				driveVideoSeek(duration - 100);
 			}
 		} else if (event.code === 'Slash') {
 			event.preventDefault();
@@ -2315,6 +2358,13 @@
 			isTransitioning.set(false);
 		}
 
+		// Save video playing state before cleanup
+		const ytPlayer = $videoPlayerRef;
+		let videoIsPlaying = false;
+		if (ytPlayer) {
+			try { videoIsPlaying = ytPlayer.getPlayerState?.() === 1; } catch {}
+		}
+
 		// Save current state to the store (for MiniPlayer to display)
 		updatePlayerState({
 			playing,
@@ -2326,7 +2376,8 @@
 			currentBar,
 			totalBars,
 			tracks,
-			activeTrackIndex
+			activeTrackIndex,
+			videoWasPlaying: videoIsPlaying
 		});
 
 		// Clean up full player listeners
@@ -2504,6 +2555,44 @@
 		showOffsetControl = false;
 	}
 
+	/** Propagate a tab seek to the YouTube player so the video stays in step
+	 *  with the tab timeline. Safe to call when no video is open (no-op).
+	 *  Also installs a short lock so the 200ms sync poller doesn't immediately
+	 *  drag the tab back to the video's still-settling old position. */
+	let userSeekLockUntil = 0;
+	function driveVideoSeek(tabMs: number) {
+		const ytPlayer = $videoPlayerRef;
+		if (!ytPlayer) return;
+		userSeekLockUntil = Date.now() + 600;
+		const videoSec = Math.max(0, (tabMs / 1000) + ($videoSyncOffset || 0));
+		try {
+			ytPlayer.seekTo(videoSec, true);
+		} catch {}
+	}
+
+	/** YouTube supports a fixed set of playback rates. Snap tab speed to the
+	 *  nearest one that YT accepts. */
+	function ytPlaybackRate(tabSpeed: number): number {
+		const allowed = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+		let best = 1;
+		let bestDiff = Infinity;
+		for (const r of allowed) {
+			const d = Math.abs(r - tabSpeed);
+			if (d < bestDiff) {
+				bestDiff = d;
+				best = r;
+			}
+		}
+		return best;
+	}
+
+	// Tab speed → YouTube playback rate. Runs whenever speed changes.
+	$: if (browser && $videoPlayerRef) {
+		try {
+			$videoPlayerRef.setPlaybackRate(ytPlaybackRate(speed));
+		} catch {}
+	}
+
 	let videoSyncLock = false;
 	function handleVideoStateChange(e: CustomEvent<number>) {
 		if (videoSyncLock) return;
@@ -2526,12 +2615,22 @@
 	// After seeking, alphaTab may fire one last playerPositionChanged event
 	// with the OLD position before the seek completes. Suppress it briefly.
 	let seekDebounceTimeout: NodeJS.Timeout;
+	let skipVideoDriveOnce = false;
 	function seekDebounce() {
 		bindDuration = false;
 		clearTimeout(seekDebounceTimeout);
 		seekDebounceTimeout = setTimeout(() => {
 			bindDuration = true;
 		}, 100);
+		// Propagate the seek to the video unless it's the sync poller
+		// asking (which was itself driven by the video — would be a no-op echo).
+		if (skipVideoDriveOnce) {
+			skipVideoDriveOnce = false;
+			return;
+		}
+		if (duration > 0) {
+			driveVideoSeek((progress / 100) * duration);
+		}
 	}
 
 	// pause the progress while dragging
@@ -2586,6 +2685,7 @@
 	function setActiveTrack(trackIndex: number) {
 		activeTrackIndex = trackIndex;
 		api.renderTracks([tracks[trackIndex]]);
+		updatePlayerState({ activeTrackIndex: trackIndex });
 	}
 
 	function getTrackInfo(track: any): string {
@@ -3472,19 +3572,27 @@
 			{/if}
 
 			<button
-				on:click={() => {
-					showSettings = !showSettings;
-				}}
+				on:click={toggleTracksSettings}
 				class="{isFullscreen
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					{showSettings && activeSettingsTab === 'tracks' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				title="Tracks [T]"
+				aria-label="Tracks"
+			>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">queue_music</i>
+			</button>
+
+			<button
+				on:click={toggleSettings}
+				class="{isFullscreen
+					? 'p-1'
+					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'settings' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}"
-					>{showSettings ? 'close' : 'tune'}</i
-				>
+				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
 			<button
@@ -3523,48 +3631,74 @@
 						videoId={$activeVideoId}
 						width={340}
 						height={200}
+						autoplay={false}
 						on:stateChange={handleVideoStateChange}
-						on:ready={() => startVideoSync()}
+						on:ready={() => {
+							startVideoSync();
+							if (get(playerState).videoWasPlaying) {
+								try { $videoPlayerRef?.playVideo(); } catch {}
+								updatePlayerState({ videoWasPlaying: false });
+							}
+						}}
 					/>
-					<!-- Top controls overlay -->
+					<!-- Top controls overlay. No play/pause button here — YouTube's
+					     own center "gesture-unlock" play button is shown for an
+					     unstarted video, and once playback is going the tab bar's
+					     play button drives both sides. -->
 					<div
-						class="absolute top-0 left-0 right-0 flex items-center justify-between p-1.5 bg-gradient-to-b from-black/50 to-transparent"
+						class="absolute top-0 left-0 right-0 flex items-center justify-between p-2 bg-gradient-to-b from-black/60 to-transparent"
 					>
-						<div class="flex items-center gap-1">
-							<!-- Audio source toggle -->
+						<div class="flex items-center gap-1.5">
+							<!-- Audio source toggle (tab / video / both) -->
 							<button
 								on:click={toggleAudioSource}
-								class="p-1 rounded text-[10px] font-medium transition-colors
-								{$audioSource === 'video'
-									? 'bg-violet-500/80 text-white'
-									: 'text-white/70 hover:text-white hover:bg-white/10'}"
+								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+									{$audioSource === 'video'
+										? 'bg-violet-500 text-white hover:bg-violet-600'
+										: $audioSource === 'both'
+											? 'bg-emerald-500 text-white hover:bg-emerald-600'
+											: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="{$audioSource === 'video'
-									? 'Playing video audio'
-									: 'Playing tab audio'} - click to switch"
+									? 'Video audio only — click for both'
+									: $audioSource === 'both'
+										? 'Both tab + video audio — click for tab only'
+										: 'Tab audio only — click for video'}"
 							>
-								<i class="material-icons !text-sm"
-									>{$audioSource === 'video' ? 'videocam' : 'music_note'}</i
+								<i class="material-icons !text-lg"
+									>{$audioSource === 'video'
+										? 'videocam'
+										: $audioSource === 'both'
+											? 'headphones'
+											: 'music_note'}</i
 								>
+								<span>{$audioSource === 'video'
+									? 'Video'
+									: $audioSource === 'both'
+										? 'Both'
+										: 'Tab'}</span>
 							</button>
 							<!-- Offset control toggle -->
 							<button
 								on:click={() => (showOffsetControl = !showOffsetControl)}
-								class="p-1 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors text-[10px] font-mono"
+								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+									{showOffsetControl
+										? 'bg-violet-500 text-white hover:bg-violet-600'
+										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
 							>
+								<i class="material-icons !text-lg">sync</i>
 								{#if videoOffset !== 0}
-									{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
-								{:else}
-									<i class="material-icons !text-sm">sync</i>
+									<span>{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s</span>
 								{/if}
 							</button>
 						</div>
 						<button
 							on:click={closeVideo}
-							class="p-1 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
+							aria-label="Close video"
 						>
-							<i class="material-icons !text-sm">close</i>
+							<i class="material-icons !text-xl">close</i>
 						</button>
 					</div>
 
@@ -3774,14 +3908,22 @@
 	</div>
 	<!-- end sticky controls wrapper -->
 
-	<!-- Settings popover (YouTube-style, above controls) -->
+	<!-- Settings popover (YouTube-style, above controls).
+	     The click-outside overlay stops above the controls bar so the user
+	     can click between the Tracks/Settings toggle buttons without the
+	     overlay eating the click. The controls bar sits at `bottom-0` and
+	     is ~56px tall; bottom-16 (64px) on the overlay gives a safe buffer. -->
 	{#if showSettings}
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-		<div class="fixed inset-0 z-[60]" on:click={closeSettings} role="presentation" />
+		<div
+			class="fixed top-0 left-0 right-0 bottom-16 z-[60]"
+			on:click={closeSettings}
+			role="presentation"
+		/>
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
 		<div
 			bind:this={settings}
-			class="fixed bottom-12 left-2 right-2 sm:left-auto sm:right-4 sm:w-[90vw] sm:max-w-md z-[70] bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 py-3 max-h-[70vh] overflow-y-auto animate-fade-in"
+			class="fixed bottom-20 left-2 right-2 sm:left-auto sm:right-4 sm:w-[90vw] sm:max-w-md z-[70] bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 py-3 max-h-[70vh] overflow-y-auto animate-fade-in"
 			role="dialog"
 			on:click|stopPropagation
 		>
@@ -3824,7 +3966,7 @@
 
 			<!-- Settings Tab -->
 			{#if activeSettingsTab === 'settings'}
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-3" role="tabpanel" aria-label="Settings">
+				<div class="flex flex-col gap-2" role="tabpanel" aria-label="Settings">
 					<SettingSlider
 						bind:value={volume}
 						min={0}

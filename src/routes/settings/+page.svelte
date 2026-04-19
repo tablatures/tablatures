@@ -246,6 +246,7 @@
 				>
 					<option value="tab">Tab Sound</option>
 					<option value="video">Video Sound</option>
+					<option value="both">Both (Tab + Video)</option>
 				</select>
 			</div>
 		</div>
