@@ -38,6 +38,23 @@
 	.scrollbar-thin::-webkit-scrollbar {
 		height: 6px;
 	}
+
+	/* Dynamic viewport height with a 100vh fallback. Mobile browsers collapse
+	   the URL bar on scroll; 100vh is frozen at the initial (collapsed) value,
+	   so content ends short. 100dvh tracks the *visible* viewport and kills
+	   the transparent strip below the sticky transport bar. */
+	.min-h-dvh {
+		min-height: 100vh;
+		min-height: 100dvh;
+	}
+
+	/* Safe-area bottom padding for any element pinned to the viewport bottom
+	   (MiniPlayer bar, TabViewer transport row). Adds iOS home-indicator /
+	   Android gesture-zone clearance without shifting the element's layout
+	   on devices that don't need it. */
+	.pb-safe {
+		padding-bottom: env(safe-area-inset-bottom);
+	}
 }
 
 @layer components {
