@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { historyStore } from '../utils/history';
 	import type { HistoryItem } from '../utils/history';
+	import { getArtwork } from '../utils/artwork';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let value: string = '';
@@ -42,20 +43,16 @@
 	}
 
 	async function fetchRecentArtwork() {
-		const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
-		if (!SEARCH_API_BASE_URL) return;
+		// Funnel through the shared resolver so these thumbnails match what
+		// the user will see in the big player / repertoire / search results
+		// for the same song — same cache key, same endpoint, same fallback.
 		for (const item of recentItems) {
 			if (recentArtwork[item.id]) continue;
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(item.artist)}&title=${encodeURIComponent(item.title)}`);
-				if (resp.ok) {
-					const data = await resp.json();
-					if (data.artworkUrl) {
-						recentArtwork[item.id] = data.artworkUrl;
-						recentArtwork = recentArtwork;
-					}
-				}
-			} catch {}
+			const url = await getArtwork(item.artist, item.title);
+			if (url) {
+				recentArtwork[item.id] = url;
+				recentArtwork = recentArtwork;
+			}
 		}
 	}
 
