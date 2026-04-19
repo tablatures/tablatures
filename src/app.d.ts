@@ -32,11 +32,38 @@ declare global {
 			title: string;
 			artist: string;
 			tracks: Track[];
+			finish(settings: object): void;
 		}
 
 		interface Track {
 			name: string;
-			staves: { bars: unknown[] }[];
+			staves: Staff[];
+		}
+
+		interface Staff {
+			stringTuning: { tunings: number[]; name: string };
+			tuning: number[];
+			capo: number;
+			transpositionPitch: number;
+			bars: Bar[];
+		}
+
+		interface Bar {
+			voices: Voice[];
+		}
+
+		interface Voice {
+			beats: Beat[];
+		}
+
+		interface Beat {
+			notes: Note[];
+		}
+
+		interface Note {
+			fret: number;
+			string: number;
+			realValue: number;
 		}
 
 		interface Color {
@@ -71,6 +98,8 @@ declare global {
 			pause(): void;
 			updateSettings(): void;
 			render(): void;
+			renderScore(score: Score, trackIndexes?: number[]): void;
+			_beatCursor?: { element?: HTMLElement };
 			tickCache?: { masterBars: any[] } | null;
 		}
 
