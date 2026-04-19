@@ -13,6 +13,12 @@
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import { tunerOpen } from '../utils/tuner';
+	import { debugEmptyContinue } from '../utils/debug';
+
+	/** Effective history — respects the Header's debug toggle so we can preview
+	 *  the empty-state layout without wiping localStorage. */
+	$: effectiveHistory = $debugEmptyContinue ? [] : $historyStore;
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -340,14 +346,16 @@
 			if (cols > 0) gridCols = cols;
 		}
 		// Layout decision based on viewport + measured cols:
-		// - mobile viewport: Import full-width row
+		// - really small (< 480px): Import full-width row, Continue heading
+		//   rendered inside the grid below the Import tile
 		// - 7+ cols: Import 3×2 (big)
-		// - 4-6 cols: Import 2×2 (medium)
-		// - otherwise: single card cell
+		// - 5-6 cols: Import 2×2 (medium)
+		// - otherwise (≈ 480-780px / just past mobile): Import is a single card
+		//   so the Welcome panel can sit beside it on the same row
 		const w = window.innerWidth;
-		if (w < 640) importLayout = 'full';
+		if (w < 480) importLayout = 'full';
 		else if (gridCols >= 7) importLayout = 'big';
-		else if (gridCols >= 4) importLayout = 'medium';
+		else if (gridCols >= 5) importLayout = 'medium';
 		else importLayout = 'card';
 	}
 
@@ -374,21 +382,39 @@
 
 	/** Compute how many recent cards to show so See-all lands on the last filled row.
 	 *  When (visible + 1 See-all) doesn't fill the last row cleanly, drop one card so it does.
-	 */
+	 *  Full (mobile) layout intentionally skips the row-alignment shrink so users
+	 *  still see several rows of Continue on small phones. */
 	$: visibleRecentCount = (() => {
-		const history = $historyStore.length;
+		const history = effectiveHistory.length;
 		const cap = Math.max(1, maxCardSlots - reservedSlots);
-		let desired = Math.min(history, cap);
-
-		// On 'full' (mobile), cards + See-all should align to gridCols.
-		// Row 1 is Import (full-width), so subsequent rows need (desired + 1) % gridCols === 0.
-		if (importLayout === 'full' && gridCols > 0) {
-			while (desired > 0 && (desired + 1) % gridCols !== 0) desired--;
-		}
-		return desired;
+		return Math.min(history, cap);
 	})();
-	$: recentItems = $historyStore.slice(0, visibleRecentCount);
-	$: remainingCount = Math.max(0, $historyStore.length - recentItems.length);
+	$: recentItems = effectiveHistory.slice(0, visibleRecentCount);
+	$: remainingCount = Math.max(0, effectiveHistory.length - recentItems.length);
+
+	/** Cells alongside Import in rows 1-2 (i.e. the "Continue area" adjacent
+	 *  to the Import tile). Used to decide whether the full onboarding panel
+	 *  should take over or the history cards can fill the area on their own. */
+	$: alongsideSlots = (() => {
+		if (importLayout === 'big') return Math.max(0, (gridCols - 3) * 2);
+		if (importLayout === 'medium') return Math.max(0, (gridCols - 2) * 2);
+		if (importLayout === 'card') return Math.max(0, gridCols - 1);
+		return 0; // 'full' (mobile): grid flows naturally, no alongside area
+	})();
+
+	/** Show the full onboarding panel (heading + pills) whenever there aren't
+	 *  enough recent cards to fill the Continue area alongside Import. Covers
+	 *  both "no history" and "some history but not enough to fill rows 1-2". */
+	$: showOnboardingPanel = mounted
+		&& importLayout !== 'full'
+		&& alongsideSlots > 0
+		&& recentItems.length + 1 < alongsideSlots;
+
+	/** When history is completely empty, the panel fills both rows of the
+	 *  Continue area. When there are some history items (but still not
+	 *  enough to fill two rows), the panel takes only row 1 so the cards can
+	 *  slot into row 2 directly below it. */
+	$: panelRowSpan = recentItems.length === 0 ? 2 : 1;
 	let recentArtwork: Record<string, string> = {};
 	let recentArtworkFetched = false;
 	let recentArtworkLoading = false;
@@ -470,22 +496,15 @@
 	<section aria-labelledby="continue-heading">
 		<!-- Heading row — mirrors the content grid so Import/Continue labels align with their tiles -->
 		{#if importLayout === 'full'}
-			<!-- Mobile: headings stacked — Import label, then Continue label (above its cards) -->
-			{#if recentItems.length > 0}
-				<div class="mb-3 flex items-center gap-2">
-					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">upload_file</i>
-					<h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100">Import</h2>
-				</div>
-			{:else}
-				<div class="mb-3">
-					<h2 id="continue-heading" class="text-xl font-bold text-neutral-900 dark:text-neutral-100">
-						Welcome to Tablatures
-					</h2>
-					<p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-						Search for tabs above, or drop a file to get started.
-					</p>
-				</div>
-			{/if}
+			<!-- < 480px: just the Import heading above the grid. The Continue
+			     heading slides into the grid below the Import tile, right
+			     above the Welcome panel / recent cards. -->
+			<div class="mb-3 flex items-center gap-2">
+				<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
+					>upload_file</i
+				>
+				<h2 class="text-xl font-bold text-neutral-900 dark:text-neutral-100">Import</h2>
+			</div>
 		{:else}
 			<!-- Desktop: grid headings aligned with Import tile width and Continue cards area -->
 			<div
@@ -501,10 +520,13 @@
 							? 'grid-column: 1 / 3;'
 							: 'grid-column: 1 / 4;'}
 				>
-					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">upload_file</i>
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
+						>upload_file</i
+					>
 					<span>Import</span>
 				</h2>
-				<!-- Continue heading starts right after Import -->
+				<!-- Continue heading starts right after Import — shown at every state
+					 (empty, partial, or full) so the grid layout stays consistent. -->
 				<h2
 					id="continue-heading"
 					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
@@ -514,12 +536,10 @@
 							? 'grid-column: 3 / -1;'
 							: 'grid-column: 4 / -1;'}
 				>
-					{#if recentItems.length > 0}
-						<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">play_circle</i>
-						<span>Continue</span>
-					{:else}
-						<span class="text-neutral-900 dark:text-neutral-100">Welcome to Tablatures</span>
-					{/if}
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
+						>play_circle</i
+					>
+					<span>Continue</span>
 				</h2>
 			</div>
 		{/if}
@@ -536,13 +556,14 @@
 			-->
 			<div
 				class="flex flex-col w-full cursor-pointer group
-					col-span-full sm:col-span-1
-					focus-visible:ring-2² focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
+					focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
 				style={importLayout === 'big'
 					? 'grid-column: 1 / 4; grid-row: 1 / 3;'
 					: importLayout === 'medium'
 						? 'grid-column: 1 / 3; grid-row: 1 / 3;'
-						: ''}
+						: importLayout === 'full'
+							? 'grid-column: 1 / -1;'
+							: ''}
 				on:dragenter={handleDragEnter}
 				on:dragleave={handleDragLeave}
 				on:dragover={handleDragOver}
@@ -603,11 +624,79 @@
 				</div>
 			</div>
 
-			<!-- Mobile: Continue heading inside the grid, above the recent cards -->
-			{#if importLayout === 'full' && (recentItems.length > 0 || !mounted)}
-				<div class="col-span-full flex items-center gap-2 mt-1">
-					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">play_circle</i>
-					<h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100">Continue</h2>
+			<!-- Mobile (<480px): Continue heading sits inside the grid below the
+			     Import tile, above the Welcome panel / recent cards. -->
+			{#if importLayout === 'full'}
+				<div id="continue-heading" class="col-span-full flex items-center gap-2 mt-2">
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
+						>play_circle</i
+					>
+					<h2 class="text-xl font-bold text-neutral-900 dark:text-neutral-100">Continue</h2>
+				</div>
+			{/if}
+
+			<!-- Welcome / onboarding panel. When history is completely empty it
+				 fills rows 1-2 of the Continue area. When there are a few
+				 history items but not enough to fill the area, it takes only
+				 row 1 so cards flow in row 2 directly beneath it. -->
+			{#if showOnboardingPanel || (mounted && importLayout === 'full' && recentItems.length === 0)}
+				<div
+					class="h-full {(importLayout === 'big' || importLayout === 'medium') && panelRowSpan === 2
+						? 'min-h-[395px]'
+						: (importLayout === 'big' || importLayout === 'medium')
+							? 'min-h-[190px]'
+							: 'min-h-[210px]'} rounded-xl overflow-hidden bg-gradient-to-br from-violet-100 via-violet-50 to-white dark:from-violet-900/40 dark:via-violet-950/30 dark:to-neutral-900 flex flex-col justify-between p-5 sm:p-6 gap-5"
+					style={importLayout === 'big'
+						? `grid-column: 4 / -1; grid-row: 1 / ${1 + panelRowSpan};`
+						: importLayout === 'medium'
+							? `grid-column: 3 / -1; grid-row: 1 / ${1 + panelRowSpan};`
+							: importLayout === 'card'
+								? 'grid-column: 2 / -1;'
+								: 'grid-column: 1 / -1;'}
+				>
+					<div class="min-w-0">
+						<p
+							class="text-lg sm:text-xl lg:text-2xl font-bold text-neutral-900 dark:text-neutral-50 leading-tight"
+						>
+							Welcome to Tablatures
+						</p>
+						<p
+							class="text-xs sm:text-sm lg:text-base text-neutral-700 dark:text-neutral-300 mt-1.5 max-w-prose"
+						>
+							Tabs you play will show up here so you can pick up where you left off. For now, search
+							the catalog, tune your guitar, or drop a file to get started.
+						</p>
+					</div>
+					<!-- Pills row — compact sizing keeps all three on a single line at
+						 narrow card-layout widths; sm:/lg: ramps them up on bigger screens. -->
+					<div class="flex flex-nowrap gap-1.5 sm:gap-2 overflow-hidden">
+						<a
+							href="{base}/search"
+							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-violet-500 hover:bg-violet-600 text-white text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm hover:shadow transition-all active:scale-95"
+						>
+							<i class="material-icons-outlined !text-base sm:!text-lg" aria-hidden="true">search</i>
+							<span>Search</span>
+						</a>
+						<button
+							type="button"
+							on:click={() => tunerOpen.set(true)}
+							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-white dark:bg-neutral-900 hover:bg-violet-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm font-medium whitespace-nowrap border border-neutral-200 dark:border-neutral-700 shadow-sm hover:border-violet-300 dark:hover:border-violet-700 transition-all active:scale-95"
+						>
+							<i class="material-icons-outlined !text-base sm:!text-lg text-violet-500" aria-hidden="true"
+								>compass_calibration</i
+							>
+							<span>Tuner</span>
+						</button>
+						<a
+							href="{base}/repertoire"
+							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-white dark:bg-neutral-900 hover:bg-violet-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm font-medium whitespace-nowrap border border-neutral-200 dark:border-neutral-700 shadow-sm hover:border-violet-300 dark:hover:border-violet-700 transition-all active:scale-95"
+						>
+							<i class="material-icons-outlined !text-base sm:!text-lg text-violet-500" aria-hidden="true"
+								>library_music</i
+							>
+							<span>Repertoire</span>
+						</a>
+					</div>
 				</div>
 			{/if}
 
@@ -672,6 +761,7 @@
 					</div>
 				</a>
 			{/if}
+
 		</div>
 
 		<input
@@ -740,7 +830,9 @@
 		{#if loadingFeed && feedTabs.length > 0}
 			<div class="flex items-center justify-center gap-3 py-8" aria-live="polite">
 				<LoadingScore size="sm" message="" />
-				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400">Loading more tabs…</span>
+				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+					>Loading more tabs…</span
+				>
 			</div>
 		{/if}
 
