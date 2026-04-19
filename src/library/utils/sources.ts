@@ -23,6 +23,62 @@ export const DEFAULT_SOURCES: SearchSource[] = [
 	{ id: 'ultimate_guitar', name: 'Ultimate Guitar', icon: 'guitar', color: 'bg-yellow-500', badgeColor: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300', enabled: true },
 ];
 
+/** Shared display descriptor for a source — label + dot color + badge classes. */
+export interface SourceDisplay {
+	label: string;
+	dotColor: string;
+	badgeClass: string;
+}
+
+/** Normalize any API source string to a consistent display.
+ *  "local" means the app's own cached/indexed tabs (from our scraper) — labeled "Local".
+ *  "GuitarProTabOrg" / "guitarprotab" → "GP Tabs". Songsterr / UG / fallback.
+ */
+export function getSourceDisplay(source: string): SourceDisplay {
+	const s = (source || '').toLowerCase().trim();
+	if (!s) {
+		return {
+			label: 'Unknown',
+			dotColor: 'bg-neutral-400',
+			badgeClass: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
+		};
+	}
+	if (s.includes('songsterr')) {
+		return {
+			label: 'Songsterr',
+			dotColor: 'bg-orange-500',
+			badgeClass: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300'
+		};
+	}
+	if (s.includes('ultimate') || s === 'ug') {
+		return {
+			label: 'UG',
+			dotColor: 'bg-amber-500',
+			badgeClass: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+		};
+	}
+	if (s.includes('guitarprotab')) {
+		return {
+			label: 'GP Tabs',
+			dotColor: 'bg-emerald-500',
+			badgeClass: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+		};
+	}
+	if (s === 'local') {
+		return {
+			label: 'Local',
+			dotColor: 'bg-violet-500',
+			badgeClass: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300'
+		};
+	}
+	// Unknown source — show as-is
+	return {
+		label: source,
+		dotColor: 'bg-neutral-400',
+		badgeClass: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'
+	};
+}
+
 const STORAGE_KEY = 'search_sources';
 
 function loadSourcePreferences(): Record<string, boolean> {

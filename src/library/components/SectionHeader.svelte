@@ -5,7 +5,7 @@
 	export let actionHref: string = '';
 </script>
 
-<div class="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2 px-3">
+<div class="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-2 px-3">
 	<div class="flex items-center gap-1">
 		{#if icon}
 			<i class="material-icons !text-sm">{icon}</i>

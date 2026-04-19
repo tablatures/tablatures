@@ -8,16 +8,72 @@
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { favoritesStore } from '../utils/favorites';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, audioSource, videoSyncOffset, isTransitioning, setMasterVolumeDebounced } from '../utils/playerStore';
+	import {
+		playerApi,
+		playerTarget,
+		playerState,
+		updatePlayerState,
+		isFullPlayerView,
+		audioSource,
+		videoSyncOffset,
+		isTransitioning,
+		setMasterVolumeDebounced,
+		beatCursorEl,
+		sourceVariants,
+		videoHandlers,
+		type SourceVariant
+	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import SettingSlider from '$components/SettingSlider.svelte';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
-	import VideoPlayer from '$components/VideoPlayer.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
+	import { playlistStore } from '../utils/playlists';
+	import { openTabById } from '../utils/openTab';
+	import { getSourceDisplay } from '../utils/sources';
+	import { getArtwork } from '../utils/artwork';
+
+	$: allPlaylists = $playlistStore;
+
+	function addCurrentToPlaylist(playlistIndex: number) {
+		if (!tabId) return;
+		playlistStore.addEntry(playlistIndex, {
+			id: tabId,
+			title: title.split(' - ')[0] || title,
+			artist: currentArtistName || '',
+			source: ''
+		});
+		const pl = allPlaylists[playlistIndex];
+		toastStore.success(`Added to "${pl?.name || 'playlist'}"`);
+		showPlaylistPicker = false;
+	}
+
+	let showPlaylistPicker = false;
+
+	let switchingSource = false;
+	$: variants = $sourceVariants;
+	$: hasVariants = variants.length > 1;
+
+	async function switchToVariant(variant: SourceVariant) {
+		if (switchingSource || variant.id === tabId) return;
+		switchingSource = true;
+		try {
+			await openTabById(
+				{
+					id: variant.id,
+					title: title.split(' - ')[0] || title,
+					artist: currentArtistName || '',
+					source: variant.source
+				},
+				false
+			);
+		} finally {
+			switchingSource = false;
+		}
+	}
 
 	// Timeout constants (ms)
 	const PRINT_DELAY_MS = 100;
@@ -28,6 +84,7 @@
 
 	export let data: { fileAsB64?: string };
 	export let tabId: string | undefined = undefined;
+	export let initialTrackIndex: number | undefined = undefined;
 	export let playerSettings: {
 		volume: number;
 		speed: number;
@@ -91,8 +148,6 @@
 	let mountScrollTarget: Window | HTMLElement | undefined;
 	let mountHandleResize: (() => void) | undefined;
 
-	let solo: boolean = false;
-	let mute: boolean = false;
 	let apiError = '';
 	let activeSettingsTab = 'settings';
 
@@ -102,10 +157,15 @@
 	let hoverProgress = 0;
 
 	let tracks: any[] = [];
-	let activeTrackIndex: number;
+	let activeTrackIndex: number = get(playerState).activeTrackIndex ?? 0;
 	let showSettings = false;
 	let theme: boolean;
 	let isFullscreen = false;
+	// Mobile landscape phones should auto-collapse the transport row to the
+	// fullscreen-style compact layout so the bar doesn't eat half the screen.
+	// Desktops and tablets (height > 500px) keep the normal layout.
+	let isMobileLandscape = false;
+	$: compactBar = isFullscreen || isMobileLandscape;
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
@@ -121,7 +181,6 @@
 	let isRendering = false;
 	let loadingTimedOut = false;
 	let loadingTimeoutId: NodeJS.Timeout;
-	let debugLoading = false;
 
 	// Bar tracking
 	let currentBar = 0;
@@ -142,13 +201,19 @@
 	let loopDragOriginPercent = 0;
 
 	// Favorite state
-	$: isFavorite = tabId ? $favoritesStore.some(f => f.id === tabId) : false;
+	$: isFavorite = tabId ? $favoritesStore.some((f) => f.id === tabId) : false;
 
 	// Artist metadata
 	let artistImage: string | null = null;
 	let songArtwork: string | null = null;
 	let artistInfo: { name?: string; bio?: string; country?: string; tags?: string[] } | null = null;
-	let youtubeResults: { videoId: string; title: string; channel: string; duration: string; thumbnail: string }[] = [];
+	let youtubeResults: {
+		videoId: string;
+		title: string;
+		channel: string;
+		duration: string;
+		thumbnail: string;
+	}[] = [];
 	let currentArtistName = '';
 
 	async function fetchMetadata(titleStr: string) {
@@ -162,12 +227,22 @@
 		if (!artistName) return;
 		currentArtistName = artistName;
 
-		// Fetch all metadata in parallel
+		// Fetch in parallel:
+		//  - artist endpoint (for bio/tags/country panel) — *not* for the
+		//    thumbnail, to avoid racing a different URL than the shared
+		//    artwork cache returns.
+		//  - shared artwork resolver — hits the same endpoint + fallback
+		//    chain used by search / home feed / repertoire, keyed by the
+		//    normalized (artist, title) so the player's thumbnail matches
+		//    whatever the user saw on the card they clicked.
+		//  - YouTube search for the video-picker dropdown.
 		try {
-			const [artistResp, artworkResp, ytResp] = await Promise.allSettled([
+			const [artistResp, artworkUrl, ytResp] = await Promise.allSettled([
 				fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`),
-				fetch(`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(artistName)}&title=${encodeURIComponent(songTitle)}`),
-				fetch(`${SEARCH_API_BASE_URL}/api/youtube/search?q=${encodeURIComponent(artistName + ' ' + songTitle)}&limit=3`)
+				getArtwork(artistName, songTitle),
+				fetch(
+					`${SEARCH_API_BASE_URL}/api/youtube/search?q=${encodeURIComponent(artistName + ' ' + songTitle)}&limit=3`
+				)
 			]);
 
 			if (artistResp.status === 'fulfilled' && artistResp.value.ok) {
@@ -175,9 +250,8 @@
 				artistImage = data.image || null;
 				artistInfo = { name: data.name, bio: data.bio, country: data.country, tags: data.tags };
 			}
-			if (artworkResp.status === 'fulfilled' && artworkResp.value.ok) {
-				const data = await artworkResp.value.json();
-				songArtwork = data.artworkUrl || null;
+			if (artworkUrl.status === 'fulfilled') {
+				songArtwork = artworkUrl.value;
 			}
 			if (ytResp.status === 'fulfilled' && ytResp.value.ok) {
 				const data = await ytResp.value.json();
@@ -195,6 +269,25 @@
 	let autoFollow = true;
 	let userScrolling = false;
 	let scrollCheckTimeout: NodeJS.Timeout;
+	let autoFollowDisengagedAt = 0;
+
+	function reEnableAutoFollow() {
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+		// Scroll to current cursor position
+		const el = get(beatCursorEl);
+		if (!el) return;
+		const containerRect = target?.getBoundingClientRect();
+		const elRect = el.getBoundingClientRect();
+		if (!target || !containerRect) return;
+		const scrollTop =
+			target.scrollTop +
+			(elRect.top - containerRect.top) -
+			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
+		const scrollElement = isFullscreen ? page : window;
+		if (!scrollElement) return;
+		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+	}
 
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -267,21 +360,36 @@
 	// Audio source toggle
 	function toggleAudioSource() {
 		const current = $audioSource;
-		const next = current === 'tab' ? 'video' : 'tab';
+		const next = current === 'tab' ? 'video' : current === 'video' ? 'both' : 'tab';
 		audioSource.set(next);
 		applyAudioSource(next);
 	}
 
-	function applyAudioSource(source: 'tab' | 'video') {
+	function applyAudioSource(source: 'tab' | 'video' | 'both') {
 		const ytPlayer = $videoPlayerRef;
 		if (source === 'video') {
 			// Mute tab, unmute video
 			if (api) api.masterVolume = 0;
-			if (ytPlayer) try { ytPlayer.unMute(); ytPlayer.setVolume(100); } catch {}
+			if (ytPlayer)
+				try {
+					ytPlayer.unMute();
+					ytPlayer.setVolume(100);
+				} catch {}
+		} else if (source === 'both') {
+			// Keep tab volume at user's setting AND unmute video
+			if (api) api.masterVolume = volume;
+			if (ytPlayer)
+				try {
+					ytPlayer.unMute();
+					ytPlayer.setVolume(100);
+				} catch {}
 		} else {
 			// Restore tab volume, mute video
 			if (api) api.masterVolume = volume;
-			if (ytPlayer) try { ytPlayer.mute(); } catch {}
+			if (ytPlayer)
+				try {
+					ytPlayer.mute();
+				} catch {}
 		}
 	}
 
@@ -298,10 +406,18 @@
 		videoSyncInterval = setInterval(() => {
 			const ytPlayer = $videoPlayerRef;
 			if (!ytPlayer || !api || !duration) return;
-
-			// Don't override playback position when a loop is active —
-			// the loop owns the playback range and position.
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) return;
+			// Don't read video time while YouTube is still settling a seek we
+			// just issued — the old position would fight the user's drag.
+			if (Date.now() < userSeekLockUntil) return;
+			// Only pull from video when it is actively playing. When paused
+			// the video's time is frozen and would drag the tab back to that
+			// stale position every 200ms, blocking user progress-bar seeks.
+			try {
+				const ytState = ytPlayer.getPlayerState?.();
+				if (ytState !== 1) return;
+			} catch {
+				return;
+			}
 
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
@@ -314,12 +430,31 @@
 				if (tabDurationSec <= 0) return;
 
 				const targetProgress = (adjustedVideoTime / tabDurationSec) * 100;
+
+				// When a loop is active, clamp video sync to loop boundaries
+				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
+					const lr = loopRangeMs();
+					if (lr) {
+						const loopStartPct = (lr.startMs / duration) * 100;
+						const loopEndPct = (lr.endMs / duration) * 100;
+						// If video time falls outside the loop range, seek video back to loop start
+						if (targetProgress < loopStartPct - 1 || targetProgress > loopEndPct + 1) {
+							const loopStartSec = lr.startMs / 1000 + $videoSyncOffset;
+							try {
+								ytPlayer.seekTo(loopStartSec, true);
+							} catch {}
+						}
+					}
+					return;
+				}
+
 				const clampedProgress = Math.max(0, Math.min(100, targetProgress));
 
 				// Sync if difference > 0.5% for tighter coupling
 				if (Math.abs(clampedProgress - progress) > 0.5) {
 					progress = clampedProgress;
 					api.player.timePosition = (progress / 100) * duration;
+					skipVideoDriveOnce = true;
 					seekDebounce();
 				}
 			} catch {}
@@ -379,7 +514,7 @@
 
 	// Save settings whenever they change
 	$: if (browser && scoreLoaded) {
-		volume, speed, metronome, delaying, tabScale, activeTrackIndex;
+		(volume, speed, metronome, delaying, tabScale, activeTrackIndex);
 		saveSettings();
 	}
 
@@ -415,6 +550,18 @@
 	}
 	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
 		soundFontLoaded = true;
+	}
+	// Sync title/artist + tracks from global playerState. This covers the case where
+	// scoreLoaded fires in the layout before TabViewer's own listener is attached
+	// (e.g. shared-tab URL flow) — otherwise title stays "<no sheet loaded>" forever.
+	$: if (browser && $playerState.title && title === '<no sheet loaded>') {
+		title = [$playerState.title, $playerState.artist].filter(Boolean).join(' - ') || title;
+	}
+	$: if (browser && $playerState.tracks?.length > 0 && tracks.length === 0) {
+		tracks = $playerState.tracks;
+	}
+	$: if (browser && $playerState.totalBars > 0 && totalBars === 0) {
+		totalBars = $playerState.totalBars;
 	}
 
 	// Reset timeout flag when a new score actually loads
@@ -495,7 +642,7 @@
 	}
 
 	// --- Bar-based loop helpers (single source of truth) ---
-	// All use MidiTickLookup (api._tickCache) for repeat-aware conversion.
+	// All use MidiTickLookup (api.tickCache) for repeat-aware conversion.
 	// Minimal contiguous range strategy: for repeated bars, find the smallest
 	// span across all occurrences so loops stay within a single repeat pass.
 
@@ -503,10 +650,13 @@
 	 *  Finds the smallest contiguous range across all occurrences of startBar/endBar
 	 *  in the expanded sequence. Prefers later occurrences when spans tie
 	 *  (e.g. alternate endings). */
-	function barToExpandedRange(startBar: number, endBar: number): { startTick: number; endTick: number } | null {
+	function barToExpandedRange(
+		startBar: number,
+		endBar: number
+	): { startTick: number; endTick: number } | null {
 		if (!api) return null;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return null;
 			// Find all occurrences of endBar in the expanded sequence
 			const endOccurrences: number[] = [];
@@ -541,17 +691,20 @@
 			if (expandedEnd > expandedStart) {
 				return { startTick: expandedStart, endTick: expandedEnd };
 			}
-		} catch (e) { console.warn('barToExpandedRange error:', e); }
+		} catch (e) {
+			console.warn('barToExpandedRange error:', e);
+		}
 		return null;
 	}
 
 	/** Get ms start/end for the current loop range, consistent with playback. */
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
-		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0) return null;
+		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0)
+			return null;
 		const range = barToExpandedRange(loopStartBar, loopEndBar);
 		if (!range) return null;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries?.length) return null;
 			const total = entries[entries.length - 1].end;
 			if (total <= 0) return null;
@@ -559,28 +712,35 @@
 				startMs: (range.startTick / total) * duration,
 				endMs: (range.endTick / total) * duration
 			};
-		} catch { return null; }
+		} catch {
+			return null;
+		}
 	}
 
 	/** Get ms position for a bar's start (last occurrence for repeated bars) */
 	function barToMs(barIdx: number): number {
 		if (!api || !duration || duration <= 0) return -1;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
 			if (totalExpanded <= 0) return -1;
 			let found = false;
 			let expandedTick = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) { expandedTick = entry.start; found = true; }
+				if (entry.masterBar.index === barIdx) {
+					expandedTick = entry.start;
+					found = true;
+				}
 			}
 			if (!found) {
 				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
 				return -1;
 			}
 			return (expandedTick / totalExpanded) * duration;
-		} catch (e) { console.warn('barToMs error:', e); }
+		} catch (e) {
+			console.warn('barToMs error:', e);
+		}
 		return -1;
 	}
 
@@ -588,21 +748,26 @@
 	function barEndToMs(barIdx: number): number {
 		if (!api || !duration || duration <= 0) return -1;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return -1;
 			const totalExpanded = entries[entries.length - 1].end;
 			if (totalExpanded <= 0) return -1;
 			let found = false;
 			let expandedEnd = 0;
 			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) { expandedEnd = entry.end; found = true; }
+				if (entry.masterBar.index === barIdx) {
+					expandedEnd = entry.end;
+					found = true;
+				}
 			}
 			if (!found) {
 				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
 				return -1;
 			}
 			return (expandedEnd / totalExpanded) * duration;
-		} catch (e) { console.warn('barEndToMs error:', e); }
+		} catch (e) {
+			console.warn('barEndToMs error:', e);
+		}
 		return 0;
 	}
 
@@ -610,7 +775,7 @@
 	function msToBar(ms: number): number {
 		if (!api || !duration || duration <= 0) return 0;
 		try {
-			const entries = api._tickCache?.masterBars;
+			const entries = api.tickCache?.masterBars;
 			if (!entries || entries.length === 0) return 0;
 			const totalExpanded = entries[entries.length - 1].end;
 			const expandedTick = (ms / duration) * totalExpanded;
@@ -620,11 +785,13 @@
 				}
 			}
 			return entries[entries.length - 1].masterBar.index;
-		} catch (e) { console.warn('msToBar error:', e); }
+		} catch (e) {
+			console.warn('msToBar error:', e);
+		}
 		return 0;
 	}
 
-/** Sync api.playbackRange from our bar-based loop state. */
+	/** Sync api.playbackRange from our bar-based loop state. */
 	function syncPlaybackRange() {
 		if (!api) return;
 		try {
@@ -664,7 +831,8 @@
 		if (!host) return null;
 		loopOverlayEl = document.createElement('div');
 		loopOverlayEl.id = 'loop-selection-overlay';
-		loopOverlayEl.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;';
+		loopOverlayEl.style.cssText =
+			'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;';
 		host.appendChild(loopOverlayEl);
 		return loopOverlayEl;
 	}
@@ -675,13 +843,23 @@
 	}
 
 	function removeOverlay() {
-		if (loopOverlayEl) { loopOverlayEl.remove(); loopOverlayEl = null; }
+		if (loopOverlayEl) {
+			loopOverlayEl.remove();
+			loopOverlayEl = null;
+		}
 	}
 
-/** Render the loop selection overlay on the score */
+	/** Render the loop selection overlay on the score */
 	function updateScoreSelection() {
-		if (!api || !scoreLoaded || !duration || duration <= 0 ||
-			loopStartBar === null || loopEndBar === null || !loopEnabled) {
+		if (
+			!api ||
+			!scoreLoaded ||
+			!duration ||
+			duration <= 0 ||
+			loopStartBar === null ||
+			loopEndBar === null ||
+			!loopEnabled
+		) {
 			clearScoreSelection();
 			loopMinimapVisible = false;
 			return;
@@ -692,7 +870,10 @@
 
 		try {
 			const lookup = api.renderer?.boundsLookup;
-			if (!lookup?.staffSystems) { clearScoreSelection(); return; }
+			if (!lookup?.staffSystems) {
+				clearScoreSelection();
+				return;
+			}
 
 			const startBar = loopStartBar;
 			const endBar = loopEndBar;
@@ -711,7 +892,10 @@
 				}
 			}
 
-			if (rects.length === 0) { clearScoreSelection(); return; }
+			if (rects.length === 0) {
+				clearScoreSelection();
+				return;
+			}
 
 			// Group by row and merge
 			const rows = new Map<number, Rect[]>();
@@ -723,11 +907,15 @@
 
 			const merged: Rect[] = [];
 			for (const rowRects of rows.values()) {
-				let minX = Infinity, maxX = -Infinity, y = 0, h = 0;
+				let minX = Infinity,
+					maxX = -Infinity,
+					y = 0,
+					h = 0;
 				for (const r of rowRects) {
 					minX = Math.min(minX, r.x);
 					maxX = Math.max(maxX, r.x + r.w);
-					y = r.y; h = Math.max(h, r.h);
+					y = r.y;
+					h = Math.max(h, r.h);
 				}
 				merged.push({ x: minX, y, w: maxX - minX, h });
 			}
@@ -756,7 +944,11 @@
 					lh.style.cssText = `position:absolute;left:${r.x - 8}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
 					lh.innerHTML = `<div style="width:2.5px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="display:flex;flex-direction:column;justify-content:space-between;margin-left:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div></div>`;
 					lh.title = 'Drag to resize start';
-					lh.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopEdgeDrag('start', true); });
+					lh.addEventListener('mousedown', (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						startLoopEdgeDrag('start', true);
+					});
 					container.appendChild(lh);
 				}
 
@@ -766,7 +958,11 @@
 					rh.style.cssText = `position:absolute;left:${r.x + r.w - 2}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
 					rh.innerHTML = `<div style="display:flex;flex-direction:column;justify-content:space-between;margin-right:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div></div><div style="width:2.5px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div>`;
 					rh.title = 'Drag to resize end';
-					rh.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopEdgeDrag('end', true); });
+					rh.addEventListener('mousedown', (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						startLoopEdgeDrag('end', true);
+					});
 					container.appendChild(rh);
 				}
 			}
@@ -788,9 +984,14 @@
 				// Drag handle
 				const dragHandle = document.createElement('div');
 				dragHandle.style.cssText = `cursor:grab;color:${isDark ? '#555' : '#ccc'};padding:0 2px;`;
-				dragHandle.innerHTML = '<i class="material-icons" style="font-size:14px;">drag_indicator</i>';
+				dragHandle.innerHTML =
+					'<i class="material-icons" style="font-size:14px;">drag_indicator</i>';
 				dragHandle.title = 'Drag to move loop';
-				dragHandle.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startLoopMoveDrag(e, true); });
+				dragHandle.addEventListener('mousedown', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					startLoopMoveDrag(e, true);
+				});
 				menu.appendChild(dragHandle);
 
 				// Divider
@@ -803,7 +1004,10 @@
 				loopBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
 				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
 				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
-				loopBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleLoopEnabled(); });
+				loopBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					toggleLoopEnabled();
+				});
 				menu.appendChild(loopBtn);
 
 				// Play from A
@@ -834,7 +1038,10 @@
 				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
 				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;">delete_outline</i>';
 				delBtn.title = 'Remove loop [Esc]';
-				delBtn.addEventListener('click', (e) => { e.stopPropagation(); clearLoopPoints(); });
+				delBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					clearLoopPoints();
+				});
 				menu.appendChild(delBtn);
 
 				container.appendChild(menu);
@@ -890,9 +1097,15 @@
 
 	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
 	// so Svelte tracks them as dependencies (it can't see through loopRangeMs()).
-	$: _loopTimelinePct = loopStartBar !== null && loopEndBar !== null && duration > 0
-		? (() => { const lm = loopRangeMs(); return lm ? { start: (lm.startMs / duration) * 100, end: (lm.endMs / duration) * 100 } : null; })()
-		: null;
+	$: _loopTimelinePct =
+		loopStartBar !== null && loopEndBar !== null && duration > 0
+			? (() => {
+					const lm = loopRangeMs();
+					return lm
+						? { start: (lm.startMs / duration) * 100, end: (lm.endMs / duration) * 100 }
+						: null;
+				})()
+			: null;
 
 	// --- Sheet selection → auto-loop ---
 	function processSelection(startBeat: any, endBeat: any) {
@@ -919,13 +1132,21 @@
 	}
 
 	function positionSelectionPopover() {
-		if (!target) { showSelectionPopover = false; return; }
+		if (!target) {
+			showSelectionPopover = false;
+			return;
+		}
 
 		// Search the entire target tree for selection elements
 		const selectionDivs = target.querySelectorAll('.at-selection div');
-		if (selectionDivs.length === 0) { showSelectionPopover = false; return; }
+		if (selectionDivs.length === 0) {
+			showSelectionPopover = false;
+			return;
+		}
 
-		let minX = Infinity, maxX = -Infinity, minY = Infinity;
+		let minX = Infinity,
+			maxX = -Infinity,
+			minY = Infinity;
 		selectionDivs.forEach((div: Element) => {
 			const rect = div.getBoundingClientRect();
 			if (rect.width > 0) {
@@ -935,7 +1156,10 @@
 			}
 		});
 
-		if (minX === Infinity) { showSelectionPopover = false; return; }
+		if (minX === Infinity) {
+			showSelectionPopover = false;
+			return;
+		}
 
 		selectionPopoverX = (minX + maxX) / 2;
 		selectionPopoverY = minY - 44;
@@ -963,7 +1187,7 @@
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
 			const dx = me.clientX - startX;
-			const refWidth = (barRect && barRect.width) ? barRect.width : window.innerWidth;
+			const refWidth = barRect && barRect.width ? barRect.width : window.innerWidth;
 			const timeDelta = (dx / refWidth) * duration;
 			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
 			let newStartBar = msToBar(newMs);
@@ -1101,6 +1325,8 @@
 				bindDuration = false;
 				api.player.timePosition = (progress / 100) * duration;
 				seekDebounce();
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 			}
 		};
 
@@ -1199,7 +1425,9 @@
 			document.removeEventListener('mouseup', onUp);
 			isDraggingLoop = false;
 			if (loopStartBar !== null && loopEndBar !== null && loopStartBar > loopEndBar) {
-				const tmp = loopStartBar; loopStartBar = loopEndBar; loopEndBar = tmp;
+				const tmp = loopStartBar;
+				loopStartBar = loopEndBar;
+				loopEndBar = tmp;
 			}
 		};
 
@@ -1227,7 +1455,16 @@
 	let touchPeakEndBar = 0;
 	let touchPeakEndPct = 0;
 	let longPressTimer: NodeJS.Timeout;
-	let pendingLoopA: number | null = null;
+	// When true, the long-press has fired and subsequent touchmoves should
+	// grow/shrink the freshly-created loop region rather than seek or scrub.
+	let loopCreating = false;
+	// Anchor bar for the hold-and-drag loop — remembered so that dragging past
+	// the anchor in either direction swaps start/end correctly.
+	let loopCreatingAnchorBar = 0;
+	// Movement threshold (px) before the long-press timer is cancelled. Small
+	// fat-finger jitter shouldn't abort a hold, but a real scrub should.
+	const LONG_PRESS_MOVE_CANCEL_PX = 6;
+	const LONG_PRESS_MS = 350;
 
 	function handleProgressBarTouchStart(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
@@ -1239,6 +1476,7 @@
 		touchDidDrag = false;
 		touchPeakEndBar = 0;
 		touchPeakEndPct = pct;
+		loopCreating = false;
 
 		const EDGE_THRESHOLD_PX = 15;
 
@@ -1262,20 +1500,46 @@
 			}
 		}
 
-		// Long press to set loop point A
+		// Long-press-and-drag: after LONG_PRESS_MS without moving, seed a tiny
+		// loop region at the finger and flip into `loopCreating` mode so the
+		// next touchmoves extend the region rather than scrub the playhead.
 		longPressTimer = setTimeout(() => {
 			const barIdx = msToBar(percentToTime(pct));
-			pendingLoopA = percentToTime(pct);
+			loopCreatingAnchorBar = barIdx;
 			loopStartBar = barIdx;
-			loopEndBar = null;
+			loopEndBar = barIdx;
 			loopEnabled = true;
-		}, 500);
+			loopCreating = true;
+			isDraggingLoop = true;
+			dismissPopoverAndRefresh();
+			updateScoreSelection();
+			try { navigator.vibrate?.(10); } catch {}
+		}, LONG_PRESS_MS);
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
 		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
-		if (dx > 10) {
+
+		// Post-longpress: grow the in-progress loop around the anchor bar.
+		if (loopCreating) {
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const currentPct = getProgressPercent(event.touches[0].clientX);
+			const currentBar = Math.min(msToBar(percentToTime(currentPct)), maxBar);
+			if (currentBar >= loopCreatingAnchorBar) {
+				loopStartBar = loopCreatingAnchorBar;
+				loopEndBar = currentBar;
+			} else {
+				loopStartBar = currentBar;
+				loopEndBar = loopCreatingAnchorBar;
+			}
+			updateScoreSelection();
+			return;
+		}
+
+		// Pre-longpress: any meaningful movement cancels the hold and falls
+		// back to the original tap-and-drag selection behavior.
+		if (dx > LONG_PRESS_MOVE_CANCEL_PX) {
 			if (!touchDidDrag) dismissPopoverAndRefresh();
 			touchDidDrag = true;
 			clearTimeout(longPressTimer);
@@ -1302,14 +1566,21 @@
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
 		clearTimeout(longPressTimer);
+		if (loopCreating) {
+			loopCreating = false;
+			isDraggingLoop = false;
+			// Discard a zero-length loop — long-press without drag shouldn't
+			// leave a single-bar selection behind.
+			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
+				clearLoopPoints();
+			}
+			return;
+		}
 		if (touchDidDrag) {
 			isDraggingLoop = false;
 			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
 				clearLoopPoints();
 			}
-		} else if (pendingLoopA !== null) {
-			// Long press happened - wait for next tap to set B
-			pendingLoopA = null;
 		} else {
 			// Simple tap = seek (set progress first to prevent flicker)
 			if (!event.changedTouches[0] || !range || !duration) return;
@@ -1357,7 +1628,8 @@
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
-		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0]) return;
+		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0])
+			return;
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
@@ -1411,50 +1683,59 @@
 		$favoritesStore = $favoritesStore;
 	}
 
-	// Smart cursor follow: auto-follows when user is near the cursor, pauses when user scrolls away
-	function handleUserScroll() {
-		if (!playing) return;
+	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
+	function handleUserScrollIntent() {
+		if (autoFollow) {
+			autoFollow = false;
+			autoFollowDisengagedAt = Date.now();
+		}
+	}
+
+	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
+	function handleScroll() {
 		userScrolling = true;
 		clearTimeout(scrollCheckTimeout);
 		scrollCheckTimeout = setTimeout(() => {
 			userScrolling = false;
-			// Check if cursor is visible in viewport
 			checkCursorVisibility();
 		}, 150);
 	}
 
 	function checkCursorVisibility() {
-		const cursor = api?._beatCursor;
-		if (!cursor || !cursor.element) return;
+		if (autoFollow) return;
+		// Don't re-engage within 1s of disengaging
+		if (Date.now() - autoFollowDisengagedAt < 1000) return;
 
-		const el = cursor.element;
+		const el = get(beatCursorEl);
+		if (!el) return;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
+		const grabBottom = viewportHeight * 0.15;
 
-		// If cursor is within the viewport, resume auto-follow
-		if (elRect.top >= -50 && elRect.bottom <= viewportHeight + 50) {
+		if (elRect.top >= 0 && elRect.top <= grabBottom) {
 			autoFollow = true;
-		} else {
-			autoFollow = false;
 		}
+	}
+
+	function scrollToCursor() {
+		const cursor = api?._beatCursor;
+		if (!cursor?.element || !target) return;
+		const containerRect = target.getBoundingClientRect();
+		const elRect = cursor.element.getBoundingClientRect();
+		const scrollTop =
+			target.scrollTop +
+			(elRect.top - containerRect.top) -
+			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
+		const scrollElement = isFullscreen ? page : window;
+		if (!scrollElement) return;
+		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+		autoFollow = true;
 	}
 
 	$: if (api && tracks.length > 0 && scoreLoaded) {
 		const track = tracks[activeTrackIndex] || tracks[0];
 		if (track) {
 			api.renderTracks([track]);
-
-			// reset solo and mute
-			for (let t of tracks) {
-				t.playbackInfo.isSolo = false;
-				t.playbackInfo.isMute = false;
-			}
-
-			api.changeTrackSolo(tracks, false);
-			api.changeTrackMute(tracks, false);
-
-			solo = track.playbackInfo.isSolo;
-			mute = track.playbackInfo.isMute;
 		}
 	}
 
@@ -1470,7 +1751,6 @@
 	$: if (api) {
 		api.metronomeVolume = metronome;
 	}
-
 
 	$: {
 		const end = Math.round(duration / 1000);
@@ -1549,6 +1829,8 @@
 		progress = newProgress;
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
 	}
 
 	// Store references for cleanup
@@ -1556,7 +1838,7 @@
 
 	function setupFullPlayerListeners(apiRef: any) {
 		// Clean up any previous listeners
-		fullPlayerListenerCleanups.forEach(fn => fn());
+		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
 
 		// Score loaded (detailed handler for full player)
@@ -1577,13 +1859,19 @@
 
 			if (isNewSheet) {
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
+				autoFollow = true;
+				autoFollowDisengagedAt = 0;
 				// Scroll to top when a new tab is loaded
 				window.scrollTo({ top: 0, behavior: 'smooth' });
 				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
-					setTimeout(() => { try { apiRef.playPause(); } catch {} }, 200);
+					setTimeout(() => {
+						try {
+							apiRef.playPause();
+						} catch {}
+					}, 200);
 				}
 			}
 
@@ -1599,8 +1887,15 @@
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
 			if (bindDuration) {
+				const prev = progress;
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
+				// A jump of >2% between position events is not natural playback —
+				// it's a seek (e.g. alphaTab's built-in beat click). Propagate it
+				// to the video so the sync poller doesn't undo the user's click.
+				if (Math.abs(progress - prev) > 2 && duration > 0) {
+					driveVideoSeek(e.currentTime);
+				}
 			}
 			if (totalBars > 0 && duration > 0) {
 				currentBar = Math.floor((e.currentTime / e.endTime) * totalBars);
@@ -1612,14 +1907,15 @@
 		// Auto-scroll cursor
 		const onPositionScroll = (e: any) => {
 			if (!autoFollow || userScrolling) return;
-			const cursor = apiRef?._beatCursor;
-			if (!cursor?.element) return;
-			const el = cursor.element;
+			const el = get(beatCursorEl);
+			if (!el) return;
 			const containerRect = target?.getBoundingClientRect();
 			const elRect = el.getBoundingClientRect();
 			if (!target || !containerRect) return;
-			const scrollTop = target.scrollTop + (elRect.top - containerRect.top) -
-				(showSettings && controlsVisible ? settings?.getBoundingClientRect()?.height ?? 0 : 0);
+			const scrollTop =
+				target.scrollTop +
+				(elRect.top - containerRect.top) -
+				(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
 			const scrollElement = isFullscreen ? page : window;
 			if (!scrollElement) return;
 			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
@@ -1651,7 +1947,9 @@
 		};
 		apiRef.renderStarted.on(onRenderStart);
 
-		const onRenderEnd = () => { isRendering = false; };
+		const onRenderEnd = () => {
+			isRendering = false;
+		};
 		apiRef.renderFinished?.on(onRenderEnd);
 
 		// SoundFont progress (might already be loaded)
@@ -1662,7 +1960,9 @@
 			apiRef.soundFontLoad.on(onSfLoad);
 		}
 
-		const onSfLoaded = () => { soundFontLoaded = true; };
+		const onSfLoaded = () => {
+			soundFontLoaded = true;
+		};
 		apiRef.soundFontLoaded.on(onSfLoaded);
 
 		// --- Sheet selection via alphaTab beat events ---
@@ -1714,8 +2014,16 @@
 				}
 				const merged: Rect[] = [];
 				for (const rowRects of rows.values()) {
-					let minX = Infinity, maxX = -Infinity, y = 0, h = 0;
-					for (const r of rowRects) { minX = Math.min(minX, r.x); maxX = Math.max(maxX, r.x + r.w); y = r.y; h = Math.max(h, r.h); }
+					let minX = Infinity,
+						maxX = -Infinity,
+						y = 0,
+						h = 0;
+					for (const r of rowRects) {
+						minX = Math.min(minX, r.x);
+						maxX = Math.max(maxX, r.x + r.w);
+						y = r.y;
+						h = Math.max(h, r.h);
+					}
 					merged.push({ x: minX, y, w: maxX - minX, h });
 				}
 				merged.sort((a, b) => a.y - b.y);
@@ -1723,7 +2031,8 @@
 				let html = '';
 				for (let i = 0; i < merged.length; i++) {
 					const r = merged[i];
-					const isFirst = i === 0, isLast = i === merged.length - 1;
+					const isFirst = i === 0,
+						isLast = i === merged.length - 1;
 					const lb = isFirst ? 'border-left:2.5px solid rgba(236,72,153,0.4);' : '';
 					const rb = isLast ? 'border-right:2.5px solid rgba(236,72,153,0.4);' : '';
 					html += `<div style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:rgba(236,72,153,0.08);border-top:1px dashed rgba(236,72,153,0.3);border-bottom:1px dashed rgba(236,72,153,0.3);${lb}${rb}box-sizing:border-box;pointer-events:none;"></div>`;
@@ -1814,33 +2123,70 @@
 		});
 	}
 
+	// Watch mobile landscape so the transport row auto-shrinks without the
+	// user having to toggle fullscreen. `max-height: 500px` gates the rule to
+	// phones in landscape; iPad-sized devices keep the normal layout.
+	let mobileLandscapeMql: MediaQueryList | null = null;
+	function syncMobileLandscape() {
+		if (mobileLandscapeMql) isMobileLandscape = mobileLandscapeMql.matches;
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
+		if (browser) {
+			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+			syncMobileLandscape();
+			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
+		}
+		// Seed playerState.activeTrackIndex from URL so adoption sync below
+		// sees the URL value as authoritative. Otherwise the adoption sync
+		// would overwrite our URL-supplied track with a stale state value.
+		if (initialTrackIndex !== undefined && initialTrackIndex >= 0) {
+			updatePlayerState({ activeTrackIndex: initialTrackIndex });
+		}
 		isFullPlayerView.set(true);
+
+		// Register our video handlers so the layout's persistent VideoPlayer
+		// (the single YT iframe that survives route changes) can notify us.
+		videoHandlers.set({
+			onStateChange: handleVideoStateChange,
+			onReady: () => {
+				startVideoSync();
+				const st = get(playerState);
+				const yt = get(videoPlayerRef);
+				// If the user just attached a video while the tab is already
+				// playing, jump the video to the tab's current time (accounting
+				// for the sync offset) and start it so both tracks line up the
+				// moment the iframe is ready.
+				if (yt && st.playing && st.duration > 0) {
+					const tabSec = (st.progress / 100) * (st.duration / 1000);
+					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
+					userSeekLockUntil = Date.now() + 600;
+					try { yt.seekTo(videoSec, true); } catch {}
+					try { yt.playVideo(); } catch {}
+					updatePlayerState({ videoWasPlaying: false });
+					return;
+				}
+				if (st.videoWasPlaying) {
+					try { yt?.playVideo(); } catch {}
+					updatePlayerState({ videoWasPlaying: false });
+				}
+			}
+		});
 
 		// --- Adopt persistent alphaTab API from layout ---
 		api = get(playerApi);
 		const playerHostEl = get(playerTarget);
 
-		// Reparent the persistent player host into our container (pause during transition to avoid stutter)
+		// Reparent the persistent player host into our container. Web Audio context
+		// is independent of the DOM element's position, so we can move without
+		// pausing — playback continues seamlessly and we sidestep autoplay-policy
+		// issues that would otherwise silently kill programmatic resumes.
 		if (playerHostEl && target) {
-			const wasPlaying = get(playerState).playing;
-			const savedPosition = api?.player?.timePosition || 0;
 			isTransitioning.set(true);
-			if (wasPlaying && api) try { api.pause(); } catch {}
 			target.appendChild(playerHostEl);
-			if (wasPlaying && api) {
-				requestAnimationFrame(() => {
-					try {
-						api.player.timePosition = savedPosition;
-						api.playPause();
-					} catch {}
-					isTransitioning.set(false);
-				});
-			} else {
-				isTransitioning.set(false);
-			}
+			isTransitioning.set(false);
 		}
 
 		if (api) {
@@ -1851,6 +2197,10 @@
 			scoreLoaded = state.scoreLoaded;
 			if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
 			if (state.tracks.length > 0) tracks = state.tracks;
+			if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
+				// Accept any non-negative index; bounds check happens once tracks load.
+				activeTrackIndex = state.activeTrackIndex;
+			}
 			if (state.totalBars > 0) totalBars = state.totalBars;
 			playing = state.playing;
 			progress = state.progress;
@@ -1867,6 +2217,14 @@
 
 			// Add detailed event listeners for the full player view
 			setupFullPlayerListeners(api);
+
+			// Reapply theme after adoption — the API's resource colors may be stale
+			// if the theme was toggled on a non-player page (no TabViewer mounted to
+			// react to themeStore changes). Defer one frame so adoption settles before
+			// the render call.
+			requestAnimationFrame(() => {
+				if (api) updateAlphaTabTheme(theme);
+			});
 		}
 
 		// --- Test API bridge (dev mode only) ---
@@ -1900,7 +2258,9 @@
 							}
 						}
 						return bars;
-					} catch { return []; }
+					} catch {
+						return [];
+					}
 				},
 				setMockVideo: (currentTimeSec: number, durationSec: number) => {
 					const mockPlayer = {
@@ -1912,7 +2272,7 @@
 						seekTo: () => {},
 						mute: () => {},
 						unMute: () => {},
-						setVolume: () => {},
+						setVolume: () => {}
 					};
 					activeVideoId.set('mock-video-id');
 					videoPlayerRef.set(mockPlayer);
@@ -1931,10 +2291,12 @@
 				},
 				getExpandedSequence: () => {
 					try {
-						const entries = api?._tickCache?.masterBars;
+						const entries = api?.tickCache?.masterBars;
 						if (!entries) return null;
 						return entries.map((e: any) => e.masterBar.index);
-					} catch { return null; }
+					} catch {
+						return null;
+					}
 				},
 				getExpandedRangeTicks: (startBar: number, endBar: number) => {
 					return barToExpandedRange(startBar, endBar);
@@ -1942,6 +2304,16 @@
 				tex: (texString: string) => {
 					if (api) api.tex(texString);
 				},
+				getMetronome: () => metronome,
+				getTrackMutes: () => [...trackMutes],
+				getTrackSolos: () => [...trackSolos],
+				getTrackVolumes: () => [...trackVolumes],
+				getTrackCount: () => tracks.length,
+				// Read the actual API internal state (not our UI copy)
+				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
+				getApiMasterVolume: () => api?.masterVolume ?? -1,
+				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1
 			};
 		}
 
@@ -1989,7 +2361,9 @@
 
 		// Smart cursor follow: detect user scrolling
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 
 		mountObserver = new IntersectionObserver(
 			([entry]) => {
@@ -2003,7 +2377,6 @@
 		);
 
 		if (topSentinel) mountObserver.observe(topSentinel);
-
 	});
 
 	function onBarPressed(event: KeyboardEvent) {
@@ -2075,10 +2448,17 @@
 			volume = Math.max(0, Math.round((volume - 0.1) * 10) / 10);
 		} else if (event.code === 'Home') {
 			event.preventDefault();
-			if (api) { api.player.timePosition = 0; progress = 0; }
+			if (api) {
+				api.player.timePosition = 0;
+				progress = 0;
+				driveVideoSeek(0);
+			}
 		} else if (event.code === 'End') {
 			event.preventDefault();
-			if (api && duration > 0) { api.player.timePosition = duration - 100; }
+			if (api && duration > 0) {
+				api.player.timePosition = duration - 100;
+				driveVideoSeek(duration - 100);
+			}
 		} else if (event.code === 'Slash') {
 			event.preventDefault();
 			showKeyboardShortcuts = !showKeyboardShortcuts;
@@ -2118,27 +2498,30 @@
 		if (didReturnPlayerHost) return;
 		didReturnPlayerHost = true;
 		isFullPlayerView.set(false);
+		// Release the video-handler slot so the layout's VideoPlayer stops
+		// bouncing YT events into our (about-to-unmount) handlers.
+		videoHandlers.set({});
 
-		// Return the persistent player host to the layout's hidden anchor (pause during transition)
+		// Return the persistent player host to the layout's hidden anchor.
+		// alphaTab's audio runs in a Web Audio context that is NOT tied to the DOM
+		// element's position — we can reparent without pausing, and playback
+		// continues seamlessly. Avoiding pause/resume also dodges browser autoplay
+		// policy issues that would otherwise silently kill the resume on navigation.
 		const playerHostEl = get(playerTarget);
 		const layoutAnchor = document.getElementById('player-host-anchor');
 		if (playerHostEl && layoutAnchor && playerHostEl.parentElement !== layoutAnchor) {
-			const wasPlaying = playing;
-			const savedPosition = api?.player?.timePosition || 0;
 			isTransitioning.set(true);
-			if (wasPlaying && api) try { api.pause(); } catch {}
 			layoutAnchor.appendChild(playerHostEl);
-			if (wasPlaying && api) {
-				requestAnimationFrame(() => {
-					try {
-						api.player.timePosition = savedPosition;
-						api.playPause();
-					} catch {}
-					isTransitioning.set(false);
-				});
-			} else {
-				isTransitioning.set(false);
-			}
+			isTransitioning.set(false);
+		}
+
+		// Save video playing state before cleanup
+		const ytPlayer = $videoPlayerRef;
+		let videoIsPlaying = false;
+		if (ytPlayer) {
+			try {
+				videoIsPlaying = ytPlayer.getPlayerState?.() === 1;
+			} catch {}
 		}
 
 		// Save current state to the store (for MiniPlayer to display)
@@ -2152,11 +2535,12 @@
 			currentBar,
 			totalBars,
 			tracks,
-			activeTrackIndex
+			activeTrackIndex,
+			videoWasPlaying: videoIsPlaying
 		});
 
 		// Clean up full player listeners
-		fullPlayerListenerCleanups.forEach(fn => fn());
+		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
 	}
 
@@ -2169,6 +2553,7 @@
 
 		// Cleanup from onMount
 		themeUnsubscribe?.();
+		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
@@ -2178,7 +2563,9 @@
 			page.removeEventListener('mouseenter', handleMouseEnter);
 		}
 		clearTimeout(hideTimeout);
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		clearTimeout(scrollCheckTimeout);
 
 		// Cleanup timers that may still be running
@@ -2202,7 +2589,10 @@
 		api?.playPause();
 		// Start video only when actually playing, not during countdown
 		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer) try { ytPlayer.playVideo(); } catch {}
+		if (ytPlayer)
+			try {
+				ytPlayer.playVideo();
+			} catch {}
 	}
 
 	/** Cancel any active countdown without starting playback */
@@ -2269,7 +2659,10 @@
 			api?.playPause();
 		}
 		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer) try { ytPlayer.playVideo(); } catch {}
+		if (ytPlayer)
+			try {
+				ytPlayer.playVideo();
+			} catch {}
 		showControls();
 	}
 
@@ -2286,7 +2679,10 @@
 
 		// Sync video
 		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer) try { ytPlayer.pauseVideo(); } catch {}
+		if (ytPlayer)
+			try {
+				ytPlayer.pauseVideo();
+			} catch {}
 	}
 
 	function selectVideo(videoId: string) {
@@ -2307,7 +2703,9 @@
 		activeVideoId.set(null);
 		const ytPlayer = $videoPlayerRef;
 		if (ytPlayer) {
-			try { ytPlayer.pauseVideo(); } catch {}
+			try {
+				ytPlayer.pauseVideo();
+			} catch {}
 		}
 		videoPlayerRef.set(null);
 		// Restore tab audio
@@ -2317,10 +2715,47 @@
 		showOffsetControl = false;
 	}
 
+	/** Propagate a tab seek to the YouTube player so the video stays in step
+	 *  with the tab timeline. Safe to call when no video is open (no-op).
+	 *  Also installs a short lock so the 200ms sync poller doesn't immediately
+	 *  drag the tab back to the video's still-settling old position. */
+	let userSeekLockUntil = 0;
+	function driveVideoSeek(tabMs: number) {
+		const ytPlayer = $videoPlayerRef;
+		if (!ytPlayer) return;
+		userSeekLockUntil = Date.now() + 600;
+		const videoSec = Math.max(0, tabMs / 1000 + ($videoSyncOffset || 0));
+		try {
+			ytPlayer.seekTo(videoSec, true);
+		} catch {}
+	}
+
+	/** YouTube supports a fixed set of playback rates. Snap tab speed to the
+	 *  nearest one that YT accepts. */
+	function ytPlaybackRate(tabSpeed: number): number {
+		const allowed = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+		let best = 1;
+		let bestDiff = Infinity;
+		for (const r of allowed) {
+			const d = Math.abs(r - tabSpeed);
+			if (d < bestDiff) {
+				bestDiff = d;
+				best = r;
+			}
+		}
+		return best;
+	}
+
+	// Tab speed → YouTube playback rate. Runs whenever speed changes.
+	$: if (browser && $videoPlayerRef) {
+		try {
+			$videoPlayerRef.setPlaybackRate(ytPlaybackRate(speed));
+		} catch {}
+	}
+
 	let videoSyncLock = false;
-	function handleVideoStateChange(e: CustomEvent<number>) {
+	function handleVideoStateChange(state: number) {
 		if (videoSyncLock) return;
-		const state = e.detail;
 		// YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
 		videoSyncLock = true;
 		if (state === 1 && !playing) {
@@ -2331,16 +2766,30 @@
 		} else if (state === 0) {
 			clickPause();
 		}
-		setTimeout(() => { videoSyncLock = false; }, 300);
+		setTimeout(() => {
+			videoSyncLock = false;
+		}, 300);
 	}
 
 	// After seeking, alphaTab may fire one last playerPositionChanged event
 	// with the OLD position before the seek completes. Suppress it briefly.
 	let seekDebounceTimeout: NodeJS.Timeout;
+	let skipVideoDriveOnce = false;
 	function seekDebounce() {
 		bindDuration = false;
 		clearTimeout(seekDebounceTimeout);
-		seekDebounceTimeout = setTimeout(() => { bindDuration = true; }, 100);
+		seekDebounceTimeout = setTimeout(() => {
+			bindDuration = true;
+		}, 100);
+		// Propagate the seek to the video unless it's the sync poller
+		// asking (which was itself driven by the video — would be a no-op echo).
+		if (skipVideoDriveOnce) {
+			skipVideoDriveOnce = false;
+			return;
+		}
+		if (duration > 0) {
+			driveVideoSeek((progress / 100) * duration);
+		}
 	}
 
 	// pause the progress while dragging
@@ -2375,8 +2824,6 @@
 			track.playbackInfo.isSolo = true;
 			api.changeTrackSolo([track], true);
 		}
-
-		solo = trackSolos[activeTrackIndex];
 	}
 
 	function toggleTrackMute(trackIndex: number) {
@@ -2384,10 +2831,6 @@
 		const track = tracks[trackIndex];
 		track.playbackInfo.isMute = trackMutes[trackIndex];
 		api.changeTrackMute([track], trackMutes[trackIndex]);
-
-		if (trackIndex === activeTrackIndex) {
-			mute = trackMutes[trackIndex];
-		}
 	}
 
 	function updateTrackVolume(trackIndex: number, volume: number) {
@@ -2400,9 +2843,7 @@
 	function setActiveTrack(trackIndex: number) {
 		activeTrackIndex = trackIndex;
 		api.renderTracks([tracks[trackIndex]]);
-
-		solo = trackSolos[trackIndex];
-		mute = trackMutes[trackIndex];
+		updatePlayerState({ activeTrackIndex: trackIndex });
 	}
 
 	function getTrackInfo(track: any): string {
@@ -2428,7 +2869,6 @@
 			track.playbackInfo.isMute = true;
 			api.changeTrackMute([track], true);
 		});
-		mute = trackMutes[activeTrackIndex];
 	}
 
 	function unmuteAllTracks() {
@@ -2437,7 +2877,6 @@
 			track.playbackInfo.isMute = false;
 			api.changeTrackMute([track], false);
 		});
-		mute = false;
 	}
 
 	function resetAllVolumes() {
@@ -2532,6 +2971,19 @@
 		}
 	}
 
+	function toggleTuningSettings() {
+		if (showSettings) {
+			if (activeSettingsTab == 'tuning') {
+				showSettings = false;
+			} else {
+				activeSettingsTab = 'tuning';
+			}
+		} else {
+			showSettings = true;
+			activeSettingsTab = 'tuning';
+		}
+	}
+
 	function toggleSettings() {
 		if (showSettings) {
 			if (activeSettingsTab == 'settings') {
@@ -2551,10 +3003,14 @@
 
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
-		// Rebind scroll listener to the correct target (window vs page element)
-		mountScrollTarget?.removeEventListener('scroll', handleUserScroll);
+		// Rebind scroll listeners to the correct target (window vs page element)
+		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
+		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		mountScrollTarget = isFullscreen && page ? page : window;
-		mountScrollTarget.addEventListener('scroll', handleUserScroll, { passive: true });
+		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
@@ -2644,9 +3100,37 @@
 		if (!browser) return;
 		const url = new URL(window.location.href);
 		url.search = '';
+		url.hash = '';
+
 		if (tabId) {
+			// Catalog tabs: short, durable ID-based link
 			url.searchParams.set('tab', tabId);
+		} else if (data.fileAsB64) {
+			// File-imported tabs have no catalog ID; embed compressed bytes in
+			// the URL hash so the recipient can open the exact same tab.
+			try {
+				const { encodeTabForUrl, canShareViaUrl, LARGE_SHARE_BYTES } =
+					await import('../utils/shareTab');
+				if (!canShareViaUrl()) {
+					toastStore.error('This browser does not support sharing imported tabs via URL.');
+					return;
+				}
+				const buf = base64ToArrayBuffer(data.fileAsB64);
+				const hash = await encodeTabForUrl(buf);
+				url.hash = hash;
+				if (hash.length > LARGE_SHARE_BYTES * 1.5) {
+					toastStore.info('Share link is large — some chat apps may truncate it.');
+				}
+			} catch (err) {
+				console.error('Failed to build share link:', err);
+				toastStore.error('Failed to build share link');
+				return;
+			}
+		} else {
+			toastStore.error('Nothing to share yet');
+			return;
 		}
+
 		try {
 			await navigator.clipboard.writeText(url.toString());
 			toastStore.success('Link copied!');
@@ -2662,13 +3146,78 @@
 	let swipeIndicatorTimeout: NodeJS.Timeout;
 	const SWIPE_THRESHOLD = 50;
 
+	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
+	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
+	// loop creation on desktop via mouse events, but it doesn't react to
+	// raw touch events on mobile. We bridge that by starting a long-press
+	// timer on touchstart and, when it fires, dispatching synthetic mouse
+	// events at the finger position so the existing desktop drag-to-select
+	// flow runs unchanged. Quick taps scroll/swipe normally.
+	let scoreLongPressTimer: NodeJS.Timeout;
+	let scoreLongPressActive = false;
+	const SCORE_LONG_PRESS_MS = 400;
+	const SCORE_LONG_PRESS_MOVE_CANCEL_PX = 8;
+
+	function dispatchMouseAt(type: 'mousedown' | 'mousemove' | 'mouseup', x: number, y: number) {
+		const target = document.elementFromPoint(x, y);
+		if (!target) return;
+		const evt = new MouseEvent(type, {
+			bubbles: true,
+			cancelable: true,
+			view: window,
+			button: 0,
+			buttons: type === 'mouseup' ? 0 : 1,
+			clientX: x,
+			clientY: y
+		});
+		target.dispatchEvent(evt);
+	}
+
 	function handleTouchStart(e: TouchEvent) {
 		if (!e.touches[0]) return;
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
+		scoreLongPressActive = false;
+		const pressX = touchStartX;
+		const pressY = touchStartY;
+		clearTimeout(scoreLongPressTimer);
+		scoreLongPressTimer = setTimeout(() => {
+			scoreLongPressActive = true;
+			try { navigator.vibrate?.(10); } catch {}
+			dispatchMouseAt('mousedown', pressX, pressY);
+		}, SCORE_LONG_PRESS_MS);
+	}
+
+	function handleScoreTouchMove(e: TouchEvent) {
+		if (!e.touches[0]) return;
+		const x = e.touches[0].clientX;
+		const y = e.touches[0].clientY;
+		if (scoreLongPressActive) {
+			// Active selection — block the browser's native scroll so the
+			// finger drag extends the loop instead of panning the page, and
+			// forward movement so alphaTab extends the drag-preview.
+			e.preventDefault();
+			dispatchMouseAt('mousemove', x, y);
+			return;
+		}
+		// Pre-fire: cancel the hold on meaningful movement so page scroll
+		// and horizontal swipe still work.
+		const dx = Math.abs(x - touchStartX);
+		const dy = Math.abs(y - touchStartY);
+		if (dx > SCORE_LONG_PRESS_MOVE_CANCEL_PX || dy > SCORE_LONG_PRESS_MOVE_CANCEL_PX) {
+			clearTimeout(scoreLongPressTimer);
+		}
 	}
 
 	function handleTouchEnd(e: TouchEvent) {
+		clearTimeout(scoreLongPressTimer);
+		if (scoreLongPressActive && e.changedTouches[0]) {
+			dispatchMouseAt('mouseup', e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+			scoreLongPressActive = false;
+			// Consume the event so the swipe-to-change-track logic below
+			// doesn't also trigger from the same gesture.
+			return;
+		}
 		if (!e.changedTouches[0] || tracks.length <= 1) return;
 		const dx = e.changedTouches[0].clientX - touchStartX;
 		const dy = e.changedTouches[0].clientY - touchStartY;
@@ -2706,7 +3255,7 @@
 				['End', 'last_page', 'Go to end'],
 				['\u2190 / \u2192', 'skip_previous', 'Previous / Next bar'],
 				['\u2191 / \u2193', 'volume_up', 'Volume up / down'],
-				['+ / \u2013', 'speed', 'Speed up / down'],
+				['+ / \u2013', 'speed', 'Speed up / down']
 			]
 		},
 		{
@@ -2717,7 +3266,7 @@
 				['B', 'looks_two', 'Set loop point B'],
 				['L', 'loop', 'Toggle global loop'],
 				['Esc', 'close', 'Clear loop / Close panel'],
-				['Drag', 'open_with', 'Drag progress bar to create loop'],
+				['Drag', 'open_with', 'Drag progress bar to create loop']
 			]
 		},
 		{
@@ -2727,7 +3276,7 @@
 				['1\u20139', 'filter_1', 'Switch to track'],
 				['M', 'volume_off', 'Mute current track'],
 				['O', 'headphones', 'Solo current track'],
-				['T', 'queue_music', 'Open tracks panel'],
+				['T', 'queue_music', 'Open tracks panel']
 			]
 		},
 		{
@@ -2739,7 +3288,7 @@
 				['V', 'videocam', 'Video picker'],
 				['P', 'print', 'Print tablature'],
 				['D', 'download', 'Download tab file'],
-				['?', 'keyboard', 'Show this help'],
+				['?', 'keyboard', 'Show this help']
 			]
 		}
 	];
@@ -2763,34 +3312,43 @@
 		{/if}
 	</div>
 
-	<!-- AlphaTab rendering surface (the "video" - comes FIRST) -->
+	<!-- AlphaTab rendering surface (the "video" - comes FIRST). touchmove
+	     is marked `nonpassive` so the conditional preventDefault() inside
+	     the handler can actually block the browser's native scroll once
+	     the long-press selection becomes active. -->
 	<div
 		class="relative"
 		on:touchstart={handleTouchStart}
+		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
 	>
 		{#if apiError}
 			<div class="flex items-center justify-center min-h-[60vh]">
 				<div class="text-center">
-					<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
+					<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
+						>error_outline</i
+					>
 					<p class="text-neutral-600 dark:text-neutral-400 mb-4">{apiError}</p>
 					<button
 						on:click={() => {
 							apiError = '';
 							if (api) {
 								if (data.fileAsB64) api.load(base64ToArrayBuffer(data.fileAsB64));
-								else if (window.history?.state?.base64) api.load(base64ToArrayBuffer(window.history.state.base64));
+								else if (window.history?.state?.base64)
+									api.load(base64ToArrayBuffer(window.history.state.base64));
 							}
 						}}
 						class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
-					aria-label="Retry loading"
+						aria-label="Retry loading"
 					>
 						Try again
 					</button>
 				</div>
 			</div>
 		{:else if isLoading}
-			<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm"
+			>
 				{#if !soundFontLoaded}
 					<LoadingScore progress={soundFontProgress} message="Preparing audio engine" size="lg" />
 				{:else if isRendering}
@@ -2801,24 +3359,10 @@
 			</div>
 		{/if}
 
-		<!-- DEBUG: Loading overlay preview (uncomment to test)
-		{#if debugLoading}
-			<div class="fixed inset-0 z-[300] flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm pointer-events-none">
-				<div class="pointer-events-auto">
-					<LoadingScore message="Debug loading preview" size="lg" debug={true} />
-				</div>
-			</div>
-		{/if}
-		<button
-			class="fixed bottom-20 left-3 z-[301] px-2 py-1 text-[10px] bg-red-500 text-white rounded opacity-50 hover:opacity-100 transition-opacity"
-			on:click={() => { debugLoading = !debugLoading; }}
-		>
-			{debugLoading ? 'Hide' : 'Show'} Loading
-		</button>
-		-->
-
 		<div
-			class="relative z-0 {hasSheet && (scoreLoaded || loadingTimedOut) ? 'min-h-[500px] pt-4' : 'min-h-1 opacity-0'}"
+			class="relative z-0 {hasSheet && (scoreLoaded || loadingTimedOut)
+				? 'min-h-[500px] pt-4'
+				: 'min-h-1 opacity-0'}"
 			bind:this={target}
 		/>
 
@@ -2829,7 +3373,9 @@
 				style="left: {selectionPopoverX}px; top: {selectionPopoverY}px;"
 			>
 				<!-- Down arrow -->
-				<div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white dark:bg-neutral-800 border-b border-r border-neutral-200 dark:border-neutral-700 rotate-45" />
+				<div
+					class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white dark:bg-neutral-800 border-b border-r border-neutral-200 dark:border-neutral-700 rotate-45"
+				/>
 
 				<!-- Drag handle (functional - drags the loop region) -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -2846,9 +3392,13 @@
 
 				<!-- Loop on/off toggle -->
 				<button
-					class="p-1 rounded-full transition-all {loopEnabled ? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30' : 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-					on:click={() => { loopEnabled = !loopEnabled; }}
-					title="{loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}"
+					class="p-1 rounded-full transition-all {loopEnabled
+						? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
+						: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+					on:click={() => {
+						loopEnabled = !loopEnabled;
+					}}
+					title={loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
 				>
 					<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
 				</button>
@@ -2856,7 +3406,16 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+					on:click={() => {
+						if (loopStartBar !== null && api) {
+							const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+							if (ms < 0) return;
+							progress = (ms / duration) * 100;
+							api.player.timePosition = ms;
+							seekDebounce();
+							if (!playing) playImmediate();
+						}
+					}}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg">play_circle</i>
@@ -2878,10 +3437,32 @@
 
 		<!-- Swipe indicator -->
 		{#if swipeIndicator}
-			<div class="fixed top-1/2 {swipeIndicator === 'left' ? 'right-4' : 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in">
+			<div
+				class="fixed top-1/2 {swipeIndicator === 'left'
+					? 'right-4'
+					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
+			>
 				<div class="bg-violet-500 bg-opacity-80 text-white rounded-full p-3 shadow-lg">
-					<i class="material-icons !text-2xl">{swipeIndicator === 'left' ? 'skip_next' : 'skip_previous'}</i>
+					<i class="material-icons !text-2xl"
+						>{swipeIndicator === 'left' ? 'skip_next' : 'skip_previous'}</i
+					>
 				</div>
+			</div>
+		{/if}
+
+		<!-- Floating "scroll to cursor" button — visible when scrolled away
+		     from cursor. Lifted higher on narrow portrait phones so it clears
+		     the metadata row that sits above the transport bar. -->
+		{#if scoreLoaded && !autoFollow}
+			<div class="fixed bottom-32 sm:bottom-20 left-1/2 -translate-x-1/2 z-[55]">
+				<button
+					on:click={scrollToCursor}
+					class="flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500 text-white shadow-lg hover:bg-violet-600 active:scale-95 transition-all animate-fade-in"
+					title="Scroll to cursor"
+				>
+					<i class="material-icons !text-lg">fiber_manual_record</i>
+					<span class="text-sm font-medium">Back to cursor</span>
+				</button>
 			</div>
 		{/if}
 	</div>
@@ -2891,16 +3472,18 @@
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
-		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
+		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200 pb-safe
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
 	>
-		<!-- Progress bar with drag-to-loop -->
+		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
+		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
+		     desktop keeps the thin-with-hover-grow behavior. -->
 		<div
-			class="relative h-1 hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
+			class="relative h-3 sm:h-1 sm:hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
 			style="touch-action: none;"
 			role="slider"
 			tabindex="0"
@@ -2911,7 +3494,10 @@
 			bind:this={range}
 			on:mousedown={handleProgressBarDown}
 			on:mousemove={handleProgressBarHover}
-			on:mouseleave={() => { showProgressTooltip = false; hoverProgress = 0; }}
+			on:mouseleave={() => {
+				showProgressTooltip = false;
+				hoverProgress = 0;
+			}}
 			on:touchstart|preventDefault={handleProgressBarTouchStart}
 			on:touchmove|preventDefault={handleProgressBarTouchMove}
 			on:touchend={handleProgressBarTouchEnd}
@@ -2933,7 +3519,9 @@
 				{@const endPct = _loopTimelinePct.end}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
-					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled ? 'bg-pink-400/50' : 'bg-neutral-400/25'}"
+					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled
+						? 'bg-pink-400/50'
+						: 'bg-neutral-400/25'}"
 					style="left: {startPct}%; width: {endPct - startPct}%; touch-action: none;"
 				>
 					<!-- [ bracket handle (start) -->
@@ -2944,8 +3532,16 @@
 					>
 						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
 						<div class="flex flex-col justify-between -ml-px">
-							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
-							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
+							<div
+								class="w-[5px] h-[2px] {loopEnabled
+									? 'bg-pink-500'
+									: 'bg-neutral-400'} rounded-r-sm"
+							/>
+							<div
+								class="w-[5px] h-[2px] {loopEnabled
+									? 'bg-pink-500'
+									: 'bg-neutral-400'} rounded-r-sm"
+							/>
 						</div>
 					</div>
 					<!-- ] bracket handle (end) -->
@@ -2955,8 +3551,16 @@
 						on:touchstart|stopPropagation|preventDefault={(e) => startLoopEdgeDragTouch(e, 'end')}
 					>
 						<div class="flex flex-col justify-between -mr-px">
-							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
-							<div class="w-[5px] h-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
+							<div
+								class="w-[5px] h-[2px] {loopEnabled
+									? 'bg-pink-500'
+									: 'bg-neutral-400'} rounded-l-sm"
+							/>
+							<div
+								class="w-[5px] h-[2px] {loopEnabled
+									? 'bg-pink-500'
+									: 'bg-neutral-400'} rounded-l-sm"
+							/>
 						</div>
 						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
 					</div>
@@ -2964,7 +3568,7 @@
 
 				<!-- Loop floating controls (centered above the region) -->
 				<div
-					class="absolute -top-10 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1.5 py-1 gap-0.5 pointer-events-auto"
+					class="absolute -top-8 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 gap-0.5 pointer-events-auto"
 					style="left: {(startPct + endPct) / 2}%; transform: translateX(-50%)"
 				>
 					<!-- Drag handle -->
@@ -2981,9 +3585,11 @@
 
 					<!-- Loop on/off -->
 					<button
-						class="p-0.5 rounded-full transition-all {loopEnabled ? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30' : 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+						class="p-0.5 rounded-full transition-all {loopEnabled
+							? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
+							: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 						on:click|stopPropagation={toggleLoopEnabled}
-						title="{loopEnabled ? 'Loop ON' : 'Loop OFF'}"
+						title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
 					>
 						<i class="material-icons !text-base">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
 					</button>
@@ -2991,7 +3597,16 @@
 					<!-- Play from A -->
 					<button
 						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => { if (loopStartBar !== null && api) { const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar); if (ms < 0) return; progress = (ms / duration) * 100; api.player.timePosition = ms; seekDebounce(); if (!playing) playImmediate(); } }}
+						on:click|stopPropagation={() => {
+							if (loopStartBar !== null && api) {
+								const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+								if (ms < 0) return;
+								progress = (ms / duration) * 100;
+								api.player.timePosition = ms;
+								seekDebounce();
+								if (!playing) playImmediate();
+							}
+						}}
 						title="Play from A"
 					>
 						<i class="material-icons !text-base">play_circle</i>
@@ -3026,30 +3641,43 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 {isFullscreen ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
+		<div class="flex items-center px-2 {compactBar ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
 			<!-- Left: playback controls -->
 			<button
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing ? 'text-violet-500' : 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
-				on:click={() => { playing ? clickPause() : clickPlay(); }}
+				class="{compactBar ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing
+					? 'text-violet-500'
+					: 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				on:click={() => {
+					playing ? clickPause() : clickPlay();
+				}}
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
+				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {isFullscreen ? '!text-xl' : '!text-2xl'}">{playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
+					>{playing ? 'pause' : 'play_arrow'}</i
+				>
 			</button>
 
 			<button
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
+				aria-label="Previous bar"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_previous</i>
 			</button>
 
 			<button
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
+				aria-label="Next bar"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -3061,16 +3689,30 @@
 			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 			<div
 				class="relative flex items-center group/vol"
-				on:mouseenter={() => volumeHover = true}
-				on:mouseleave={() => volumeHover = false}
+				on:mouseenter={() => (volumeHover = true)}
+				on:mouseleave={() => (volumeHover = false)}
 			>
 				<button
-					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{volume === 0 ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-600 dark:text-neutral-400'}"
-					on:click={() => { if (volume > 0) { volumeBeforeMute = volume; volume = 0; } else { volume = volumeBeforeMute || 1; } }}
-					title="{volume === 0 ? 'Unmute' : 'Mute'}"
+					class="{isFullscreen
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{volume === 0
+						? 'text-neutral-400 dark:text-neutral-500'
+						: 'text-neutral-600 dark:text-neutral-400'}"
+					on:click={() => {
+						if (volume > 0) {
+							volumeBeforeMute = volume;
+							volume = 0;
+						} else {
+							volume = volumeBeforeMute || 1;
+						}
+					}}
+					title={volume === 0 ? 'Unmute' : 'Mute'}
+					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
+					>
 				</button>
 				{#if volumeHover}
 					<div class="flex items-center pl-1 pr-2 animate-fade-in">
@@ -3085,10 +3727,13 @@
 								[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-md
 								[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0
 								[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
-							style="background: linear-gradient(to right, #8C52FF {volume / 2 * 100}%, {'rgb(212,212,212)'} {volume / 2 * 100}%)"
+							style="background: linear-gradient(to right, #8C52FF {(volume / 2) *
+								100}%, {'rgb(212,212,212)'} {(volume / 2) * 100}%)"
 							aria-label="Volume"
 						/>
-						<span class="text-[10px] text-neutral-400 dark:text-neutral-500 ml-1.5 w-7 text-right">{Math.round(volume * 100)}%</span>
+						<span class="text-[10px] text-neutral-500 dark:text-neutral-400 ml-1.5 w-7 text-right"
+							>{Math.round(volume * 100)}%</span
+						>
 					</div>
 				{/if}
 			</div>
@@ -3100,7 +3745,9 @@
 			<select
 				bind:value={speed}
 				class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{speedIsCustom ? 'text-violet-500 dark:text-violet-400 font-medium' : 'text-neutral-600 dark:text-neutral-400'}"
+					{speedIsCustom
+					? 'text-violet-500 dark:text-violet-400 font-medium'
+					: 'text-neutral-600 dark:text-neutral-400'}"
 				title="Playback speed [+/-]"
 				aria-label="Playback speed"
 			>
@@ -3116,25 +3763,38 @@
 			{#if youtubeResults.length > 0}
 				<div class="relative">
 					<button
-						on:click={() => showVideoDropdown = !showVideoDropdown}
+						on:click={() => (showVideoDropdown = !showVideoDropdown)}
 						class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
+						aria-label="Play video"
 					>
 						<i class="material-icons !text-xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
 
 					{#if showVideoDropdown}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div class="fixed inset-0 z-[79]" on:click={() => showVideoDropdown = false} role="presentation" />
+						<div
+							class="fixed inset-0 z-[79]"
+							on:click={() => (showVideoDropdown = false)}
+							role="presentation"
+						/>
 					{/if}
 
 					{#if showVideoDropdown}
-						<div class="absolute bottom-full right-0 mb-2 w-72 max-w-[calc(100vw-2rem)] bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[80] animate-fade-in">
-							<div class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-700 flex items-center justify-between">
-								<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Play with video</span>
+						<div
+							class="absolute bottom-full right-0 mb-2 w-72 max-w-[calc(100vw-2rem)] bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[80] animate-fade-in"
+						>
+							<div
+								class="px-3 py-2 border-b border-neutral-100 dark:border-neutral-700 flex items-center justify-between"
+							>
+								<span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400"
+									>Play with video</span
+								>
 								{#if hasActiveVideo}
-									<button on:click={closeVideo} class="text-xs text-red-400 hover:text-red-500">Stop video</button>
+									<button on:click={closeVideo} class="text-xs text-red-400 hover:text-red-500"
+										>Stop video</button
+									>
 								{/if}
 							</div>
 							{#each youtubeResults as yt}
@@ -3143,16 +3803,23 @@
 									class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors
 										{$activeVideoId === yt.videoId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
 								>
-									<div class="relative flex-shrink-0 w-16 h-10 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700">
+									<div
+										class="relative flex-shrink-0 w-16 h-10 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700"
+									>
 										{#if yt.thumbnail}
 											<img src={yt.thumbnail} alt="" class="w-full h-full object-cover" />
 										{/if}
 										{#if yt.duration}
-											<span class="absolute bottom-0 right-0 text-[8px] bg-black/70 text-white px-0.5 rounded-tl">{yt.duration}</span>
+											<span
+												class="absolute bottom-0 right-0 text-[8px] bg-black/70 text-white px-0.5 rounded-tl"
+												>{yt.duration}</span
+											>
 										{/if}
 									</div>
 									<div class="flex-1 min-w-0">
-										<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">{yt.title}</p>
+										<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
+											{yt.title}
+										</p>
 										<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 									</div>
 									{#if $activeVideoId === yt.videoId}
@@ -3169,268 +3836,401 @@
 			{#if loopStartBar !== null && loopEndBar !== null}
 				<button
 					on:click={toggleLoopEnabled}
-					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{loopEnabled ? 'text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}"
-					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar + 1}) [Esc to clear]"
+					class="{compactBar
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
+					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
+						1}) [Esc to clear]"
+					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+						>{loopEnabled ? 'repeat_on' : 'repeat'}</i
+					>
 				</button>
 			{:else}
 				<button
 					on:click={clickLooping}
-					class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					class="{isFullscreen
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
+					aria-label="Toggle loop"
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
 			{/if}
 
 			<button
-				on:click={() => { if (showSettings && activeSettingsTab === 'tracks') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'tracks'; } }}
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'tracks' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-				title="Tracks"
+				on:click={toggleTracksSettings}
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'tracks'
+					? 'text-violet-500'
+					: 'text-neutral-500 dark:text-neutral-400'}"
+				title="Tracks [T]"
+				aria-label="Tracks"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">queue_music</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">queue_music</i>
 			</button>
+
 			<button
-				on:click={() => { if (showSettings && activeSettingsTab === 'tuning') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'tuning'; } }}
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'tuning' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				on:click={toggleTuningSettings}
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'tuning'
+					? 'text-violet-500'
+					: 'text-neutral-500 dark:text-neutral-400'}"
 				title="Transpose"
+				aria-label="Transpose"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">swap_vert</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">swap_vert</i>
 			</button>
+
 			<button
-				on:click={() => { if (showSettings && activeSettingsTab === 'settings') { showSettings = false; } else { showSettings = true; activeSettingsTab = 'settings'; } }}
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'settings' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				on:click={toggleSettings}
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{showSettings && activeSettingsTab === 'settings'
+					? 'text-violet-500'
+					: 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
+				aria-label="Settings"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">tune</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
 			<button
 				on:click={toggleFullscreen}
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Fullscreen [F]"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+				>
 			</button>
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
+				class="{compactBar
+					? 'p-1'
+					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
+				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">keyboard</i>
 			</button>
 		</div>
 
-	<!-- Video player (PiP position, above controls bar + settings) - hidden in fullscreen -->
-	{#if hasActiveVideo && $activeVideoId && !isFullscreen}
-		<div class="fixed bottom-40 right-4 z-[75] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black">
-			<div class="relative">
-				<VideoPlayer
-					videoId={$activeVideoId}
-					width={340}
-					height={200}
-					on:stateChange={handleVideoStateChange}
-					on:ready={() => startVideoSync()}
-				/>
-				<!-- Top controls overlay -->
-				<div class="absolute top-0 left-0 right-0 flex items-center justify-between p-1.5 bg-gradient-to-b from-black/50 to-transparent">
-					<div class="flex items-center gap-1">
-						<!-- Audio source toggle -->
+		<!-- Video overlay buttons. The VideoPlayer iframe itself now lives in
+			 +layout.svelte (persists across route changes); this block provides
+			 the rich overlay UI that sits on top of it while in big player view. -->
+		{#if hasActiveVideo && $activeVideoId && !isFullscreen}
+			<div
+				class="big-player-video-overlay fixed bottom-[171px] right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
+			>
+				<div class="relative w-full h-full">
+					<!-- Top controls overlay. No play/pause button here — YouTube's
+					     own center "gesture-unlock" play button is shown for an
+					     unstarted video, and once playback is going the tab bar's
+					     play button drives both sides. -->
+					<div
+						class="absolute top-0 left-0 right-0 flex items-center justify-between px-1 pb-1 pt-0 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+					>
+						<div class="flex items-center gap-1.5">
+							<!-- Audio source toggle (tab / video / both) -->
+							<button
+								on:click={toggleAudioSource}
+								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+									{$audioSource === 'video'
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: $audioSource === 'both'
+										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title={$audioSource === 'video'
+									? 'Video audio only — click for both'
+									: $audioSource === 'both'
+										? 'Both tab + video audio — click for tab only'
+										: 'Tab audio only — click for video'}
+							>
+								<i class="material-icons !text-lg"
+									>{$audioSource === 'video'
+										? 'videocam'
+										: $audioSource === 'both'
+											? 'headphones'
+											: 'music_note'}</i
+								>
+								<span
+									>{$audioSource === 'video'
+										? 'Video'
+										: $audioSource === 'both'
+											? 'Both'
+											: 'Tab'}</span
+								>
+							</button>
+							<!-- Offset control toggle -->
+							<button
+								on:click={() => (showOffsetControl = !showOffsetControl)}
+								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+									{showOffsetControl
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
+							>
+								<i class="material-icons !text-lg">sync</i>
+								{#if videoOffset !== 0}
+									<span>{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s</span>
+								{/if}
+							</button>
+						</div>
 						<button
-							on:click={toggleAudioSource}
-							class="p-1 rounded text-[10px] font-medium transition-colors
-								{$audioSource === 'video' ? 'bg-violet-500/80 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}"
-							title="{$audioSource === 'video' ? 'Playing video audio' : 'Playing tab audio'} - click to switch"
+							on:click={closeVideo}
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							title="Close video"
+							aria-label="Close video"
 						>
-							<i class="material-icons !text-sm">{$audioSource === 'video' ? 'videocam' : 'music_note'}</i>
-						</button>
-						<!-- Offset control toggle -->
-						<button
-							on:click={() => showOffsetControl = !showOffsetControl}
-							class="p-1 rounded text-white/70 hover:text-white hover:bg-white/10 transition-colors text-[10px] font-mono"
-							title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
-						>
-							{#if videoOffset !== 0}
-								{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
-							{:else}
-								<i class="material-icons !text-sm">sync</i>
-							{/if}
+							<i class="material-icons !text-xl">close</i>
 						</button>
 					</div>
-					<button
-						on:click={closeVideo}
-						class="p-1 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"
-						title="Close video"
-					>
-						<i class="material-icons !text-sm">close</i>
-					</button>
-				</div>
 
-				<!-- Enhanced offset control panel -->
-				{#if showOffsetControl}
-					<div class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2">
-						<!-- Slider for coarse adjustment -->
-						<div class="flex items-center gap-2">
-							<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
-							<input
-								type="range"
-								min="-10"
-								max="10"
-								step="0.1"
-								value={videoOffset}
-								on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
-								class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+					<!-- Enhanced offset control panel -->
+					{#if showOffsetControl}
+						<div
+							class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
+						>
+							<!-- Slider for coarse adjustment -->
+							<div class="flex items-center gap-2">
+								<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
+								<input
+									type="range"
+									min="-10"
+									max="10"
+									step="0.1"
+									value={videoOffset}
+									on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
+									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
 									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
-							/>
-							<span class="text-xs text-white font-mono min-w-[3.5rem] text-center">
-								{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
-							</span>
-						</div>
-						<!-- Fine controls + tap-to-sync -->
-						<div class="flex items-center gap-1.5 justify-center">
-							<button
-								on:click={() => setVideoOffset(Math.round((videoOffset - 1) * 10) / 10)}
-								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
-								title="-1 second"
-							>-1s</button>
-							<button
-								on:click={() => setVideoOffset(Math.round((videoOffset - 0.1) * 10) / 10)}
-								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
-								title="-0.1 second"
-							>-0.1</button>
-							<button
-								on:click={tapToSync}
-								class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
-								title="Auto-sync: matches current tab position to current video position"
-							>
-								<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
-								Tap to sync
-							</button>
-							<button
-								on:click={() => setVideoOffset(Math.round((videoOffset + 0.1) * 10) / 10)}
-								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
-								title="+0.1 second"
-							>+0.1</button>
-							<button
-								on:click={() => setVideoOffset(Math.round((videoOffset + 1) * 10) / 10)}
-								class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
-								title="+1 second"
-							>+1s</button>
-						</div>
-						<!-- Reset -->
-						{#if videoOffset !== 0}
-							<div class="text-center">
+								/>
+								<span class="text-xs text-white font-mono min-w-[3.5rem] text-center">
+									{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s
+								</span>
+							</div>
+							<!-- Fine controls + tap-to-sync -->
+							<div class="flex items-center gap-1.5 justify-center">
 								<button
-									on:click={() => setVideoOffset(0)}
-									class="text-[10px] text-white/40 hover:text-white transition-colors"
-								>Reset offset</button>
+									on:click={() => setVideoOffset(Math.round((videoOffset - 1) * 10) / 10)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="-1 second">-1s</button
+								>
+								<button
+									on:click={() => setVideoOffset(Math.round((videoOffset - 0.1) * 10) / 10)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="-0.1 second">-0.1</button
+								>
+								<button
+									on:click={tapToSync}
+									class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
+									title="Auto-sync: matches current tab position to current video position"
+								>
+									<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
+									Tap to sync
+								</button>
+								<button
+									on:click={() => setVideoOffset(Math.round((videoOffset + 0.1) * 10) / 10)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="+0.1 second">+0.1</button
+								>
+								<button
+									on:click={() => setVideoOffset(Math.round((videoOffset + 1) * 10) / 10)}
+									class="px-1.5 py-0.5 rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10 font-mono"
+									title="+1 second">+1s</button
+								>
+							</div>
+							<!-- Reset -->
+							{#if videoOffset !== 0}
+								<div class="text-center">
+									<button
+										on:click={() => setVideoOffset(0)}
+										class="text-[10px] text-white/40 hover:text-white transition-colors"
+										>Reset offset</button
+									>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
+
+		<!-- Metadata row (title, artist, actions) — hidden in fullscreen and in
+		     short-landscape phones where every pixel matters (Galaxy Note etc
+		     ~414px tall). Narrow-portrait phones still show it, because the
+		     vertical space is there and the tags/country have already been
+		     pruned via the sm:-gated classes below. -->
+		{#if scoreLoaded && !isFullscreen && !isMobileLandscape}
+			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
+				<div class="flex items-start justify-between gap-2 sm:gap-4">
+					<!-- Album artwork or artist image -->
+					{#if songArtwork || artistImage}
+						<div
+							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
+						>
+							<img
+								src={songArtwork || artistImage}
+								alt=""
+								class="w-full h-full object-cover"
+								on:error={(e) => {
+									if (e.target instanceof HTMLElement) e.target.style.display = 'none';
+								}}
+							/>
+						</div>
+					{/if}
+					<div class="min-w-0 flex-1">
+						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+							{title.split(' - ')[0] || title}
+						</h1>
+						<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
+							{#if currentArtistName}
+								<span class="relative inline-block">
+									<ArtistTooltip artistName={currentArtistName} position="bottom">
+										<a
+											href="{base}/search?q={encodeURIComponent(currentArtistName)}"
+											class="hover:text-violet-500 hover:underline transition-colors"
+											title="Search more by this artist">{currentArtistName}</a
+										>
+									</ArtistTooltip>
+								</span>
+								&middot;
+							{/if}
+							{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+								? ` \u00B7 ${totalBars} bars`
+								: ''}
+						</p>
+						<!-- Artist country + genre pills: desktop only. On mobile the row
+						     wrapped over 2-3 lines and pushed the controls off-screen. -->
+						{#if artistInfo?.tags && artistInfo.tags.length > 0}
+							<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
+								{#if artistInfo.country}
+									<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
+										>{artistInfo.country}</span
+									>
+									<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
+								{/if}
+								{#each artistInfo.tags.slice(0, 4) as tag}
+									<span
+										class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+										>{tag}</span
+									>
+								{/each}
+							</div>
+						{/if}
+						{#if hasVariants}
+							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
+								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
+									>Sources:</span
+								>
+								{#each variants as variant}
+									{@const vd = getSourceDisplay(variant.source)}
+									<button
+										class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50
+											{variant.id === tabId
+											? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+											: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
+										on:click={() => switchToVariant(variant)}
+										disabled={switchingSource || variant.id === tabId}
+										title={variant.id === tabId ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
+									>
+										<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
+										{vd.label}
+										{#if variant.trackCount}
+											<span class="text-neutral-400">({variant.trackCount})</span>
+										{/if}
+									</button>
+								{/each}
 							</div>
 						{/if}
 					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
-
-	<!-- Metadata row (title, artist, actions) - hidden in fullscreen -->
-	{#if scoreLoaded && !isFullscreen}
-		<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-800">
-			<div class="flex items-start justify-between gap-4">
-				<!-- Album artwork or artist image -->
-				{#if songArtwork || artistImage}
-					<div class="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800">
-						<img
-							src={songArtwork || artistImage}
-							alt=""
-							class="w-full h-full object-cover"
-							on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }}
-						/>
-					</div>
-				{/if}
-				<div class="min-w-0 flex-1">
-					<h1 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">{title.split(' - ')[0] || title}</h1>
-					<p class="text-sm text-neutral-500 dark:text-neutral-400 truncate">
-						{#if currentArtistName}
-							<span class="relative inline-block">
-								<ArtistTooltip artistName={currentArtistName} position="bottom">
-									<a
-										href="{base}/search?q={encodeURIComponent(currentArtistName)}"
-										class="hover:text-violet-500 hover:underline transition-colors"
-										title="Search more by this artist"
-									>{currentArtistName}</a>
-								</ArtistTooltip>
-							</span>
-							&middot;
+					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+						{#if tabId}
+							<button
+								on:click={toggleFavorite}
+								class="p-1.5 sm:p-2 rounded-full transition-all duration-150 active:scale-90
+								{isFavorite
+									? 'text-red-500'
+									: 'text-neutral-500 dark:text-neutral-400 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
+								title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
+							>
+								<i class="material-icons !text-lg sm:!text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
+							</button>
 						{/if}
-						{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0 ? ` \u00B7 ${totalBars} bars` : ''}
-					</p>
-					{#if artistInfo?.tags && artistInfo.tags.length > 0}
-						<div class="flex items-center gap-1.5 mt-1 flex-wrap">
-							{#if artistInfo.country}
-								<span class="text-[11px] text-neutral-400 dark:text-neutral-500">{artistInfo.country}</span>
-								<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
-							{/if}
-							{#each artistInfo.tags.slice(0, 4) as tag}
-								<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500">{tag}</span>
-							{/each}
-						</div>
-					{/if}
-				</div>
-				<div class="flex items-center gap-1 flex-shrink-0">
-					{#if tabId}
+						{#if tabId && allPlaylists.length > 0}
+							<button
+								on:click={() => {
+									showPlaylistPicker = !showPlaylistPicker;
+								}}
+								class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+								title="Add to playlist [P]"
+							>
+								<i class="material-icons !text-lg sm:!text-xl">playlist_add</i>
+							</button>
+						{/if}
 						<button
-							on:click={toggleFavorite}
-							class="p-2 rounded-full transition-all duration-150 active:scale-90
-								{isFavorite ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
-							title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
+							disabled={!scoreLoaded}
+							on:click={clickShare}
+							class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							title="Share"
+							aria-label="Share"
 						>
-							<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
+							<i class="material-icons !text-lg sm:!text-xl">share</i>
 						</button>
-					{/if}
-					<button
-						disabled={!scoreLoaded}
-						on:click={clickShare}
-						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
-						title="Share"
-					>
-						<i class="material-icons !text-xl">share</i>
-					</button>
-					<button
-						disabled={!scoreLoaded}
-						on:click={clickDownload}
-						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
-						title="Download"
-					>
-						<i class="material-icons !text-xl">download</i>
-					</button>
-					<button
-						disabled={!scoreLoaded}
-						on:click={clickPrint}
-						class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
-						title="Print"
-					>
-						<i class="material-icons !text-xl">print</i>
-					</button>
+						<button
+							disabled={!scoreLoaded}
+							on:click={clickDownload}
+							class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							title="Download"
+							aria-label="Download"
+						>
+							<i class="material-icons !text-lg sm:!text-xl">download</i>
+						</button>
+						<!-- Print: desktop only. On mobile we rely on Share / Download so
+						     this row stays one line tall. -->
+						<button
+							disabled={!scoreLoaded}
+							on:click={clickPrint}
+							class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							title="Print"
+							aria-label="Print"
+						>
+							<i class="material-icons !text-xl">print</i>
+						</button>
+					</div>
 				</div>
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</div>
+	<!-- end sticky controls wrapper -->
 
-	</div> <!-- end sticky controls wrapper -->
-
-	<!-- Settings popover (YouTube-style, above controls) -->
+	<!-- Settings popover (YouTube-style, above controls).
+	     The click-outside overlay stops above the controls bar so the user
+	     can click between the Tracks/Settings toggle buttons without the
+	     overlay eating the click. The controls bar sits at `bottom-0` and
+	     is ~56px tall; bottom-16 (64px) on the overlay gives a safe buffer. -->
 	{#if showSettings}
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-		<div class="fixed inset-0 z-[60]" on:click={closeSettings} role="presentation" />
+		<div
+			class="fixed top-0 left-0 right-0 bottom-16 z-[60]"
+			on:click={closeSettings}
+			role="presentation"
+		/>
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
 		<div
 			bind:this={settings}
@@ -3438,11 +4238,23 @@
 			role="dialog"
 			on:click|stopPropagation
 		>
+			<!-- Header with close -->
+			<div class="flex items-center justify-between mb-2 pt-3">
+				<span class="text-xs text-neutral-500 dark:text-neutral-400">Player settings</span>
+				<button
+					on:click={closeSettings}
+					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					title="Close"
+				>
+					<i class="material-icons !text-base">close</i>
+				</button>
+			</div>
 			<!-- Tab Navigation -->
 			<div class="flex pt-3 mb-3 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
 				<button
 					on:click={() => (activeSettingsTab = 'tracks')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'tracks'
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab ===
+					'tracks'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
@@ -3462,7 +4274,8 @@
 				</button>
 				<button
 					on:click={() => (activeSettingsTab = 'settings')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'settings'
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab ===
+					'settings'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
@@ -3472,230 +4285,236 @@
 				</button>
 			</div>
 
-					<!-- Settings Tab -->
-					{#if activeSettingsTab === 'settings'}
-						<div class="grid grid-cols-1 gap-1" role="tabpanel" aria-label="Settings">
-							<SettingSlider
-								bind:value={volume}
-								min={0}
-								max={2}
-								step={0.1}
-								label="Volume"
-								iconOn="volume_up"
-								iconOff="volume_off"
-								details="Mute / Reset playback volume"
-							/>
-							<SettingSlider
-								bind:value={speed}
-								min={0.1}
-								max={2}
-								step={0.1}
-								label="Speed"
-								iconOn="speed"
-								iconOff="speed"
-								details="Slow / Reset playback speed"
-							/>
-							<SettingSlider
-								bind:value={metronome}
-								min={0}
-								max={2}
-								step={0.1}
-								label="Metronome"
-								iconOn="timer"
-								iconOff="timer_off"
-								details="Mute / Max metronome volume"
-							/>
-							<SettingSlider
-								bind:value={tabScale}
-								min={0.3}
-								max={1.5}
-								step={0.1}
-								label="Scale"
-								iconOn="zoom_in"
-								iconOff="zoom_out"
-								onInput={updateTabScale}
-								details="Small / Reset tablature scale"
-							/>
-						</div>
+			<!-- Settings Tab -->
+			{#if activeSettingsTab === 'settings'}
+				<div class="flex flex-col gap-2" role="tabpanel" aria-label="Settings">
+					<SettingSlider
+						bind:value={volume}
+						min={0}
+						max={2}
+						step={0.1}
+						label="Volume"
+						iconOn="volume_up"
+						iconOff="volume_off"
+						details="Mute / Reset playback volume"
+					/>
+					<SettingSlider
+						bind:value={speed}
+						min={0.1}
+						max={2}
+						step={0.1}
+						label="Speed"
+						iconOn="speed"
+						iconOff="speed"
+						details="Slow / Reset playback speed"
+					/>
+					<SettingSlider
+						bind:value={metronome}
+						min={0}
+						max={2}
+						step={0.1}
+						label="Metronome"
+						iconOn="timer"
+						iconOff="timer_off"
+						details="Mute / Max metronome volume"
+					/>
+					<SettingSlider
+						bind:value={tabScale}
+						min={0.3}
+						max={1.5}
+						step={0.1}
+						label="Scale"
+						iconOn="zoom_in"
+						iconOff="zoom_out"
+						onInput={updateTabScale}
+						details="Small / Reset tablature scale"
+					/>
+				</div>
 
-						<!-- Start delay + Loop info -->
-						<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-3">
-							<!-- Delay control: icon toggle + slider -->
-							<div class="flex items-center gap-2.5">
-								<button
-									on:click={() => { delaying = delaying > 0 ? 0 : 3000; }}
-									class="p-1.5 rounded-lg transition-colors flex-shrink-0 {delaying > 0 ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-500' : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
-									title="{delaying > 0 ? 'Disable' : 'Enable'} start delay"
-								>
-									<i class="material-icons !text-lg">timer</i>
-								</button>
-								<input
-									type="range"
-									min="0"
-									max="10000"
-									step="1000"
-									bind:value={delaying}
-									class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full
+				<!-- Start delay + Loop info -->
+				<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-3">
+					<!-- Delay control: icon toggle + slider -->
+					<div class="flex items-center gap-2.5">
+						<button
+							on:click={() => {
+								delaying = delaying > 0 ? 0 : 3000;
+							}}
+							class="p-1.5 rounded-lg transition-colors flex-shrink-0 {delaying > 0
+								? 'bg-violet-100 dark:bg-violet-900/30 text-violet-500'
+								: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+							title="{delaying > 0 ? 'Disable' : 'Enable'} start delay"
+						>
+							<i class="material-icons !text-lg">timer</i>
+						</button>
+						<input
+							type="range"
+							min="0"
+							max="10000"
+							step="1000"
+							bind:value={delaying}
+							class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full
 										{delaying > 0 ? 'bg-violet-200 dark:bg-violet-900/40' : 'bg-neutral-200 dark:bg-neutral-700'}
 										[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
-										{delaying > 0 ? '[&::-webkit-slider-thumb]:bg-violet-500' : '[&::-webkit-slider-thumb]:bg-neutral-400'}
+										{delaying > 0
+								? '[&::-webkit-slider-thumb]:bg-violet-500'
+								: '[&::-webkit-slider-thumb]:bg-neutral-400'}
 										[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0
 										{delaying > 0 ? '[&::-moz-range-thumb]:bg-violet-500' : '[&::-moz-range-thumb]:bg-neutral-400'}
 										[&::-moz-range-progress]:rounded-full
-										{delaying > 0 ? '[&::-moz-range-progress]:bg-violet-500' : '[&::-moz-range-progress]:bg-neutral-400'}"
-									style="background: linear-gradient(to right, {delaying > 0 ? '#8C52FF' : '#a3a3a3'} {delaying / 10000 * 100}%, {delaying > 0 ? 'rgb(221,214,254)' : 'rgb(212,212,212)'} {delaying / 10000 * 100}%)"
-									aria-label="Start delay"
-								/>
-								<span class="text-xs font-mono w-8 text-right flex-shrink-0 {delaying > 0 ? 'text-violet-500 font-medium' : 'text-neutral-400'}">
-									{delaying > 0 ? `${delaying / 1000}s` : 'Off'}
-								</span>
-							</div>
-
-							<!-- Loop info -->
-							{#if loopStartBar !== null && loopEndBar !== null}
-								{@const range = loopRangeMs()}
-								{@const startSec = range ? Math.floor(range.startMs / 1000) : 0}
-								{@const endSec = range ? Math.floor(range.endMs / 1000) : 0}
-								{@const durationSec = endSec - startSec}
-								<!-- svelte-ignore a11y-click-events-have-key-events -->
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
-								<div
-									on:click={toggleLoopEnabled}
-									class="flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer transition-colors
-										{loopEnabled ? 'bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800' : 'bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700'}"
-								>
-									<i class="material-icons !text-2xl transition-colors {loopEnabled ? 'text-violet-500' : 'text-neutral-400'}">repeat</i>
-									<div class="flex-1 min-w-0">
-										<div class="flex items-center gap-1 text-sm font-mono {loopEnabled ? 'text-violet-600 dark:text-violet-400' : 'text-neutral-600 dark:text-neutral-400'}">
-											<span class="text-neutral-400 dark:text-neutral-500">[</span>
-											<span class="text-xs">{displayTime(startSec)}</span>
-											<span class="text-neutral-300 dark:text-neutral-600 mx-0.5">to</span>
-											<span class="text-xs">{displayTime(endSec)}</span>
-											<span class="text-neutral-400 dark:text-neutral-500">]</span>
-										</div>
-										<p class="text-[10px] mt-1 {loopEnabled ? 'text-violet-400 dark:text-violet-500' : 'text-neutral-400 dark:text-neutral-500'}">
-											Bar {loopStartBar + 1} → {loopEndBar + 1} &middot; {durationSec}s
-										</p>
-									</div>
-									<button
-										on:click|stopPropagation={clearLoopPoints}
-										class="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors px-2 py-1 rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-700"
-									>Clear</button>
-								</div>
-							{:else}
-								<p class="text-[10px] text-neutral-400 dark:text-neutral-500 flex items-center gap-1">
-									<i class="material-icons !text-xs">info_outline</i>
-									Drag on progress bar to create a loop region
-								</p>
-							{/if}
-						</div>
-					{/if}
-
-					<!-- Tracks Tab -->
-					{#if activeSettingsTab === 'tracks'}
-						<div class="flex flex-col h-full">
-							<!-- Track List (scrollable, grows to fill) -->
-							<div class="flex-1 space-y-1.5 overflow-y-auto min-h-0" role="listbox" aria-label="Track list">
-								{#each tracks as track, i}
-									<!-- svelte-ignore a11y-click-events-have-key-events -->
-									<div
-										class="rounded-lg border p-2.5 cursor-pointer transition-all
-											{i === activeTrackIndex
-												? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
-												: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
-										on:click={() => { setActiveTrack(i); }}
-										role="option"
-										aria-selected={i === activeTrackIndex}
-									>
-										<!-- Row 1: Name + solo/mute buttons -->
-										<div class="flex items-center gap-2 mb-1.5">
-											<div class="flex-1 min-w-0">
-												<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
-													{track.name}
-												</p>
-												<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}{#if getTrackTuning(track)} &middot; <span class="text-violet-400 dark:text-violet-500">{getTrackTuning(track)}</span>{/if}</p>
-											</div>
-											<div class="flex gap-1 flex-shrink-0">
-												<button
-													on:click|stopPropagation={() => toggleTrackSolo(i)}
-													class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-														{trackSolos[i]
-															? 'text-violet-500'
-															: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-													title="Solo"
-												>
-													<i class="material-icons !text-base">headphones</i>
-												</button>
-												<button
-													on:click|stopPropagation={() => toggleTrackMute(i)}
-													class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-														{trackMutes[i]
-															? 'text-red-500'
-															: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-													title="Mute"
-												>
-													<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
-												</button>
-											</div>
-										</div>
-										<!-- Row 2: Volume slider -->
-										<div class="flex items-center gap-2">
-											<input
-												type="range"
-												min="0"
-												max="2"
-												step="0.1"
-												bind:value={trackVolumes[i]}
-												on:input={() => updateTrackVolume(i, trackVolumes[i])}
-												on:click|stopPropagation
-												aria-label="Volume for {track.name}"
-												class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
-													[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
-													[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
-													[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
-												style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
-											/>
-											<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
-										</div>
-									</div>
-								{/each}
-							</div>
-
-							<!-- Quick Controls (fixed at bottom) -->
-							<div class="grid grid-cols-2 gap-2 pt-3 mt-2 border-t border-neutral-200 dark:border-neutral-700 flex-shrink-0">
-								<button
-									on:click={() => toggleTrackSolo(activeTrackIndex)}
-									class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
-										{trackSolos[activeTrackIndex]
-											? 'border-violet-300 dark:border-violet-700 text-violet-500 bg-violet-50 dark:bg-violet-900/20'
-											: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
-								><i class="material-icons !text-sm inline-block align-middle mr-1">headphones</i>Solo current</button>
-								<button
-									on:click={resetAllVolumes}
-									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-								><i class="material-icons !text-sm inline-block align-middle mr-1">restart_alt</i>Reset levels</button>
-								<button
-									on:click={muteAllTracks}
-									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-								><i class="material-icons !text-sm inline-block align-middle mr-1">volume_off</i>Mute all</button>
-								<button
-									on:click={unmuteAllTracks}
-									class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-								><i class="material-icons !text-sm inline-block align-middle mr-1">volume_up</i>Unmute all</button>
-							</div>
-						</div>
-					{/if}
-
-					<!-- Tuning Tab -->
-					{#if activeSettingsTab === 'tuning'}
-						<TuningTransposer
-							api={$playerApi}
-							{activeTrackIndex}
-							trackName={tracks[activeTrackIndex]?.name ?? ''}
+										{delaying > 0
+								? '[&::-moz-range-progress]:bg-violet-500'
+								: '[&::-moz-range-progress]:bg-neutral-400'}"
+							style="background: linear-gradient(to right, {delaying > 0
+								? '#8C52FF'
+								: '#a3a3a3'} {(delaying / 10000) * 100}%, {delaying > 0
+								? 'rgb(221,214,254)'
+								: 'rgb(212,212,212)'} {(delaying / 10000) * 100}%)"
+							aria-label="Start delay"
 						/>
-					{/if}
+						<span
+							class="text-xs font-mono w-8 text-right flex-shrink-0 {delaying > 0
+								? 'text-violet-500 font-medium'
+								: 'text-neutral-400'}"
+						>
+							{delaying > 0 ? `${delaying / 1000}s` : 'Off'}
+						</span>
+					</div>
 
-			</div>
+					<!-- Loop info -->
+					{#if loopStartBar !== null && loopEndBar !== null}
+						<div class="flex items-center gap-3">
+							<button
+								on:click={toggleLoopEnabled}
+								class="p-1.5 rounded-lg transition-colors {loopEnabled
+									? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500'
+									: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+							>
+								<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+							</button>
+							<div class="flex-1">
+								<p class="text-xs font-medium {loopEnabled ? 'text-pink-500' : 'text-neutral-500'}">
+									Loop bar {loopStartBar + 1} → {loopEndBar + 1}
+								</p>
+							</div>
+							<button
+								on:click={clearLoopPoints}
+								class="text-xs text-neutral-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+								>Clear</button
+							>
+						</div>
+					{:else}
+						<p class="text-[10px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
+							<i class="material-icons !text-xs">info_outline</i>
+							Drag on progress bar to create a loop region
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Tracks Tab -->
+			{#if activeSettingsTab === 'tracks'}
+				<div class="flex flex-col h-full">
+					<!-- Track List (scrollable, grows to fill on mobile full-height dialog) -->
+					<div class="flex-1 space-y-1.5 overflow-y-auto min-h-0" role="listbox" aria-label="Track list">
+						{#each tracks as track, i}
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<div
+								class="rounded-lg border p-2.5 cursor-pointer transition-all
+									{i === activeTrackIndex
+										? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
+										: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
+								on:click={() => { setActiveTrack(i); }}
+								role="option"
+								aria-selected={i === activeTrackIndex}
+							>
+								<!-- Row 1: Name + solo/mute buttons -->
+								<div class="flex items-center gap-2 mb-1.5">
+									<div class="flex-1 min-w-0">
+										<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
+											{track.name}
+										</p>
+										<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}{#if getTrackTuning(track)} &middot; <span class="text-violet-400 dark:text-violet-500">{getTrackTuning(track)}</span>{/if}</p>
+									</div>
+									<div class="flex gap-1 flex-shrink-0">
+										<button
+											on:click|stopPropagation={() => toggleTrackSolo(i)}
+											class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+												{trackSolos[i]
+													? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
+													: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+											title="Solo"
+										>
+											<i class="material-icons !text-base">{trackSolos[i] ? 'headphones' : 'headset_off'}</i>
+										</button>
+										<button
+											on:click|stopPropagation={() => toggleTrackMute(i)}
+											class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
+												{trackMutes[i]
+													? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
+													: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+											title="Mute"
+										>
+											<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
+										</button>
+									</div>
+								</div>
+								<!-- Row 2: Volume slider -->
+								<div class="flex items-center gap-2">
+									<input
+										type="range"
+										min="0"
+										max="2"
+										step="0.1"
+										bind:value={trackVolumes[i]}
+										on:input={() => updateTrackVolume(i, trackVolumes[i])}
+										on:click|stopPropagation
+										aria-label="Volume for {track.name}"
+										class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+											[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
+											[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
+											[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
+										style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
+									/>
+									<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
+								</div>
+							</div>
+						{/each}
+					</div>
+
+					<!-- Quick Controls (fixed at bottom) -->
+					<div class="grid grid-cols-2 gap-2 pt-3 mt-2 border-t border-neutral-200 dark:border-neutral-700 flex-shrink-0">
+						<button
+							on:click={() => toggleTrackSolo(activeTrackIndex)}
+							class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
+								{trackSolos[activeTrackIndex]
+									? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
+									: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
+						>Solo current</button>
+						<button
+							on:click={resetAllVolumes}
+							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+						>Reset levels</button>
+						<button
+							on:click={muteAllTracks}
+							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+						>Mute all</button>
+						<button
+							on:click={unmuteAllTracks}
+							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
+						>Unmute all</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Tuning Tab -->
+			{#if activeSettingsTab === 'tuning'}
+				<TuningTransposer
+					api={$playerApi}
+					{activeTrackIndex}
+					trackName={tracks[activeTrackIndex]?.name ?? ''}
+				/>
+			{/if}
+		</div>
 	{/if}
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->
@@ -3725,21 +4544,41 @@
 					<button
 						on:click={toggleCountdownPause}
 						class="relative w-32 h-32 group"
-						title="{countdownPaused ? 'Resume' : 'Pause'}"
+						title={countdownPaused ? 'Resume' : 'Pause'}
 					>
 						<svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128">
-							<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="6" class="text-white/10" />
-							<circle cx="64" cy="64" r="56" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"
+							<circle
+								cx="64"
+								cy="64"
+								r="56"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="6"
+								class="text-white/10"
+							/>
+							<circle
+								cx="64"
+								cy="64"
+								r="56"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="6"
+								stroke-linecap="round"
 								class="text-violet-400 transition-all duration-75"
-								style="stroke-dasharray: 351.86; stroke-dashoffset: {351.86 * (rest / delaying)};" />
+								style="stroke-dasharray: 351.86; stroke-dashoffset: {351.86 * (rest / delaying)};"
+							/>
 						</svg>
 						<div class="absolute inset-0 flex items-center justify-center">
 							{#if countdownPaused}
 								<i class="material-icons !text-5xl text-violet-300">play_arrow</i>
 							{:else}
-								<span class="text-5xl font-bold text-white tabular-nums">{Math.ceil(rest / 1000)}</span>
+								<span class="text-5xl font-bold text-white tabular-nums"
+									>{Math.ceil(rest / 1000)}</span
+								>
 								<!-- Pause icon on hover only -->
-								<div class="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+								<div
+									class="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
+								>
 									<i class="material-icons !text-4xl text-white/80">pause</i>
 								</div>
 							{/if}
@@ -3774,7 +4613,10 @@
 						Play now
 					</button>
 					<button
-						on:click={() => { cancelCountdown(); delaying = 0; }}
+						on:click={() => {
+							cancelCountdown();
+							delaying = 0;
+						}}
 						class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white/70 text-sm rounded-full transition-colors"
 						title="Disable delay and cancel"
 					>
@@ -3817,14 +4659,24 @@
 			aria-modal="true"
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<div class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto animate-fade-in" on:click|stopPropagation>
+			<div
+				class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto animate-fade-in"
+				on:click|stopPropagation
+			>
 				<!-- Header -->
-				<div class="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 sticky top-0 bg-white dark:bg-neutral-900 z-10 rounded-t-2xl">
+				<div
+					class="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 sticky top-0 bg-white dark:bg-neutral-900 z-10 rounded-t-2xl"
+				>
 					<div class="flex items-center gap-2">
 						<i class="material-icons !text-xl text-violet-500">keyboard</i>
-						<h2 class="text-base font-semibold text-neutral-800 dark:text-neutral-200">Keyboard shortcuts</h2>
+						<h2 class="text-base font-semibold text-neutral-800 dark:text-neutral-200">
+							Keyboard shortcuts
+						</h2>
 					</div>
-					<button on:click={() => (showKeyboardShortcuts = false)} class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+					<button
+						on:click={() => (showKeyboardShortcuts = false)}
+						class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					>
 						<i class="material-icons !text-lg">close</i>
 					</button>
 				</div>
@@ -3834,13 +4686,22 @@
 						<div>
 							<div class="flex items-center gap-1.5 mb-2">
 								<i class="material-icons !text-sm text-violet-500">{section.icon}</i>
-								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">{section.title}</h3>
+								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">
+									{section.title}
+								</h3>
 							</div>
 							<div class="space-y-1">
 								{#each section.shortcuts as [key, icon, desc]}
-									<div class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
-										<kbd class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300">{key}</kbd>
-										<i class="material-icons !text-base text-neutral-400 dark:text-neutral-500">{icon}</i>
+									<div
+										class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+									>
+										<kbd
+											class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300"
+											>{key}</kbd
+										>
+										<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
+											>{icon}</i
+										>
 										<span class="text-sm text-neutral-600 dark:text-neutral-400">{desc}</span>
 									</div>
 								{/each}
@@ -3851,7 +4712,56 @@
 
 				<!-- Footer -->
 				<div class="px-5 py-3 border-t border-neutral-200 dark:border-neutral-800 text-center">
-					<p class="text-[10px] text-neutral-400 dark:text-neutral-500">Press <kbd class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono">?</kbd> to toggle &middot; <kbd class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono">Esc</kbd> to close</p>
+					<p class="text-[10px] text-neutral-500 dark:text-neutral-400">
+						Press <kbd
+							class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono"
+							>?</kbd
+						>
+						to toggle &middot;
+						<kbd
+							class="px-1 py-0.5 bg-neutral-100 dark:bg-neutral-800 rounded text-[10px] font-mono"
+							>Esc</kbd
+						> to close
+					</p>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Playlist picker modal -->
+	{#if showPlaylistPicker && tabId}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<div
+			class="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+			on:click={() => {
+				showPlaylistPicker = false;
+			}}
+			role="presentation"
+		>
+			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+			<div
+				class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-xs overflow-hidden animate-fade-in"
+				on:click|stopPropagation
+			>
+				<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
+					<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+						Add to playlist
+					</p>
+					<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+						{title.split(' - ')[0] || title}
+					</p>
+				</div>
+				<div class="max-h-60 overflow-y-auto">
+					{#each allPlaylists as pl, i}
+						<button
+							on:click={() => addCurrentToPlaylist(i)}
+							class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
+						>
+							<i class="material-icons !text-lg text-violet-500">queue_music</i>
+							<span class="flex-1 truncate">{pl.name}</span>
+							<span class="text-[10px] text-neutral-400">{pl.entries.length}</span>
+						</button>
+					{/each}
 				</div>
 			</div>
 		</div>

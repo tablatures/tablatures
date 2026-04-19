@@ -21,10 +21,14 @@
 			height,
 			playerVars: {
 				autoplay: autoplay ? 1 : 0,
-				controls: 1,
+				// Hide YouTube's native controls — we provide our own overlay
+				// (play/pause, audio-source toggle, sync offset, close).
+				controls: 0,
+				disablekb: 1,
 				modestbranding: 1,
 				rel: 0,
 				fs: 0,
+				iv_load_policy: 3,
 				playsinline: 1
 			},
 			events: {

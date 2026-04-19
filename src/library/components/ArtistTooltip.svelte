@@ -2,6 +2,7 @@
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
+	import LoadingScore from './LoadingScore.svelte';
 
 	export let artistName: string = '';
 	export let position: 'top' | 'bottom' = 'top';
@@ -92,7 +93,7 @@
 		>
 			{#if loading && !info}
 				<div class="flex items-center gap-2">
-					<div class="animate-spin rounded-full h-4 w-4 border-2 border-neutral-300 border-t-violet-500" />
+					<LoadingScore size="xs" message="" />
 					<span class="text-xs text-neutral-400">Loading...</span>
 				</div>
 			{:else if info}
@@ -107,7 +108,7 @@
 					<div class="flex-1 min-w-0">
 						<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate">{info.name || artistName}</p>
 						{#if info.country}
-							<p class="text-xs text-neutral-400 dark:text-neutral-500">{info.country}</p>
+							<p class="text-xs text-neutral-500 dark:text-neutral-400">{info.country}</p>
 						{/if}
 					</div>
 				</div>

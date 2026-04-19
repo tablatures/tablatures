@@ -101,6 +101,6 @@ The Tablatures frontend uses environment variables to configure API endpoints, d
 
 - **SvelteKit** + TypeScript
 - **Tailwind CSS** for styling
-- **alphaTab 1.5.0** for tablature rendering and playback
+- **alphaTab 1.8.1** for tablature rendering and playback
 - **YouTube iFrame API** for video sync
 - **Vite** for building

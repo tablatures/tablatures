@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import Header from '../../library/components/Header.svelte';
 	import ResultCard from '../../library/components/ResultCard.svelte';
+	import SkeletonCard from '../../library/components/SkeletonCard.svelte';
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import { tabStore } from '../../library/utils/store';
@@ -16,7 +17,48 @@
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
+	import { playlistStore } from '../../library/utils/playlists';
+	import type { PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
+
+	$: allPlaylists = $playlistStore;
+
+	let playlistPickerTab: { id: string; title: string; artist: string; source: string } | null = null;
+	let showNewInlinePlaylist = false;
+	let newInlinePlaylistName = '';
+
+	function openPlaylistPicker(tab: { id: string; title: string; artist: string; source: string }) {
+		playlistPickerTab = tab;
+		showNewInlinePlaylist = false;
+		newInlinePlaylistName = '';
+	}
+
+	function addToPickedPlaylist(playlistIndex: number) {
+		if (!playlistPickerTab) return;
+		playlistStore.addEntry(playlistIndex, {
+			id: playlistPickerTab.id,
+			title: playlistPickerTab.title,
+			artist: playlistPickerTab.artist,
+			source: playlistPickerTab.source
+		});
+		toastStore.success(`Added to "${allPlaylists[playlistIndex].name}"`);
+		playlistPickerTab = null;
+	}
+
+	function createAndAddToPlaylist() {
+		const name = newInlinePlaylistName.trim();
+		if (!name || !playlistPickerTab) return;
+		playlistStore.addPlaylist({ name, entries: [{
+			id: playlistPickerTab.id,
+			title: playlistPickerTab.title,
+			artist: playlistPickerTab.artist,
+			source: playlistPickerTab.source
+		}], createdAt: Date.now() });
+		toastStore.success(`Created "${name}" and added tab`);
+		playlistPickerTab = null;
+		newInlinePlaylistName = '';
+		showNewInlinePlaylist = false;
+	}
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -43,6 +85,20 @@
 	let tabs: TabResult[] = [];
 	let tabArtwork: Record<string, string> = {};
 	let artistHeroes: Array<{name: string; image: string|null; bio: string|null; country: string|null; tags: string[]; tabCount: number}> = [];
+	let artistHeroesLoading = false;
+	let failedHeroImages: Set<string> = new Set();
+
+	function handleHeroImageError(name: string) {
+		failedHeroImages.add(name);
+		failedHeroImages = failedHeroImages;
+	}
+
+	function normalizeImageUrl(url: string | null | undefined): string {
+		if (!url) return '';
+		// Upgrade http to https to avoid mixed-content blocks on https pages
+		if (url.startsWith('http://')) return 'https://' + url.slice(7);
+		return url;
+	}
 	let loading = false;
 	let downloadingTab = false;
 	let error = '';
@@ -197,7 +253,12 @@
 
 	async function detectArtistHeroes(results: TabResult[]) {
 		artistHeroes = [];
-		if (!SEARCH_API_BASE_URL || results.length < 1) return;
+		failedHeroImages = new Set();
+		artistHeroesLoading = true;
+		if (!SEARCH_API_BASE_URL || results.length < 1) {
+			artistHeroesLoading = false;
+			return;
+		}
 
 		function splitArtistName(name: string): string[] {
 			return name.split(/\s*(?:,\s+|&|\|)\s*|\s+(?:feat\.?|ft\.?|featuring|vs\.?|with)\s+/i)
@@ -205,7 +266,25 @@
 				.filter(Boolean);
 		}
 
-		const groups: { canonical: string; names: string[]; count: number }[] = [];
+		/** Group tracks every variant spelling of the same artist with its frequency,
+		 *  so we can pick the most-common casing as canonical rather than the longest
+		 *  (which previously promoted outlier names like "SOAD Rulz" over "SOAD"). */
+		type Group = { canonical: string; names: string[]; count: number; variantFreq: Map<string, number> };
+		const groups: Group[] = [];
+
+		function pickCanonical(freq: Map<string, number>): string {
+			let best = '';
+			let bestScore = -1;
+			for (const [variant, count] of freq) {
+				// Tie-break: shorter name wins (favors the clean base "SOAD" over "SOAD Rulz").
+				const score = count * 1000 - variant.length;
+				if (score > bestScore) {
+					bestScore = score;
+					best = variant;
+				}
+			}
+			return best;
+		}
 
 		for (const tab of results) {
 			const rawArtist = (tab.artist || '').trim();
@@ -218,18 +297,27 @@
 					if (artistsMatch(artist, group.canonical)) {
 						group.count++;
 						if (!group.names.includes(artist)) group.names.push(artist);
-						if (artist.length > group.canonical.length) group.canonical = artist;
+						group.variantFreq.set(artist, (group.variantFreq.get(artist) || 0) + 1);
+						group.canonical = pickCanonical(group.variantFreq);
 						found = true;
 						break;
 					}
 				}
 				if (!found) {
-					groups.push({ canonical: artist, names: [artist], count: 1 });
+					groups.push({
+						canonical: artist,
+						names: [artist],
+						count: 1,
+						variantFreq: new Map([[artist, 1]])
+					});
 				}
 			}
 		}
 
-		if (groups.length === 0) return;
+		if (groups.length === 0) {
+			artistHeroesLoading = false;
+			return;
+		}
 
 		groups.sort((a, b) => b.count - a.count);
 
@@ -247,7 +335,10 @@
 			return false;
 		}).slice(0, 10);
 
-		if (qualifying.length === 0) return;
+		if (qualifying.length === 0) {
+			artistHeroesLoading = false;
+			return;
+		}
 
 		try {
 			const heroResults = await Promise.all(
@@ -278,6 +369,7 @@
 			);
 			artistHeroes = heroResults;
 		} catch {}
+		artistHeroesLoading = false;
 	}
 
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
@@ -294,10 +386,21 @@
 			return;
 		}
 
-		if (currentPage === 1) loading = true;
+		if (currentPage === 1) {
+			loading = true;
+			// Clear previous results up-front so a new search doesn't leak
+			// stale tabs into the merge path when local-search returns an
+			// empty list (in which case `tabs` would otherwise still hold
+			// the previous query's rows and `mergeResults(tabs, liveData)`
+			// would silently keep them around).
+			tabs = [];
+			totalResults = 0;
+			hasMorePages = false;
+			tabArtwork = {};
+			artistHeroes = [];
+		}
 		searchLoading = true;
 		error = '';
-		if (currentPage === 1) artistHeroes = [];
 
 		try {
 			if (currentPage === 1) {
@@ -331,8 +434,11 @@
 				fetchArtworkForTabs(tabs);
 			} else {
 				const liveData = await performLiveSearch();
-				tabs = [...tabs, ...liveData.tabs];
-				totalResults = liveData.total;
+				// Dedupe against already-shown rows — the backend's
+				// total/totalPages don't always agree (e.g. total=165 with
+				// totalPages=9 at limit=50 → extra pages return overlaps),
+				// and plain concat would inflate the visible count.
+				tabs = mergeResults(tabs, liveData.tabs);
 				hasMorePages = liveData.hasMore;
 				fetchArtworkForTabs(liveData.tabs);
 			}
@@ -346,8 +452,14 @@
 			} else {
 				error = err?.message || 'Search failed.';
 			}
-			tabs = [];
-			totalResults = 0;
+			// Only wipe the grid on a failed *first* page. A pagination
+			// error (page 2+) should leave the already-loaded rows alone
+			// and just stop asking for more, otherwise the user loses all
+			// their results when the backend hiccups near the tail.
+			if (currentPage === 1) {
+				tabs = [];
+				totalResults = 0;
+			}
 			hasMorePages = false;
 		} finally {
 			loading = false;
@@ -374,21 +486,33 @@
 	}
 
 	function handleSearchInput(e: CustomEvent<string>) {
+		// Track the typed value so the URL stays in sync, but wait for an
+		// explicit submit (Enter / search button) before refetching results.
+		// Typing no longer triggers a request.
 		query = e.detail;
-		currentPage = 1;
-		updateURL();
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => performSearch(), 300);
 	}
 
-	let searchDebounce: NodeJS.Timeout;
-
-	async function loadMore() {
+	async function loadMore(isIntersecting: boolean = true) {
+		// ScrollObserver fires on both enter and leave — only load on enter.
+		if (!isIntersecting) return;
 		if (loadingMore || loading || !hasMorePages) return;
 		loadingMore = true;
 		currentPage += 1;
-		await performSearch();
-		loadingMore = false;
+		try {
+			await performSearch();
+		} finally {
+			loadingMore = false;
+		}
+		// Re-arm: if the sentinel is still in the observer's zone after the
+		// batch landed (tall viewport, short batch, etc.) fire once more so
+		// the grid fills instead of stalling until the user scrolls again.
+		if (hasMorePages && typeof window !== 'undefined') {
+			setTimeout(() => {
+				if (!loadingMore && hasMorePages && window.scrollY + window.innerHeight + 400 >= document.documentElement.scrollHeight) {
+					loadMore(true);
+				}
+			}, 120);
+		}
 	}
 
 	async function openTab(tab: TabResult): Promise<void> {
@@ -502,7 +626,7 @@
 	</div>
 {/if}
 
-<div class="max-w-4xl mx-auto px-4 min-h-[calc(100vh-3.5rem)]">
+<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
 		<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -524,22 +648,63 @@
 
 	{:else if tabs.length > 0}
 		<!-- Artist hero cards (when search matches artists) -->
-		{#if artistHeroes.length > 0}
+		{#if artistHeroesLoading && artistHeroes.length === 0}
+			<div class="flex gap-3 overflow-x-auto py-3 px-1">
+				{#each Array(3) as _}
+					<div class="flex-shrink-0 w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+						<div class="flex items-center gap-3 px-4 py-3">
+							<div class="relative w-14 h-14 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden flex-shrink-0">
+								<div class="absolute inset-0 animate-shimmer"></div>
+							</div>
+							<div class="flex-1 min-w-0 space-y-1.5">
+								<div class="relative h-3.5 rounded bg-neutral-100 dark:bg-neutral-800 w-3/4 overflow-hidden">
+									<div class="absolute inset-0 animate-shimmer"></div>
+								</div>
+								<div class="relative h-2.5 rounded bg-neutral-100 dark:bg-neutral-800 w-1/2 overflow-hidden">
+									<div class="absolute inset-0 animate-shimmer"></div>
+								</div>
+							</div>
+						</div>
+						<div class="px-4 pb-3 border-t border-neutral-100 dark:border-neutral-800 pt-2 space-y-1">
+							<div class="flex gap-1">
+								<div class="relative h-3 w-12 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
+									<div class="absolute inset-0 animate-shimmer"></div>
+								</div>
+								<div class="relative h-3 w-10 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
+									<div class="absolute inset-0 animate-shimmer"></div>
+								</div>
+							</div>
+							<div class="relative h-2.5 rounded bg-neutral-100 dark:bg-neutral-800 w-full overflow-hidden">
+								<div class="absolute inset-0 animate-shimmer"></div>
+							</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else if artistHeroes.length > 0}
 			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 				{#each artistHeroes as hero}
 					<div class="flex-shrink-0 snap-start w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<!-- Top: image + name + follow -->
-						<button
-							class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+						<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+						<div
+							class="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+							role="button"
+							tabindex="0"
 							on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); query = hero.name; currentPage = 1; updateURL(); performSearch(true); } }}
 						>
-							{#if hero.image}
-								<img src={hero.image} alt={hero.name} class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-800" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
-							{:else}
-								<div class="w-14 h-14 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
-									<i class="material-icons text-neutral-400 !text-2xl">person</i>
-								</div>
-							{/if}
+							<div class="relative w-14 h-14 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+								<i class="material-icons text-neutral-400 !text-2xl" aria-hidden="true">person</i>
+								{#if hero.image && !failedHeroImages.has(hero.name)}
+									<img
+										src={normalizeImageUrl(hero.image)}
+										alt={hero.name}
+										class="absolute inset-0 w-full h-full object-cover"
+										on:error={() => handleHeroImageError(hero.name)}
+									/>
+								{/if}
+							</div>
 							<div class="flex-1 min-w-0">
 								<p class="font-semibold text-sm text-neutral-800 dark:text-neutral-100 truncate">{hero.name}</p>
 								{#if hero.country}
@@ -563,19 +728,19 @@
 							>
 								<i class="material-icons !text-lg">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>
 							</button>
-						</button>
+						</div>
 						<!-- Tags + bio -->
 						{#if (hero.tags && hero.tags.length > 0) || hero.bio}
 							<div class="px-4 pb-3 border-t border-neutral-100 dark:border-neutral-800 pt-2">
 								{#if hero.tags && hero.tags.length > 0}
 									<div class="flex flex-wrap gap-1 mb-1.5">
 										{#each hero.tags.slice(0, 4) as tag}
-											<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500">{tag}</span>
+											<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">{tag}</span>
 										{/each}
 									</div>
 								{/if}
 								{#if hero.bio}
-									<p class="text-[11px] text-neutral-400 dark:text-neutral-500 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{hero.bio}</p>
+									<p class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{hero.bio}</p>
 								{/if}
 							</div>
 						{/if}
@@ -587,15 +752,9 @@
 		<!-- Results -->
 		<div class="py-3">
 			{#if artistHeroes.length === 0}
-				<p class="text-xs text-neutral-400 dark:text-neutral-500 mb-2 px-3">
-					{totalResults} result{totalResults !== 1 ? 's' : ''}
+				<p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3">
+					{tabs.length} result{tabs.length !== 1 ? 's' : ''}{#if hasMorePages || loadingMore}…{/if}
 				</p>
-			{/if}
-
-			{#if searchingMore}
-				<div class="px-3 mb-2">
-					<LoadingScore message="Searching more sources" size="sm" />
-				</div>
 			{/if}
 
 			<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50">
@@ -612,9 +771,24 @@
 						variants={tab.variants}
 						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source })}
 						onClick={() => openTab(tab)}
+						onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
 					/>
 				{/each}
+
+				<!-- Skeleton rows while more results stream in from live sources -->
+				{#if searchingMore}
+					{#each Array(6) as _}
+						<SkeletonCard />
+					{/each}
+				{/if}
 			</div>
+
+			{#if searchingMore}
+				<div class="flex items-center justify-center gap-3 py-4" aria-live="polite">
+					<LoadingScore size="xs" message="" />
+					<span class="text-xs text-neutral-500 dark:text-neutral-400">Searching more sources…</span>
+				</div>
+			{/if}
 
 			{#if loadingMore}
 				<div class="py-4">
@@ -623,7 +797,10 @@
 			{/if}
 
 			{#if hasMorePages}
-				<ScrollObserver onIntersect={loadMore} />
+				<!-- Sentinel sits below the grid; 800px rootMargin so pagination
+				     starts a screen early instead of only firing when the user
+				     hits the very bottom. -->
+				<ScrollObserver onIntersect={loadMore} rootMargin="800px" />
 			{/if}
 		</div>
 
@@ -647,4 +824,59 @@
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>
 	{/if}
-</div>
+</main>
+
+<!-- Playlist picker modal -->
+{#if playlistPickerTab}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div class="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" on:click={() => { playlistPickerTab = null; }} role="presentation">
+		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+		<div class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in" on:click|stopPropagation>
+			<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
+				<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Add to playlist</p>
+				<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">{playlistPickerTab.title} - {playlistPickerTab.artist}</p>
+			</div>
+			<div class="max-h-60 overflow-y-auto">
+				{#each allPlaylists as pl, i}
+					<button
+						on:click={() => addToPickedPlaylist(i)}
+						class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
+					>
+						<i class="material-icons !text-lg text-violet-500">queue_music</i>
+						<span class="flex-1 truncate">{pl.name}</span>
+						<span class="text-[10px] text-neutral-400">{pl.entries.length} tabs</span>
+					</button>
+				{/each}
+			</div>
+			<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-700">
+				{#if showNewInlinePlaylist}
+					<div class="flex gap-2">
+						<input
+							type="text"
+							bind:value={newInlinePlaylistName}
+							on:keydown={(e) => { if (e.key === 'Enter') createAndAddToPlaylist(); if (e.key === 'Escape') { showNewInlinePlaylist = false; } }}
+							placeholder="Playlist name..."
+							class="flex-1 text-sm bg-neutral-50 dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 rounded-lg px-3 py-1.5 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+							autofocus
+						/>
+						<button
+							on:click={createAndAddToPlaylist}
+							disabled={!newInlinePlaylistName.trim()}
+							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors disabled:opacity-30"
+						>
+							Create
+						</button>
+					</div>
+				{:else}
+					<button
+						on:click={() => { showNewInlinePlaylist = true; }}
+						class="text-xs text-violet-500 hover:underline flex items-center gap-1"
+					>
+						<i class="material-icons !text-xs">add</i>
+						New playlist
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

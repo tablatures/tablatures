@@ -1,0 +1,94 @@
+<script lang="ts">
+	/** Row-style list item for tabs. Artwork fills full row height at left with no padding.
+	 *  Slots:
+	 *    - `leading`  : content before the artwork (e.g. drag handle, index, reorder arrows)
+	 *    - default    : trailing content after title/artist (e.g. badges, remove button)
+	 */
+	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
+	import { getSourceDisplay } from '../utils/sources';
+
+	export let title: string;
+	export let artist: string = 'Unknown';
+	export let source: string = '';
+	export let artworkUrl: string = '';
+	export let artworkLoading: boolean = false;
+	export let onClick: () => void = () => {};
+
+	$: sourceDisplay = source ? getSourceDisplay(source) : null;
+
+	function openArtistSearch(e: Event) {
+		e.stopPropagation();
+		e.preventDefault();
+		if (!artist || artist === 'Unknown') return;
+		goto(`${base}/search?q=${encodeURIComponent(artist)}`);
+	}
+</script>
+
+<div
+	class="relative flex items-stretch w-full text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors group h-14"
+	role="listitem"
+>
+	<!-- Leading slot (drag handle, index, etc.) -->
+	<slot name="leading" />
+
+	<!-- Artwork — no padding, fills full row height, square aspect so it looks like a thumbnail -->
+	<button
+		on:click={onClick}
+		class="flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
+		aria-label={`Open ${title} by ${artist}`}
+	>
+		{#if artworkUrl}
+			<img
+				src={artworkUrl}
+				alt=""
+				loading="lazy"
+				class="w-full h-full object-cover"
+				on:error={(e) => {
+					if (e.target instanceof HTMLElement) e.target.style.display = 'none';
+				}}
+			/>
+		{:else if artworkLoading}
+			<div class="w-full h-full animate-pulse bg-neutral-200 dark:bg-neutral-700"></div>
+		{:else}
+			<div class="w-full h-full flex items-center justify-center">
+				<i class="material-icons-outlined !text-base text-neutral-400 dark:text-neutral-500" aria-hidden="true">
+					music_note
+				</i>
+			</div>
+		{/if}
+	</button>
+
+	<!-- Title + artist (main clickable area) -->
+	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+	<div
+		on:click={onClick}
+		class="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center text-left cursor-pointer"
+		aria-label={`Open ${title} by ${artist}`}
+	>
+		<p class="text-sm font-medium truncate text-neutral-900 dark:text-neutral-100">{title}</p>
+		<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate flex items-center gap-1.5">
+			{#if artist && artist !== 'Unknown'}
+				<a
+					href="{base}/search?q={encodeURIComponent(artist)}"
+					class="truncate hover:text-violet-500 hover:underline transition-colors"
+					on:click={openArtistSearch}
+					title="Search tabs by {artist}"
+				>{artist}</a>
+			{:else}
+				<span class="truncate">{artist}</span>
+			{/if}
+			{#if sourceDisplay}
+				<span class="flex items-center gap-1 flex-shrink-0">
+					<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor}"></span>
+					<span>{sourceDisplay.label}</span>
+				</span>
+			{/if}
+		</p>
+	</div>
+
+	<!-- Trailing slot (badges, remove button, etc.) -->
+	<div class="flex items-center gap-1 pr-2 flex-shrink-0 self-stretch">
+		<slot />
+	</div>
+</div>

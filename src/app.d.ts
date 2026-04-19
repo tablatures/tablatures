@@ -100,6 +100,7 @@ declare global {
 			render(): void;
 			renderScore(score: Score, trackIndexes?: number[]): void;
 			_beatCursor?: { element?: HTMLElement };
+			tickCache?: { masterBars: any[] } | null;
 		}
 
 		interface Gp7Exporter {

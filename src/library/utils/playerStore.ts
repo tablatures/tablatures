@@ -14,6 +14,7 @@ export interface PlayerState {
 	tracks: any[];
 	activeTrackIndex: number;
 	isRendering: boolean;
+	videoWasPlaying: boolean;
 }
 
 const DEFAULT_STATE: PlayerState = {
@@ -29,7 +30,8 @@ const DEFAULT_STATE: PlayerState = {
 	totalBars: 0,
 	tracks: [],
 	activeTrackIndex: 0,
-	isRendering: false
+	isRendering: false,
+	videoWasPlaying: false
 };
 
 // The alphaTab API instance (not serializable, just a reference)
@@ -37,6 +39,9 @@ export const playerApi = writable<any>(null);
 
 // The persistent DOM element where alphaTab renders
 export const playerTarget = writable<HTMLElement | null>(null);
+
+// Cached beat cursor element (set via querySelector after render, avoids per-frame DOM queries)
+export const beatCursorEl = writable<HTMLElement | null>(null);
 
 // Reactive player state for UI binding
 export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });
@@ -70,14 +75,23 @@ export function getApi(): any {
 export const activeVideoId = writable<string | null>(null);
 export const videoPlayerRef = writable<any>(null);
 
-// Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio
-export const audioSource = writable<'tab' | 'video'>('tab');
+// Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio, 'both' = both simultaneously
+export const audioSource = writable<'tab' | 'video' | 'both'>('tab');
 
 // Video sync offset (seconds), shared between TabViewer and MiniPlayer
 export const videoSyncOffset = writable<number>(0);
 
 // Flag to skip smooth-scroll during DOM reparenting transitions
 export const isTransitioning = writable<boolean>(false);
+
+/** Slot for component-level YouTube event handlers. The central VideoPlayer
+ *  lives in +layout.svelte so the iframe survives route changes, but TabViewer
+ *  still owns the tab↔video sync logic. TabViewer fills these on mount and
+ *  clears them on destroy. */
+export const videoHandlers = writable<{
+	onStateChange?: (state: number) => void;
+	onReady?: () => void;
+}>({});
 
 // Source variants for the currently playing tab (same song from different sources)
 export interface SourceVariant {
