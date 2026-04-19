@@ -663,7 +663,7 @@
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
 
-	<main id="main-content" class="animate-fade-in min-h-screen {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
+	<main id="main-content" class="animate-fade-in min-h-dvh {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
 		<slot />
 	</main>
 

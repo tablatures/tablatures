@@ -122,7 +122,7 @@
 
 </script>
 
-<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none">
+<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe">
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
 		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">

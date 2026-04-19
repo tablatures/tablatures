@@ -32,6 +32,7 @@
 	import { playlistStore } from '../utils/playlists';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
+	import { getArtwork } from '../utils/artwork';
 
 	$: allPlaylists = $playlistStore;
 
@@ -158,6 +159,11 @@
 	let showSettings = false;
 	let theme: boolean;
 	let isFullscreen = false;
+	// Mobile landscape phones should auto-collapse the transport row to the
+	// fullscreen-style compact layout so the bar doesn't eat half the screen.
+	// Desktops and tablets (height > 500px) keep the normal layout.
+	let isMobileLandscape = false;
+	$: compactBar = isFullscreen || isMobileLandscape;
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
@@ -219,13 +225,19 @@
 		if (!artistName) return;
 		currentArtistName = artistName;
 
-		// Fetch all metadata in parallel
+		// Fetch in parallel:
+		//  - artist endpoint (for bio/tags/country panel) — *not* for the
+		//    thumbnail, to avoid racing a different URL than the shared
+		//    artwork cache returns.
+		//  - shared artwork resolver — hits the same endpoint + fallback
+		//    chain used by search / home feed / repertoire, keyed by the
+		//    normalized (artist, title) so the player's thumbnail matches
+		//    whatever the user saw on the card they clicked.
+		//  - YouTube search for the video-picker dropdown.
 		try {
-			const [artistResp, artworkResp, ytResp] = await Promise.allSettled([
+			const [artistResp, artworkUrl, ytResp] = await Promise.allSettled([
 				fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`),
-				fetch(
-					`${SEARCH_API_BASE_URL}/api/metadata/artwork?artist=${encodeURIComponent(artistName)}&title=${encodeURIComponent(songTitle)}`
-				),
+				getArtwork(artistName, songTitle),
 				fetch(
 					`${SEARCH_API_BASE_URL}/api/youtube/search?q=${encodeURIComponent(artistName + ' ' + songTitle)}&limit=3`
 				)
@@ -236,9 +248,8 @@
 				artistImage = data.image || null;
 				artistInfo = { name: data.name, bio: data.bio, country: data.country, tags: data.tags };
 			}
-			if (artworkResp.status === 'fulfilled' && artworkResp.value.ok) {
-				const data = await artworkResp.value.json();
-				songArtwork = data.artworkUrl || null;
+			if (artworkUrl.status === 'fulfilled') {
+				songArtwork = artworkUrl.value;
 			}
 			if (ytResp.status === 'fulfilled' && ytResp.value.ok) {
 				const data = await ytResp.value.json();
@@ -1442,7 +1453,16 @@
 	let touchPeakEndBar = 0;
 	let touchPeakEndPct = 0;
 	let longPressTimer: NodeJS.Timeout;
-	let pendingLoopA: number | null = null;
+	// When true, the long-press has fired and subsequent touchmoves should
+	// grow/shrink the freshly-created loop region rather than seek or scrub.
+	let loopCreating = false;
+	// Anchor bar for the hold-and-drag loop — remembered so that dragging past
+	// the anchor in either direction swaps start/end correctly.
+	let loopCreatingAnchorBar = 0;
+	// Movement threshold (px) before the long-press timer is cancelled. Small
+	// fat-finger jitter shouldn't abort a hold, but a real scrub should.
+	const LONG_PRESS_MOVE_CANCEL_PX = 6;
+	const LONG_PRESS_MS = 350;
 
 	function handleProgressBarTouchStart(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
@@ -1454,6 +1474,7 @@
 		touchDidDrag = false;
 		touchPeakEndBar = 0;
 		touchPeakEndPct = pct;
+		loopCreating = false;
 
 		const EDGE_THRESHOLD_PX = 15;
 
@@ -1477,20 +1498,46 @@
 			}
 		}
 
-		// Long press to set loop point A
+		// Long-press-and-drag: after LONG_PRESS_MS without moving, seed a tiny
+		// loop region at the finger and flip into `loopCreating` mode so the
+		// next touchmoves extend the region rather than scrub the playhead.
 		longPressTimer = setTimeout(() => {
 			const barIdx = msToBar(percentToTime(pct));
-			pendingLoopA = percentToTime(pct);
+			loopCreatingAnchorBar = barIdx;
 			loopStartBar = barIdx;
-			loopEndBar = null;
+			loopEndBar = barIdx;
 			loopEnabled = true;
-		}, 500);
+			loopCreating = true;
+			isDraggingLoop = true;
+			dismissPopoverAndRefresh();
+			updateScoreSelection();
+			try { navigator.vibrate?.(10); } catch {}
+		}, LONG_PRESS_MS);
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
 		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
-		if (dx > 10) {
+
+		// Post-longpress: grow the in-progress loop around the anchor bar.
+		if (loopCreating) {
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const currentPct = getProgressPercent(event.touches[0].clientX);
+			const currentBar = Math.min(msToBar(percentToTime(currentPct)), maxBar);
+			if (currentBar >= loopCreatingAnchorBar) {
+				loopStartBar = loopCreatingAnchorBar;
+				loopEndBar = currentBar;
+			} else {
+				loopStartBar = currentBar;
+				loopEndBar = loopCreatingAnchorBar;
+			}
+			updateScoreSelection();
+			return;
+		}
+
+		// Pre-longpress: any meaningful movement cancels the hold and falls
+		// back to the original tap-and-drag selection behavior.
+		if (dx > LONG_PRESS_MOVE_CANCEL_PX) {
 			if (!touchDidDrag) dismissPopoverAndRefresh();
 			touchDidDrag = true;
 			clearTimeout(longPressTimer);
@@ -1517,14 +1564,21 @@
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
 		clearTimeout(longPressTimer);
+		if (loopCreating) {
+			loopCreating = false;
+			isDraggingLoop = false;
+			// Discard a zero-length loop — long-press without drag shouldn't
+			// leave a single-bar selection behind.
+			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
+				clearLoopPoints();
+			}
+			return;
+		}
 		if (touchDidDrag) {
 			isDraggingLoop = false;
 			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
 				clearLoopPoints();
 			}
-		} else if (pendingLoopA !== null) {
-			// Long press happened - wait for next tap to set B
-			pendingLoopA = null;
 		} else {
 			// Simple tap = seek (set progress first to prevent flicker)
 			if (!event.changedTouches[0] || !range || !duration) return;
@@ -2067,9 +2121,22 @@
 		});
 	}
 
+	// Watch mobile landscape so the transport row auto-shrinks without the
+	// user having to toggle fullscreen. `max-height: 500px` gates the rule to
+	// phones in landscape; iPad-sized devices keep the normal layout.
+	let mobileLandscapeMql: MediaQueryList | null = null;
+	function syncMobileLandscape() {
+		if (mobileLandscapeMql) isMobileLandscape = mobileLandscapeMql.matches;
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
+		if (browser) {
+			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+			syncMobileLandscape();
+			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
+		}
 		// Seed playerState.activeTrackIndex from URL so adoption sync below
 		// sees the URL value as authoritative. Otherwise the adoption sync
 		// would overwrite our URL-supplied track with a stale state value.
@@ -2484,6 +2551,7 @@
 
 		// Cleanup from onMount
 		themeUnsubscribe?.();
+		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
@@ -3053,13 +3121,78 @@
 	let swipeIndicatorTimeout: NodeJS.Timeout;
 	const SWIPE_THRESHOLD = 50;
 
+	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
+	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
+	// loop creation on desktop via mouse events, but it doesn't react to
+	// raw touch events on mobile. We bridge that by starting a long-press
+	// timer on touchstart and, when it fires, dispatching synthetic mouse
+	// events at the finger position so the existing desktop drag-to-select
+	// flow runs unchanged. Quick taps scroll/swipe normally.
+	let scoreLongPressTimer: NodeJS.Timeout;
+	let scoreLongPressActive = false;
+	const SCORE_LONG_PRESS_MS = 400;
+	const SCORE_LONG_PRESS_MOVE_CANCEL_PX = 8;
+
+	function dispatchMouseAt(type: 'mousedown' | 'mousemove' | 'mouseup', x: number, y: number) {
+		const target = document.elementFromPoint(x, y);
+		if (!target) return;
+		const evt = new MouseEvent(type, {
+			bubbles: true,
+			cancelable: true,
+			view: window,
+			button: 0,
+			buttons: type === 'mouseup' ? 0 : 1,
+			clientX: x,
+			clientY: y
+		});
+		target.dispatchEvent(evt);
+	}
+
 	function handleTouchStart(e: TouchEvent) {
 		if (!e.touches[0]) return;
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
+		scoreLongPressActive = false;
+		const pressX = touchStartX;
+		const pressY = touchStartY;
+		clearTimeout(scoreLongPressTimer);
+		scoreLongPressTimer = setTimeout(() => {
+			scoreLongPressActive = true;
+			try { navigator.vibrate?.(10); } catch {}
+			dispatchMouseAt('mousedown', pressX, pressY);
+		}, SCORE_LONG_PRESS_MS);
+	}
+
+	function handleScoreTouchMove(e: TouchEvent) {
+		if (!e.touches[0]) return;
+		const x = e.touches[0].clientX;
+		const y = e.touches[0].clientY;
+		if (scoreLongPressActive) {
+			// Active selection — block the browser's native scroll so the
+			// finger drag extends the loop instead of panning the page, and
+			// forward movement so alphaTab extends the drag-preview.
+			e.preventDefault();
+			dispatchMouseAt('mousemove', x, y);
+			return;
+		}
+		// Pre-fire: cancel the hold on meaningful movement so page scroll
+		// and horizontal swipe still work.
+		const dx = Math.abs(x - touchStartX);
+		const dy = Math.abs(y - touchStartY);
+		if (dx > SCORE_LONG_PRESS_MOVE_CANCEL_PX || dy > SCORE_LONG_PRESS_MOVE_CANCEL_PX) {
+			clearTimeout(scoreLongPressTimer);
+		}
 	}
 
 	function handleTouchEnd(e: TouchEvent) {
+		clearTimeout(scoreLongPressTimer);
+		if (scoreLongPressActive && e.changedTouches[0]) {
+			dispatchMouseAt('mouseup', e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+			scoreLongPressActive = false;
+			// Consume the event so the swipe-to-change-track logic below
+			// doesn't also trigger from the same gesture.
+			return;
+		}
 		if (!e.changedTouches[0] || tracks.length <= 1) return;
 		const dx = e.changedTouches[0].clientX - touchStartX;
 		const dy = e.changedTouches[0].clientY - touchStartY;
@@ -3154,8 +3287,16 @@
 		{/if}
 	</div>
 
-	<!-- AlphaTab rendering surface (the "video" - comes FIRST) -->
-	<div class="relative" on:touchstart={handleTouchStart} on:touchend={handleTouchEnd}>
+	<!-- AlphaTab rendering surface (the "video" - comes FIRST). touchmove
+	     is marked `nonpassive` so the conditional preventDefault() inside
+	     the handler can actually block the browser's native scroll once
+	     the long-press selection becomes active. -->
+	<div
+		class="relative"
+		on:touchstart={handleTouchStart}
+		on:touchmove|nonpassive={handleScoreTouchMove}
+		on:touchend={handleTouchEnd}
+	>
 		{#if apiError}
 			<div class="flex items-center justify-center min-h-[60vh]">
 				<div class="text-center">
@@ -3284,9 +3425,11 @@
 			</div>
 		{/if}
 
-		<!-- Floating "scroll to cursor" button — visible when scrolled away from cursor -->
+		<!-- Floating "scroll to cursor" button — visible when scrolled away
+		     from cursor. Lifted higher on narrow portrait phones so it clears
+		     the metadata row that sits above the transport bar. -->
 		{#if scoreLoaded && !autoFollow}
-			<div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-[55]">
+			<div class="fixed bottom-32 sm:bottom-20 left-1/2 -translate-x-1/2 z-[55]">
 				<button
 					on:click={scrollToCursor}
 					class="flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500 text-white shadow-lg hover:bg-violet-600 active:scale-95 transition-all animate-fade-in"
@@ -3304,16 +3447,18 @@
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
-		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
+		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200 pb-safe
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
 	>
-		<!-- Progress bar with drag-to-loop -->
+		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
+		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
+		     desktop keeps the thin-with-hover-grow behavior. -->
 		<div
-			class="relative h-1 hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
+			class="relative h-3 sm:h-1 sm:hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
 			style="touch-action: none;"
 			role="slider"
 			tabindex="0"
@@ -3471,10 +3616,10 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 {isFullscreen ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
+		<div class="flex items-center px-2 {compactBar ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
 			<!-- Left: playback controls -->
 			<button
-				class="{isFullscreen ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing
+				class="{compactBar ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing
 					? 'text-violet-500'
 					: 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => {
@@ -3483,31 +3628,31 @@
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {isFullscreen ? '!text-xl' : '!text-2xl'}"
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 					>{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
 			<button
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_previous</i>
 			</button>
 
 			<button
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -3540,7 +3685,7 @@
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
 						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
@@ -3674,7 +3819,7 @@
 						1}) [Esc to clear]"
 					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
 						>{loopEnabled ? 'repeat_on' : 'repeat'}</i
 					>
 				</button>
@@ -3688,13 +3833,13 @@
 					title="Loop [L] &middot; Drag on progress bar to set region"
 					aria-label="Toggle loop"
 				>
-					<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">repeat</i>
 				</button>
 			{/if}
 
 			<button
 				on:click={toggleTracksSettings}
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings && activeSettingsTab === 'tracks'
@@ -3703,12 +3848,12 @@
 				title="Tracks [T]"
 				aria-label="Tracks"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">queue_music</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">queue_music</i>
 			</button>
 
 			<button
 				on:click={toggleSettings}
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings && activeSettingsTab === 'settings'
@@ -3717,32 +3862,32 @@
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">tune</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
 			<button
 				on:click={toggleFullscreen}
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Fullscreen [F]"
 				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}"
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
 					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
 			</button>
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
-				class="{isFullscreen
+				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {isFullscreen ? '!text-lg' : '!text-xl'}">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">keyboard</i>
 			</button>
 		</div>
 
@@ -3887,14 +4032,18 @@
 			</div>
 		{/if}
 
-		<!-- Metadata row (title, artist, actions) - hidden in fullscreen -->
-		{#if scoreLoaded && !isFullscreen}
-			<div class="px-4 py-3 border-t border-neutral-100 dark:border-neutral-800">
-				<div class="flex items-start justify-between gap-4">
+		<!-- Metadata row (title, artist, actions) — hidden in fullscreen and in
+		     short-landscape phones where every pixel matters (Galaxy Note etc
+		     ~414px tall). Narrow-portrait phones still show it, because the
+		     vertical space is there and the tags/country have already been
+		     pruned via the sm:-gated classes below. -->
+		{#if scoreLoaded && !isFullscreen && !isMobileLandscape}
+			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
+				<div class="flex items-start justify-between gap-2 sm:gap-4">
 					<!-- Album artwork or artist image -->
 					{#if songArtwork || artistImage}
 						<div
-							class="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
+							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
 							<img
 								src={songArtwork || artistImage}
@@ -3907,10 +4056,10 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-						<h1 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
 							{title.split(' - ')[0] || title}
 						</h1>
-						<p class="text-sm text-neutral-500 dark:text-neutral-400 truncate">
+						<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
 							{#if currentArtistName}
 								<span class="relative inline-block">
 									<ArtistTooltip artistName={currentArtistName} position="bottom">
@@ -3927,8 +4076,10 @@
 								? ` \u00B7 ${totalBars} bars`
 								: ''}
 						</p>
+						<!-- Artist country + genre pills: desktop only. On mobile the row
+						     wrapped over 2-3 lines and pushed the controls off-screen. -->
 						{#if artistInfo?.tags && artistInfo.tags.length > 0}
-							<div class="flex items-center gap-1.5 mt-1 flex-wrap">
+							<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
 								{#if artistInfo.country}
 									<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
 										>{artistInfo.country}</span
@@ -3944,8 +4095,8 @@
 							</div>
 						{/if}
 						{#if hasVariants}
-							<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-								<span class="text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
+							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
+								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
 									>Sources:</span
 								>
 								{#each variants as variant}
@@ -3969,17 +4120,17 @@
 							</div>
 						{/if}
 					</div>
-					<div class="flex items-center gap-1 flex-shrink-0">
+					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
 						{#if tabId}
 							<button
 								on:click={toggleFavorite}
-								class="p-2 rounded-full transition-all duration-150 active:scale-90
+								class="p-1.5 sm:p-2 rounded-full transition-all duration-150 active:scale-90
 								{isFavorite
 									? 'text-red-500'
 									: 'text-neutral-500 dark:text-neutral-400 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 								title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
 							>
-								<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
+								<i class="material-icons !text-lg sm:!text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
 							</button>
 						{/if}
 						{#if tabId && allPlaylists.length > 0}
@@ -3987,34 +4138,36 @@
 								on:click={() => {
 									showPlaylistPicker = !showPlaylistPicker;
 								}}
-								class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+								class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 								title="Add to playlist [P]"
 							>
-								<i class="material-icons !text-xl">playlist_add</i>
+								<i class="material-icons !text-lg sm:!text-xl">playlist_add</i>
 							</button>
 						{/if}
 						<button
 							disabled={!scoreLoaded}
 							on:click={clickShare}
-							class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 							title="Share"
 							aria-label="Share"
 						>
-							<i class="material-icons !text-xl">share</i>
+							<i class="material-icons !text-lg sm:!text-xl">share</i>
 						</button>
 						<button
 							disabled={!scoreLoaded}
 							on:click={clickDownload}
-							class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 							title="Download"
 							aria-label="Download"
 						>
-							<i class="material-icons !text-xl">download</i>
+							<i class="material-icons !text-lg sm:!text-xl">download</i>
 						</button>
+						<!-- Print: desktop only. On mobile we rely on Share / Download so
+						     this row stays one line tall. -->
 						<button
 							disabled={!scoreLoaded}
 							on:click={clickPrint}
-							class="p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+							class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
 							title="Print"
 							aria-label="Print"
 						>

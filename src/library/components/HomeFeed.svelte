@@ -32,6 +32,7 @@
 	let artworkLoadingIds = new Set<string>();
 
 	let sentinelEl: HTMLDivElement | undefined;
+	let feedGridEl: HTMLDivElement | undefined;
 	let observer: IntersectionObserver | undefined;
 	let loadingFeed = false;
 	let exhausted = false;
@@ -231,12 +232,20 @@
 			await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
 		} finally {
 			loadingFeed = false;
-			// Self-rearm: if the sentinel is still within the rootMargin zone after this fetch
-			// (batch didn't push it out of view, or viewport is tall), fire another fetch.
-			// IntersectionObserver only fires on transitions, so we manually re-trigger.
-			if (!exhausted && typeof window !== 'undefined' && sentinelEl) {
-				const rect = sentinelEl.getBoundingClientRect();
-				if (rect.top < window.innerHeight + 600) {
+			// Self-rearm: keep fetching until either (a) the grid's bottom
+			// edge has moved past the viewport + a buffer, or (b) the sentinel
+			// has scrolled well out of the IntersectionObserver's zone.
+			// Previously only the sentinel position was checked, which on
+			// tall screens could leave a blank strip below the last row
+			// because the observer had already fired once and Intersection-
+			// Observer doesn't repeat without a visibility transition.
+			if (!exhausted && typeof window !== 'undefined') {
+				const viewH = window.innerHeight;
+				const gridBottom = feedGridEl?.getBoundingClientRect().bottom ?? 0;
+				const sentinelTop = sentinelEl?.getBoundingClientRect().top ?? 0;
+				const viewportHole = gridBottom < viewH + 400;
+				const sentinelVisible = sentinelTop < viewH + 600;
+				if (viewportHole || sentinelVisible) {
 					setTimeout(() => fetchMore(), 100);
 				}
 			}
@@ -437,6 +446,27 @@
 	/** Becomes true after first client-side render tick — controls skeleton prefill for Continue. */
 	let mounted = false;
 
+	// --- Feed rendering: keep the last visible row full ---
+	// When idle (not loading, not exhausted) we crop the feed to whole rows so
+	// the trailing partial row doesn't leave a ragged edge. The cropped items
+	// stay in feedTabs and re-appear as soon as the next batch arrives to
+	// complete them into a full row.
+	$: feedFullRowCount = gridCols > 0 ? Math.floor(feedTabs.length / gridCols) * gridCols : feedTabs.length;
+	$: feedPartialCount = feedTabs.length - feedFullRowCount;
+	$: visibleFeedTabs =
+		exhausted || loadingFeed || artworkLoadingIds.size > 0 || feedFullRowCount === 0
+			? feedTabs
+			: feedTabs.slice(0, feedFullRowCount);
+
+	// Skeleton count during loading: fill out the partial row first, then add
+	// one more row for the upcoming batch. Caps at 3 rows so we don't render
+	// a wall of shimmer on fast networks.
+	$: feedSkeletonCount = (() => {
+		if (feedTabs.length === 0) return Math.max(12, 2 * gridCols);
+		const completePartial = feedPartialCount > 0 ? gridCols - feedPartialCount : 0;
+		return Math.min(3 * gridCols, Math.max(gridCols, completePartial + gridCols));
+	})();
+
 	/** Scroll handler: if user scrolls within ~800px of the sentinel, fetch more. */
 	function handleScroll() {
 		if (loadingFeed || exhausted || !sentinelEl || typeof window === 'undefined') return;
@@ -508,8 +538,7 @@
 		{:else}
 			<!-- Desktop: grid headings aligned with Import tile width and Continue cards area -->
 			<div
-				class="grid gap-3 sm:gap-4 mb-3 items-end"
-				style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));"
+				class="grid gap-3 sm:gap-4 mb-3 items-end responsive-tab-grid"
 			>
 				<!-- Import heading spans Import's col count -->
 				<h2
@@ -546,8 +575,8 @@
 
 		<div
 			bind:this={gridEl}
-			class="grid gap-3 sm:gap-4"
-			style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); grid-auto-flow: dense;"
+			class="grid gap-3 sm:gap-4 responsive-tab-grid"
+			style="grid-auto-flow: dense;"
 		>
 			<!-- Import tile — placed first; CSS spans it across breakpoints:
 				 mobile: col-span-full aspect-square (full-width row at top)
@@ -798,10 +827,10 @@
 			</div>
 		{:else}
 			<div
-				class="grid gap-3 sm:gap-4"
-				style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));"
+				bind:this={feedGridEl}
+				class="grid gap-3 sm:gap-4 responsive-tab-grid"
 			>
-				{#each feedTabs as tab (tab.id)}
+				{#each visibleFeedTabs as tab (tab.id)}
 					<TabCard
 						id={tab.id}
 						title={tab.title}
@@ -816,10 +845,12 @@
 					/>
 				{/each}
 
-				<!-- Skeleton placeholders: shown while fetching or while any artwork is still loading.
-				     Stable count (1 full row) prevents flicker between back-to-back fetches. -->
+				<!-- Skeleton placeholders: shown while fetching or while any
+				     artwork is still loading. Count fills out the partial
+				     trailing row first and then adds a full row for the
+				     upcoming batch — so the grid never ends on a ragged edge. -->
 				{#if (loadingFeed || artworkLoadingIds.size > 0) && !exhausted}
-					{#each Array(feedTabs.length === 0 ? Math.max(12, 2 * gridCols) : Math.max(6, gridCols)) as _}
+					{#each Array(feedSkeletonCount) as _}
 						<SkeletonTabCard />
 					{/each}
 				{/if}
@@ -930,3 +961,23 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Responsive tab-card grid. The minimum card width grows with viewport
+	   so we stop rendering 14 tiny cards per row on 1080p+ monitors — that
+	   density was heavy to load and made the feed feel laggy. Continue,
+	   heading, and feed grids all share this class so they stay aligned. */
+	.responsive-tab-grid {
+		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+	}
+	@media (min-width: 1024px) {
+		.responsive-tab-grid {
+			grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		}
+	}
+	@media (min-width: 1536px) {
+		.responsive-tab-grid {
+			grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+		}
+	}
+</style>
