@@ -2084,10 +2084,23 @@
 			onStateChange: handleVideoStateChange,
 			onReady: () => {
 				startVideoSync();
-				if (get(playerState).videoWasPlaying) {
-					try {
-						get(videoPlayerRef)?.playVideo();
-					} catch {}
+				const st = get(playerState);
+				const yt = get(videoPlayerRef);
+				// If the user just attached a video while the tab is already
+				// playing, jump the video to the tab's current time (accounting
+				// for the sync offset) and start it so both tracks line up the
+				// moment the iframe is ready.
+				if (yt && st.playing && st.duration > 0) {
+					const tabSec = (st.progress / 100) * (st.duration / 1000);
+					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
+					userSeekLockUntil = Date.now() + 600;
+					try { yt.seekTo(videoSec, true); } catch {}
+					try { yt.playVideo(); } catch {}
+					updatePlayerState({ videoWasPlaying: false });
+					return;
+				}
+				if (st.videoWasPlaying) {
+					try { yt?.playVideo(); } catch {}
 					updatePlayerState({ videoWasPlaying: false });
 				}
 			}

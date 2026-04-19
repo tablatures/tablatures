@@ -21,10 +21,14 @@
 
 	let focused = false;
 	let suggestions: Suggestion[] = [];
-	let highlightedIndex = 0;
+	// -1 means "no preselect" — Enter runs a plain search with the typed value.
+	// Arrow keys move into the list, a fresh keystroke resets back to -1 so
+	// the user's typing is never quietly overridden by an autocomplete row.
+	let highlightedIndex = -1;
 	let autocompleteTimer: NodeJS.Timeout;
 	let inputEl: HTMLInputElement;
 	let recentArtwork: Record<string, string> = {};
+	let openingResult = false;
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -64,6 +68,9 @@
 
 	function handleInput(e: Event) {
 		value = (e.target as HTMLInputElement).value;
+		// Reset the preselect on each keystroke so pressing Enter submits the
+		// typed query instead of the first autocomplete row.
+		highlightedIndex = -1;
 		dispatch('input', value);
 		debounceAutocomplete();
 	}
@@ -76,7 +83,7 @@
 			highlightedIndex = Math.min(highlightedIndex + 1, totalItems - 1);
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			highlightedIndex = Math.max(highlightedIndex - 1, 0);
+			highlightedIndex = Math.max(highlightedIndex - 1, -1);
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
 			if (showRecent && highlightedIndex >= 0 && highlightedIndex < recentItems.length) {
@@ -84,7 +91,7 @@
 			} else if (showSuggestions && highlightedIndex >= 0) {
 				applySuggestion(suggestions[highlightedIndex]);
 			} else {
-				dispatch('search', value);
+				runSearch();
 			}
 		} else if (e.key === 'Escape') {
 			focused = false;
@@ -93,9 +100,63 @@
 	}
 
 	function applySuggestion(s: Suggestion) {
-		value = s.value;
+		// Artist → show songs from that artist as search results.
+		// Song / album → fetch the top tab match and open it directly (YouTube-
+		// style: clicking a song in the dropdown jumps straight into playback).
+		if (s.type === 'artist') {
+			value = s.value;
+			focused = false;
+			dispatch('search', s.value);
+			return;
+		}
+		openTopResultForQuery(buildSongQuery(s));
+	}
+
+	function buildSongQuery(s: Suggestion): string {
+		// `info` holds the artist for song/album suggestions.
+		return s.info ? `${s.info} ${s.value}` : s.value;
+	}
+
+	async function openTopResultForQuery(query: string) {
+		if (openingResult || !SEARCH_API_BASE_URL) {
+			// Fall back to dispatching a regular search if the API URL isn't
+			// configured or we're already resolving one.
+			value = query;
+			focused = false;
+			dispatch('search', query);
+			return;
+		}
+		openingResult = true;
+		try {
+			const params = new URLSearchParams({ q: query, limit: '1' });
+			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/search?${params}`);
+			if (!resp.ok) throw new Error();
+			const data = await resp.json();
+			const top = Array.isArray(data?.results) ? data.results[0] : null;
+			if (!top) throw new Error();
+			focused = false;
+			value = query;
+			dispatch('openTab', top);
+		} catch {
+			// On any failure, degrade to a normal search results view.
+			value = query;
+			focused = false;
+			dispatch('search', query);
+		} finally {
+			openingResult = false;
+		}
+	}
+
+	function runSearch() {
 		focused = false;
 		dispatch('search', value);
+	}
+
+	function clearQuery() {
+		value = '';
+		highlightedIndex = -1;
+		suggestions = [];
+		dispatch('input', value);
 		inputEl?.focus();
 	}
 
@@ -129,7 +190,9 @@
 					const orderB = typeOrder[b.type || ''] ?? 3;
 					return orderA - orderB;
 				});
-				highlightedIndex = 0;
+				// Stay at -1 so Enter runs a plain search of the typed text; the
+				// user has to arrow down to opt into a suggestion.
+				highlightedIndex = -1;
 			}
 		} catch {
 			suggestions = [];
@@ -159,20 +222,49 @@
 			aria-expanded={showDropdown}
 			aria-controls="search-dropdown"
 			aria-activedescendant={showDropdown && highlightedIndex >= 0 ? 'item-' + highlightedIndex : undefined}
-			class="w-full pl-10 pr-4 py-2 text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl outline-none transition-all
+			class="w-full pl-10 pr-20 py-2 text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl outline-none transition-all
 				focus:border-violet-500 dark:focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:shadow-lg focus:shadow-violet-500/5
 				{compact ? 'py-1.5 text-xs rounded-full' : ''}"
 			{value}
 			on:input={handleInput}
 			on:keydown={handleKeydown}
-			on:focus={() => { focused = true; highlightedIndex = 0; }}
+			on:focus={() => { focused = true; highlightedIndex = -1; }}
 			on:blur={() => setTimeout(() => (focused = false), 200)}
 		/>
-		{#if loading}
-			<div class="absolute right-3">
-				<LoadingScore size="xs" message="" />
-			</div>
-		{/if}
+		<!-- Trailing controls: clear (x) + explicit search button. The search
+		     button is flush-right and full-height so it reads as an obvious
+		     "submit"; the loading spinner replaces the glyph in-place while a
+		     request is in flight so the row never reflows. -->
+		<div class="absolute right-0 top-0 bottom-0 flex items-stretch">
+			{#if value.length > 0 && !loading && !openingResult}
+				<button
+					type="button"
+					on:pointerdown|preventDefault={clearQuery}
+					class="self-center mr-1 h-8 w-8 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					title="Clear search"
+					aria-label="Clear search"
+				>
+					<i class="material-icons !text-base">close</i>
+				</button>
+			{/if}
+			<button
+				type="button"
+				on:pointerdown|preventDefault={runSearch}
+				disabled={!value.trim() || loading || openingResult}
+				class="h-full w-10 flex items-center justify-center overflow-hidden rounded-r-xl transition-colors border-y border-r border-neutral-300 dark:border-neutral-700
+					{value.trim() && !loading && !openingResult
+						? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 hover:bg-violet-500 hover:text-white'
+						: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-300 dark:text-neutral-600 cursor-not-allowed'}"
+				title="Search"
+				aria-label="Run search"
+			>
+				{#if loading || openingResult}
+					<LoadingScore size="xs" message="" />
+				{:else}
+					<i class="material-icons !text-base">arrow_forward</i>
+				{/if}
+			</button>
+		</div>
 	</div>
 
 	<!-- Dropdown -->

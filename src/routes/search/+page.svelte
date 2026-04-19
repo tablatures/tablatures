@@ -466,14 +466,11 @@
 	}
 
 	function handleSearchInput(e: CustomEvent<string>) {
+		// Track the typed value so the URL stays in sync, but wait for an
+		// explicit submit (Enter / search button) before refetching results.
+		// Typing no longer triggers a request.
 		query = e.detail;
-		currentPage = 1;
-		updateURL();
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => performSearch(), 300);
 	}
-
-	let searchDebounce: NodeJS.Timeout;
 
 	async function loadMore() {
 		if (loadingMore || loading || !hasMorePages) return;
