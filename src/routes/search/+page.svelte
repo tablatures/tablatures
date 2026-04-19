@@ -386,10 +386,21 @@
 			return;
 		}
 
-		if (currentPage === 1) loading = true;
+		if (currentPage === 1) {
+			loading = true;
+			// Clear previous results up-front so a new search doesn't leak
+			// stale tabs into the merge path when local-search returns an
+			// empty list (in which case `tabs` would otherwise still hold
+			// the previous query's rows and `mergeResults(tabs, liveData)`
+			// would silently keep them around).
+			tabs = [];
+			totalResults = 0;
+			hasMorePages = false;
+			tabArtwork = {};
+			artistHeroes = [];
+		}
 		searchLoading = true;
 		error = '';
-		if (currentPage === 1) artistHeroes = [];
 
 		try {
 			if (currentPage === 1) {
@@ -423,8 +434,11 @@
 				fetchArtworkForTabs(tabs);
 			} else {
 				const liveData = await performLiveSearch();
-				tabs = [...tabs, ...liveData.tabs];
-				totalResults = liveData.total;
+				// Dedupe against already-shown rows — the backend's
+				// total/totalPages don't always agree (e.g. total=165 with
+				// totalPages=9 at limit=50 → extra pages return overlaps),
+				// and plain concat would inflate the visible count.
+				tabs = mergeResults(tabs, liveData.tabs);
 				hasMorePages = liveData.hasMore;
 				fetchArtworkForTabs(liveData.tabs);
 			}
@@ -438,8 +452,14 @@
 			} else {
 				error = err?.message || 'Search failed.';
 			}
-			tabs = [];
-			totalResults = 0;
+			// Only wipe the grid on a failed *first* page. A pagination
+			// error (page 2+) should leave the already-loaded rows alone
+			// and just stop asking for more, otherwise the user loses all
+			// their results when the backend hiccups near the tail.
+			if (currentPage === 1) {
+				tabs = [];
+				totalResults = 0;
+			}
 			hasMorePages = false;
 		} finally {
 			loading = false;
@@ -472,12 +492,27 @@
 		query = e.detail;
 	}
 
-	async function loadMore() {
+	async function loadMore(isIntersecting: boolean = true) {
+		// ScrollObserver fires on both enter and leave — only load on enter.
+		if (!isIntersecting) return;
 		if (loadingMore || loading || !hasMorePages) return;
 		loadingMore = true;
 		currentPage += 1;
-		await performSearch();
-		loadingMore = false;
+		try {
+			await performSearch();
+		} finally {
+			loadingMore = false;
+		}
+		// Re-arm: if the sentinel is still in the observer's zone after the
+		// batch landed (tall viewport, short batch, etc.) fire once more so
+		// the grid fills instead of stalling until the user scrolls again.
+		if (hasMorePages && typeof window !== 'undefined') {
+			setTimeout(() => {
+				if (!loadingMore && hasMorePages && window.scrollY + window.innerHeight + 400 >= document.documentElement.scrollHeight) {
+					loadMore(true);
+				}
+			}, 120);
+		}
 	}
 
 	async function openTab(tab: TabResult): Promise<void> {
@@ -718,7 +753,7 @@
 		<div class="py-3">
 			{#if artistHeroes.length === 0}
 				<p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3">
-					{totalResults} result{totalResults !== 1 ? 's' : ''}
+					{tabs.length} result{tabs.length !== 1 ? 's' : ''}{#if hasMorePages || loadingMore}…{/if}
 				</p>
 			{/if}
 
@@ -762,7 +797,10 @@
 			{/if}
 
 			{#if hasMorePages}
-				<ScrollObserver onIntersect={loadMore} />
+				<!-- Sentinel sits below the grid; 800px rootMargin so pagination
+				     starts a screen early instead of only firing when the user
+				     hits the very bottom. -->
+				<ScrollObserver onIntersect={loadMore} rootMargin="800px" />
 			{/if}
 		</div>
 
