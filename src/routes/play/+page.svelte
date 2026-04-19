@@ -13,6 +13,7 @@
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { activeVideoId, playerState, updatePlayerState } from '../../library/utils/playerStore';
+	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -72,18 +73,95 @@
 		}
 	}
 
+	// Compress-and-embed the tab bytes in the URL hash whenever the current
+	// tab is file-imported (has bytes but no catalog ID). Runs once per unique
+	// payload so we don't re-compress on every reactive tick.
+	let lastEmbeddedB64: string | null = null;
+	let embedding = false;
+	async function syncImportedTabHash() {
+		if (!browser) return;
+		const hasId = !!currentTabId;
+		const b64 = currentTab?.fileAsB64;
+
+		if (hasId || !b64) {
+			// Catalog-linked or no tab: remove any stale #tab= hash
+			if (window.location.hash.startsWith('#tab=')) {
+				history.replaceState(history.state, '', window.location.pathname + window.location.search);
+			}
+			lastEmbeddedB64 = null;
+			return;
+		}
+
+		// Already embedded this exact payload — nothing to do
+		if (b64 === lastEmbeddedB64 && window.location.hash.startsWith('#tab=')) return;
+		if (embedding) return;
+
+		embedding = true;
+		try {
+			const { encodeTabForUrl, canShareViaUrl } = await import('../../library/utils/shareTab');
+			if (!canShareViaUrl()) return;
+			const { base64ToArrayBuffer } = await import('../../library/utils/utils');
+			const buf = base64ToArrayBuffer(b64);
+			const hash = await encodeTabForUrl(buf);
+			// Re-check: the user may have navigated or loaded a different tab
+			// while we were compressing.
+			if (currentTab?.fileAsB64 !== b64) return;
+			const url = new URL(window.location.href);
+			url.hash = hash;
+			window.history.replaceState(window.history.state, '', url.toString());
+			lastEmbeddedB64 = b64;
+
+			// Register this file-imported tab in history so the user can
+			// re-open it later without needing the original file. We derive a
+			// deterministic id from the hash payload so opening the same file
+			// twice collapses to one history entry.
+			const state = $playerState;
+			const title = currentTab?.title || state.title || currentTab?.fileName?.replace(/\.[^./]+$/, '') || 'Imported tab';
+			const artist = currentTab?.artist || state.artist || 'Unknown';
+			const digest = hash.slice(7, 19); // skip `#tab=1.` prefix, take 12 chars
+			historyStore.addToHistory({
+				id: `local:${digest}`,
+				title,
+				artist,
+				source: currentTab?.source || 'upload',
+				hashPayload: hash
+			});
+		} catch (err) {
+			console.error('Failed to embed tab in URL hash:', err);
+		} finally {
+			embedding = false;
+		}
+	}
+
+	$: if (browser) {
+		currentTab?.fileAsB64, currentTabId;
+		syncImportedTabHash();
+	}
+
 	function syncPlaybackTime() {
 		if (!browser) return;
 		clearTimeout(urlSyncTimeout);
 		urlSyncTimeout = setTimeout(() => {
 			const state = $playerState;
+			const url = new URL(window.location.href);
+			let changed = false;
 			if (state.duration > 0 && state.progress > 0) {
-				const url = new URL(window.location.href);
 				const timeSec = Math.round((state.progress / 100) * (state.duration / 1000));
-				if (url.searchParams.get('t') !== String(timeSec)) {
-					url.searchParams.set('t', String(timeSec));
-					window.history.replaceState(window.history.state, '', url.toString());
+				if (timeSec > 0) {
+					if (url.searchParams.get('t') !== String(timeSec)) {
+						url.searchParams.set('t', String(timeSec));
+						changed = true;
+					}
+				} else if (url.searchParams.has('t')) {
+					url.searchParams.delete('t');
+					changed = true;
 				}
+			} else if (url.searchParams.has('t')) {
+				url.searchParams.delete('t');
+				changed = true;
+			}
+			if (changed) {
+				window.history.replaceState(window.history.state, '', url.toString());
 			}
 		}, 2000);
 	}
@@ -190,6 +268,24 @@
 		return { source, artist, title };
 	}
 
+	async function loadTabFromHash(hash: string) {
+		if (!browser) return;
+		loadingSharedTab = true;
+		sharedTabError = '';
+		try {
+			const buf = await decodeTabFromUrl(hash);
+			if (!buf) throw new Error('Shared tab link is invalid or malformed');
+			const b64 = arrayBufferToBase64(buf);
+			tabStore.setTab({ fileAsB64: b64 });
+		} catch (err: any) {
+			console.error('Failed to decode shared tab from URL:', err);
+			sharedTabError = err?.message || 'Unable to load shared tab';
+			toastStore.error(sharedTabError);
+		} finally {
+			loadingSharedTab = false;
+		}
+	}
+
 	async function fetchSharedTab(tabId: string) {
 		if (!browser || !SEARCH_API_BASE_URL) return;
 		loadingSharedTab = true;
@@ -250,6 +346,14 @@
 		if (existingTab) {
 			currentTab = existingTab;
 			loadPlayerSettings(existingTab);
+		}
+
+		// Handle #tab=... share link (compressed tab bytes in URL hash).
+		// Keep the hash in the address bar so the URL remains shareable and
+		// reloading the page re-decodes the same tab from the hash.
+		const hash = browser ? window.location.hash : '';
+		if (hash.startsWith('#tab=')) {
+			loadTabFromHash(hash);
 		}
 
 		// Handle ?tab= share link

@@ -233,6 +233,10 @@
 /* AlphaTab rendering */
 .at-surface {
   background: white;
+  /* alphaTab sets overflow: hidden inline on this element which clips
+     title glyph ascenders. Force visible so the extra vertical padding
+     we set via settings.display.padding can actually show through. */
+  overflow: visible !important;
 }
 
 .dark .at-surface {

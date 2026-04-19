@@ -1552,7 +1552,6 @@
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
 	function handleUserScrollIntent() {
-		if (!playing) return;
 		if (autoFollow) {
 			autoFollow = false;
 			autoFollowDisengagedAt = Date.now();
@@ -1561,7 +1560,6 @@
 
 	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
 	function handleScroll() {
-		if (!playing) return;
 		userScrolling = true;
 		clearTimeout(scrollCheckTimeout);
 		scrollCheckTimeout = setTimeout(() => {
@@ -2028,6 +2026,14 @@
 
 			// Add detailed event listeners for the full player view
 			setupFullPlayerListeners(api);
+
+			// Reapply theme after adoption — the API's resource colors may be stale
+			// if the theme was toggled on a non-player page (no TabViewer mounted to
+			// react to themeStore changes). Defer one frame so adoption settles before
+			// the render call.
+			requestAnimationFrame(() => {
+				if (api) updateAlphaTabTheme(theme);
+			});
 		}
 
 		// --- Test API bridge (dev mode only) ---
@@ -2813,9 +2819,36 @@
 		if (!browser) return;
 		const url = new URL(window.location.href);
 		url.search = '';
+		url.hash = '';
+
 		if (tabId) {
+			// Catalog tabs: short, durable ID-based link
 			url.searchParams.set('tab', tabId);
+		} else if (data.fileAsB64) {
+			// File-imported tabs have no catalog ID; embed compressed bytes in
+			// the URL hash so the recipient can open the exact same tab.
+			try {
+				const { encodeTabForUrl, canShareViaUrl, LARGE_SHARE_BYTES } = await import('../utils/shareTab');
+				if (!canShareViaUrl()) {
+					toastStore.error('This browser does not support sharing imported tabs via URL.');
+					return;
+				}
+				const buf = base64ToArrayBuffer(data.fileAsB64);
+				const hash = await encodeTabForUrl(buf);
+				url.hash = hash;
+				if (hash.length > LARGE_SHARE_BYTES * 1.5) {
+					toastStore.info('Share link is large — some chat apps may truncate it.');
+				}
+			} catch (err) {
+				console.error('Failed to build share link:', err);
+				toastStore.error('Failed to build share link');
+				return;
+			}
+		} else {
+			toastStore.error('Nothing to share yet');
+			return;
 		}
+
 		try {
 			await navigator.clipboard.writeText(url.toString());
 			toastStore.success('Link copied!');
@@ -3067,25 +3100,6 @@
 			</div>
 		{/if}
 	</div>
-
-	<!-- Auto-follow paused banner -->
-	{#if playing && !autoFollow}
-		<button
-			on:click={reEnableAutoFollow}
-			class="sticky bottom-16 z-[51] mx-auto flex items-center gap-1.5 px-4 py-2 rounded-full
-				bg-violet-600 dark:bg-violet-500 text-white
-				text-sm font-medium shadow-lg
-				hover:bg-violet-700 dark:hover:bg-violet-400 transition-colors cursor-pointer
-				w-fit"
-			aria-label="Resume auto-follow"
-		>
-			<i class="material-icons !text-base">vertical_align_bottom</i>
-			<span class="flex flex-col leading-tight">
-				<span>Auto-follow paused</span>
-				<span class="text-white/70 text-xs">click to resume</span>
-			</span>
-		</button>
-	{/if}
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->

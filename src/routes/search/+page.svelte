@@ -266,7 +266,25 @@
 				.filter(Boolean);
 		}
 
-		const groups: { canonical: string; names: string[]; count: number }[] = [];
+		/** Group tracks every variant spelling of the same artist with its frequency,
+		 *  so we can pick the most-common casing as canonical rather than the longest
+		 *  (which previously promoted outlier names like "SOAD Rulz" over "SOAD"). */
+		type Group = { canonical: string; names: string[]; count: number; variantFreq: Map<string, number> };
+		const groups: Group[] = [];
+
+		function pickCanonical(freq: Map<string, number>): string {
+			let best = '';
+			let bestScore = -1;
+			for (const [variant, count] of freq) {
+				// Tie-break: shorter name wins (favors the clean base "SOAD" over "SOAD Rulz").
+				const score = count * 1000 - variant.length;
+				if (score > bestScore) {
+					bestScore = score;
+					best = variant;
+				}
+			}
+			return best;
+		}
 
 		for (const tab of results) {
 			const rawArtist = (tab.artist || '').trim();
@@ -279,13 +297,19 @@
 					if (artistsMatch(artist, group.canonical)) {
 						group.count++;
 						if (!group.names.includes(artist)) group.names.push(artist);
-						if (artist.length > group.canonical.length) group.canonical = artist;
+						group.variantFreq.set(artist, (group.variantFreq.get(artist) || 0) + 1);
+						group.canonical = pickCanonical(group.variantFreq);
 						found = true;
 						break;
 					}
 				}
 				if (!found) {
-					groups.push({ canonical: artist, names: [artist], count: 1 });
+					groups.push({
+						canonical: artist,
+						names: [artist],
+						count: 1,
+						variantFreq: new Map([[artist, 1]])
+					});
 				}
 			}
 		}
