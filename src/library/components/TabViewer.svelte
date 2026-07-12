@@ -30,6 +30,7 @@
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
 	import TrackMerger from '$components/TrackMerger.svelte';
+	import Sheet from '$components/Sheet.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -170,6 +171,10 @@
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
+
+	// Live height of the sticky control bar, exposed as a CSS var so floating
+	// layers and the settings sheet can anchor above it without hardcoded offsets
+	let barHeight = 0;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -3366,6 +3371,7 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
+	style="--player-bar-height: {barHeight}px"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3522,7 +3528,10 @@
 		     from cursor. Lifted higher on narrow portrait phones so it clears
 		     the metadata row that sits above the transport bar. -->
 		{#if scoreLoaded && !autoFollow}
-			<div class="fixed bottom-32 sm:bottom-20 left-1/2 -translate-x-1/2 z-[55]">
+			<div
+				class="fixed left-1/2 -translate-x-1/2 z-[55]"
+				style="bottom: calc(var(--player-bar-height) + 12px)"
+			>
 				<button
 					on:click={scrollToCursor}
 					class="flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500 text-white shadow-lg hover:bg-violet-600 active:scale-95 transition-all animate-fade-in"
@@ -3540,6 +3549,7 @@
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
+		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200 pb-safe
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
@@ -4003,7 +4013,8 @@
 			 the rich overlay UI that sits on top of it while in big player view. -->
 		{#if hasActiveVideo && $activeVideoId && !isFullscreen}
 			<div
-				class="big-player-video-overlay fixed bottom-[171px] right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
+				class="big-player-video-overlay fixed right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
+				style="bottom: calc(var(--player-bar-height) + 8px)"
 			>
 				<div class="relative w-full h-full">
 					<!-- Top controls overlay. No play/pause button here — YouTube's
@@ -4287,27 +4298,13 @@
 	</div>
 	<!-- end sticky controls wrapper -->
 
-	<!-- Settings popover (YouTube-style, above controls).
-	     The click-outside overlay stops above the controls bar so the user
-	     can click between the Tracks/Settings toggle buttons without the
-	     overlay eating the click. The controls bar sits at `bottom-0` and
-	     is ~56px tall; bottom-16 (64px) on the overlay gives a safe buffer. -->
-	{#if showSettings}
-		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-		<div
-			class="fixed top-0 left-0 right-0 bottom-16 z-[60]"
-			on:click={closeSettings}
-			role="presentation"
-		/>
-		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions a11y-no-noninteractive-element-interactions -->
-		<div
-			bind:this={settings}
-			class="fixed inset-0 top-0 bottom-14 sm:inset-auto sm:bottom-16 sm:right-4 sm:w-[90vw] sm:max-w-md sm:h-[60vh] z-[70] bg-white dark:bg-neutral-900 sm:rounded-xl shadow-2xl sm:border border-neutral-200 dark:border-neutral-700 px-3 sm:px-4 pb-3 overflow-y-auto animate-fade-in flex flex-col"
-			role="dialog"
-			on:click|stopPropagation
-		>
+	<!-- Settings sheet (bottom sheet on portrait, right anchored panel otherwise).
+	     The Sheet primitive owns the backdrop, anchoring above the control bar
+	     via --player-bar-height, and the mobile drag/snap behavior. -->
+	<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
+		<svelte:fragment slot="header">
 			<!-- Header with close -->
-			<div class="flex items-center justify-between mb-2 pt-3">
+			<div class="flex items-center justify-between mb-2 pt-1 px-3 sm:px-4">
 				<span class="text-xs text-neutral-500 dark:text-neutral-400">Player settings</span>
 				<button
 					on:click={closeSettings}
@@ -4318,7 +4315,10 @@
 				</button>
 			</div>
 			<!-- Tab Navigation -->
-			<div class="flex pt-3 mb-3 border-b border-neutral-200 dark:border-neutral-700" role="tablist">
+			<div
+				class="flex px-3 sm:px-4 border-b border-neutral-200 dark:border-neutral-700"
+				role="tablist"
+			>
 				<button
 					on:click={() => (activeSettingsTab = 'tracks')}
 					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab ===
@@ -4352,9 +4352,10 @@
 					Settings
 				</button>
 			</div>
+		</svelte:fragment>
 
-			<!-- Settings Tab -->
-			{#if activeSettingsTab === 'settings'}
+		<!-- Settings Tab -->
+		{#if activeSettingsTab === 'settings'}
 				<div class="flex flex-col gap-2" role="tabpanel" aria-label="Settings">
 					<SettingSlider
 						bind:value={volume}
@@ -4581,16 +4582,15 @@
 				</div>
 			{/if}
 
-			<!-- Tuning Tab -->
-			{#if activeSettingsTab === 'tuning'}
-				<TuningTransposer
-					api={$playerApi}
-					{activeTrackIndex}
-					trackName={tracks[activeTrackIndex]?.name ?? ''}
-				/>
-			{/if}
-		</div>
-	{/if}
+		<!-- Tuning Tab -->
+		{#if activeSettingsTab === 'tuning'}
+			<TuningTransposer
+				api={$playerApi}
+				{activeTrackIndex}
+				trackName={tracks[activeTrackIndex]?.name ?? ''}
+			/>
+		{/if}
+	</Sheet>
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->
 	{#if rest > 0}
