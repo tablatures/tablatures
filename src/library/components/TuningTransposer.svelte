@@ -222,6 +222,7 @@
 			</p>
 			<select
 				value={isCustom ? 'custom' : selectedPresetId}
+				aria-label="Target tuning"
 				on:change={handlePresetChange}
 				class="w-full px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50"
 			>
