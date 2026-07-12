@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { setupPlayPage } from './helpers/setup';
 import { waitForScoreLoaded, waitForPlaying, getTestApi } from './helpers/wait';
 
+// Drives the settings panel via its Tracks tab, so use the bottom-sheet layout.
+test.use({ viewport: { width: 390, height: 820 } });
+
 /**
  * Regression: #129 — Updating playback speed causes other settings to desync.
  *

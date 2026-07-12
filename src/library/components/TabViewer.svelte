@@ -29,6 +29,7 @@
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import Sheet from '$components/Sheet.svelte';
 	import PlayerPanel from '$components/PlayerPanel.svelte';
+	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
@@ -172,6 +173,10 @@
 	// Desktops and tablets (height > 500px) keep the normal layout.
 	let isMobileLandscape = false;
 	$: compactBar = isFullscreen || isMobileLandscape;
+	// At lg+ the settings panel becomes a docked split-view console instead of a
+	// bottom sheet, and the score reflows into the remaining width.
+	let isLargeScreen = false;
+	$: showConsole = showSettings && isLargeScreen;
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
@@ -2141,6 +2146,11 @@
 		if (mobileLandscapeMql) isMobileLandscape = mobileLandscapeMql.matches;
 	}
 
+	let largeScreenMql: MediaQueryList | null = null;
+	function syncLargeScreen() {
+		if (largeScreenMql) isLargeScreen = largeScreenMql.matches;
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
@@ -2148,6 +2158,9 @@
 			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
 			syncMobileLandscape();
 			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
+			largeScreenMql = window.matchMedia('(min-width: 976px)');
+			syncLargeScreen();
+			largeScreenMql.addEventListener('change', syncLargeScreen);
 		}
 		// Seed playerState.activeTrackIndex from URL so adoption sync below
 		// sees the URL value as authoritative. Otherwise the adoption sync
@@ -2616,6 +2629,7 @@
 		// Cleanup from onMount
 		themeUnsubscribe?.();
 		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
+		largeScreenMql?.removeEventListener('change', syncLargeScreen);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
@@ -2917,6 +2931,9 @@
 		mergeMode = false;
 		mergeSelection = [];
 		setActiveTrack(e.detail.trackIndex);
+		// Focus the fresh merged track by soloing it so the result is audible in
+		// isolation right away
+		if (!trackSolos[e.detail.trackIndex]) toggleTrackSolo(e.detail.trackIndex);
 	}
 
 	function onMergedTrackRemoved() {
@@ -3365,7 +3382,9 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px; --app-header-height: 56px"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {showConsole
+		? 'clamp(440px, 42vw, 680px)'
+		: '0px'}"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3385,7 +3404,8 @@
 	     the handler can actually block the browser's native scroll once
 	     the long-press selection becomes active. -->
 	<div
-		class="relative"
+		class="relative transition-[padding] duration-200"
+		style="padding-right: var(--player-panel-width)"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
@@ -4289,10 +4309,71 @@
 	</div>
 	<!-- end sticky controls wrapper -->
 
-	<!-- Settings sheet (bottom sheet on portrait, right anchored panel otherwise).
-	     The Sheet primitive owns the backdrop, anchoring above the control bar
-	     via --player-bar-height, and the mobile drag/snap behavior. -->
-	<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
+	<!-- Large screens: docked split-view console, score reflows into the space
+	     on its left. Sits below the header and above the transport bar, so no
+	     header z-fight and no dim (the score stays usable beside it). -->
+	{#if isLargeScreen}
+		{#if showSettings}
+			<aside
+				class="fixed right-0 z-[60] flex flex-col bg-white dark:bg-neutral-900 border-l border-neutral-200 dark:border-neutral-700 shadow-xl"
+				style="top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)"
+				role="dialog"
+				aria-label="Player settings"
+			>
+				<div
+					class="flex items-center justify-between gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
+				>
+					<span class="text-xs font-medium text-neutral-500 dark:text-neutral-400 flex-shrink-0"
+						>Player settings</span
+					>
+					<div class="flex items-center gap-1 min-w-0">
+						<TuningChip api={$playerApi} {activeTrackIndex} {tracks} />
+						<button
+							on:click={closeSettings}
+							class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
+							title="Close"
+						>
+							<i class="material-icons !text-base">close</i>
+						</button>
+					</div>
+				</div>
+				<PlayerConsole
+					api={$playerApi}
+					{tracks}
+					{activeTrackIndex}
+					bind:volume
+					bind:speed
+					bind:metronome
+					bind:tabScale
+					bind:delaying
+					onScaleInput={updateTabScale}
+					bind:trackVolumes
+					bind:trackMutes
+					bind:trackSolos
+					{loopStartBar}
+					{loopEndBar}
+					{loopEnabled}
+					bind:mergeMode
+					bind:selectedIndexes={mergeSelection}
+					on:selecttrack={(e) => setActiveTrack(e.detail)}
+					on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+					on:togglemute={(e) => toggleTrackMute(e.detail)}
+					on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+					on:muteall={muteAllTracks}
+					on:unmuteall={unmuteAllTracks}
+					on:resetlevels={resetAllVolumes}
+					on:toggleloop={toggleLoopEnabled}
+					on:clearloop={clearLoopPoints}
+					on:merged={onTrackMerged}
+					on:removed={onMergedTrackRemoved}
+				/>
+			</aside>
+		{/if}
+	{:else}
+		<!-- Small screens: bottom sheet with segmented tabs.
+		     The Sheet primitive owns the backdrop, anchoring above the control bar
+		     via --player-bar-height, and the mobile drag/snap behavior. -->
+		<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
 		<svelte:fragment slot="header">
 			<!-- Header with close -->
 			<div class="flex items-center justify-between gap-2 mb-2 pt-1 px-3 sm:px-4">
@@ -4385,7 +4466,8 @@
 			on:merged={onTrackMerged}
 			on:removed={onMergedTrackRemoved}
 		/>
-	</Sheet>
+		</Sheet>
+	{/if}
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->
 	{#if rest > 0}

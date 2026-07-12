@@ -2,6 +2,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPageWithTex } from './helpers/setup';
 import { TEX_SCORES } from './helpers/alphatex';
 
+// Exercise the bottom-sheet (tabbed) layout; the docked console has its own spec.
+test.use({ viewport: { width: 390, height: 820 } });
+
 interface NoteState {
 	bar: number;
 	voice: number;

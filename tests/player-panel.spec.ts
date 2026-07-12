@@ -1,6 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPage } from './helpers/setup';
 
+// Below the lg (976px) breakpoint the panel is the bottom-sheet with tabs;
+// at lg+ it becomes the tab-less docked console (covered by player-console.spec).
+test.use({ viewport: { width: 390, height: 820 } });
+
 async function openPanel(page: Page): Promise<void> {
 	const settingsBtn = page.locator('button[title="Settings [S]"]').first();
 	if (!(await settingsBtn.isVisible())) {
@@ -34,12 +38,12 @@ test.describe('player panel sheet', () => {
 		await setupPlayPage(page);
 		await openPanel(page);
 
-		// Tap the backdrop on the left, clear of the app header and the
-		// right anchored panel
+		// The full-height sheet leaves the backdrop only in the strip above it,
+		// which sits above the header (backdrop z is higher). Tap there.
 		await page
 			.locator('[role="presentation"]')
 			.last()
-			.click({ position: { x: 20, y: 220 } });
+			.click({ position: { x: 195, y: 16 } });
 		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
 	});
 
