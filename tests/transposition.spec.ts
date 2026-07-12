@@ -102,6 +102,33 @@ test.describe('transposition', () => {
 		expect(tuningAfter.tunings).toEqual([64, 59, 55, 50, 45, 38]);
 	});
 
+	test('keeps the transposition undo after closing and reopening', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
+
+		const before = await getTrackNotes(page);
+		const tuningBefore = await getStaffTuning(page);
+
+		await openTuningTab(page);
+		await transposeTo(page, STANDARD_LABEL);
+		await expect(page.locator('text=Transposed')).toBeVisible();
+
+		// Closing the dialog used to unmount the transposer and lose the undo
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+		await openTuningTab(page);
+		const resetButton = page.locator('button:has-text("Reset to original")');
+		await expect(resetButton).toBeVisible();
+		await resetButton.click();
+
+		const after = await getTrackNotes(page);
+		expect(after.map((n) => [n.string, n.fret])).toEqual(before.map((n) => [n.string, n.fret]));
+
+		const tuningAfter = await getStaffTuning(page);
+		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);
+		expect(tuningAfter.capo).toBe(tuningBefore.capo);
+	});
+
 	test('reports out of range notes without altering them', async ({ page }) => {
 		await setupPlayPage(page);
 

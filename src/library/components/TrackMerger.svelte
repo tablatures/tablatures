@@ -5,6 +5,7 @@
 		removeLastTrack,
 		type MergeTrackResult
 	} from '$utils/mergedTrackBuilder';
+	import { scoreEdits, recordMergedTrack, unrecordMergedTrack } from '$utils/scoreEdits';
 
 	export let api: any;
 	export let tracks: any[] = [];
@@ -18,8 +19,11 @@
 	let selectedIndexes: number[] = [];
 	let maxSimultaneous: number = 5;
 	let lastResult: MergeTrackResult | null = null;
-	let mergedIndexes: number[] = [];
 	let mergeError: string | null = null;
+
+	// Merged track bookkeeping lives in the store so it survives this
+	// component unmounting when the settings dialog closes
+	$: mergedIndexes = $scoreEdits.mergedTrackIndexes;
 
 	function stringCount(track: any): number {
 		const staff = track?.staves?.find(
@@ -54,7 +58,7 @@
 				options: { maxSimultaneous }
 			});
 			lastResult = result;
-			mergedIndexes = [...mergedIndexes, result.trackIndex];
+			recordMergedTrack(result.trackIndex);
 			selectedIndexes = [];
 			dispatch('merged', { trackIndex: result.trackIndex });
 		} catch (e) {
@@ -67,7 +71,7 @@
 		if (!api?.score || lastMergedIndex === null) return;
 		const removed = lastMergedIndex;
 		if (removeLastTrack(api, removed)) {
-			mergedIndexes = mergedIndexes.slice(0, -1);
+			unrecordMergedTrack(removed);
 			lastResult = null;
 			dispatch('removed', { trackIndex: removed });
 		}
