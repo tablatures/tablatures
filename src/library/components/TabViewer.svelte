@@ -29,6 +29,7 @@
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
+	import TrackMerger from '$components/TrackMerger.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -2310,6 +2311,10 @@
 				getTrackVolumes: () => [...trackVolumes],
 				getTrackCount: () => tracks.length,
 				getApi: () => api,
+				exportScore: () => {
+					const bytes = new window.alphaTab.exporter.Gp7Exporter().export(api.score, api.settings);
+					return (bytes as any).byteLength ?? (bytes as any).length ?? 0;
+				},
 				// Read the actual API internal state (not our UI copy)
 				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
 				getApiMasterVolume: () => api?.masterVolume ?? -1,
@@ -2887,6 +2892,24 @@
 		activeTrackIndex = trackIndex;
 		api.renderTracks([tracks[trackIndex]]);
 		updatePlayerState({ activeTrackIndex: trackIndex });
+	}
+
+	function onTrackMerged(e: CustomEvent<{ trackIndex: number }>) {
+		tracks = api.score.tracks;
+		trackVolumes = [...trackVolumes, 1.0];
+		trackMutes = [...trackMutes, false];
+		trackSolos = [...trackSolos, false];
+		updatePlayerState({ tracks });
+		setActiveTrack(e.detail.trackIndex);
+	}
+
+	function onMergedTrackRemoved() {
+		tracks = api.score.tracks;
+		trackVolumes = trackVolumes.slice(0, tracks.length);
+		trackMutes = trackMutes.slice(0, tracks.length);
+		trackSolos = trackSolos.slice(0, tracks.length);
+		updatePlayerState({ tracks });
+		setActiveTrack(Math.min(activeTrackIndex, tracks.length - 1));
 	}
 
 	function getTrackInfo(track: any): string {
@@ -4548,6 +4571,13 @@
 							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
 						>Unmute all</button>
 					</div>
+
+					<TrackMerger
+						api={$playerApi}
+						{tracks}
+						on:merged={onTrackMerged}
+						on:removed={onMergedTrackRemoved}
+					/>
 				</div>
 			{/if}
 
