@@ -2309,6 +2309,7 @@
 				getTrackSolos: () => [...trackSolos],
 				getTrackVolumes: () => [...trackVolumes],
 				getTrackCount: () => tracks.length,
+				getApi: () => api,
 				// Read the actual API internal state (not our UI copy)
 				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
 				getApiMasterVolume: () => api?.masterVolume ?? -1,
