@@ -48,7 +48,8 @@ test.describe('transposition', () => {
 		expect(tuningBefore.capo).toBe(4);
 
 		await openTuningTab(page);
-		await expect(page.locator('text=Capo 4')).toBeVisible();
+		// Exact match: the persistent tuning chip also renders "... · Capo 4"
+		await expect(page.getByText('Capo 4', { exact: true })).toBeVisible();
 
 		await transposeTo(page, STANDARD_LABEL);
 		await expect(page.locator('text=Transposed')).toBeVisible();
@@ -123,6 +124,29 @@ test.describe('transposition', () => {
 
 		const after = await getTrackNotes(page);
 		expect(after.map((n) => [n.string, n.fret])).toEqual(before.map((n) => [n.string, n.fret]));
+
+		const tuningAfter = await getStaffTuning(page);
+		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);
+		expect(tuningAfter.capo).toBe(tuningBefore.capo);
+	});
+
+	test('the tuning chip reflects the transposition and reverts it', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
+		const tuningBefore = await getStaffTuning(page);
+
+		await openTuningTab(page);
+		await transposeTo(page, STANDARD_LABEL);
+		await expect(page.locator('text=Transposed')).toBeVisible();
+
+		// Close the panel so only the metadata chip remains
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+		// The chip exposes a revert affordance only while transposed
+		const revertBtn = page.locator('button[aria-label="Revert transposition"]');
+		await expect(revertBtn).toBeVisible();
+		await revertBtn.first().click();
+		await expect(revertBtn).toHaveCount(0);
 
 		const tuningAfter = await getStaffTuning(page);
 		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);

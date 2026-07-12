@@ -4,7 +4,8 @@
 	import TrackList from '$components/TrackList.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
 	import TrackMerger from '$components/TrackMerger.svelte';
-	import { scoreEdits } from '$utils/scoreEdits';
+	import { scoreEdits, revertTranspose } from '$utils/scoreEdits';
+	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 
 	export let api: any;
 	export let tracks: any[] = [];
@@ -46,6 +47,20 @@
 	function enterMerge() {
 		selectedIndexes = [];
 		mergeMode = true;
+	}
+
+	// Only one transposition is tracked at a time; surface it when the user is
+	// on the tuning segment of a different track.
+	$: otherTranspose =
+		$scoreEdits.transpose && $scoreEdits.transpose.trackIndex !== activeTrackIndex
+			? $scoreEdits.transpose
+			: null;
+
+	function tuningLabel(tuning: number[]): string {
+		const match = TUNING_PRESETS.find(
+			(p) => p.strings.length === tuning.length && p.strings.every((s, i) => s.midi === tuning[i])
+		);
+		return match ? match.name : tuning.map((m) => midiToNoteName(m)).join(' ');
 	}
 </script>
 
@@ -231,7 +246,25 @@
 		{/if}
 	</div>
 {:else if segment === 'tuning'}
-	<div class="pt-3">
+	<div class="pt-3 space-y-3">
+		{#if otherTranspose}
+			<div
+				class="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400"
+			>
+				<i class="material-icons !text-base flex-shrink-0">swap_vert</i>
+				<span class="flex-1 text-xs min-w-0">
+					{tracks[otherTranspose.trackIndex]?.name ?? 'Another track'} is transposed to {tuningLabel(
+						otherTranspose.target.tuning
+					)}
+				</span>
+				<button
+					on:click={() => revertTranspose(api)}
+					class="text-xs font-medium px-2 py-1 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors flex-shrink-0"
+				>
+					Revert
+				</button>
+			</div>
+		{/if}
 		<TuningTransposer {api} {activeTrackIndex} trackName={tracks[activeTrackIndex]?.name ?? ''} />
 	</div>
 {/if}

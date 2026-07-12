@@ -29,6 +29,7 @@
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import Sheet from '$components/Sheet.svelte';
 	import PlayerPanel from '$components/PlayerPanel.svelte';
+	import TuningChip from '$components/TuningChip.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -3060,6 +3061,12 @@
 		showSettings = false;
 	}
 
+	// Open the panel straight on the tuning segment (from the tuning chip)
+	function openTuningPanel() {
+		showSettings = true;
+		panelSegment = 'tuning';
+	}
+
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
 		// Rebind scroll listeners to the correct target (window vs page element)
@@ -3942,6 +3949,11 @@
 				</button>
 			{/if}
 
+			<!-- Compact transposed pill: the metadata chip is hidden in this mode -->
+			{#if compactBar}
+				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+			{/if}
+
 			<button
 				on:click={() => togglePanel('playback')}
 				class="{compactBar
@@ -4166,6 +4178,11 @@
 								? ` \u00B7 ${totalBars} bars`
 								: ''}
 						</p>
+						<!-- Tuning + capo chip, opens the tuning segment; violet with a
+						     revert affordance while the active track is transposed -->
+						<div class="mt-1">
+							<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
 						{#if artistInfo?.tags && artistInfo.tags.length > 0}
@@ -4276,15 +4293,23 @@
 	<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
 		<svelte:fragment slot="header">
 			<!-- Header with close -->
-			<div class="flex items-center justify-between mb-2 pt-1 px-3 sm:px-4">
-				<span class="text-xs text-neutral-500 dark:text-neutral-400">Player settings</span>
-				<button
-					on:click={closeSettings}
-					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-					title="Close"
-				>
-					<i class="material-icons !text-base">close</i>
-				</button>
+			<div class="flex items-center justify-between gap-2 mb-2 pt-1 px-3 sm:px-4">
+				<span class="text-xs text-neutral-500 dark:text-neutral-400 flex-shrink-0">Player settings</span>
+				<div class="flex items-center gap-1 min-w-0">
+					<TuningChip
+						api={$playerApi}
+						{activeTrackIndex}
+						{tracks}
+						on:open={() => (panelSegment = 'tuning')}
+					/>
+					<button
+						on:click={closeSettings}
+						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
+						title="Close"
+					>
+						<i class="material-icons !text-base">close</i>
+					</button>
+				</div>
 			</div>
 			<!-- Segmented navigation (role=tab preserved for existing selectors) -->
 			<div
