@@ -2313,7 +2313,49 @@
 				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
 				getApiMasterVolume: () => api?.masterVolume ?? -1,
 				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
-				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1,
+				getStaffTuning: (trackIndex: number) => {
+					const staff = api?.score?.tracks?.[trackIndex]?.staves?.[0];
+					if (!staff?.stringTuning?.tunings) return null;
+					return { tunings: [...staff.stringTuning.tunings], capo: staff.capo ?? 0 };
+				},
+				getTrackNotes: (trackIndex: number) => {
+					const result: Array<{
+						bar: number;
+						voice: number;
+						beat: number;
+						string: number;
+						fret: number;
+						realValue: number;
+					}> = [];
+					const staves = api?.score?.tracks?.[trackIndex]?.staves;
+					if (!staves) return result;
+					for (const staff of staves) {
+						for (let b = 0; b < staff.bars.length; b++) {
+							const bar = staff.bars[b];
+							if (!bar.voices) continue;
+							for (let v = 0; v < bar.voices.length; v++) {
+								const voice = bar.voices[v];
+								if (!voice.beats) continue;
+								for (let be = 0; be < voice.beats.length; be++) {
+									const beat = voice.beats[be];
+									if (!beat.notes) continue;
+									for (const note of beat.notes) {
+										result.push({
+											bar: b,
+											voice: v,
+											beat: be,
+											string: note.string,
+											fret: note.fret,
+											realValue: note.realValue
+										});
+									}
+								}
+							}
+						}
+					}
+					return result;
+				}
 			};
 		}
 
@@ -2854,8 +2896,10 @@
 	}
 
 	function getTrackTuning(track: any): string {
-		const tuning = track?.staves?.[0]?.stringTuning?.tunings ?? track?.staves?.[0]?.tuning;
-		if (!tuning || tuning.length === 0) return '';
+		const raw = track?.staves?.[0]?.stringTuning?.tunings ?? track?.staves?.[0]?.tuning;
+		if (!raw || raw.length === 0) return '';
+		// stringTuning.tunings is ordered highest string first, presets are low to high
+		const tuning = [...raw].reverse();
 		const match = TUNING_PRESETS.find(
 			(p) => p.strings.length === tuning.length && p.strings.every((s: any, i: number) => s.midi === tuning[i])
 		);
