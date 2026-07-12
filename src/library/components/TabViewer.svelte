@@ -25,12 +25,10 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
-	import SettingSlider from '$components/SettingSlider.svelte';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
-	import TuningTransposer from '$components/TuningTransposer.svelte';
-	import TrackMerger from '$components/TrackMerger.svelte';
 	import Sheet from '$components/Sheet.svelte';
+	import PlayerPanel from '$components/PlayerPanel.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -151,7 +149,12 @@
 	let mountHandleResize: (() => void) | undefined;
 
 	let apiError = '';
-	let activeSettingsTab = 'settings';
+	// Which segment of the single player panel is showing
+	let panelSegment: 'tracks' | 'tuning' | 'playback' = 'playback';
+	// Merge mode state, shared between the track list checkboxes and the merge
+	// action bar (both live inside PlayerPanel)
+	let mergeMode = false;
+	let mergeSelection: number[] = [];
 
 	let showProgressTooltip = false;
 	let tooltipTime = '';
@@ -2453,10 +2456,13 @@
 			clickLooping();
 		} else if (event.code === 'KeyT') {
 			event.preventDefault();
-			toggleTracksSettings();
+			togglePanel('tracks');
 		} else if (event.code === 'KeyS') {
 			event.preventDefault();
-			toggleSettings();
+			togglePanel('playback');
+		} else if (event.code === 'KeyU') {
+			event.preventDefault();
+			togglePanel('tuning');
 		} else if (event.code === 'KeyF') {
 			event.preventDefault();
 			toggleFullscreen();
@@ -2523,6 +2529,8 @@
 				showSettings = false;
 			} else if (showVideoDropdown) {
 				showVideoDropdown = false;
+			} else if (showPlaylistPicker) {
+				showPlaylistPicker = false;
 			} else if (loopStartBar !== null || loopEndBar !== null) {
 				clearLoopPoints();
 			}
@@ -2905,6 +2913,8 @@
 		trackMutes = [...trackMutes, false];
 		trackSolos = [...trackSolos, false];
 		updatePlayerState({ tracks });
+		mergeMode = false;
+		mergeSelection = [];
 		setActiveTrack(e.detail.trackIndex);
 	}
 
@@ -3031,42 +3041,18 @@
 		}
 	}
 
-	function toggleTracksSettings() {
+	// Single entry point: opening a segment that is already showing closes the
+	// panel, otherwise it opens the panel on that segment (toggle behavior).
+	function togglePanel(segment: 'tracks' | 'tuning' | 'playback') {
 		if (showSettings) {
-			if (activeSettingsTab == 'tracks') {
+			if (panelSegment === segment) {
 				showSettings = false;
 			} else {
-				activeSettingsTab = 'tracks';
+				panelSegment = segment;
 			}
 		} else {
 			showSettings = true;
-			activeSettingsTab = 'tracks';
-		}
-	}
-
-	function toggleTuningSettings() {
-		if (showSettings) {
-			if (activeSettingsTab == 'tuning') {
-				showSettings = false;
-			} else {
-				activeSettingsTab = 'tuning';
-			}
-		} else {
-			showSettings = true;
-			activeSettingsTab = 'tuning';
-		}
-	}
-
-	function toggleSettings() {
-		if (showSettings) {
-			if (activeSettingsTab == 'settings') {
-				showSettings = false;
-			} else {
-				activeSettingsTab = 'settings';
-			}
-		} else {
-			showSettings = true;
-			activeSettingsTab = 'settings';
+			panelSegment = segment;
 		}
 	}
 
@@ -3349,14 +3335,15 @@
 				['1\u20139', 'filter_1', 'Switch to track'],
 				['M', 'volume_off', 'Mute current track'],
 				['O', 'headphones', 'Solo current track'],
-				['T', 'queue_music', 'Open tracks panel']
+				['T', 'queue_music', 'Open tracks panel'],
+				['U', 'swap_vert', 'Open tuning panel']
 			]
 		},
 		{
 			title: 'View & Tools',
 			icon: 'tune',
 			shortcuts: [
-				['S', 'tune', 'Open settings panel'],
+				['S', 'tune', 'Open playback panel'],
 				['F', 'fullscreen', 'Toggle fullscreen'],
 				['V', 'videocam', 'Video picker'],
 				['P', 'print', 'Print tablature'],
@@ -3819,6 +3806,21 @@
 			<div class="flex-1" />
 
 			<!-- Right: settings controls -->
+			<!-- Track selector (native picker, only when there is more than one track) -->
+			{#if tracks.length > 1}
+				<select
+					value={activeTrackIndex}
+					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
+					class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
+					title="Active track"
+					aria-label="Active track"
+				>
+					{#each tracks as track, i}
+						<option value={i}>{track.name || `Track ${i + 1}`}</option>
+					{/each}
+				</select>
+			{/if}
+
 			<!-- Speed selector -->
 			<select
 				bind:value={speed}
@@ -3941,41 +3943,11 @@
 			{/if}
 
 			<button
-				on:click={toggleTracksSettings}
+				on:click={() => togglePanel('playback')}
 				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'tracks'
-					? 'text-violet-500'
-					: 'text-neutral-500 dark:text-neutral-400'}"
-				title="Tracks [T]"
-				aria-label="Tracks"
-			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">queue_music</i>
-			</button>
-
-			<button
-				on:click={toggleTuningSettings}
-				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'tuning'
-					? 'text-violet-500'
-					: 'text-neutral-500 dark:text-neutral-400'}"
-				title="Transpose"
-				aria-label="Transpose"
-			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">swap_vert</i>
-			</button>
-
-			<button
-				on:click={toggleSettings}
-				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{showSettings && activeSettingsTab === 'settings'
-					? 'text-violet-500'
-					: 'text-neutral-500 dark:text-neutral-400'}"
+					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 				aria-label="Settings"
 			>
@@ -4314,282 +4286,78 @@
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-			<!-- Tab Navigation -->
+			<!-- Segmented navigation (role=tab preserved for existing selectors) -->
 			<div
 				class="flex px-3 sm:px-4 border-b border-neutral-200 dark:border-neutral-700"
 				role="tablist"
 			>
 				<button
-					on:click={() => (activeSettingsTab = 'tracks')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab ===
+					on:click={() => (panelSegment = 'tracks')}
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
 					'tracks'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
-					aria-selected={activeSettingsTab === 'tracks'}
+					aria-selected={panelSegment === 'tracks'}
 				>
 					Tracks ({tracks.length})
 				</button>
 				<button
-					on:click={() => (activeSettingsTab = 'tuning')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab === 'tuning'
+					on:click={() => (panelSegment = 'tuning')}
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
+					'tuning'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
-					aria-selected={activeSettingsTab === 'tuning'}
+					aria-selected={panelSegment === 'tuning'}
 				>
 					Tuning
 				</button>
 				<button
-					on:click={() => (activeSettingsTab = 'settings')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {activeSettingsTab ===
-					'settings'
+					on:click={() => (panelSegment = 'playback')}
+					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
+					'playback'
 						? 'text-violet-500 border-b-2 border-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 					role="tab"
-					aria-selected={activeSettingsTab === 'settings'}
+					aria-selected={panelSegment === 'playback'}
 				>
-					Settings
+					Playback
 				</button>
 			</div>
 		</svelte:fragment>
 
-		<!-- Settings Tab -->
-		{#if activeSettingsTab === 'settings'}
-				<div class="flex flex-col gap-2" role="tabpanel" aria-label="Settings">
-					<SettingSlider
-						bind:value={volume}
-						min={0}
-						max={2}
-						step={0.1}
-						label="Volume"
-						iconOn="volume_up"
-						iconOff="volume_off"
-						details="Mute / Reset playback volume"
-					/>
-					<SettingSlider
-						bind:value={speed}
-						min={0.1}
-						max={2}
-						step={0.1}
-						label="Speed"
-						iconOn="speed"
-						iconOff="speed"
-						details="Slow / Reset playback speed"
-					/>
-					<SettingSlider
-						bind:value={metronome}
-						min={0}
-						max={2}
-						step={0.1}
-						label="Metronome"
-						iconOn="timer"
-						iconOff="timer_off"
-						details="Mute / Max metronome volume"
-					/>
-					<SettingSlider
-						bind:value={tabScale}
-						min={0.3}
-						max={1.5}
-						step={0.1}
-						label="Scale"
-						iconOn="zoom_in"
-						iconOff="zoom_out"
-						onInput={updateTabScale}
-						details="Small / Reset tablature scale"
-					/>
-				</div>
-
-				<!-- Start delay + Loop info -->
-				<div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-3">
-					<!-- Delay control: icon toggle + slider -->
-					<div class="flex items-center gap-2.5">
-						<button
-							on:click={() => {
-								delaying = delaying > 0 ? 0 : 3000;
-							}}
-							class="p-1.5 rounded-lg transition-colors flex-shrink-0 {delaying > 0
-								? 'bg-violet-100 dark:bg-violet-900/30 text-violet-500'
-								: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
-							title="{delaying > 0 ? 'Disable' : 'Enable'} start delay"
-						>
-							<i class="material-icons !text-lg">timer</i>
-						</button>
-						<input
-							type="range"
-							min="0"
-							max="10000"
-							step="1000"
-							bind:value={delaying}
-							class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full
-										{delaying > 0 ? 'bg-violet-200 dark:bg-violet-900/40' : 'bg-neutral-200 dark:bg-neutral-700'}
-										[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
-										{delaying > 0
-								? '[&::-webkit-slider-thumb]:bg-violet-500'
-								: '[&::-webkit-slider-thumb]:bg-neutral-400'}
-										[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0
-										{delaying > 0 ? '[&::-moz-range-thumb]:bg-violet-500' : '[&::-moz-range-thumb]:bg-neutral-400'}
-										[&::-moz-range-progress]:rounded-full
-										{delaying > 0
-								? '[&::-moz-range-progress]:bg-violet-500'
-								: '[&::-moz-range-progress]:bg-neutral-400'}"
-							style="background: linear-gradient(to right, {delaying > 0
-								? '#8C52FF'
-								: '#a3a3a3'} {(delaying / 10000) * 100}%, {delaying > 0
-								? 'rgb(221,214,254)'
-								: 'rgb(212,212,212)'} {(delaying / 10000) * 100}%)"
-							aria-label="Start delay"
-						/>
-						<span
-							class="text-xs font-mono w-8 text-right flex-shrink-0 {delaying > 0
-								? 'text-violet-500 font-medium'
-								: 'text-neutral-400'}"
-						>
-							{delaying > 0 ? `${delaying / 1000}s` : 'Off'}
-						</span>
-					</div>
-
-					<!-- Loop info -->
-					{#if loopStartBar !== null && loopEndBar !== null}
-						<div class="flex items-center gap-3">
-							<button
-								on:click={toggleLoopEnabled}
-								class="p-1.5 rounded-lg transition-colors {loopEnabled
-									? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500'
-									: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
-							>
-								<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
-							</button>
-							<div class="flex-1">
-								<p class="text-xs font-medium {loopEnabled ? 'text-pink-500' : 'text-neutral-500'}">
-									Loop bar {loopStartBar + 1} → {loopEndBar + 1}
-								</p>
-							</div>
-							<button
-								on:click={clearLoopPoints}
-								class="text-xs text-neutral-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
-								>Clear</button
-							>
-						</div>
-					{:else}
-						<p class="text-[10px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
-							<i class="material-icons !text-xs">info_outline</i>
-							Drag on progress bar to create a loop region
-						</p>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Tracks Tab -->
-			{#if activeSettingsTab === 'tracks'}
-				<div class="flex flex-col h-full">
-					<!-- Track List (scrollable, grows to fill on mobile full-height dialog) -->
-					<div class="flex-1 space-y-1.5 overflow-y-auto min-h-0" role="listbox" aria-label="Track list">
-						{#each tracks as track, i}
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<div
-								class="rounded-lg border p-2.5 cursor-pointer transition-all
-									{i === activeTrackIndex
-										? 'border-violet-500 bg-violet-50/50 dark:bg-violet-900/10'
-										: 'border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
-								on:click={() => { setActiveTrack(i); }}
-								role="option"
-								aria-selected={i === activeTrackIndex}
-							>
-								<!-- Row 1: Name + solo/mute buttons -->
-								<div class="flex items-center gap-2 mb-1.5">
-									<div class="flex-1 min-w-0">
-										<p class="text-sm font-medium truncate {i === activeTrackIndex ? 'text-violet-500' : 'text-neutral-800 dark:text-neutral-200'}">
-											{track.name}
-										</p>
-										<p class="text-[10px] text-neutral-400 truncate">{getTrackInfo(track)}{#if getTrackTuning(track)} &middot; <span class="text-violet-400 dark:text-violet-500">{getTrackTuning(track)}</span>{/if}</p>
-									</div>
-									<div class="flex gap-1 flex-shrink-0">
-										<button
-											on:click|stopPropagation={() => toggleTrackSolo(i)}
-											class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-												{trackSolos[i]
-													? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400'
-													: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-											title="Solo"
-										>
-											<i class="material-icons !text-base">{trackSolos[i] ? 'headphones' : 'headset_off'}</i>
-										</button>
-										<button
-											on:click|stopPropagation={() => toggleTrackMute(i)}
-											class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors active:scale-95
-												{trackMutes[i]
-													? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
-													: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-											title="Mute"
-										>
-											<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
-										</button>
-									</div>
-								</div>
-								<!-- Row 2: Volume slider -->
-								<div class="flex items-center gap-2">
-									<input
-										type="range"
-										min="0"
-										max="2"
-										step="0.1"
-										bind:value={trackVolumes[i]}
-										on:input={() => updateTrackVolume(i, trackVolumes[i])}
-										on:click|stopPropagation
-										aria-label="Volume for {track.name}"
-										class="flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
-											[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:shadow-sm
-											[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0
-											[&::-moz-range-progress]:bg-violet-500 [&::-moz-range-progress]:rounded-full"
-										style="background: linear-gradient(to right, #8C52FF {trackVolumes[i] / 2 * 100}%, {'rgb(212,212,212)'} {trackVolumes[i] / 2 * 100}%)"
-									/>
-									<span class="text-[10px] text-neutral-400 w-7 text-right font-mono">{Math.round(trackVolumes[i] * 100)}%</span>
-								</div>
-							</div>
-						{/each}
-					</div>
-
-					<!-- Quick Controls (fixed at bottom) -->
-					<div class="grid grid-cols-2 gap-2 pt-3 mt-2 border-t border-neutral-200 dark:border-neutral-700 flex-shrink-0">
-						<button
-							on:click={() => toggleTrackSolo(activeTrackIndex)}
-							class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
-								{trackSolos[activeTrackIndex]
-									? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
-									: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
-						>Solo current</button>
-						<button
-							on:click={resetAllVolumes}
-							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-						>Reset levels</button>
-						<button
-							on:click={muteAllTracks}
-							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-						>Mute all</button>
-						<button
-							on:click={unmuteAllTracks}
-							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-						>Unmute all</button>
-					</div>
-
-					<TrackMerger
-						api={$playerApi}
-						{tracks}
-						on:merged={onTrackMerged}
-						on:removed={onMergedTrackRemoved}
-					/>
-				</div>
-			{/if}
-
-		<!-- Tuning Tab -->
-		{#if activeSettingsTab === 'tuning'}
-			<TuningTransposer
-				api={$playerApi}
-				{activeTrackIndex}
-				trackName={tracks[activeTrackIndex]?.name ?? ''}
-			/>
-		{/if}
+		<PlayerPanel
+			api={$playerApi}
+			{tracks}
+			{activeTrackIndex}
+			bind:segment={panelSegment}
+			bind:volume
+			bind:speed
+			bind:metronome
+			bind:tabScale
+			bind:delaying
+			onScaleInput={updateTabScale}
+			bind:trackVolumes
+			bind:trackMutes
+			bind:trackSolos
+			{loopStartBar}
+			{loopEndBar}
+			{loopEnabled}
+			bind:mergeMode
+			bind:selectedIndexes={mergeSelection}
+			on:selecttrack={(e) => setActiveTrack(e.detail)}
+			on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+			on:togglemute={(e) => toggleTrackMute(e.detail)}
+			on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+			on:muteall={muteAllTracks}
+			on:unmuteall={unmuteAllTracks}
+			on:resetlevels={resetAllVolumes}
+			on:toggleloop={toggleLoopEnabled}
+			on:clearloop={clearLoopPoints}
+			on:merged={onTrackMerged}
+			on:removed={onMergedTrackRemoved}
+		/>
 	</Sheet>
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->
