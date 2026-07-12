@@ -3365,7 +3365,7 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -4161,27 +4161,29 @@
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
 							{title.split(' - ')[0] || title}
 						</h1>
-						<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
-							{#if currentArtistName}
-								<span class="relative inline-block">
-									<ArtistTooltip artistName={currentArtistName} position="bottom">
-										<a
-											href="{base}/search?q={encodeURIComponent(currentArtistName)}"
-											class="hover:text-violet-500 hover:underline transition-colors"
-											title="Search more by this artist">{currentArtistName}</a
-										>
-									</ArtistTooltip>
-								</span>
-								&middot;
-							{/if}
-							{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-								? ` \u00B7 ${totalBars} bars`
-								: ''}
-						</p>
-						<!-- Tuning + capo chip, opens the tuning segment; violet with a
-						     revert affordance while the active track is transposed -->
-						<div class="mt-1">
-							<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+						<!-- Subtitle + tuning chip share one horizontal line so the chip
+						     stays compact and does not add a row to the bottom bar -->
+						<div class="flex items-center gap-2 min-w-0">
+							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
+								{#if currentArtistName}
+									<span class="relative inline-block">
+										<ArtistTooltip artistName={currentArtistName} position="bottom">
+											<a
+												href="{base}/search?q={encodeURIComponent(currentArtistName)}"
+												class="hover:text-violet-500 hover:underline transition-colors"
+												title="Search more by this artist">{currentArtistName}</a
+											>
+										</ArtistTooltip>
+									</span>
+									&middot;
+								{/if}
+								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+									? ` \u00B7 ${totalBars} bars`
+									: ''}
+							</p>
+							<div class="flex-shrink-0">
+								<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+							</div>
 						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->

@@ -18,6 +18,18 @@ test.describe('player panel sheet', () => {
 		await expect(page.locator('[role="dialog"] [role="tablist"]')).toBeVisible();
 	});
 
+	test('is not clipped underneath the top header', async ({ page }) => {
+		await setupPlayPage(page);
+		await openPanel(page);
+
+		const headerBox = await page.locator('header').first().boundingBox();
+		const panelBox = await page.locator('[role="dialog"]').boundingBox();
+		expect(headerBox).not.toBeNull();
+		expect(panelBox).not.toBeNull();
+		// The panel starts below the header, so its content is never hidden by it
+		expect(panelBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+	});
+
 	test('closes when the backdrop is tapped', async ({ page }) => {
 		await setupPlayPage(page);
 		await openPanel(page);

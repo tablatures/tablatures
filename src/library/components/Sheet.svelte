@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
 
 	export let open = false;
 	export let title = '';
-	export let initialSnap: 'half' | 'full' = 'half';
+	export let initialSnap: 'half' | 'full' = 'full';
 	export let barOffsetVar = '--player-bar-height';
 	export let rootEl: HTMLElement | undefined = undefined;
 
@@ -36,8 +36,15 @@
 		return parseFloat(raw) || 0;
 	}
 
+	function headerPx(): number {
+		if (!rootEl) return 56;
+		const raw = getComputedStyle(rootEl).getPropertyValue('--app-header-height');
+		return parseFloat(raw) || 56;
+	}
+
+	// Full height stops just below the app header so the sheet is never clipped
 	function fullHeight(): number {
-		return Math.max(160, viewportH - barPx() - 12);
+		return Math.max(160, viewportH - barPx() - headerPx() - 8);
 	}
 
 	function halfHeight(): number {
@@ -70,7 +77,6 @@
 		updateMedia();
 		snap = initialSnap;
 		applySnap();
-		requestAnimationFrame(() => (shown = true));
 	});
 
 	onDestroy(() => {
@@ -82,6 +88,23 @@
 	function close() {
 		open = false;
 		dispatch('close');
+	}
+
+	// The panel element (rootEl) only exists once open is true, so recompute the
+	// snap height after it mounts. Otherwise barPx()/headerPx() read 0 and the
+	// full-height sheet overshoots above the header. Also drives the slide-in.
+	let wasOpen = false;
+	$: if (open && !wasOpen) {
+		wasOpen = true;
+		snap = initialSnap;
+		shown = false;
+		tick().then(() => {
+			applySnap();
+			requestAnimationFrame(() => (shown = true));
+		});
+	} else if (!open && wasOpen) {
+		wasOpen = false;
+		shown = false;
 	}
 
 	// Drag arbitration is avoided by only capturing the pointer on the handle and
@@ -152,7 +175,7 @@
 {#if open}
 	<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 	<div
-		class="fixed inset-x-0 top-0 z-[60] {mode === 'portrait' ? 'bg-black/30' : ''}"
+		class="fixed inset-x-0 top-0 z-[105] {mode === 'portrait' ? 'bg-black/30' : ''}"
 		style="bottom: var({barOffsetVar})"
 		on:click={close}
 		role="presentation"
@@ -160,7 +183,7 @@
 	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<div
 		bind:this={rootEl}
-		class="fixed z-[70] flex flex-col bg-white dark:bg-neutral-900 shadow-2xl border-neutral-200 dark:border-neutral-700 transition-transform duration-200 ease-out motion-reduce:transition-none {hiddenClass}
+		class="fixed z-[110] flex flex-col bg-white dark:bg-neutral-900 shadow-2xl border-neutral-200 dark:border-neutral-700 transition-transform duration-200 ease-out motion-reduce:transition-none {hiddenClass}
 			{mode === 'portrait'
 			? 'left-0 right-0 rounded-t-2xl border-t'
 			: mode === 'landscape'
