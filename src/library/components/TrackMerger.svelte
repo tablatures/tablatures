@@ -76,18 +76,25 @@
 
 <div class="space-y-2">
 	{#if mergeMode}
+		<div
+			class="flex items-start gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400"
+		>
+			<i class="material-icons !text-base flex-shrink-0">info</i>
+			<p class="text-[11px] leading-snug">
+				Tick tracks in play order. The first becomes the melody, the rest fill in as voices.
+			</p>
+		</div>
+
 		{#if mixedStringCounts}
 			<p class="text-[11px] text-amber-500">Selected tracks must have the same string count.</p>
 		{:else if selectedIndexes.length < 2}
 			<p class="text-[11px] text-neutral-400 dark:text-neutral-500">
-				Select at least two tracks to merge.
+				Pick at least two tracks to merge.
 			</p>
 		{/if}
 
 		<div class="flex items-center gap-2">
-			<p class="text-[10px] text-neutral-400 dark:text-neutral-500 flex-1">
-				Max simultaneous notes
-			</p>
+			<p class="text-[10px] text-neutral-400 dark:text-neutral-500 flex-1">Max notes at once</p>
 			{#each [4, 5, 6] as cap}
 				<button
 					on:click={() => (maxSimultaneous = cap)}
@@ -104,14 +111,14 @@
 		<div class="flex items-center gap-2">
 			<button
 				on:click={cancel}
-				class="px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors active:scale-[0.98]"
+				class="px-4 py-3 text-sm font-medium rounded-xl border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors active:scale-[0.98]"
 			>
 				Cancel
 			</button>
 			<button
 				on:click={merge}
 				disabled={!canMerge}
-				class="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors active:scale-[0.98]
+				class="flex-1 px-4 py-3 text-sm font-semibold rounded-xl transition-colors active:scale-[0.98]
 					{canMerge
 					? 'bg-violet-500 hover:bg-violet-600 text-white shadow-sm'
 					: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'}"
