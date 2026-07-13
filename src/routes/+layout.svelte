@@ -39,7 +39,13 @@
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import PwaReloadPrompt from '../library/components/PwaReloadPrompt.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
+	import {
+		setAudioSessionType,
+		requestWakeLock,
+		releaseWakeLock
+	} from '../library/utils/playbackEnv';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -507,6 +513,36 @@
 		);
 	}
 
+	// Hint the audio session type: record mode while the tuner mic is live,
+	// playback while a tab is playing (so iOS does not mute Web Audio on the
+	// silent switch), otherwise auto. Feature-guarded.
+	$: if (browser) {
+		setAudioSessionType(
+			$tunerOpen ? 'play-and-record' : $playerState.playing ? 'playback' : 'auto'
+		);
+	}
+
+	// Keep the screen awake while playback runs, release it as soon as it stops.
+	$: if (browser) {
+		if ($playerState.playing) {
+			requestWakeLock();
+		} else {
+			releaseWakeLock();
+		}
+	}
+
+	onMount(() => {
+		// Wake locks are dropped when the tab is backgrounded; re-acquire on
+		// return if playback is still running.
+		function onVisible() {
+			if (document.visibilityState === 'visible' && get(playerState).playing) {
+				requestWakeLock();
+			}
+		}
+		document.addEventListener('visibilitychange', onVisible);
+		return () => document.removeEventListener('visibilitychange', onVisible);
+	});
+
 	onMount(() => {
 		// Initialize API if tab already exists in store
 		const existingTab = tabStore.loadTab();
@@ -792,6 +828,9 @@
 
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
+
+	<!-- Service worker update prompt (PWA) -->
+	<PwaReloadPrompt />
 
 	<main
 		id="main-content"
