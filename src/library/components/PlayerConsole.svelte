@@ -70,10 +70,10 @@
 			</h3>
 			<!-- Master and detail sit flush as one panel; equal height so few tracks
 			     fill the height and many tracks scroll inside the list. -->
-			<div class="flex flex-wrap items-stretch max-h-[min(28rem,60svh)]">
+			<div class="flex items-stretch max-h-[min(28rem,60svh)]">
 				<!-- Master card: merge rail + track list + footer -->
 				<div
-					class="flex-1 min-w-[14rem] min-h-0 rounded-l-xl border border-r-0 border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-stretch"
+					class="flex-1 min-w-[11rem] min-h-0 rounded-l-xl border border-r-0 border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-stretch"
 				>
 					<MergeRail
 						{eligibleCount}
@@ -131,7 +131,7 @@
 
 				<!-- Detail card, flush to the list; the header is a window-style bar -->
 				<section
-					class="flex-1 min-w-[16rem] min-h-0 rounded-r-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/20 overflow-hidden flex flex-col"
+					class="flex-1 min-w-[12rem] min-h-0 rounded-r-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/20 overflow-hidden flex flex-col"
 				>
 					<h3
 						class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-violet-100 dark:bg-violet-900/30 border-b border-violet-200/70 dark:border-violet-800/50 text-xs font-semibold text-violet-600 dark:text-violet-400"

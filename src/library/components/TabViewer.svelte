@@ -193,7 +193,7 @@
 	let resizePointerX = 0;
 	$: consolePanelWidthCss = showConsole
 		? consoleWidth != null
-			? `${consoleWidth}px`
+			? `${Math.max(420, consoleWidth)}px`
 			: 'clamp(460px, 44vw, 760px)'
 		: '0px';
 
@@ -223,7 +223,7 @@
 			resizeRaf = false;
 			// Dragging left widens the panel
 			const width = resizeStartWidth + (resizeStartX - resizePointerX);
-			consoleWidth = Math.max(360, Math.min(consoleMaxWidth(), Math.round(width)));
+			consoleWidth = Math.max(420, Math.min(consoleMaxWidth(), Math.round(width)));
 		});
 	}
 
