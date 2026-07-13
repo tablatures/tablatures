@@ -44,7 +44,7 @@ test.describe('Settings desync on speed change (#129)', () => {
 		await tracksTab.click();
 
 		// Click "Mute All" button
-		const muteAllBtn = page.locator('button:text("Mute All")').first();
+		const muteAllBtn = page.locator('button[aria-label="Mute all"]').first();
 		if (!(await muteAllBtn.isVisible())) {
 			await page.keyboard.press('Escape');
 			test.skip();

@@ -3,6 +3,7 @@
 
 	export let activeTrackIndex = 0;
 	export let trackSolos: boolean[] = [];
+	export let trackMutes: boolean[] = [];
 
 	const dispatch = createEventDispatcher<{
 		togglesolo: number;
@@ -10,30 +11,39 @@
 		muteall: void;
 		unmuteall: void;
 	}>();
+
+	$: allMuted = trackMutes.length > 0 && trackMutes.every((m) => m);
 </script>
 
-<div class="grid grid-cols-2 gap-2">
+<!-- Footer aligned under the row's solo / mute / volume columns -->
+<div class="flex items-center gap-0.5 pl-2 pr-1.5">
+	<span class="flex-1 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+		All tracks
+	</span>
 	<button
 		on:click={() => dispatch('togglesolo', activeTrackIndex)}
-		class="px-3 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 text-center
-			{trackSolos[activeTrackIndex]
-			? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
-			: 'border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800'}"
-		>Solo current</button
+		class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
+			{trackSolos[activeTrackIndex] ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'}"
+		title="Solo current track"
+		aria-label="Solo current track"
 	>
+		<i class="material-icons !text-base">headphones</i>
+	</button>
+	<button
+		on:click={() => dispatch(allMuted ? 'unmuteall' : 'muteall')}
+		class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
+			{allMuted ? 'text-red-500' : 'text-neutral-400'}"
+		title={allMuted ? 'Unmute all' : 'Mute all'}
+		aria-label={allMuted ? 'Unmute all' : 'Mute all'}
+	>
+		<i class="material-icons !text-base">{allMuted ? 'volume_off' : 'volume_up'}</i>
+	</button>
 	<button
 		on:click={() => dispatch('resetlevels')}
-		class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-		>Reset levels</button
+		class="w-11 h-8 rounded-lg text-[10px] font-medium text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+		title="Reset all volumes"
+		aria-label="Reset volumes"
 	>
-	<button
-		on:click={() => dispatch('muteall')}
-		class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-		>Mute all</button
-	>
-	<button
-		on:click={() => dispatch('unmuteall')}
-		class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
-		>Unmute all</button
-	>
+		Reset
+	</button>
 </div>

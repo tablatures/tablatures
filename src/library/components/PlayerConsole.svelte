@@ -40,9 +40,14 @@
 	}
 
 	$: eligibleCount = tracks.filter((t) => stringCount(t) > 0).length;
+	$: mergeCounts = selectedIndexes.map((i) => stringCount(tracks[i]));
+	$: canMerge =
+		selectedIndexes.length >= 2 && selectedIndexes.length <= 4 && new Set(mergeCounts).size <= 1;
 	$: lastMerged = $scoreEdits.mergedTrackIndexes.at(-1) ?? null;
 	$: canRemove = lastMerged !== null && lastMerged === tracks.length - 1;
 	$: showMergeArea = mergeMode || canRemove;
+
+	let mergerRef: TrackMerger;
 	$: activeHasTuning = stringCount(tracks[activeTrackIndex]) > 0;
 	// Other tunable tracks to offer when the active one cannot be transposed
 	$: tunableTracks = tracks
@@ -56,7 +61,7 @@
 	<div class="p-3 sm:p-4">
 		<div class="flex flex-wrap gap-4 items-start">
 			<!-- Master: track list + mixing + merge -->
-			<section class="flex-1 min-w-[13rem] space-y-2">
+			<section class="flex-1 min-w-[15rem] space-y-2">
 				<h3
 					class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
 				>
@@ -70,7 +75,6 @@
 						<TrackList
 							{tracks}
 							{activeTrackIndex}
-							showActiveArrow
 							bind:trackVolumes
 							{trackMutes}
 							{trackSolos}
@@ -82,12 +86,19 @@
 							on:volume={(e) => dispatch('trackvolume', e.detail)}
 						/>
 					</div>
-					<MergeRail {eligibleCount} bind:mergeMode bind:selectedIndexes />
+					<MergeRail
+						{eligibleCount}
+						{canMerge}
+						bind:mergeMode
+						bind:selectedIndexes
+						on:confirm={() => mergerRef?.merge()}
+					/>
 				</div>
 				{#if !mergeMode}
 					<TrackQuickControls
 						{activeTrackIndex}
 						{trackSolos}
+						{trackMutes}
 						on:togglesolo
 						on:resetlevels
 						on:muteall
@@ -96,13 +107,24 @@
 				{/if}
 				{#if showMergeArea}
 					<div class="pt-2 border-t border-neutral-200 dark:border-neutral-700">
-						<TrackMerger {api} {tracks} bind:mergeMode bind:selectedIndexes on:merged on:removed />
+						<TrackMerger
+							bind:this={mergerRef}
+							{api}
+							{tracks}
+							bind:mergeMode
+							bind:selectedIndexes
+							on:merged
+							on:removed
+						/>
 					</div>
 				{/if}
 			</section>
 
-			<!-- Detail: tuning for the active track (or a non-tunable state) -->
-			<section class="flex-[1.4] min-w-[17rem] space-y-3">
+			<!-- Detail: tuning for the active track. The violet left accent ties it
+			     to the highlighted (violet) active row so it reads as one unit. -->
+			<section
+				class="flex-1 min-w-[16rem] space-y-3 sm:border-l-2 sm:border-violet-300 sm:dark:border-violet-800 sm:pl-3"
+			>
 				<h3
 					class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-xs font-semibold text-violet-600 dark:text-violet-400"
 				>

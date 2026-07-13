@@ -42,9 +42,14 @@
 	}
 
 	$: eligibleCount = tracks.filter((t) => stringCount(t) > 0).length;
+	$: mergeCounts = selectedIndexes.map((i) => stringCount(tracks[i]));
+	$: canMerge =
+		selectedIndexes.length >= 2 && selectedIndexes.length <= 4 && new Set(mergeCounts).size <= 1;
 	$: lastMerged = $scoreEdits.mergedTrackIndexes.at(-1) ?? null;
 	$: canRemove = lastMerged !== null && lastMerged === tracks.length - 1;
 	$: showMergeArea = mergeMode || canRemove;
+
+	let mergerRef: TrackMerger;
 
 	// Only one transposition is tracked at a time; surface it when the user is
 	// on the tuning segment of a different track.
@@ -95,13 +100,20 @@
 					on:volume={(e) => dispatch('trackvolume', e.detail)}
 				/>
 			</div>
-			<MergeRail {eligibleCount} bind:mergeMode bind:selectedIndexes />
+			<MergeRail
+				{eligibleCount}
+				{canMerge}
+				bind:mergeMode
+				bind:selectedIndexes
+				on:confirm={() => mergerRef?.merge()}
+			/>
 		</div>
 
 		{#if !mergeMode}
 			<TrackQuickControls
 				{activeTrackIndex}
 				{trackSolos}
+				{trackMutes}
 				on:togglesolo
 				on:resetlevels
 				on:muteall
@@ -110,15 +122,29 @@
 		{/if}
 
 		{#if showMergeArea}
-			<div
-				class="sticky bottom-0 -mx-3 sm:-mx-4 px-3 sm:px-4 pt-2 pb-1 bg-white dark:bg-neutral-900 border-t border-neutral-200 dark:border-neutral-700"
-			>
-				<TrackMerger {api} {tracks} bind:mergeMode bind:selectedIndexes on:merged on:removed />
+			<div class="pt-1">
+				<TrackMerger
+					bind:this={mergerRef}
+					{api}
+					{tracks}
+					bind:mergeMode
+					bind:selectedIndexes
+					on:merged
+					on:removed
+				/>
 			</div>
 		{/if}
 	</div>
 {:else if segment === 'tuning'}
 	<div class="pt-3 space-y-3">
+		<!-- Keep the edited track's name visible while tuning in small mode -->
+		<h3
+			class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-xs font-semibold text-violet-600 dark:text-violet-400"
+		>
+			<i class="material-icons !text-base">tune</i>
+			<span class="text-[10px] uppercase tracking-wider opacity-70">Editing</span>
+			<span class="truncate">{tracks[activeTrackIndex]?.name ?? 'Track'}</span>
+		</h3>
 		{#if otherTranspose}
 			<div
 				class="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400"

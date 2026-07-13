@@ -35,7 +35,7 @@ async function mergeTracks(page: Page): Promise<void> {
 	await page.locator('button[aria-label="Merge tracks"]').click();
 	await page.locator('input[aria-label="Merge Lead"]').check();
 	await page.locator('input[aria-label="Merge Rhythm"]').check();
-	await page.locator('button:has-text("Merge into one track")').click();
+	await page.locator('button[aria-label="Confirm merge"]').click();
 	await expect(page.locator('text=Merged track created')).toBeVisible();
 }
 
