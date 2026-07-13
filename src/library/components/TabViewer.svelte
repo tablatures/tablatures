@@ -3614,8 +3614,8 @@
 		     the metadata row that sits above the transport bar. -->
 		{#if scoreLoaded && !autoFollow}
 			<div
-				class="fixed left-1/2 -translate-x-1/2 z-[55]"
-				style="bottom: calc(var(--player-bar-height) + 12px)"
+				class="fixed -translate-x-1/2 z-[55]"
+				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
 			>
 				<button
 					on:click={scrollToCursor}
