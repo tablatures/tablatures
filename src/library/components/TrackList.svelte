@@ -9,6 +9,9 @@
 	export let trackSolos: boolean[] = [];
 	export let mergeMode = false;
 	export let selectedIndexes: number[] = []; // order sets voice priority, first is melody
+	// In the console the active row drives the detail pane beside it; show a
+	// chevron so that relationship is obvious.
+	export let showActiveArrow = false;
 
 	const dispatch = createEventDispatcher<{
 		select: number;
@@ -166,16 +169,27 @@
 							<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
 						</button>
 						<button
-							on:click|stopPropagation={() => (expandedIndex = expandedIndex === i ? -1 : i)}
-							class="min-w-[3rem] h-9 px-2 rounded-lg text-[11px] font-mono transition-colors
+							on:click|stopPropagation={() => {
+								dispatch('select', i);
+								expandedIndex = expandedIndex === i ? -1 : i;
+							}}
+							class="h-9 px-2 rounded-lg text-[11px] font-mono flex items-center gap-1 transition-colors
 								{expandedIndex === i
 								? 'bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400'
 								: 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-							title="Volume"
-							aria-label="Toggle volume for {track.name}"
+							title="Adjust volume"
+							aria-label="Adjust volume for {track.name}"
 						>
+							<i class="material-icons !text-sm">tune</i>
 							{Math.round((trackVolumes[i] ?? 1) * 100)}%
 						</button>
+						{#if showActiveArrow}
+							<i
+								class="material-icons !text-lg {i === activeTrackIndex
+									? 'text-violet-500'
+									: 'text-transparent'}">chevron_right</i
+							>
+						{/if}
 					</div>
 				</div>
 				{#if expandedIndex === i}

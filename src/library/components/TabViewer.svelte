@@ -172,11 +172,71 @@
 	// fullscreen-style compact layout so the bar doesn't eat half the screen.
 	// Desktops and tablets (height > 500px) keep the normal layout.
 	let isMobileLandscape = false;
-	$: compactBar = isFullscreen || isMobileLandscape;
+	// Narrow phones get the denser transport row too, not just fullscreen/landscape
+	let isSmallScreen = false;
+	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
+	// The compact tuning pill belongs in the bar only when the metadata row (which
+	// carries its own chip) is hidden, otherwise it would show the chip twice.
+	$: metadataHidden = isFullscreen || isMobileLandscape;
 	// At lg+ the settings panel becomes a docked split-view console instead of a
 	// bottom sheet, and the score reflows into the remaining width.
 	let isLargeScreen = false;
 	$: showConsole = showSettings && isLargeScreen;
+
+	// User-resizable width for the docked console (null = default clamp).
+	// Persisted via saveSettings. Drag is pointer based so it works on PC + touch.
+	let consoleWidth: number | null = null;
+	let resizingConsole = false;
+	let resizeStartX = 0;
+	let resizeStartWidth = 0;
+	let resizeRaf = false;
+	let resizePointerX = 0;
+	$: consolePanelWidthCss = showConsole
+		? consoleWidth != null
+			? `${consoleWidth}px`
+			: 'clamp(440px, 42vw, 680px)'
+		: '0px';
+
+	function consoleMaxWidth(): number {
+		return Math.min(760, Math.round(window.innerWidth * 0.6));
+	}
+
+	function consoleResizeDown(e: PointerEvent) {
+		resizingConsole = true;
+		resizeStartX = e.clientX;
+		const aside = (e.currentTarget as HTMLElement).closest('aside');
+		resizeStartWidth = consoleWidth ?? aside?.offsetWidth ?? 480;
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			// pointer capture is best effort
+		}
+		e.preventDefault();
+	}
+
+	function consoleResizeMove(e: PointerEvent) {
+		if (!resizingConsole) return;
+		resizePointerX = e.clientX;
+		if (resizeRaf) return;
+		resizeRaf = true;
+		requestAnimationFrame(() => {
+			resizeRaf = false;
+			// Dragging left widens the panel
+			const width = resizeStartWidth + (resizeStartX - resizePointerX);
+			consoleWidth = Math.max(360, Math.min(consoleMaxWidth(), Math.round(width)));
+		});
+	}
+
+	function consoleResizeUp(e: PointerEvent) {
+		if (!resizingConsole) return;
+		resizingConsole = false;
+		try {
+			(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+		} catch {
+			// nothing to release
+		}
+		saveSettings();
+	}
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
@@ -502,7 +562,8 @@
 				metronome,
 				delaying,
 				tabScale,
-				activeTrackIndex
+				activeTrackIndex,
+				consoleWidth
 			};
 			localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave));
 		} catch {
@@ -522,6 +583,7 @@
 			if (typeof parsed.delaying === 'number') delaying = parsed.delaying;
 			if (typeof parsed.tabScale === 'number') tabScale = parsed.tabScale;
 			if (typeof parsed.activeTrackIndex === 'number') activeTrackIndex = parsed.activeTrackIndex;
+			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
 		}
@@ -2151,6 +2213,11 @@
 		if (largeScreenMql) isLargeScreen = largeScreenMql.matches;
 	}
 
+	let smallScreenMql: MediaQueryList | null = null;
+	function syncSmallScreen() {
+		if (smallScreenMql) isSmallScreen = smallScreenMql.matches;
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
@@ -2163,6 +2230,9 @@
 			largeScreenMql = window.matchMedia('(min-width: 976px) and (orientation: landscape)');
 			syncLargeScreen();
 			largeScreenMql.addEventListener('change', syncLargeScreen);
+			smallScreenMql = window.matchMedia('(max-width: 480px)');
+			syncSmallScreen();
+			smallScreenMql.addEventListener('change', syncSmallScreen);
 		}
 		// Seed playerState.activeTrackIndex from URL so adoption sync below
 		// sees the URL value as authoritative. Otherwise the adoption sync
@@ -2632,6 +2702,7 @@
 		themeUnsubscribe?.();
 		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
 		largeScreenMql?.removeEventListener('change', syncLargeScreen);
+		smallScreenMql?.removeEventListener('change', syncSmallScreen);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
@@ -3384,9 +3455,7 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {showConsole
-		? 'clamp(440px, 42vw, 680px)'
-		: '0px'}"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3971,8 +4040,9 @@
 				</button>
 			{/if}
 
-			<!-- Compact transposed pill: the metadata chip is hidden in this mode -->
-			{#if compactBar}
+			<!-- Compact transposed pill: only when the metadata row (and its chip)
+			     is hidden, otherwise the chip would appear twice -->
+			{#if metadataHidden}
 				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
 			{/if}
 
@@ -4322,6 +4392,24 @@
 				role="dialog"
 				aria-label="Player settings"
 			>
+				<!-- Drag the left edge to resize (pointer based: works on PC and touch) -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div
+					class="absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 z-10 flex items-center justify-center cursor-ew-resize touch-none group"
+					on:pointerdown={consoleResizeDown}
+					on:pointermove={consoleResizeMove}
+					on:pointerup={consoleResizeUp}
+					on:pointercancel={consoleResizeUp}
+					role="separator"
+					aria-label="Resize settings panel"
+					aria-orientation="vertical"
+				>
+					<div
+						class="h-10 w-1 rounded-full bg-neutral-300 dark:bg-neutral-600 group-hover:bg-violet-400 {resizingConsole
+							? '!bg-violet-500'
+							: ''} transition-colors"
+					/>
+				</div>
 				<div
 					class="flex items-center justify-between gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
 				>

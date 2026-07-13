@@ -32,7 +32,7 @@
 <div class="w-full">
 	<!-- Wrapper button -->
 	<button
-		class="relative group w-full text-left space-y-1 py-2 px-3 rounded-lg transition-colors duration-200
+		class="relative group w-full text-left space-y-0.5 py-1 px-2 rounded-lg transition-colors duration-200
            hover:bg-violet-100 dark:hover:bg-violet-900/40 group"
 		on:click={toggleValue}
 		aria-label="Toggle {label}"
@@ -74,7 +74,7 @@
 		aria-valuemax={max}
 		aria-valuenow={value}
 		class="
-		w-full h-4 cursor-pointer rounded bg-transparent
+		w-full h-3 cursor-pointer rounded bg-transparent
 		accent-violet-600 dark:accent-violet-400 appearance-none
 
 		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-neutral-300 dark:[&::-webkit-slider-runnable-track]:bg-neutral-700 [&::-webkit-slider-runnable-track]:rounded

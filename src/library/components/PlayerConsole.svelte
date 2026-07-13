@@ -51,19 +51,23 @@
 
 <!-- One natural scroll: master + detail, then playback. Avoids a pinned strip
      leaving a void on tall screens. -->
-<div class="h-full overflow-y-auto">
+<div class="h-full overflow-y-auto overscroll-contain">
 	<div class="p-3 sm:p-4">
 		<div class="flex flex-wrap gap-4 items-start">
 			<!-- Master: track list + mixing + merge -->
-			<section class="flex-1 min-w-[13rem] space-y-3">
+			<section class="flex-1 min-w-[13rem] space-y-2">
 				<h3
-					class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
+					class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
 				>
 					Tracks ({tracks.length})
+					<span class="normal-case tracking-normal text-neutral-400 dark:text-neutral-500"
+						>· tap to edit →</span
+					>
 				</h3>
 				<TrackList
 					{tracks}
 					{activeTrackIndex}
+					showActiveArrow
 					bind:trackVolumes
 					{trackMutes}
 					{trackSolos}
@@ -97,9 +101,11 @@
 			<!-- Detail: tuning for the active track (or a non-tunable state) -->
 			<section class="flex-[1.4] min-w-[17rem] space-y-3">
 				<h3
-					class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
+					class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-xs font-semibold text-violet-600 dark:text-violet-400"
 				>
-					{tracks[activeTrackIndex]?.name ?? 'Track'}
+					<i class="material-icons !text-base">tune</i>
+					<span class="text-[10px] uppercase tracking-wider opacity-70">Editing</span>
+					<span class="truncate">{tracks[activeTrackIndex]?.name ?? 'Track'}</span>
 				</h3>
 				{#if activeHasTuning}
 					<TuningTransposer

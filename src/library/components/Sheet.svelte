@@ -210,7 +210,7 @@
 			<slot name="header" />
 		</div>
 
-		<div class="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 pb-3 pb-safe">
+		<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 pb-3 pb-safe">
 			<slot />
 		</div>
 
