@@ -1784,10 +1784,13 @@
 	}
 
 	function scrollToCursor() {
-		const cursor = api?._beatCursor;
-		if (!cursor?.element || !target) return;
+		// Use the shared cursor element reference (the same one the auto-follow
+		// scroll uses) rather than an alphaTab private field, which is not
+		// exposed by the vendored build.
+		const el = get(beatCursorEl);
+		if (!el || !target) return;
 		const containerRect = target.getBoundingClientRect();
-		const elRect = cursor.element.getBoundingClientRect();
+		const elRect = el.getBoundingClientRect();
 		const scrollTop =
 			target.scrollTop +
 			(elRect.top - containerRect.top) -

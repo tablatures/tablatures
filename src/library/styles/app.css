@@ -317,6 +317,25 @@
 	background: #a06cff;
 }
 
+/* In native fullscreen the browser paints a black ::backdrop behind any
+   transparent area of the fullscreened element. #page has no background of
+   its own, so the score's top padding showed through as a black band at the
+   top. Give the fullscreened page the app background. Keep :fullscreen and
+   :-webkit-full-screen in separate rules: a selector list is dropped whole if
+   any pseudo is unknown to the browser. */
+#page:fullscreen {
+	background-color: #ffffff;
+}
+#page:-webkit-full-screen {
+	background-color: #ffffff;
+}
+.dark #page:fullscreen {
+	background-color: #000000;
+}
+.dark #page:-webkit-full-screen {
+	background-color: #000000;
+}
+
 .at-highlight * {
 	fill: #8c52ff;
 	stroke: #8c52ff;
