@@ -191,7 +191,7 @@
 
 		<!-- Source variant switcher -->
 		{#if hasVariants}
-			<div class="flex items-center gap-1 flex-shrink-0">
+			<div class="hidden min-[360px]:flex items-center gap-1 flex-shrink-0">
 				{#each variants as variant}
 					<button
 						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors

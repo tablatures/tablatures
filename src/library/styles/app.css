@@ -39,6 +39,14 @@
 		height: 6px;
 	}
 
+	/* Fully hide the scrollbar on a scroll strip (keeps scrolling) */
+	.scrollbar-none {
+		scrollbar-width: none;
+	}
+	.scrollbar-none::-webkit-scrollbar {
+		display: none;
+	}
+
 	/* Dynamic viewport height with a 100vh fallback. Mobile browsers collapse
 	   the URL bar on scroll; 100vh is frozen at the initial (collapsed) value,
 	   so content ends short. 100dvh tracks the *visible* viewport and kills

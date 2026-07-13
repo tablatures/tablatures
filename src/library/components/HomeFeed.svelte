@@ -670,11 +670,11 @@
 				 row 1 so cards flow in row 2 directly beneath it. -->
 			{#if showOnboardingPanel || (mounted && importLayout === 'full' && recentItems.length === 0)}
 				<div
-					class="h-full {(importLayout === 'big' || importLayout === 'medium') && panelRowSpan === 2
-						? 'min-h-[395px]'
+					class="h-full min-h-0 {(importLayout === 'big' || importLayout === 'medium') && panelRowSpan === 2
+						? 'sm:min-h-[395px]'
 						: (importLayout === 'big' || importLayout === 'medium')
-							? 'min-h-[190px]'
-							: 'min-h-[210px]'} rounded-xl overflow-hidden bg-gradient-to-br from-violet-100 via-violet-50 to-white dark:from-violet-900/40 dark:via-violet-950/30 dark:to-neutral-900 flex flex-col justify-between p-5 sm:p-6 gap-5"
+							? 'sm:min-h-[190px]'
+							: 'sm:min-h-[210px]'} rounded-xl overflow-hidden bg-gradient-to-br from-violet-100 via-violet-50 to-white dark:from-violet-900/40 dark:via-violet-950/30 dark:to-neutral-900 flex flex-col justify-between p-5 sm:p-6 gap-5"
 					style={importLayout === 'big'
 						? `grid-column: 4 / -1; grid-row: 1 / ${1 + panelRowSpan};`
 						: importLayout === 'medium'
@@ -897,7 +897,7 @@
 	>
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 		<div
-			class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in"
+			class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in pb-safe"
 			on:click|stopPropagation
 		>
 			<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">

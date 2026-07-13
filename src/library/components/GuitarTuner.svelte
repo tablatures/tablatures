@@ -280,7 +280,7 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class="fixed inset-0 z-[94] bg-black/40 backdrop-blur-sm"
+		class="fixed inset-0 z-[110] bg-black/40 backdrop-blur-sm"
 		transition:fade={{ duration: 100 }}
 		on:click={handleBackdropClick}
 	/>
@@ -292,11 +292,11 @@
 		role="dialog"
 		aria-label="Guitar Tuner"
 		aria-modal="true"
-		class="fixed inset-0 z-[95] flex items-center justify-center sm:p-4 pointer-events-none"
+		class="fixed inset-0 z-[111] flex items-center justify-center sm:p-4 pointer-events-none"
 		on:keydown={handleKeydown}
 	>
 		<div
-			class="pointer-events-auto w-full h-full sm:h-auto sm:min-h-[80vh] sm:max-h-[92vh] sm:max-w-[640px] bg-white dark:bg-neutral-900 sm:border border-neutral-200 dark:border-neutral-700 shadow-2xl sm:rounded-2xl overflow-hidden flex flex-col"
+			class="pointer-events-auto w-full h-full sm:h-auto sm:min-h-[80vh] sm:max-h-[92vh] sm:max-w-[640px] bg-white dark:bg-neutral-900 sm:border border-neutral-200 dark:border-neutral-700 shadow-2xl sm:rounded-2xl overflow-y-auto flex flex-col"
 			transition:fade={{ duration: 100 }}
 		>
 			<!-- Header bar -->
@@ -318,7 +318,7 @@
 			</div>
 
 			<!-- Graph + Gauge unified container (same px-2, percentages align) -->
-			<div class="px-2 flex-1 flex flex-col" style="min-height: 360px">
+			<div class="px-2 flex-1 flex flex-col" style="min-height: clamp(180px, 40svh, 360px)">
 				<!-- Graph area with note overlay -->
 				<div class="relative flex-1 -mb-5 z-0">
 					<!-- Canvas background (inset 2px horizontally to align with gauge) -->
@@ -336,7 +336,10 @@
 							<div
 								class="flex items-baseline transition-colors duration-200 note-outline {noteColor}"
 							>
-								<span class="text-8xl sm:text-9xl font-bold tracking-tighter">{state.note}</span>
+								<span
+									class="text-8xl sm:text-9xl [@media(max-height:500px)]:text-6xl font-bold tracking-tighter"
+									>{state.note}</span
+								>
 								<span class="text-3xl sm:text-4xl font-semibold -mt-7 sm:-mt-8 ml-1"
 									>{state.octave}</span
 								>
@@ -355,7 +358,7 @@
 							</div>
 						{:else if state.active}
 							<span
-								class="text-8xl sm:text-9xl font-bold text-neutral-400 dark:text-neutral-500 note-outline"
+								class="text-8xl sm:text-9xl [@media(max-height:500px)]:text-6xl font-bold text-neutral-400 dark:text-neutral-500 note-outline"
 								>--</span
 							>
 							<span
@@ -364,7 +367,7 @@
 							>
 						{:else}
 							<span
-								class="text-8xl sm:text-9xl font-bold text-neutral-300 dark:text-neutral-600 note-outline"
+								class="text-8xl sm:text-9xl [@media(max-height:500px)]:text-6xl font-bold text-neutral-300 dark:text-neutral-600 note-outline"
 								>--</span
 							>
 							<span class="text-sm text-neutral-400 dark:text-neutral-500 mt-3 note-outline-sm"
@@ -505,7 +508,7 @@
 								>
 								<button
 									on:click={() => tunerStore.setTargetString(i)}
-									class="relative z-10 w-full h-8 sm:h-10 rounded-xl text-[9px] sm:text-xs font-mono font-bold transition-all duration-150 active:scale-95 whitespace-nowrap
+									class="relative z-10 w-full h-8 sm:h-10 [@media(max-height:500px)]:h-7 rounded-xl text-[9px] sm:text-xs font-mono font-bold transition-all duration-150 active:scale-95 whitespace-nowrap
 										{state.targetString === i
 										? 'bg-violet-500 text-white shadow-md'
 										: 'bg-neutral-300 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-400 hover:bg-neutral-400 dark:hover:bg-neutral-700'}
@@ -523,7 +526,7 @@
 						<button
 							on:click={() => tunerStore.setTargetString(null)}
 							style="flex: 1.33"
-							class="h-8 sm:h-10 rounded-xl text-[9px] sm:text-xs font-semibold transition-all duration-150 active:scale-95 whitespace-nowrap
+							class="h-8 sm:h-10 [@media(max-height:500px)]:h-7 rounded-xl text-[9px] sm:text-xs font-semibold transition-all duration-150 active:scale-95 whitespace-nowrap
 								{state.targetString === null
 								? 'bg-violet-500 text-white shadow-md'
 								: 'bg-neutral-300 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-400 hover:bg-neutral-400 dark:hover:bg-neutral-700'}"
@@ -539,7 +542,7 @@
 				<div class="w-full flex flex-col items-center gap-1.5">
 					<button
 						on:click={safeToggle}
-						class="w-full rounded-xl py-4 font-bold text-base text-white transition-all duration-150 active:scale-[0.98]
+						class="w-full rounded-xl py-4 [@media(max-height:500px)]:py-2 font-bold text-base text-white transition-all duration-150 active:scale-[0.98]
 							flex items-center justify-center gap-2.5
 							{state.active ? 'bg-red-500 hover:bg-red-600' : 'bg-violet-500 hover:bg-violet-600'}
 							{state.active ? 'animate-pulse-ring' : ''}"

@@ -626,16 +626,16 @@
 	</div>
 {/if}
 
-<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-3.5rem)]">
+<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-3.5rem)]">
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
-		<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+		<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
 			<LoadingScore messages={['Searching local database', 'Fetching from sources']} size="lg" />
 		</div>
 
 	{:else if error}
 		<!-- Error -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
 			<p class="text-neutral-600 dark:text-neutral-400 mb-4">{error}</p>
 			<button
@@ -806,20 +806,20 @@
 
 	{:else if query.length >= 2}
 		<!-- No results -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search_off</i>
 			<p class="text-neutral-600 dark:text-neutral-400">No results for "{query}"</p>
 		</div>
 
 	{:else if query.length > 0 && query.length < 2}
 		<!-- Too short -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Type at least 2 characters to search</p>
 		</div>
 
 	{:else}
 		<!-- Empty search - show prompt -->
-		<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search</i>
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>
@@ -831,7 +831,7 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div class="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" on:click={() => { playlistPickerTab = null; }} role="presentation">
 		<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-		<div class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in" on:click|stopPropagation>
+		<div class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-sm overflow-hidden animate-fade-in pb-safe" on:click|stopPropagation>
 			<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
 				<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Add to playlist</p>
 				<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">{playlistPickerTab.title} - {playlistPickerTab.artist}</p>

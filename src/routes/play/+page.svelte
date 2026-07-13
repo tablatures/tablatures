@@ -358,11 +358,11 @@
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
 {#if loadingSharedTab}
-	<div class="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+	<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<LoadingScore message="Loading tablature" size="lg" />
 	</div>
 {:else if sharedTabError}
-	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
 		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
 		<div class="flex gap-3 mt-2">
@@ -390,7 +390,7 @@
 		on:sheetChanged={handleSheetChanged}
 	/>
 {:else}
-	<div class="flex flex-col items-center justify-center h-[calc(100vh-3.5rem)]">
+	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">No tab loaded</p>
 		<a
