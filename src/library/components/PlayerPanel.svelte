@@ -5,6 +5,7 @@
 	import TrackMerger from '$components/TrackMerger.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TrackQuickControls from '$components/TrackQuickControls.svelte';
+	import MergeRail from '$components/MergeRail.svelte';
 	import { scoreEdits, revertTranspose } from '$utils/scoreEdits';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 
@@ -78,27 +79,29 @@
 	</div>
 {:else if segment === 'tracks'}
 	<div class="pt-3 space-y-3">
-		<TrackList
-			{tracks}
-			{activeTrackIndex}
-			bind:trackVolumes
-			{trackMutes}
-			{trackSolos}
-			bind:mergeMode
-			bind:selectedIndexes
-			on:select={(e) => dispatch('selecttrack', e.detail)}
-			on:solo={(e) => dispatch('togglesolo', e.detail)}
-			on:mute={(e) => dispatch('togglemute', e.detail)}
-			on:volume={(e) => dispatch('trackvolume', e.detail)}
-		/>
+		<div class="flex gap-2 items-stretch">
+			<div class="flex-1 min-w-0">
+				<TrackList
+					{tracks}
+					{activeTrackIndex}
+					bind:trackVolumes
+					{trackMutes}
+					{trackSolos}
+					bind:mergeMode
+					bind:selectedIndexes
+					on:select={(e) => dispatch('selecttrack', e.detail)}
+					on:solo={(e) => dispatch('togglesolo', e.detail)}
+					on:mute={(e) => dispatch('togglemute', e.detail)}
+					on:volume={(e) => dispatch('trackvolume', e.detail)}
+				/>
+			</div>
+			<MergeRail {eligibleCount} bind:mergeMode bind:selectedIndexes />
+		</div>
 
 		{#if !mergeMode}
 			<TrackQuickControls
 				{activeTrackIndex}
 				{trackSolos}
-				{eligibleCount}
-				bind:mergeMode
-				bind:selectedIndexes
 				on:togglesolo
 				on:resetlevels
 				on:muteall

@@ -5,6 +5,7 @@
 	import TrackMerger from '$components/TrackMerger.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TrackQuickControls from '$components/TrackQuickControls.svelte';
+	import MergeRail from '$components/MergeRail.svelte';
 	import { scoreEdits } from '$utils/scoreEdits';
 
 	export let api: any;
@@ -64,27 +65,29 @@
 						>· tap to edit →</span
 					>
 				</h3>
-				<TrackList
-					{tracks}
-					{activeTrackIndex}
-					showActiveArrow
-					bind:trackVolumes
-					{trackMutes}
-					{trackSolos}
-					bind:mergeMode
-					bind:selectedIndexes
-					on:select={(e) => dispatch('selecttrack', e.detail)}
-					on:solo={(e) => dispatch('togglesolo', e.detail)}
-					on:mute={(e) => dispatch('togglemute', e.detail)}
-					on:volume={(e) => dispatch('trackvolume', e.detail)}
-				/>
+				<div class="flex gap-2 items-stretch">
+					<div class="flex-1 min-w-0">
+						<TrackList
+							{tracks}
+							{activeTrackIndex}
+							showActiveArrow
+							bind:trackVolumes
+							{trackMutes}
+							{trackSolos}
+							bind:mergeMode
+							bind:selectedIndexes
+							on:select={(e) => dispatch('selecttrack', e.detail)}
+							on:solo={(e) => dispatch('togglesolo', e.detail)}
+							on:mute={(e) => dispatch('togglemute', e.detail)}
+							on:volume={(e) => dispatch('trackvolume', e.detail)}
+						/>
+					</div>
+					<MergeRail {eligibleCount} bind:mergeMode bind:selectedIndexes />
+				</div>
 				{#if !mergeMode}
 					<TrackQuickControls
 						{activeTrackIndex}
 						{trackSolos}
-						{eligibleCount}
-						bind:mergeMode
-						bind:selectedIndexes
 						on:togglesolo
 						on:resetlevels
 						on:muteall
@@ -147,7 +150,7 @@
 	<!-- Global playback controls -->
 	<div class="border-t border-neutral-200 dark:border-neutral-700 p-3 sm:p-4">
 		<PlaybackControls
-			dense
+			knobs
 			bind:volume
 			bind:speed
 			bind:metronome

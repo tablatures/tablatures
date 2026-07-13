@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import SettingSlider from '$components/SettingSlider.svelte';
+	import Knob from '$components/Knob.svelte';
 
 	export let volume = 1;
 	export let speed = 1;
@@ -14,53 +15,83 @@
 	// Dense packs the four sliders into two columns for the wide docked console;
 	// the narrow sheet keeps them stacked.
 	export let dense = false;
+	// Knobs render the four controls as rotary knobs (console/dashboard look).
+	// Touch-first sheets keep the sliders.
+	export let knobs = false;
 
 	const dispatch = createEventDispatcher<{ toggleloop: void; clearloop: void }>();
+
+	const speedFormat = (v: number) => `${Math.round(v * 100) / 100}x`;
 </script>
 
-<div class={dense ? 'grid grid-cols-2 gap-x-4 gap-y-1' : 'flex flex-col gap-2'}>
-	<SettingSlider
-		bind:value={volume}
-		min={0}
-		max={2}
-		step={0.1}
-		label="Volume"
-		iconOn="volume_up"
-		iconOff="volume_off"
-		details="Mute / Reset playback volume"
-	/>
-	<SettingSlider
-		bind:value={speed}
-		min={0.1}
-		max={2}
-		step={0.1}
-		label="Speed"
-		iconOn="speed"
-		iconOff="speed"
-		details="Slow / Reset playback speed"
-	/>
-	<SettingSlider
-		bind:value={metronome}
-		min={0}
-		max={2}
-		step={0.1}
-		label="Metronome"
-		iconOn="timer"
-		iconOff="timer_off"
-		details="Mute / Max metronome volume"
-	/>
-	<SettingSlider
-		bind:value={tabScale}
-		min={0.3}
-		max={1.5}
-		step={0.1}
-		label="Scale"
-		iconOn="zoom_in"
-		iconOff="zoom_out"
-		onInput={onScaleInput}
-		details="Small / Reset tablature scale"
-	/>
-</div>
+{#if knobs}
+	<div class="flex items-start justify-around gap-2">
+		<Knob bind:value={volume} min={0} max={2} step={0.1} label="Volume" icon="volume_up" />
+		<Knob
+			bind:value={speed}
+			min={0.1}
+			max={2}
+			step={0.1}
+			label="Speed"
+			icon="speed"
+			format={speedFormat}
+		/>
+		<Knob bind:value={metronome} min={0} max={2} step={0.1} label="Metro" icon="timer" />
+		<Knob
+			bind:value={tabScale}
+			min={0.3}
+			max={1.5}
+			step={0.1}
+			label="Scale"
+			icon="zoom_in"
+			onInput={onScaleInput}
+		/>
+	</div>
+{:else}
+	<div class={dense ? 'grid grid-cols-2 gap-x-4 gap-y-1' : 'flex flex-col gap-2'}>
+		<SettingSlider
+			bind:value={volume}
+			min={0}
+			max={2}
+			step={0.1}
+			label="Volume"
+			iconOn="volume_up"
+			iconOff="volume_off"
+			details="Mute / Reset playback volume"
+		/>
+		<SettingSlider
+			bind:value={speed}
+			min={0.1}
+			max={2}
+			step={0.1}
+			label="Speed"
+			iconOn="speed"
+			iconOff="speed"
+			details="Slow / Reset playback speed"
+		/>
+		<SettingSlider
+			bind:value={metronome}
+			min={0}
+			max={2}
+			step={0.1}
+			label="Metronome"
+			iconOn="timer"
+			iconOff="timer_off"
+			details="Mute / Max metronome volume"
+		/>
+		<SettingSlider
+			bind:value={tabScale}
+			min={0.3}
+			max={1.5}
+			step={0.1}
+			label="Scale"
+			iconOn="zoom_in"
+			iconOff="zoom_out"
+			onInput={onScaleInput}
+			details="Small / Reset tablature scale"
+		/>
+	</div>
+{/if}
 
 <!-- Start delay + Loop info -->
 <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-700 space-y-3">

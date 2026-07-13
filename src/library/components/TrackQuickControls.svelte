@@ -3,9 +3,6 @@
 
 	export let activeTrackIndex = 0;
 	export let trackSolos: boolean[] = [];
-	export let eligibleCount = 0;
-	export let mergeMode = false;
-	export let selectedIndexes: number[] = [];
 
 	const dispatch = createEventDispatcher<{
 		togglesolo: number;
@@ -13,11 +10,6 @@
 		muteall: void;
 		unmuteall: void;
 	}>();
-
-	function enterMerge() {
-		selectedIndexes = [];
-		mergeMode = true;
-	}
 </script>
 
 <div class="grid grid-cols-2 gap-2">
@@ -45,13 +37,3 @@
 		>Unmute all</button
 	>
 </div>
-
-{#if eligibleCount >= 2}
-	<button
-		on:click={enterMerge}
-		class="w-full mt-2 px-4 py-2 text-sm font-medium rounded-lg border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors active:scale-[0.98]"
-	>
-		<i class="material-icons !text-base align-middle mr-1.5">call_merge</i>
-		Merge tracks
-	</button>
-{/if}

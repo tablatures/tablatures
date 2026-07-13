@@ -32,7 +32,7 @@ async function openTracksTab(page: Page): Promise<void> {
 async function mergeTracks(page: Page): Promise<void> {
 	await openTracksTab(page);
 	// Merging is now an explicit mode: enter it before the checkboxes appear
-	await page.locator('button:has-text("Merge tracks")').click();
+	await page.locator('button[aria-label="Merge tracks"]').click();
 	await page.locator('input[aria-label="Merge Lead"]').check();
 	await page.locator('input[aria-label="Merge Rhythm"]').check();
 	await page.locator('button:has-text("Merge into one track")').click();

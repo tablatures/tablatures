@@ -23,9 +23,9 @@ test.describe('player console (large screens)', () => {
 
 		// No segmented tabs on large screens
 		await expect(page.locator('[role="tab"]')).toHaveCount(0);
-		// Track list and the playback strip are both present at once
+		// Track list and the playback knobs are both present at once
 		await expect(page.locator('[role="dialog"] [role="listbox"]')).toBeVisible();
-		await expect(page.locator('input[aria-label="Metronome slider"]')).toBeVisible();
+		await expect(page.getByRole('slider', { name: 'Metro knob' })).toBeVisible();
 
 		// The docked panel takes real width and the score reserves space for it
 		const panel = await page.locator('[role="dialog"]').boundingBox();
@@ -56,7 +56,7 @@ test.describe('player console (large screens)', () => {
 		await setupPlayPageWithTex(page, TEX_SCORES.twoGuitars);
 		await openConsole(page);
 
-		await page.locator('button:has-text("Merge tracks")').click();
+		await page.locator('button[aria-label="Merge tracks"]').click();
 		await page.locator('input[aria-label="Merge Lead"]').check();
 		await page.locator('input[aria-label="Merge Rhythm"]').check();
 		await page.locator('button:has-text("Merge into one track")').click();
