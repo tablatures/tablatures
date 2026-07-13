@@ -16,6 +16,7 @@
 	import { tabStore } from '../../library/utils/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { openTabById } from '../../library/utils/openTab';
+	import { shareLink } from '../../library/utils/native';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
@@ -243,8 +244,11 @@
 		url.searchParams.set('playlist', encoded);
 		url.searchParams.set('view', 'playlists');
 		try {
-			await navigator.clipboard.writeText(url.toString());
-			toastStore.success('Playlist link copied');
+			const how = await shareLink(url.toString(), {
+				title: 'Tablatures playlist',
+				dialogTitle: 'Share playlist'
+			});
+			toastStore.success(how === 'shared' ? 'Playlist shared' : 'Playlist link copied');
 		} catch {
 			toastStore.error('Failed to copy link');
 		}

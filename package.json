@@ -6,6 +6,7 @@
 	"scripts": {
 		"start": "vite dev",
 		"build": "vite build",
+		"build:app": "VITE_BASE_PATH= VITE_DEPLOY_TARGET=static vite build",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -16,6 +17,13 @@
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
+		"@capacitor-community/keep-awake": "^8.0.1",
+		"@capacitor/android": "^8.4.1",
+		"@capacitor/cli": "^8.4.1",
+		"@capacitor/core": "^8.4.1",
+		"@capacitor/filesystem": "^8.1.2",
+		"@capacitor/preferences": "^8.0.1",
+		"@capacitor/share": "^8.0.1",
 		"@coderline/alphatab": "1.8.1",
 		"@fontsource/ibm-plex-sans": "^5.2.8",
 		"@playwright/test": "^1.58.2",

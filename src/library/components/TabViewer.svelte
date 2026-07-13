@@ -24,6 +24,7 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
+	import { isNative, saveFile, shareLink } from '../utils/native';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -124,6 +125,10 @@
 			playing
 		});
 	}
+
+	// Print and the Fullscreen API are unavailable in the Android WebView; hide
+	// those controls when running natively (share/download cover the same need).
+	const native = isNative();
 
 	let api: any = undefined;
 	let target: HTMLElement | undefined = undefined;
@@ -3097,15 +3102,11 @@
 		}, PRINT_DELAY_MS);
 	}
 
-	function clickDownload() {
+	async function clickDownload() {
 		const exporter = new window.alphaTab.exporter.Gp7Exporter();
 		const data = exporter.export(api.score, api.settings);
-		const a = document.createElement('a');
-		a.download = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
-		a.href = URL.createObjectURL(new Blob([data]));
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
+		const fileName = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
+		await saveFile(fileName, data);
 	}
 
 	async function toggleFullscreen() {
@@ -3270,8 +3271,8 @@
 		}
 
 		try {
-			await navigator.clipboard.writeText(url.toString());
-			toastStore.success('Link copied!');
+			const how = await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
+			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
 		} catch {
 			toastStore.error('Failed to copy link');
 		}
@@ -4041,19 +4042,21 @@
 				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
-			<button
-				on:click={toggleFullscreen}
-				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-				title="Fullscreen [F]"
-				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
-					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+			{#if !native}
+				<button
+					on:click={toggleFullscreen}
+					class="{compactBar
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					title="Fullscreen [F]"
+					aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 				>
-			</button>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+						>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+					>
+				</button>
+			{/if}
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
@@ -4346,17 +4349,19 @@
 						>
 							<i class="material-icons !text-lg sm:!text-xl">download</i>
 						</button>
-						<!-- Print: desktop only. On mobile we rely on Share / Download so
-						     this row stays one line tall. -->
-						<button
-							disabled={!scoreLoaded}
-							on:click={clickPrint}
-							class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
-							title="Print"
-							aria-label="Print"
-						>
-							<i class="material-icons !text-xl">print</i>
-						</button>
+						<!-- Print: desktop only, and unsupported in the native WebView. On
+						     mobile we rely on Share / Download so this row stays one line. -->
+						{#if !native}
+							<button
+								disabled={!scoreLoaded}
+								on:click={clickPrint}
+								class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+								title="Print"
+								aria-label="Print"
+							>
+								<i class="material-icons !text-xl">print</i>
+							</button>
+						{/if}
 					</div>
 				</div>
 			</div>

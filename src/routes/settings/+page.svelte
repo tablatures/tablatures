@@ -8,6 +8,7 @@
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
+	import { saveFile } from '../../library/utils/native';
 
 	let importDataInput: HTMLInputElement;
 	let customSfUrl = '';
@@ -59,21 +60,15 @@
 		}
 	}
 
-	function exportData() {
+	async function exportData() {
 		const data = {
 			favorites: favorites,
 			history: historyItems,
 			preferences: prefs,
 			exportedAt: new Date().toISOString()
 		};
-		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-		const a = document.createElement('a');
-		a.download = `tablatures-data-${new Date().toISOString().slice(0, 10)}.json`;
-		a.href = URL.createObjectURL(blob);
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(a.href);
+		const fileName = `tablatures-data-${new Date().toISOString().slice(0, 10)}.json`;
+		await saveFile(fileName, JSON.stringify(data, null, 2), 'application/json');
 		toastStore.success('Data exported');
 	}
 

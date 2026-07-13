@@ -5,6 +5,7 @@
 	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
+	import { shareLink } from '../utils/native';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
@@ -47,7 +48,7 @@
 			if (state.duration > 0 && state.progress > 0) {
 				url.searchParams.set('t', String(Math.round((state.progress / 100) * (state.duration / 1000))));
 			}
-			await navigator.clipboard.writeText(url.toString());
+			await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
 			// Brief visual feedback
 			shareJustCopied = true;
 			setTimeout(() => { shareJustCopied = false; }, 1500);

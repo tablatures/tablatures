@@ -46,6 +46,7 @@
 		requestWakeLock,
 		releaseWakeLock
 	} from '../library/utils/playbackEnv';
+	import { setKeepAwake } from '../library/utils/native';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -523,11 +524,14 @@
 	}
 
 	// Keep the screen awake while playback runs, release it as soon as it stops.
+	// Web uses the Wake Lock API; native uses the keep-awake plugin.
 	$: if (browser) {
 		if ($playerState.playing) {
 			requestWakeLock();
+			setKeepAwake(true);
 		} else {
 			releaseWakeLock();
+			setKeepAwake(false);
 		}
 	}
 
