@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { base } from '$app/paths';
 
 export interface UserPreferences {
 	soundFontUrl: string;
@@ -15,43 +16,27 @@ export interface UserPreferences {
 
 const STORAGE_KEY = 'user-preferences';
 
-export const SOUNDFONT_LIGHT =
-	'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.1/dist/soundfont/sonivox.sf2';
+// Bundled offline soundfont (committed under static/soundfont, Apache-2.0).
+// Served relative to the app base path so it resolves both under /tablatures
+// on GitHub Pages and at the root in the packaged app. This is the default so
+// playback works with no network and without any CDN dependency.
+export const SOUNDFONT_BUNDLED = `${base}/soundfont/sonivox.sf3`;
 
-export const SOUNDFONT_QUALITY =
-	'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@24e5f18b6a6a5f1c56a56b7d9d589f52161cf490/soundfonts/GeneralUserGS.sf3';
-
-// Use quality soundfont by default, fall back to light on slow connections
-function getDefaultSoundFont(): string {
-	if (typeof navigator !== 'undefined' && 'connection' in navigator) {
-		const conn = (navigator as any).connection;
-		// Slow connection: effectiveType is 'slow-2g', '2g', or '3g'
-		if (conn?.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) {
-			return SOUNDFONT_LIGHT;
-		}
-		// Very low bandwidth (< 1 Mbps)
-		if (conn?.downlink && conn.downlink < 1) {
-			return SOUNDFONT_LIGHT;
-		}
-	}
-	return SOUNDFONT_QUALITY;
-}
-
-export const DEFAULT_SOUNDFONT = getDefaultSoundFont();
+export const DEFAULT_SOUNDFONT = SOUNDFONT_BUNDLED;
 
 export const SOUNDFONT_PRESETS = [
 	{
 		id: 'sonivox',
 		name: 'Sonivox',
-		description: 'Default alphaTab soundfont, lightweight and fast loading',
-		size: '~1.3 MB',
+		description: 'Bundled offline soundfont, works with no connection',
+		size: '~955 KB',
 		tier: 'light' as const,
-		url: SOUNDFONT_LIGHT
+		url: SOUNDFONT_BUNDLED
 	},
 	{
 		id: 'generaluser',
 		name: 'GeneralUser GS',
-		description: 'Full General MIDI set, clear instruments, good quality',
+		description: 'Full General MIDI set, clear instruments, good quality (online)',
 		size: '~10 MB',
 		tier: 'balanced' as const,
 		url: 'https://cdn.jsdelivr.net/gh/spessasus/SpessaSynth@24e5f18b6a6a5f1c56a56b7d9d589f52161cf490/soundfonts/GeneralUserGS.sf3'
@@ -59,7 +44,7 @@ export const SOUNDFONT_PRESETS = [
 	{
 		id: 'yamaha-xg',
 		name: 'Yamaha XG Sound Set',
-		description: 'Compact Yamaha XG GM set, good for quick loading',
+		description: 'Compact Yamaha XG GM set, good for quick loading (online)',
 		size: '~3.8 MB',
 		tier: 'light' as const,
 		url: 'https://cdn.jsdelivr.net/npm/@logue/sf2synth@0.8.0/dist/Yamaha%20XG%20Sound%20Set.sf2'
@@ -67,7 +52,7 @@ export const SOUNDFONT_PRESETS = [
 	{
 		id: 'airfont320',
 		name: 'Airfont 320',
-		description: 'General MIDI light soundfont with rich instrument samples',
+		description: 'General MIDI light soundfont with rich instrument samples (online)',
 		size: '~9.7 MB',
 		tier: 'balanced' as const,
 		url: 'https://cdn.jsdelivr.net/npm/@logue/sf2synth@0.8.0/dist/A320U.sf2'
@@ -75,7 +60,7 @@ export const SOUNDFONT_PRESETS = [
 	{
 		id: 'fluidr3mono',
 		name: 'FluidR3 Mono GM',
-		description: 'Classic FluidR3 GM set, mono version, high quality',
+		description: 'Classic FluidR3 GM set, mono version, high quality (online)',
 		size: '~14.6 MB',
 		tier: 'balanced' as const,
 		url: 'https://cdn.jsdelivr.net/gh/musescore/MuseScore@2.1/share/sound/FluidR3Mono_GM.sf3'

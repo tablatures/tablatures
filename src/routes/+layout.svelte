@@ -2,6 +2,10 @@
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 	import 'material-icons/iconfont/outlined.css';
+	import '@fontsource/ibm-plex-sans/400.css';
+	import '@fontsource/ibm-plex-sans/500.css';
+	import '@fontsource/ibm-plex-sans/600.css';
+	import '@fontsource/ibm-plex-sans/700.css';
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
@@ -217,12 +221,20 @@
 		if (get(playerApi)) return; // Already initialized
 
 		const prefs = get(preferencesStore);
+		// alphaTab is now served from our own origin (see app.html and the
+		// vendor-alphatab vite plugin) instead of a CDN. Point it at the vendored
+		// script and Bravura font so workers and glyphs load locally and offline.
+		// These MUST be absolute URLs: the synth runs in a blob-origin worker whose
+		// importScripts cannot resolve a root-relative path.
+		const vendorBase = `${window.location.origin}${base}/vendor/alphatab`;
 		const api = new window.alphaTab.AlphaTabApi(playerHostEl, {
 			core: {
 				tex: true,
 				engine: 'html5',
 				logLevel: 1,
-				useWorkers: true
+				useWorkers: true,
+				scriptFile: `${vendorBase}/alphaTab.min.js`,
+				fontDirectory: `${vendorBase}/font/`
 			},
 			display: {
 				staveProfile: 'Default',
@@ -501,6 +513,34 @@
 		if (existingTab?.fileAsB64 && playerHostEl) {
 			ensureApiInitialized();
 		}
+
+		// iOS Safari requires AudioContext.resume() from a user gesture.
+		// Register a one-time click/touchstart handler to unlock Web Audio.
+		function resumeAudioOnGesture() {
+			const api = get(playerApi);
+			if (api) {
+				// Try various paths to alphaTab's internal AudioContext
+				const ctx =
+					(api as any).player?.output?.context ??
+					(api as any).player?.context ??
+					(api as any)._playerState?.output?.context;
+				if (ctx && ctx.state === 'suspended') {
+					ctx.resume();
+				}
+			}
+			// Also try the generic approach to unlock audio on iOS
+			try {
+				const AudioCtx = window.AudioContext || window.webkitAudioContext;
+				if (AudioCtx) {
+					const tempCtx = new AudioCtx();
+					tempCtx.resume().then(() => tempCtx.close());
+				}
+			} catch {}
+			document.removeEventListener('click', resumeAudioOnGesture);
+			document.removeEventListener('touchstart', resumeAudioOnGesture);
+		}
+		document.addEventListener('click', resumeAudioOnGesture, { once: true });
+		document.addEventListener('touchstart', resumeAudioOnGesture, { once: true });
 	});
 </script>
 
@@ -513,13 +553,6 @@
 
 <svelte:head>
 	<title>Tablatures</title>
-
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-	<link
-		href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
-		rel="stylesheet"
-	/>
 
 	<script>
 		if (document) {

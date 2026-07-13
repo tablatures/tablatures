@@ -18,6 +18,12 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
     devDependencies:
+      '@coderline/alphatab':
+        specifier: 1.8.1
+        version: 1.8.1
+      '@fontsource/ibm-plex-sans':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@playwright/test':
         specifier: ^1.58.2
         version: 1.58.2
@@ -104,6 +110,10 @@ packages:
 
   '@ampproject/remapping@2.3.0':
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
+    engines: {node: '>=6.0.0'}
+
+  '@coderline/alphatab@1.8.1':
+    resolution: {integrity: sha512-sbhSUnuMew3k7I2ulNNunyaqOFIeELOtPAZCQkZo7tPaK/dnWzVk7XSx+nNlakbMqd5zpJZwUnOv5KexkEgz2Q==}
     engines: {node: '>=6.0.0'}
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -409,6 +419,9 @@ packages:
   '@eslint/eslintrc@1.4.1':
     resolution: {integrity: sha512-XXrH9Uarn0stsyldqDYq8r++mROmWRI1xKMXa640Bb//SY1+ECYX6VzT6Lcx5frD0V30XieqJ0oX9I2Xj5aoMA==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+
+  '@fontsource/ibm-plex-sans@5.2.8':
+    resolution: {integrity: sha512-eztSXjDhPhcpxNIiGTgMebdLP9qS4rWkysuE1V7c+DjOR0qiezaiDaTwQE7bTnG5HxAY/8M43XKDvs3cYq6ZYQ==}
 
   '@humanwhocodes/config-array@0.11.8':
     resolution: {integrity: sha512-UybHIJzJnR5Qc/MsD9Kr+RpO2h+/P1GhOwdiLPXK5TWk5sgTdu88bTD9UP+CKbPPh5Rni1u0GjAdYQLemG8g+g==}
@@ -2156,6 +2169,8 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
+  '@coderline/alphatab@1.8.1': {}
+
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
 
@@ -2321,6 +2336,8 @@ snapshots:
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
       - supports-color
+
+  '@fontsource/ibm-plex-sans@5.2.8': {}
 
   '@humanwhocodes/config-array@0.11.8':
     dependencies:

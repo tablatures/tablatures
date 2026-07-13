@@ -158,6 +158,7 @@ declare global {
 		alphaTab: AlphaTab.AlphaTabStatic;
 		YT: { Player: YT.PlayerConstructor };
 		onYouTubeIframeAPIReady: (() => void) | null;
+		webkitAudioContext: typeof AudioContext;
 	}
 }
 

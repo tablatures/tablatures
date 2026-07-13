@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { videoPlayerRef } from '../utils/playerStore';
+	import { loadYouTubeApi } from '../utils/youtube';
 
 	export let videoId: string;
 	export let width: number = 340;
@@ -47,17 +48,12 @@
 	}
 
 	onMount(() => {
-		// YT API might already be loaded or needs callback
-		if (window.YT?.Player) {
-			createPlayer();
-		} else {
-			// Wait for API to load
-			const prevCallback = window.onYouTubeIframeAPIReady;
-			window.onYouTubeIframeAPIReady = () => {
-				if (prevCallback) prevCallback();
-				createPlayer();
-			};
-		}
+		// Lazily pull in the YouTube IFrame API on first video use. If it cannot
+		// load (offline, blocked), leave the player uncreated and let the host
+		// route hide video features.
+		loadYouTubeApi()
+			.then(() => createPlayer())
+			.catch(() => dispatch('error'));
 	});
 
 	onDestroy(() => {
