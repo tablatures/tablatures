@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
+	import { onMount, tick } from 'svelte';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
 	import LoadingScore from './LoadingScore.svelte';
 
@@ -17,31 +18,64 @@
 	let info: any = null;
 	let hoverTimeout: NodeJS.Timeout;
 	let wrapperEl: HTMLElement;
+	let tooltipEl: HTMLElement;
+	let clampStyle = '';
+
+	// Touch devices have no hover, so the tooltip opens on the first tap and the
+	// inner link only navigates on a second tap (see handleClick).
+	let isCoarse = false;
+	onMount(() => {
+		isCoarse = window.matchMedia('(pointer: coarse)').matches;
+	});
+
+	$: canShow = browser && !!SEARCH_API_BASE_URL && !!artistName;
+
+	async function loadInfo() {
+		if (!canShow) return;
+
+		const key = artistName.toLowerCase();
+		if (artistCache[key]) {
+			info = artistCache[key];
+			visible = true;
+			await positionTooltip();
+			return;
+		}
+
+		visible = true;
+		loading = true;
+		await positionTooltip();
+		try {
+			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`);
+			if (resp.ok) {
+				info = await resp.json();
+				artistCache[key] = info;
+				await positionTooltip();
+			}
+		} catch {} finally {
+			loading = false;
+		}
+	}
+
+	// Keep the card inside the viewport: center it on the anchor, then clamp
+	// its left edge so it never overflows past an 8px screen margin.
+	async function positionTooltip() {
+		await tick();
+		if (!tooltipEl || !wrapperEl) return;
+		const parent = tooltipEl.offsetParent as HTMLElement | null;
+		if (!parent) return;
+		const margin = 8;
+		const tipWidth = tooltipEl.offsetWidth;
+		const anchor = wrapperEl.getBoundingClientRect();
+		const parentRect = parent.getBoundingClientRect();
+		let left = anchor.left + anchor.width / 2 - tipWidth / 2;
+		left = Math.max(margin, Math.min(left, window.innerWidth - tipWidth - margin));
+		clampStyle = `left: ${left - parentRect.left}px; transform: none;`;
+	}
 
 	function show() {
+		if (isCoarse) return;
 		clearTimeout(hoverTimeout);
-		hoverTimeout = setTimeout(async () => {
-			if (!artistName || !browser || !SEARCH_API_BASE_URL) return;
-
-			const key = artistName.toLowerCase();
-			if (artistCache[key]) {
-				info = artistCache[key];
-				visible = true;
-				return;
-			}
-
-			visible = true;
-			loading = true;
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`);
-				if (resp.ok) {
-					info = await resp.json();
-					artistCache[key] = info;
-				}
-			} catch {} finally {
-				loading = false;
-			}
-		}, 300);
+		hoverTimeout = setTimeout(loadInfo, 300);
 	}
 
 	function hide() {
@@ -53,6 +87,23 @@
 
 	function cancelHide() {
 		clearTimeout(hoverTimeout);
+	}
+
+	// First tap opens the card (and blocks the link); tap again to navigate.
+	function handleClick(e: MouseEvent) {
+		if (!isCoarse || !canShow) return;
+		if (!visible) {
+			e.preventDefault();
+			e.stopPropagation();
+			clearTimeout(hoverTimeout);
+			loadInfo();
+		}
+	}
+
+	function handleWindowClick(e: MouseEvent) {
+		if (visible && wrapperEl && !wrapperEl.contains(e.target as Node)) {
+			visible = false;
+		}
 	}
 
 	$: isArtistFavorited = artistName ? favoriteArtistsStore.isArtist(artistName) : false;
@@ -68,7 +119,9 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions -->
+<svelte:window on:click={handleWindowClick} />
+
+<!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions a11y-click-events-have-key-events -->
 <span
 	bind:this={wrapperEl}
 	class="inline-block"
@@ -78,15 +131,18 @@
 	on:mouseleave={hide}
 	on:focus={show}
 	on:blur={hide}
+	on:click={handleClick}
 >
 	<slot />
 
 	{#if visible && artistName}
 		<!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions -->
 		<div
-			class="absolute z-[200] w-72 {position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} left-1/2 -translate-x-1/2
+			bind:this={tooltipEl}
+			class="absolute z-[200] w-72 max-w-[calc(100vw-16px)] {position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} left-1/2 -translate-x-1/2
 				bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 p-4
 				pointer-events-auto animate-fade-in"
+			style={clampStyle}
 			role="tooltip"
 			on:mouseenter={cancelHide}
 			on:mouseleave={hide}

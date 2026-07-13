@@ -273,6 +273,10 @@
 	let loopDragOriginX = 0;
 	let loopDragOriginPercent = 0;
 
+	// Clean song title from the player state (falls back to the joined string
+	// only if the store has not populated yet). Avoids splitting "title - artist".
+	$: songTitle = $playerState.title || title;
+
 	// Artist metadata
 	let artistImage: string | null = null;
 	let songArtwork: string | null = null;
@@ -4229,7 +4233,11 @@
 					{/if}
 					<div class="min-w-0 flex-1">
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
-							{title.split(' - ')[0] || title}
+							<a
+								href="{base}/search?q={encodeURIComponent(songTitle)}"
+								class="hover:text-violet-500 hover:underline transition-colors"
+								title="Search other versions">{songTitle}</a
+							>
 						</h1>
 						<!-- Subtitle + tuning chip share one horizontal line so the chip
 						     stays compact and does not add a row to the bottom bar -->
@@ -4673,7 +4681,7 @@
 						Add to playlist
 					</p>
 					<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
-						{title.split(' - ')[0] || title}
+						{songTitle}
 					</p>
 				</div>
 				<div class="max-h-60 overflow-y-auto">

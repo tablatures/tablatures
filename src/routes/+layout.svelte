@@ -662,6 +662,21 @@
 				</button>
 			</div>
 		{/if}
+
+		<!-- Fullscreen hint. Signals that clicking the preview returns to the
+			 full player. Bottom-left to stay clear of the close button. -->
+		{#if showMiniPlayer && miniPreviewVisible && !$activeVideoId}
+			<div class="pointer-events-none absolute bottom-1 left-1 z-[89]">
+				<span
+					class="w-9 h-9 flex items-center justify-center rounded-full bg-black/60 text-white transition-opacity duration-150
+						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-70"
+					title="Back to full player"
+					aria-label="Open full player"
+				>
+					<i class="material-icons !text-lg">fullscreen</i>
+				</span>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Guitar Tuner panel (global, floats below header) -->
