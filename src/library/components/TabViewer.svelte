@@ -4416,16 +4416,13 @@
 					<span class="text-xs font-medium text-neutral-500 dark:text-neutral-400 flex-shrink-0"
 						>Player settings</span
 					>
-					<div class="flex items-center gap-1 min-w-0">
-						<TuningChip api={$playerApi} {activeTrackIndex} {tracks} />
-						<button
-							on:click={closeSettings}
-							class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
-							title="Close"
-						>
-							<i class="material-icons !text-base">close</i>
-						</button>
-					</div>
+					<button
+						on:click={closeSettings}
+						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
+						title="Close"
+					>
+						<i class="material-icons !text-base">close</i>
+					</button>
 				</div>
 				<PlayerConsole
 					api={$playerApi}
@@ -4468,21 +4465,13 @@
 			<!-- Header with close -->
 			<div class="flex items-center justify-between gap-2 mb-2 pt-1 px-3 sm:px-4">
 				<span class="text-xs text-neutral-500 dark:text-neutral-400 flex-shrink-0">Player settings</span>
-				<div class="flex items-center gap-1 min-w-0">
-					<TuningChip
-						api={$playerApi}
-						{activeTrackIndex}
-						{tracks}
-						on:open={() => (panelSegment = 'tuning')}
-					/>
-					<button
-						on:click={closeSettings}
-						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
-						title="Close"
-					>
-						<i class="material-icons !text-base">close</i>
-					</button>
-				</div>
+				<button
+					on:click={closeSettings}
+					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
+					title="Close"
+				>
+					<i class="material-icons !text-base">close</i>
+				</button>
 			</div>
 			<!-- Segmented navigation (role=tab preserved for existing selectors) -->
 			<div

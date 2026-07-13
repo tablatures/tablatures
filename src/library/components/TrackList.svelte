@@ -129,26 +129,28 @@
 				</label>
 			{:else}
 				<div class="flex items-center min-h-[44px] pr-1.5">
-					<div class="w-8 flex-shrink-0" />
-					<!-- Name = select (whole area). Kept prominent so it stays readable. -->
+					<!-- Whole left area (incl. the lead gutter) selects the track -->
 					<button
-						class="flex-1 min-w-0 text-left py-1.5 pr-2"
+						class="flex items-center flex-1 min-w-0 text-left"
 						on:click={() => dispatch('select', i)}
 						title={track.name}
 					>
-						<p
-							class="text-sm font-medium truncate {active
-								? 'text-violet-600 dark:text-violet-400'
-								: 'text-neutral-800 dark:text-neutral-200'}"
-						>
-							{track.name}
-						</p>
-						<p class="text-[10px] text-neutral-400 truncate">
-							{trackInfo(track)}{#if trackTuning(track)}
-								&middot; <span class="text-violet-400 dark:text-violet-500"
-									>{trackTuning(track)}</span
-								>{/if}
-						</p>
+						<span class="w-8 flex-shrink-0" aria-hidden="true" />
+						<span class="flex-1 min-w-0 py-1.5 pr-2">
+							<span
+								class="block text-sm font-medium truncate {active
+									? 'text-violet-600 dark:text-violet-400'
+									: 'text-neutral-800 dark:text-neutral-200'}"
+							>
+								{track.name}
+							</span>
+							<span class="block text-[10px] text-neutral-400 truncate">
+								{trackInfo(track)}{#if trackTuning(track)}
+									&middot; <span class="text-violet-400 dark:text-violet-500"
+										>{trackTuning(track)}</span
+									>{/if}
+							</span>
+						</span>
 					</button>
 					<div class="flex items-center gap-0.5 flex-shrink-0">
 						<button

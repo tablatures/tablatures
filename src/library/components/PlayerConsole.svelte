@@ -68,10 +68,12 @@
 					>· tap a name to edit →</span
 				>
 			</h3>
-			<div class="flex flex-wrap gap-2 items-start">
-				<!-- Master card: merge rail + track list + footer, flush together -->
+			<!-- Master and detail sit flush as one panel; equal height so few tracks
+			     fill the height and many tracks scroll inside the list. -->
+			<div class="flex flex-wrap items-stretch max-h-[min(28rem,60svh)]">
+				<!-- Master card: merge rail + track list + footer -->
 				<div
-					class="flex-1 min-w-[14rem] rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-stretch"
+					class="flex-1 min-w-[14rem] min-h-0 rounded-l-xl border border-r-0 border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-stretch"
 				>
 					<MergeRail
 						{eligibleCount}
@@ -80,21 +82,23 @@
 						bind:selectedIndexes
 						on:confirm={() => mergerRef?.merge()}
 					/>
-					<div class="flex-1 min-w-0 flex flex-col">
-						<TrackList
-							{tracks}
-							{activeTrackIndex}
-							bind:trackVolumes
-							{trackMutes}
-							{trackSolos}
-							bind:mergeMode
-							bind:selectedIndexes
-							on:select={(e) => dispatch('selecttrack', e.detail)}
-							on:solo={(e) => dispatch('togglesolo', e.detail)}
-							on:mute={(e) => dispatch('togglemute', e.detail)}
-							on:volume={(e) => dispatch('trackvolume', e.detail)}
-						/>
-						<div class="mt-auto">
+					<div class="flex-1 min-w-0 flex flex-col min-h-0">
+						<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+							<TrackList
+								{tracks}
+								{activeTrackIndex}
+								bind:trackVolumes
+								{trackMutes}
+								{trackSolos}
+								bind:mergeMode
+								bind:selectedIndexes
+								on:select={(e) => dispatch('selecttrack', e.detail)}
+								on:solo={(e) => dispatch('togglesolo', e.detail)}
+								on:mute={(e) => dispatch('togglemute', e.detail)}
+								on:volume={(e) => dispatch('trackvolume', e.detail)}
+							/>
+						</div>
+						<div class="flex-shrink-0">
 							{#if !mergeMode}
 								<div class="border-t border-neutral-200 dark:border-neutral-800 py-1.5">
 									<TrackQuickControls
@@ -125,53 +129,54 @@
 					</div>
 				</div>
 
-				<!-- Detail card for the active track (its name in the header ties it
-				     back to the highlighted row) -->
+				<!-- Detail card, flush to the list; the header is a window-style bar -->
 				<section
-					class="flex-1 min-w-[16rem] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/20 p-3 space-y-3"
+					class="flex-1 min-w-[16rem] min-h-0 rounded-r-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/20 overflow-hidden flex flex-col"
 				>
 					<h3
-						class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-100 dark:bg-violet-900/30 text-xs font-semibold text-violet-600 dark:text-violet-400"
+						class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-violet-100 dark:bg-violet-900/30 border-b border-violet-200/70 dark:border-violet-800/50 text-xs font-semibold text-violet-600 dark:text-violet-400"
 					>
 						<i class="material-icons !text-base">tune</i>
 						<span class="text-[10px] uppercase tracking-wider opacity-70">Editing</span>
 						<span class="truncate">{tracks[activeTrackIndex]?.name ?? 'Track'}</span>
 					</h3>
-					{#if activeHasTuning}
-						<TuningTransposer
-							{api}
-							{activeTrackIndex}
-							trackName={tracks[activeTrackIndex]?.name ?? ''}
-						/>
-					{:else}
-						<div
-							class="px-4 py-4 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-center space-y-3"
-						>
-							<i class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500"
-								>music_off</i
+					<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3">
+						{#if activeHasTuning}
+							<TuningTransposer
+								{api}
+								{activeTrackIndex}
+								trackName={tracks[activeTrackIndex]?.name ?? ''}
+							/>
+						{:else}
+							<div
+								class="px-4 py-4 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-center space-y-3"
 							>
-							<p class="text-sm text-neutral-600 dark:text-neutral-300">
-								This track has no tuning to transpose.
-							</p>
-							{#if tunableTracks.length > 0}
-								<div class="space-y-1.5">
-									<p class="text-[10px] text-neutral-400 dark:text-neutral-500">
-										Switch to a stringed track
-									</p>
-									<div class="flex flex-wrap justify-center gap-1.5">
-										{#each tunableTracks as { t, i }}
-											<button
-												on:click={() => dispatch('selecttrack', i)}
-												class="px-2.5 py-1 text-xs rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-500 transition-colors"
-											>
-												{t.name || `Track ${i + 1}`}
-											</button>
-										{/each}
+								<i class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500"
+									>music_off</i
+								>
+								<p class="text-sm text-neutral-600 dark:text-neutral-300">
+									This track has no tuning to transpose.
+								</p>
+								{#if tunableTracks.length > 0}
+									<div class="space-y-1.5">
+										<p class="text-[10px] text-neutral-400 dark:text-neutral-500">
+											Switch to a stringed track
+										</p>
+										<div class="flex flex-wrap justify-center gap-1.5">
+											{#each tunableTracks as { t, i }}
+												<button
+													on:click={() => dispatch('selecttrack', i)}
+													class="px-2.5 py-1 text-xs rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-500 transition-colors"
+												>
+													{t.name || `Track ${i + 1}`}
+												</button>
+											{/each}
+										</div>
 									</div>
-								</div>
-							{/if}
-						</div>
-					{/if}
+								{/if}
+							</div>
+						{/if}
+					</div>
 				</section>
 			</div>
 		</div>
