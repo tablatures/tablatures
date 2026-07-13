@@ -2158,7 +2158,9 @@
 			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
 			syncMobileLandscape();
 			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
-			largeScreenMql = window.matchMedia('(min-width: 976px)');
+			// Split-view needs landscape width; portrait screens (phones and
+			// tablets alike) use the compact bottom sheet instead.
+			largeScreenMql = window.matchMedia('(min-width: 976px) and (orientation: landscape)');
 			syncLargeScreen();
 			largeScreenMql.addEventListener('change', syncLargeScreen);
 		}
@@ -3404,7 +3406,7 @@
 	     the handler can actually block the browser's native scroll once
 	     the long-press selection becomes active. -->
 	<div
-		class="relative transition-[padding] duration-200"
+		class="relative"
 		style="padding-right: var(--player-panel-width)"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}

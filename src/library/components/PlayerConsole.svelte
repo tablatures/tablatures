@@ -49,9 +49,10 @@
 		.filter(({ t, i }) => i !== activeTrackIndex && stringCount(t) > 0);
 </script>
 
-<div class="flex flex-col h-full min-h-0">
-	<!-- Master + detail, scrollable, wraps to a single column on narrow panels -->
-	<div class="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4">
+<!-- One natural scroll: master + detail, then playback. Avoids a pinned strip
+     leaving a void on tall screens. -->
+<div class="h-full overflow-y-auto">
+	<div class="p-3 sm:p-4">
 		<div class="flex flex-wrap gap-4 items-start">
 			<!-- Master: track list + mixing + merge -->
 			<section class="flex-1 min-w-[13rem] space-y-3">
@@ -137,8 +138,8 @@
 		</div>
 	</div>
 
-	<!-- Global playback strip -->
-	<div class="flex-shrink-0 border-t border-neutral-200 dark:border-neutral-700 p-3 sm:p-4">
+	<!-- Global playback controls -->
+	<div class="border-t border-neutral-200 dark:border-neutral-700 p-3 sm:p-4">
 		<PlaybackControls
 			dense
 			bind:volume
