@@ -3,21 +3,14 @@
 	import TrackList from '$components/TrackList.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
 	import TrackMerger from '$components/TrackMerger.svelte';
-	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TrackQuickControls from '$components/TrackQuickControls.svelte';
 	import MergeRail from '$components/MergeRail.svelte';
+	import LoopBar from '$components/LoopBar.svelte';
 	import { scoreEdits } from '$utils/scoreEdits';
 
 	export let api: any;
 	export let tracks: any[] = [];
 	export let activeTrackIndex = 0;
-
-	export let volume = 1;
-	export let speed = 1;
-	export let metronome = 0;
-	export let tabScale = 1;
-	export let delaying = 0;
-	export let onScaleInput: () => void = () => {};
 
 	export let trackVolumes: number[] = [];
 	export let trackMutes: boolean[] = [];
@@ -55,10 +48,9 @@
 		.filter(({ t, i }) => i !== activeTrackIndex && stringCount(t) > 0);
 </script>
 
-<!-- One natural scroll: master + detail, then playback. Avoids a pinned strip
-     leaving a void on tall screens. -->
+<!-- Master + detail, with the loop region pinned at the bottom -->
 <div class="h-full overflow-y-auto overscroll-contain">
-	<div class="p-3 sm:p-4">
+	<div class="p-3 sm:p-4 space-y-3">
 		<div class="space-y-2">
 			<h3
 				class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
@@ -185,23 +177,7 @@
 			</div>
 		</div>
 
-		<!-- Global playback controls -->
-		<div class="border-t border-neutral-200 dark:border-neutral-700 p-3 sm:p-4">
-			<PlaybackControls
-				knobs
-				bind:volume
-				bind:speed
-				bind:metronome
-				bind:tabScale
-				bind:delaying
-				{onScaleInput}
-				{loopStartBar}
-				{loopEndBar}
-				{loopEnabled}
-				on:toggleloop
-				on:clearloop
-			/>
-		</div>
+		<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} on:toggleloop on:clearloop />
 	</div>
 </div>
 

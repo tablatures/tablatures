@@ -6,6 +6,7 @@
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TrackQuickControls from '$components/TrackQuickControls.svelte';
 	import MergeRail from '$components/MergeRail.svelte';
+	import LoopBar from '$components/LoopBar.svelte';
 	import { scoreEdits, revertTranspose } from '$utils/scoreEdits';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 
@@ -67,7 +68,7 @@
 </script>
 
 {#if segment === 'playback'}
-	<div class="pt-3" role="tabpanel" aria-label="Playback">
+	<div class="pt-3 space-y-3" role="tabpanel" aria-label="Playback">
 		<PlaybackControls
 			bind:volume
 			bind:speed
@@ -75,12 +76,10 @@
 			bind:tabScale
 			bind:delaying
 			{onScaleInput}
-			{loopStartBar}
-			{loopEndBar}
-			{loopEnabled}
-			on:toggleloop
-			on:clearloop
 		/>
+		<div class="pt-3 border-t border-neutral-200 dark:border-neutral-700">
+			<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} on:toggleloop on:clearloop />
+		</div>
 	</div>
 {:else if segment === 'tracks'}
 	<div class="pt-3">

@@ -30,6 +30,7 @@
 	import Sheet from '$components/Sheet.svelte';
 	import PlayerPanel from '$components/PlayerPanel.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
+	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
@@ -4410,12 +4411,21 @@
 							: ''} transition-colors"
 					/>
 				</div>
+				<!-- Header holds the compact playback knobs plus close -->
 				<div
-					class="flex items-center justify-between gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
+					class="flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
 				>
-					<span class="text-xs font-medium text-neutral-500 dark:text-neutral-400 flex-shrink-0"
-						>Player settings</span
-					>
+					<div class="flex-1 min-w-0">
+						<PlaybackControls
+							knobs
+							bind:volume
+							bind:speed
+							bind:metronome
+							bind:tabScale
+							bind:delaying
+							onScaleInput={updateTabScale}
+						/>
+					</div>
 					<button
 						on:click={closeSettings}
 						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
@@ -4428,12 +4438,6 @@
 					api={$playerApi}
 					{tracks}
 					{activeTrackIndex}
-					bind:volume
-					bind:speed
-					bind:metronome
-					bind:tabScale
-					bind:delaying
-					onScaleInput={updateTabScale}
 					bind:trackVolumes
 					bind:trackMutes
 					bind:trackSolos
