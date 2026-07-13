@@ -4384,7 +4384,7 @@
 			bind:this={settings}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
 				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
-				: 'z-[110] inset-0'}"
+				: 'z-[110] inset-0 pt-safe pb-safe'}"
 			style={isLargeScreen
 				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
 				: ''}
