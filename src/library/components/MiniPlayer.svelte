@@ -149,7 +149,7 @@
 			{/if}
 		</button>
 
-		<!-- Artwork thumbnail — opens the full player, with a fullscreen hint -->
+		<!-- Artwork thumbnail: opens the full player, with a fullscreen hint -->
 		<a
 			href="{base}/play"
 			class="group relative flex-shrink-0 rounded overflow-hidden"
@@ -233,7 +233,7 @@
 			</button>
 		{/if}
 
-		<!-- Open full player — primary way back on mobile, so always visible -->
+		<!-- Open full player: primary way back on mobile, so always visible -->
 		<a
 			href="{base}/play"
 			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
