@@ -194,7 +194,7 @@
 	$: consolePanelWidthCss = showConsole
 		? consoleWidth != null
 			? `${consoleWidth}px`
-			: 'clamp(440px, 42vw, 680px)'
+			: 'clamp(460px, 44vw, 760px)'
 		: '0px';
 
 	function consoleMaxWidth(): number {
