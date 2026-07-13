@@ -1788,16 +1788,19 @@
 		// scroll uses) rather than an alphaTab private field, which is not
 		// exposed by the vendored build.
 		const el = get(beatCursorEl);
-		if (!el || !target) return;
-		const containerRect = target.getBoundingClientRect();
-		const elRect = el.getBoundingClientRect();
-		const scrollTop =
-			target.scrollTop +
-			(elRect.top - containerRect.top) -
-			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = isFullscreen ? page : window;
-		if (!scrollElement) return;
-		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+		if (!el) return;
+		const scrollElement = isFullscreen && page ? page : window;
+		// Land the cursor a clear gap below the sticky header (which itself clears
+		// the status bar via pt-safe on native) so it is never hidden behind the
+		// header. Compute the delta from the cursor's current viewport position;
+		// this works whether the scroller is the window or the fullscreen page.
+		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const settingsH =
+			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
+		const desiredTop = headerBottom + settingsH + 24;
+		const currentTop = isFullscreen && page ? page.scrollTop : window.scrollY;
+		const delta = el.getBoundingClientRect().top - desiredTop;
+		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
 		autoFollow = true;
 	}
 

@@ -584,8 +584,7 @@
 				 lg+: col-span-2 row-span-2 at top-right
 			-->
 			<div
-				class="flex flex-col w-full cursor-pointer group
-					focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
+				class="flex flex-col w-full group rounded-xl"
 				style={importLayout === 'big'
 					? 'grid-column: 1 / 4; grid-row: 1 / 3;'
 					: importLayout === 'medium'
@@ -593,64 +592,82 @@
 						: importLayout === 'full'
 							? 'grid-column: 1 / -1;'
 							: ''}
-				on:dragenter={handleDragEnter}
-				on:dragleave={handleDragLeave}
-				on:dragover={handleDragOver}
-				on:drop={handleDrop}
-				on:click={() => fileInput.click()}
-				on:keydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						e.preventDefault();
-						fileInput.click();
-					}
-				}}
-				role="button"
-				tabindex="0"
-				aria-label="Upload tablature file"
 			>
-				<!-- Drop zone: aspect-square normally; stretches to fill 2-row cell when Import is 2×2 (big) -->
-				<div
-					class="relative rounded-xl border-2 border-dashed transition-color
-						{importLayout === 'big' || importLayout === 'medium' ? 'flex-1' : 'aspect-square'}
-						{dragActive
-						? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 ring-2 ring-violet-300 dark:ring-violet-700'
-						: 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 group-hover:border-violet-400 dark:group-hover:border-violet-600 group-hover:bg-violet-50/60 dark:group-hover:bg-violet-900/10'}"
-				>
-					<div class="h-full flex flex-col items-center justify-center text-center px-3 gap-1">
-						<p
-							class="text-sm lg:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-tight"
-						>
-							{dragActive ? 'Drop it' : 'Drop a file'}
-						</p>
-						<div
-							class="w-12 h-12 lg:w-20 lg:h-20 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/40"
-						>
-							<i
-								class="material-icons !text-3xl lg:!text-5xl text-violet-500 dark:text-violet-400"
-								aria-hidden="true"
-							>
-								{dragActive ? 'file_download' : 'upload_file'}
-							</i>
-						</div>
-						<p class="text-xs lg:text-sm text-neutral-500 dark:text-neutral-400 lg:mt-1">
-							or <span class="text-violet-500 dark:text-violet-400 font-medium underline"
-								>browse</span
-							>
-						</p>
-					</div>
-				</div>
-
-				<!-- Text area below (matches TabCard title/artist area so row heights align) -->
-				<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
-					<p
-						class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
+				{#if importLayout === 'full'}
+					<!-- Mobile: touch has no drag-drop and the full-width square card
+					     wasted vertical space, so use one compact full-width button. -->
+					<button
+						on:click={() => fileInput.click()}
+						class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold shadow-sm transition-colors hover:bg-violet-600 active:scale-[0.99]"
+						aria-label="Upload tablature file"
 					>
-						Import a tab
-					</p>
-					<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-						{SUPPORTED_TYPES.join(', ')}
-					</p>
-				</div>
+						<i class="material-icons !text-xl" aria-hidden="true">upload_file</i>
+						<span>Import a tab</span>
+					</button>
+				{:else}
+					<div
+						class="flex flex-col w-full cursor-pointer
+							focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
+						on:dragenter={handleDragEnter}
+						on:dragleave={handleDragLeave}
+						on:dragover={handleDragOver}
+						on:drop={handleDrop}
+						on:click={() => fileInput.click()}
+						on:keydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								fileInput.click();
+							}
+						}}
+						role="button"
+						tabindex="0"
+						aria-label="Upload tablature file"
+					>
+						<!-- Drop zone: aspect-square normally; stretches to fill 2-row cell when Import is 2×2 (big) -->
+						<div
+							class="relative rounded-xl border-2 border-dashed transition-color
+								{importLayout === 'big' || importLayout === 'medium' ? 'flex-1' : 'aspect-square'}
+								{dragActive
+								? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 ring-2 ring-violet-300 dark:ring-violet-700'
+								: 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 group-hover:border-violet-400 dark:group-hover:border-violet-600 group-hover:bg-violet-50/60 dark:group-hover:bg-violet-900/10'}"
+						>
+							<div class="h-full flex flex-col items-center justify-center text-center px-3 gap-1">
+								<p
+									class="text-sm lg:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-tight"
+								>
+									{dragActive ? 'Drop it' : 'Drop a file'}
+								</p>
+								<div
+									class="w-12 h-12 lg:w-20 lg:h-20 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/40"
+								>
+									<i
+										class="material-icons !text-3xl lg:!text-5xl text-violet-500 dark:text-violet-400"
+										aria-hidden="true"
+									>
+										{dragActive ? 'file_download' : 'upload_file'}
+									</i>
+								</div>
+								<p class="text-xs lg:text-sm text-neutral-500 dark:text-neutral-400 lg:mt-1">
+									or <span class="text-violet-500 dark:text-violet-400 font-medium underline"
+										>browse</span
+									>
+								</p>
+							</div>
+						</div>
+
+						<!-- Text area below (matches TabCard title/artist area so row heights align) -->
+						<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
+							<p
+								class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
+							>
+								Import a tab
+							</p>
+							<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+								{SUPPORTED_TYPES.join(', ')}
+							</p>
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Mobile (<480px): Continue heading sits inside the grid below the
