@@ -27,8 +27,6 @@
 	import { preferencesStore } from '../utils/preferences';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
-	import Sheet from '$components/Sheet.svelte';
-	import PlayerPanel from '$components/PlayerPanel.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
@@ -38,6 +36,7 @@
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { getArtwork } from '../utils/artwork';
+	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
 
@@ -152,10 +151,8 @@
 	let mountHandleResize: (() => void) | undefined;
 
 	let apiError = '';
-	// Which segment of the single player panel is showing
-	let panelSegment: 'tracks' | 'tuning' | 'playback' = 'playback';
 	// Merge mode state, shared between the track list checkboxes and the merge
-	// action bar (both live inside PlayerPanel)
+	// action bar (both live inside the console)
 	let mergeMode = false;
 	let mergeSelection: number[] = [];
 
@@ -1172,6 +1169,10 @@
 		syncPlaybackRange();
 		updateScoreSelection();
 	}
+	// Persist the loop region in the URL so it survives reloads / shared links.
+	$: if (browser && scoreLoaded && loopSyncKey) {
+		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled);
+	}
 
 	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
 	// so Svelte tracks them as dependencies (it can't see through loopRangeMs()).
@@ -1957,6 +1958,16 @@
 				activeTrackIndex = 0;
 			}
 
+			// Restore a loop region carried in the URL (once, when no loop is set yet)
+			if (loopStartBar === null && loopEndBar === null) {
+				const { loop } = readUrlState();
+				if (loop && loop.endBar < totalBars) {
+					loopStartBar = loop.startBar;
+					loopEndBar = loop.endBar;
+					loopEnabled = loop.enabled;
+				}
+			}
+
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
@@ -2543,13 +2554,13 @@
 			clickLooping();
 		} else if (event.code === 'KeyT') {
 			event.preventDefault();
-			togglePanel('tracks');
+			togglePanel();
 		} else if (event.code === 'KeyS') {
 			event.preventDefault();
-			togglePanel('playback');
+			togglePanel();
 		} else if (event.code === 'KeyU') {
 			event.preventDefault();
-			togglePanel('tuning');
+			togglePanel();
 		} else if (event.code === 'KeyF') {
 			event.preventDefault();
 			toggleFullscreen();
@@ -3133,29 +3144,17 @@
 		}
 	}
 
-	// Single entry point: opening a segment that is already showing closes the
-	// panel, otherwise it opens the panel on that segment (toggle behavior).
-	function togglePanel(segment: 'tracks' | 'tuning' | 'playback') {
-		if (showSettings) {
-			if (panelSegment === segment) {
-				showSettings = false;
-			} else {
-				panelSegment = segment;
-			}
-		} else {
-			showSettings = true;
-			panelSegment = segment;
-		}
+	// Single settings console now; every entry point just toggles it open/closed.
+	function togglePanel() {
+		showSettings = !showSettings;
 	}
 
 	function closeSettings() {
 		showSettings = false;
 	}
 
-	// Open the panel straight on the tuning segment (from the tuning chip)
 	function openTuningPanel() {
 		showSettings = true;
-		panelSegment = 'tuning';
 	}
 
 	function handleFullscreenChange() {
@@ -4048,7 +4047,7 @@
 			{/if}
 
 			<button
-				on:click={() => togglePanel('playback')}
+				on:click={() => togglePanel()}
 				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
@@ -4382,18 +4381,24 @@
 	</div>
 	<!-- end sticky controls wrapper -->
 
-	<!-- Large screens: docked split-view console, score reflows into the space
-	     on its left. Sits below the header and above the transport bar, so no
-	     header z-fight and no dim (the score stays usable beside it). -->
-	{#if isLargeScreen}
-		{#if showSettings}
-			<aside
-				class="fixed right-0 z-[60] flex flex-col bg-white dark:bg-neutral-900 border-l border-neutral-200 dark:border-neutral-700 shadow-xl"
-				style="top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)"
-				role="dialog"
-				aria-label="Player settings"
-			>
-				<!-- Drag the left edge to resize (pointer based: works on PC and touch) -->
+	<!-- Settings console: docked resizable panel on large landscape screens, a
+	     full-screen overlay (over the header and transport bar) on small screens.
+	     Same master-detail content either way. -->
+	{#if showSettings}
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+		<aside
+			bind:this={settings}
+			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
+				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
+				: 'z-[110] inset-0'}"
+			style={isLargeScreen
+				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
+				: ''}
+			role="dialog"
+			aria-label="Player settings"
+		>
+			{#if isLargeScreen}
+				<!-- Drag the left edge to resize (pointer based: PC and touch) -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					class="absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 z-10 flex items-center justify-center cursor-ew-resize touch-none group"
@@ -4411,145 +4416,56 @@
 							: ''} transition-colors"
 					/>
 				</div>
-				<!-- Header holds the compact playback knobs plus close -->
-				<div
-					class="flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
-				>
-					<div class="flex-1 min-w-0">
-						<PlaybackControls
-							knobs
-							bind:volume
-							bind:speed
-							bind:metronome
-							bind:tabScale
-							bind:delaying
-							onScaleInput={updateTabScale}
-						/>
-					</div>
-					<button
-						on:click={closeSettings}
-						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
-						title="Close"
-					>
-						<i class="material-icons !text-base">close</i>
-					</button>
+			{/if}
+			<!-- Header holds the compact playback knobs plus close -->
+			<div
+				class="flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
+			>
+				<div class="flex-1 min-w-0">
+					<PlaybackControls
+						knobs
+						bind:volume
+						bind:speed
+						bind:metronome
+						bind:tabScale
+						bind:delaying
+						onScaleInput={updateTabScale}
+					/>
 				</div>
-				<PlayerConsole
-					api={$playerApi}
-					{tracks}
-					{activeTrackIndex}
-					bind:trackVolumes
-					bind:trackMutes
-					bind:trackSolos
-					{loopStartBar}
-					{loopEndBar}
-					{loopEnabled}
-					bind:mergeMode
-					bind:selectedIndexes={mergeSelection}
-					on:selecttrack={(e) => setActiveTrack(e.detail)}
-					on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-					on:togglemute={(e) => toggleTrackMute(e.detail)}
-					on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-					on:muteall={muteAllTracks}
-					on:unmuteall={unmuteAllTracks}
-					on:resetlevels={resetAllVolumes}
-					on:toggleloop={toggleLoopEnabled}
-					on:clearloop={clearLoopPoints}
-					on:merged={onTrackMerged}
-					on:removed={onMergedTrackRemoved}
-				/>
-			</aside>
-		{/if}
-	{:else}
-		<!-- Small screens: bottom sheet with segmented tabs.
-		     The Sheet primitive owns the backdrop, anchoring above the control bar
-		     via --player-bar-height, and the mobile drag/snap behavior. -->
-		<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
-		<svelte:fragment slot="header">
-			<!-- Header with close -->
-			<div class="flex items-center justify-between gap-2 mb-2 pt-1 px-3 sm:px-4">
-				<span class="text-xs text-neutral-500 dark:text-neutral-400 flex-shrink-0">Player settings</span>
 				<button
 					on:click={closeSettings}
 					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
 					title="Close"
+					aria-label="Close settings"
 				>
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-			<!-- Segmented navigation (role=tab preserved for existing selectors) -->
-			<div
-				class="flex px-3 sm:px-4 border-b border-neutral-200 dark:border-neutral-700"
-				role="tablist"
-			>
-				<button
-					on:click={() => (panelSegment = 'tracks')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'tracks'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'tracks'}
-				>
-					Tracks ({tracks.length})
-				</button>
-				<button
-					on:click={() => (panelSegment = 'tuning')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'tuning'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'tuning'}
-				>
-					Tuning
-				</button>
-				<button
-					on:click={() => (panelSegment = 'playback')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'playback'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'playback'}
-				>
-					Playback
-				</button>
-			</div>
-		</svelte:fragment>
-
-		<PlayerPanel
-			api={$playerApi}
-			{tracks}
-			{activeTrackIndex}
-			bind:segment={panelSegment}
-			bind:volume
-			bind:speed
-			bind:metronome
-			bind:tabScale
-			bind:delaying
-			onScaleInput={updateTabScale}
-			bind:trackVolumes
-			bind:trackMutes
-			bind:trackSolos
-			{loopStartBar}
-			{loopEndBar}
-			{loopEnabled}
-			bind:mergeMode
-			bind:selectedIndexes={mergeSelection}
-			on:selecttrack={(e) => setActiveTrack(e.detail)}
-			on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-			on:togglemute={(e) => toggleTrackMute(e.detail)}
-			on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-			on:muteall={muteAllTracks}
-			on:unmuteall={unmuteAllTracks}
-			on:resetlevels={resetAllVolumes}
-			on:toggleloop={toggleLoopEnabled}
-			on:clearloop={clearLoopPoints}
-			on:merged={onTrackMerged}
-			on:removed={onMergedTrackRemoved}
-		/>
-		</Sheet>
+			<PlayerConsole
+				api={$playerApi}
+				{tracks}
+				{activeTrackIndex}
+				bind:trackVolumes
+				bind:trackMutes
+				bind:trackSolos
+				{loopStartBar}
+				{loopEndBar}
+				{loopEnabled}
+				bind:mergeMode
+				bind:selectedIndexes={mergeSelection}
+				on:selecttrack={(e) => setActiveTrack(e.detail)}
+				on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+				on:togglemute={(e) => toggleTrackMute(e.detail)}
+				on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+				on:muteall={muteAllTracks}
+				on:unmuteall={unmuteAllTracks}
+				on:resetlevels={resetAllVolumes}
+				on:toggleloop={toggleLoopEnabled}
+				on:clearloop={clearLoopPoints}
+				on:merged={onTrackMerged}
+				on:removed={onMergedTrackRemoved}
+			/>
+		</aside>
 	{/if}
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->

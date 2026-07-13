@@ -10,7 +10,7 @@ import {
 } from './helpers/wait';
 import { setupMockApi } from './helpers/mock-api';
 
-// Exercise the bottom-sheet (tabbed) layout; the docked console has its own spec.
+// Exercise the mobile full-screen console; the docked console has its own spec.
 test.use({ viewport: { width: 390, height: 820 } });
 
 test.describe('Settings & Controls', () => {
@@ -117,17 +117,15 @@ test.describe('Settings & Controls', () => {
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
-		// Set metronome via evaluate (fill doesn't work well on range inputs)
-		const metronomeSlider = page.locator('input[aria-label="Metronome slider"]').first();
-		if (await metronomeSlider.isVisible()) {
-			await metronomeSlider.evaluate((el: HTMLInputElement) => {
-				el.value = '0.5';
-				el.dispatchEvent(new Event('input', { bubbles: true }));
-			});
+		// Metronome is now a rotary knob (role=slider). Nudge it up via the keyboard.
+		const metronomeKnob = page.getByRole('slider', { name: 'Metro knob' }).first();
+		if (await metronomeKnob.isVisible()) {
+			await metronomeKnob.focus();
+			for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
 		}
 
-		// Close settings by pressing S (same key that opens it)
-		await page.keyboard.press('KeyS');
+		// Close settings via Escape
+		await page.keyboard.press('Escape');
 		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
 
 		// Play and pause
@@ -151,16 +149,7 @@ test.describe('Settings & Controls', () => {
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
-		const tracksTab = page.locator('button[role="tab"]:text("Tracks")');
-		if (!(await tracksTab.isVisible())) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
-
-		await tracksTab.click();
-
-		// Check if there's more than one track option
+		// The unified console shows the track list directly (no tabs).
 		const trackOptions = page.locator('[role="option"]');
 		const count = await trackOptions.count();
 		if (count <= 1) {
@@ -169,7 +158,8 @@ test.describe('Settings & Controls', () => {
 			return;
 		}
 
-		await trackOptions.nth(1).click();
+		// Click the select button (the track name) of the second track.
+		await trackOptions.nth(1).getByRole('button').first().click();
 		// Wait for re-render to complete
 		await page.waitForFunction(() => (window as any).__testApi?.getDuration() > 0, {
 			timeout: 10000

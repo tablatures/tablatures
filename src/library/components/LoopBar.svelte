@@ -22,7 +22,7 @@
 			title={loopEnabled ? 'Loop on' : 'Loop off'}
 			aria-label={loopEnabled ? 'Disable loop' : 'Enable loop'}
 		>
-			<i class="material-icons !text-lg">{loopEnabled ? 'repeat_on' : 'repeat'}</i>
+			<i class="material-icons !text-lg">repeat</i>
 		</button>
 		<div class="flex-1 min-w-0 leading-tight">
 			<p
@@ -33,7 +33,7 @@
 				Loop {loopEnabled ? '' : '(off)'}
 			</p>
 			<p class="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
-				Bars {loopStartBar + 1} – {loopEndBar + 1}
+				Bars {loopStartBar + 1} → {loopEndBar + 1}
 			</p>
 		</div>
 		<button

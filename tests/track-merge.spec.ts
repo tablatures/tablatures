@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPageWithTex } from './helpers/setup';
 import { TEX_SCORES } from './helpers/alphatex';
 
-// Exercise the bottom-sheet (tabbed) layout; the docked console has its own spec.
+// Exercise the mobile full-screen console; the docked console has its own spec.
 test.use({ viewport: { width: 390, height: 820 } });
 
 interface NoteState {
@@ -26,7 +26,8 @@ async function openTracksTab(page: Page): Promise<void> {
 		await settingsBtn.click();
 	}
 	await expect(page.locator('[role="dialog"]')).toBeVisible();
-	await page.locator('button[role="tab"]:has-text("Tracks")').click();
+	// The console shows the track list directly (no tab to click).
+	await expect(page.locator('[role="listbox"][aria-label="Track list"]')).toBeVisible();
 }
 
 async function mergeTracks(page: Page): Promise<void> {
