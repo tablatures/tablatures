@@ -29,8 +29,10 @@
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
+	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
+	import { lyricsStore, toggleLyricsBar } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -40,6 +42,7 @@
 	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
+	$: lyricsAvailable = ($lyricsStore.embedded?.lines.length ?? 0) > 0;
 
 	function addCurrentToPlaylist(playlistIndex: number) {
 		if (!tabId) return;
@@ -2395,6 +2398,20 @@
 					if (api) api.tex(texString);
 				},
 				getMetronome: () => metronome,
+				getLyricsState: () => {
+					const s = get(lyricsStore);
+					const lines = s.embedded?.lines ?? [];
+					return {
+						visible: s.mode === 'auto' && lines.length > 0,
+						mode: s.mode,
+						showInScore: s.showInScore,
+						lineCount: lines.length,
+						activeLine: s.activeLine,
+						activeChunk: s.activeChunk,
+						currentText:
+							s.activeLine >= 0 ? lines[s.activeLine]?.text ?? '' : lines[0]?.text ?? ''
+					};
+				},
 				getTrackMutes: () => [...trackMutes],
 				getTrackSolos: () => [...trackSolos],
 				getTrackVolumes: () => [...trackVolumes],
@@ -3632,6 +3649,10 @@
 		tabindex="0"
 		aria-label="Playback controls"
 	>
+		<!-- Karaoke lyrics line, sitting above the transport (counts toward the
+		     bar height so anchored elements stay clear). -->
+		<LyricsBar api={$playerApi} />
+
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
 		     desktop keeps the thin-with-hover-grow behavior. -->
@@ -4034,6 +4055,23 @@
 			     is hidden, otherwise the chip would appear twice -->
 			{#if metadataHidden}
 				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+			{/if}
+
+			{#if lyricsAvailable}
+				<button
+					on:click={toggleLyricsBar}
+					class="{compactBar
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{$lyricsStore.mode === 'auto'
+						? 'text-violet-500'
+						: 'text-neutral-500 dark:text-neutral-400'}"
+					title="Toggle lyrics"
+					aria-label="Toggle lyrics"
+					aria-pressed={$lyricsStore.mode === 'auto'}
+				>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">lyrics</i>
+				</button>
 			{/if}
 
 			<button
