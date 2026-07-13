@@ -83,9 +83,19 @@
 		/>
 	</div>
 {:else if segment === 'tracks'}
-	<div class="pt-3 space-y-3">
-		<div class="flex gap-2 items-stretch">
-			<div class="flex-1 min-w-0">
+	<div class="pt-3">
+		<!-- Merge rail, track list and footer sit flush in one connected panel -->
+		<div
+			class="rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden flex items-stretch"
+		>
+			<MergeRail
+				{eligibleCount}
+				{canMerge}
+				bind:mergeMode
+				bind:selectedIndexes
+				on:confirm={() => mergerRef?.merge()}
+			/>
+			<div class="flex-1 min-w-0 flex flex-col">
 				<TrackList
 					{tracks}
 					{activeTrackIndex}
@@ -99,41 +109,36 @@
 					on:mute={(e) => dispatch('togglemute', e.detail)}
 					on:volume={(e) => dispatch('trackvolume', e.detail)}
 				/>
+				<div class="mt-auto">
+					{#if !mergeMode}
+						<div class="border-t border-neutral-200 dark:border-neutral-800 py-1.5">
+							<TrackQuickControls
+								{activeTrackIndex}
+								{trackSolos}
+								{trackMutes}
+								on:togglesolo
+								on:resetlevels
+								on:muteall
+								on:unmuteall
+							/>
+						</div>
+					{/if}
+					{#if showMergeArea}
+						<div class="border-t border-neutral-200 dark:border-neutral-800 p-2.5">
+							<TrackMerger
+								bind:this={mergerRef}
+								{api}
+								{tracks}
+								bind:mergeMode
+								bind:selectedIndexes
+								on:merged
+								on:removed
+							/>
+						</div>
+					{/if}
+				</div>
 			</div>
-			<MergeRail
-				{eligibleCount}
-				{canMerge}
-				bind:mergeMode
-				bind:selectedIndexes
-				on:confirm={() => mergerRef?.merge()}
-			/>
 		</div>
-
-		{#if !mergeMode}
-			<TrackQuickControls
-				{activeTrackIndex}
-				{trackSolos}
-				{trackMutes}
-				on:togglesolo
-				on:resetlevels
-				on:muteall
-				on:unmuteall
-			/>
-		{/if}
-
-		{#if showMergeArea}
-			<div class="pt-1">
-				<TrackMerger
-					bind:this={mergerRef}
-					{api}
-					{tracks}
-					bind:mergeMode
-					bind:selectedIndexes
-					on:merged
-					on:removed
-				/>
-			</div>
-		{/if}
 	</div>
 {:else if segment === 'tuning'}
 	<div class="pt-3 space-y-3">

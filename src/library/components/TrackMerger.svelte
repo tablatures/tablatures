@@ -60,6 +60,17 @@
 	function removeMerged() {
 		if (!api?.score || lastMergedIndex === null) return;
 		const removed = lastMergedIndex;
+		// Merging auto-solos the new track; clear that solo before it is popped
+		// so the synth leaves solo mode and the other tracks stay audible.
+		const track = api.score.tracks[removed];
+		if (track?.playbackInfo?.isSolo) {
+			track.playbackInfo.isSolo = false;
+			try {
+				api.changeTrackSolo([track], false);
+			} catch {
+				// solo API unavailable, state is still cleared below
+			}
+		}
 		if (removeLastTrack(api, removed)) {
 			unrecordMergedTrack(removed);
 			lastResult = null;
