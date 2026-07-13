@@ -3617,9 +3617,10 @@
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
 		bind:clientHeight={barHeight}
-		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200 pb-safe
+		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
+		style="padding-bottom: calc(env(safe-area-inset-bottom) + 5px)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
@@ -3891,7 +3892,7 @@
 				<select
 					value={activeTrackIndex}
 					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
-					class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
+					class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
 					title="Active track"
 					aria-label="Active track"
 				>
@@ -3904,7 +3905,7 @@
 			<!-- Speed selector -->
 			<select
 				bind:value={speed}
-				class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
+				class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{speedIsCustom
 					? 'text-violet-500 dark:text-violet-400 font-medium'
 					: 'text-neutral-600 dark:text-neutral-400'}"
