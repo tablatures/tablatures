@@ -21,7 +21,6 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
-          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -63,8 +62,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # versionCode is derived from this semver name by build.gradle.
           ANDROID_VERSION_NAME: ${{ steps.version.outputs.name }}
-          ANDROID_VERSION_CODE: ${{ steps.version.outputs.code }}
 
       - name: Rename APK
         run: |

@@ -1,0 +1,1 @@
+Initial release: offline Guitar Pro playback with the bundled soundfont, A-B loops, per-track mixer, transposition, tuner, and local favorites, history and playlists.
