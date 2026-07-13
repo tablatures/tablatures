@@ -504,9 +504,12 @@
 						<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 overflow-y-auto flex-1 min-h-0" role="list">
 							{#each historyItems as item}
 								<TabRow
+									id={item.id}
 									title={item.title}
 									artist={item.artist}
 									source={item.source}
+									album={item.album || ''}
+									type={item.type || ''}
 									artworkUrl={histArtwork[item.id] || ''}
 									artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 									onClick={() => openTab(item)}
@@ -556,9 +559,12 @@
 								<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50" role="list">
 									{#each items as item}
 										<TabRow
+											id={item.id}
 											title={item.title}
 											artist={item.artist}
 											source={item.source}
+											album={item.album || ''}
+											type={item.type || ''}
 											artworkUrl={histArtwork[item.id] || ''}
 											artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 											onClick={() => openTab(item)}
@@ -698,6 +704,7 @@
 								<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50" role="list">
 									{#each playlist.entries as entry, eIndex}
 										<TabRow
+											id={entry.id}
 											title={entry.title}
 											artist={entry.artist}
 											source={entry.source}

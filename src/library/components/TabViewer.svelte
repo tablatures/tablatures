@@ -7,7 +7,6 @@
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
-	import { favoritesStore } from '../utils/favorites';
 	import {
 		playerApi,
 		playerTarget,
@@ -30,6 +29,7 @@
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
+	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -272,9 +272,6 @@
 	let isDraggingLoop = false;
 	let loopDragOriginX = 0;
 	let loopDragOriginPercent = 0;
-
-	// Favorite state
-	$: isFavorite = tabId ? $favoritesStore.some((f) => f.id === tabId) : false;
 
 	// Artist metadata
 	let artistImage: string | null = null;
@@ -1741,25 +1738,6 @@
 	// Legacy mouse touch handler (kept for backward compat)
 	function handleProgressBarTouch(event: TouchEvent) {
 		// Now handled by touchstart/move/end handlers above
-	}
-
-	// Favorite toggle for current tab
-	function toggleFavorite() {
-		if (!tabId) return;
-		if (isFavorite) {
-			favoritesStore.removeFavorite(tabId);
-			toastStore.info('Removed from favorites');
-		} else {
-			favoritesStore.addFavorite({
-				id: tabId,
-				title: title !== '<no sheet loaded>' ? title.split(' - ')[0] || title : 'Unknown',
-				artist: title !== '<no sheet loaded>' ? title.split(' - ')[1] || 'Unknown' : 'Unknown',
-				source: '',
-				type: ''
-			});
-			toastStore.success('Added to favorites');
-		}
-		$favoritesStore = $favoritesStore;
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -4323,16 +4301,12 @@
 					</div>
 					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
 						{#if tabId}
-							<button
-								on:click={toggleFavorite}
-								class="p-1.5 sm:p-2 rounded-full transition-all duration-150 active:scale-90
-								{isFavorite
-									? 'text-red-500'
-									: 'text-neutral-500 dark:text-neutral-400 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
-								title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
-							>
-								<i class="material-icons !text-lg sm:!text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
-							</button>
+							<FavoriteButton
+								id={tabId}
+								title={$playerState.title || title}
+								artist={$playerState.artist || currentArtistName}
+								variant="plain"
+							/>
 						{/if}
 						{#if tabId && allPlaylists.length > 0}
 							<button
