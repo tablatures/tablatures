@@ -4673,7 +4673,7 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 			<div
-				class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-xs overflow-hidden animate-fade-in"
+				class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-xs overflow-hidden animate-fade-in pb-safe"
 				on:click|stopPropagation
 			>
 				<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
