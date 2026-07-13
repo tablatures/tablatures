@@ -1604,7 +1604,9 @@
 			isDraggingLoop = true;
 			dismissPopoverAndRefresh();
 			updateScoreSelection();
-			try { navigator.vibrate?.(10); } catch {}
+			try {
+				navigator.vibrate?.(10);
+			} catch {}
 		}, LONG_PRESS_MS);
 	}
 
@@ -2263,13 +2265,19 @@
 					const tabSec = (st.progress / 100) * (st.duration / 1000);
 					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
 					userSeekLockUntil = Date.now() + 600;
-					try { yt.seekTo(videoSec, true); } catch {}
-					try { yt.playVideo(); } catch {}
+					try {
+						yt.seekTo(videoSec, true);
+					} catch {}
+					try {
+						yt.playVideo();
+					} catch {}
 					updatePlayerState({ videoWasPlaying: false });
 					return;
 				}
 				if (st.videoWasPlaying) {
-					try { yt?.playVideo(); } catch {}
+					try {
+						yt?.playVideo();
+					} catch {}
 					updatePlayerState({ videoWasPlaying: false });
 				}
 			}
@@ -2417,7 +2425,7 @@
 						activeLine: s.activeLine,
 						activeChunk: s.activeChunk,
 						currentText:
-							s.activeLine >= 0 ? lines[s.activeLine]?.text ?? '' : lines[0]?.text ?? '',
+							s.activeLine >= 0 ? (lines[s.activeLine]?.text ?? '') : (lines[0]?.text ?? ''),
 						provider: s.provider,
 						fetchState: s.fetchState,
 						syncedLineCount: s.synced?.lines.length ?? 0,
@@ -3055,7 +3063,9 @@
 		// stringTuning.tunings is ordered highest string first, presets are low to high
 		const tuning = [...raw].reverse();
 		const match = TUNING_PRESETS.find(
-			(p) => p.strings.length === tuning.length && p.strings.every((s: any, i: number) => s.midi === tuning[i])
+			(p) =>
+				p.strings.length === tuning.length &&
+				p.strings.every((s: any, i: number) => s.midi === tuning[i])
 		);
 		if (match) return match.name;
 		return tuning.map((m: number) => midiToNoteName(m)).join(' ');
@@ -3351,7 +3361,9 @@
 		clearTimeout(scoreLongPressTimer);
 		scoreLongPressTimer = setTimeout(() => {
 			scoreLongPressActive = true;
-			try { navigator.vibrate?.(10); } catch {}
+			try {
+				navigator.vibrate?.(10);
+			} catch {}
 			dispatchMouseAt('mousedown', pressX, pressY);
 		}, SCORE_LONG_PRESS_MS);
 	}
@@ -3467,7 +3479,10 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
+	!autoFollow
+		? '52px'
+		: '0px'}"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3647,6 +3662,10 @@
 		{/if}
 	</div>
 
+	<!-- Karaoke lyrics — a translucent card floating over the score, just above
+	     the transport. Self-positioned (fixed) so it never eats layout height. -->
+	<LyricsBar api={$playerApi} />
+
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->
 	<div
@@ -3661,10 +3680,6 @@
 		tabindex="0"
 		aria-label="Playback controls"
 	>
-		<!-- Karaoke lyrics line, sitting above the transport (counts toward the
-		     bar height so anchored elements stay clear). -->
-		<LyricsBar api={$playerApi} />
-
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
 		     desktop keeps the thin-with-hover-grow behavior. -->
@@ -4066,7 +4081,13 @@
 			<!-- Compact transposed pill: only when the metadata row (and its chip)
 			     is hidden, otherwise the chip would appear twice -->
 			{#if metadataHidden}
-				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+				<TuningChip
+					compact
+					api={$playerApi}
+					{activeTrackIndex}
+					{tracks}
+					on:open={openTuningPanel}
+				/>
 			{/if}
 
 			{#if scoreLoaded}
@@ -4318,7 +4339,12 @@
 									: ''}
 							</p>
 							<div class="flex-shrink-0">
-								<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+								<TuningChip
+									api={$playerApi}
+									{activeTrackIndex}
+									{tracks}
+									on:open={openTuningPanel}
+								/>
 							</div>
 						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
@@ -4341,7 +4367,8 @@
 						{/if}
 						{#if hasVariants}
 							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
-								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
+								<span
+									class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
 									>Sources:</span
 								>
 								{#each variants as variant}

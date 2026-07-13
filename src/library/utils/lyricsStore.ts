@@ -24,6 +24,9 @@ export interface LyricsState {
 	// Attribution label for fetched lyrics ('LRCLIB' / 'lyrics.ovh').
 	provider: string | null;
 	fetchState: FetchState;
+	// Manual timing correction for synced lyrics, in seconds. Positive delays
+	// the lyrics (like a subtitle offset).
+	offsetSec: number;
 	// Currently sung line/chunk for embedded karaoke (-1 when none).
 	activeLine: number;
 	activeChunk: number;
@@ -37,6 +40,7 @@ const DEFAULT_STATE: LyricsState = {
 	plain: null,
 	provider: null,
 	fetchState: 'idle',
+	offsetSec: 0,
 	activeLine: -1,
 	activeChunk: -1
 };
@@ -56,9 +60,18 @@ export function resetLyricsForScore(embedded: EmbeddedLyrics | null) {
 		plain: null,
 		provider: null,
 		fetchState: 'idle',
+		offsetSec: 0,
 		activeLine: -1,
 		activeChunk: -1
 	}));
+}
+
+export function setLyricsOffset(offsetSec: number) {
+	lyricsStore.update((s) => ({ ...s, offsetSec: Math.round(offsetSec * 10) / 10 }));
+}
+
+export function nudgeLyricsOffset(deltaSec: number) {
+	lyricsStore.update((s) => ({ ...s, offsetSec: Math.round((s.offsetSec + deltaSec) * 10) / 10 }));
 }
 
 export function setLyricsMode(mode: LyricsMode) {

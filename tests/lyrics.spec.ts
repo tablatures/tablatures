@@ -133,6 +133,39 @@ test.describe('Lyrics online lookup', () => {
 		await expect(page.getByTestId('lyrics-current')).toContainText('alpha', { timeout: 10000 });
 	});
 
+	test('sync offset shifts the active synced line', async ({ page }) => {
+		await setupPlayPageWithTex(page, NO_LYRIC_TEX);
+		await waitForLineCount(page, 0);
+		await page.route(/lrclib\.net\/api\/search/, (route) =>
+			route.fulfill({
+				json: [
+					{
+						trackName: 'Probe Song',
+						artistName: 'Probe Artist',
+						duration: 8,
+						syncedLyrics: SYNCED_LRC
+					}
+				]
+			})
+		);
+
+		await page.getByRole('button', { name: 'Find lyrics online' }).click();
+		await page.waitForFunction(
+			() => (window as any).__testApi.getLyricsState().syncedLineCount > 0,
+			undefined,
+			{ timeout: 15000, polling: 200 }
+		);
+
+		await seekToPercent(page, 90);
+		await expect(page.getByTestId('lyrics-current')).toContainText('delta', { timeout: 10000 });
+
+		// Delay the lyrics by +4s: the same playback position now shows an earlier line.
+		await page.getByRole('button', { name: 'Lyrics settings' }).click();
+		for (let i = 0; i < 4; i++)
+			await page.getByRole('button', { name: '+1s', exact: true }).click();
+		await expect(page.getByTestId('lyrics-current')).toContainText('bravo', { timeout: 10000 });
+	});
+
 	test('reports gracefully when no provider has the lyrics', async ({ page }) => {
 		await setupPlayPageWithTex(page, NO_LYRIC_TEX);
 		await waitForLineCount(page, 0);
