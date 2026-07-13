@@ -12,7 +12,22 @@
 	import { toastStore } from '../library/utils/toast';
 	import { tabStore } from '../library/utils/store';
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
-	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl, videoHandlers, videoSyncOffset } from '../library/utils/playerStore';
+	import {
+		playerApi,
+		playerTarget,
+		playerState,
+		updatePlayerState,
+		isFullPlayerView,
+		loadedTabB64,
+		resetPlayerState,
+		activeVideoId,
+		isTransitioning,
+		videoPlayerRef,
+		audioSource,
+		beatCursorEl,
+		videoHandlers,
+		videoSyncOffset
+	} from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
@@ -21,7 +36,11 @@
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
-	import { hydrateFromUrl, syncStableUrlFromState, syncPlaybackTime } from '../library/utils/urlState';
+	import {
+		hydrateFromUrl,
+		syncStableUrlFromState,
+		syncPlaybackTime
+	} from '../library/utils/urlState';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
@@ -37,18 +56,19 @@
 		urlHydrated = true;
 	});
 	$: if (urlHydrated && browser) {
-		$tabStore, $activeVideoId, $playerState.activeTrackIndex;
+		($tabStore, $activeVideoId, $playerState.activeTrackIndex);
 		syncStableUrlFromState();
 	}
 	$: if (urlHydrated && browser) {
 		$playerState.progress;
 		syncPlaybackTime();
 	}
-	$: showMiniPlayer = !!(currentTab?.fileAsB64) && !isOnPlay;
+	$: showMiniPlayer = !!currentTab?.fileAsB64 && !isOnPlay;
 
 	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
 	let miniHovered = false;
-	$: playerHostClass = (!isOnPlay && showMiniPlayer && miniPreviewVisible) ? 'player-host-mini' : 'player-host-hidden';
+	$: playerHostClass =
+		!isOnPlay && showMiniPlayer && miniPreviewVisible ? 'player-host-mini' : 'player-host-hidden';
 
 	// --- Mini-mode video overlay controls ---
 	// TabViewer owns audio-source application when mounted (big player view).
@@ -63,13 +83,24 @@
 				if ((api.masterVolume ?? 0) > 0) miniVolumeBeforeMute = api.masterVolume;
 				api.masterVolume = 0;
 			}
-			if (yt) try { yt.unMute(); yt.setVolume(100); } catch {}
+			if (yt)
+				try {
+					yt.unMute();
+					yt.setVolume(100);
+				} catch {}
 		} else if (source === 'both') {
 			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt) try { yt.unMute(); yt.setVolume(100); } catch {}
+			if (yt)
+				try {
+					yt.unMute();
+					yt.setVolume(100);
+				} catch {}
 		} else {
 			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt) try { yt.mute(); } catch {}
+			if (yt)
+				try {
+					yt.mute();
+				} catch {}
 		}
 	}
 	function toggleAudioSourceMini() {
@@ -111,11 +142,17 @@
 	let showMiniOffsetControl = false;
 	function closeMiniVideo() {
 		const ytPlayer = get(videoPlayerRef);
-		if (ytPlayer) try { ytPlayer.pauseVideo(); } catch {}
+		if (ytPlayer)
+			try {
+				ytPlayer.pauseVideo();
+			} catch {}
 		videoPlayerRef.set(null);
 		audioSource.set('tab');
 		const api = get(playerApi);
-		if (api) try { api.masterVolume = miniVolumeBeforeMute || 1; } catch {}
+		if (api)
+			try {
+				api.masterVolume = miniVolumeBeforeMute || 1;
+			} catch {}
 		activeVideoId.set(null);
 		// Drop hover state so the tab-preview close button (revealed when the
 		// video disappears) doesn't absorb a reflex second click in the same
@@ -225,7 +262,12 @@
 			});
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
-			if (!get(isTransitioning) && !get(isFullPlayerView) && playerHostAnchor && playerHostAnchor.classList.contains('player-host-mini')) {
+			if (
+				!get(isTransitioning) &&
+				!get(isFullPlayerView) &&
+				playerHostAnchor &&
+				playerHostAnchor.classList.contains('player-host-mini')
+			) {
 				const el = get(beatCursorEl);
 				if (el) {
 					const anchorRect = playerHostAnchor.getBoundingClientRect();
@@ -285,7 +327,9 @@
 			// (AlphaTab's loadSoundFont always pauses the synth internally)
 			if (wasPlayingBeforeSoundFontChange) {
 				wasPlayingBeforeSoundFontChange = false;
-				try { api.play(); } catch {}
+				try {
+					api.play();
+				} catch {}
 			}
 		});
 
@@ -336,7 +380,9 @@
 		}
 		api.updateSettings();
 		// Render immediately to sync theme with UI
-		try { api.render(); } catch {}
+		try {
+			api.render();
+		} catch {}
 	}
 
 	// Track the current soundfont URL to detect changes
@@ -344,7 +390,11 @@
 	let wasPlayingBeforeSoundFontChange = false;
 
 	// Subscribe to soundfont URL changes and apply at runtime
-	$: if (browser && $preferencesStore.soundFontUrl && $preferencesStore.soundFontUrl !== currentSoundFontUrl) {
+	$: if (
+		browser &&
+		$preferencesStore.soundFontUrl &&
+		$preferencesStore.soundFontUrl !== currentSoundFontUrl
+	) {
 		const newUrl = $preferencesStore.soundFontUrl;
 		currentSoundFontUrl = newUrl;
 		const api = get(playerApi);
@@ -381,12 +431,17 @@
 				const prevVideo = get(activeVideoId);
 				if (prevVideo) {
 					const yt = get(videoPlayerRef);
-					if (yt) try { yt.pauseVideo(); } catch {}
+					if (yt)
+						try {
+							yt.pauseVideo();
+						} catch {}
 					videoPlayerRef.set(null);
 					activeVideoId.set(null);
 					audioSource.set('tab');
 				}
-				try { api.player.timePosition = 0; } catch {}
+				try {
+					api.player.timePosition = 0;
+				} catch {}
 				updatePlayerState({
 					scoreLoaded: false,
 					isRendering: true,
@@ -420,7 +475,7 @@
 
 	// When miniPreviewVisible changes, persist back to preferences
 	$: if (browser && miniPreviewVisible !== undefined) {
-		preferencesStore.update(p => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
+		preferencesStore.update((p) => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
 	}
 
 	// When a video becomes active, default to playing the YouTube audio
@@ -434,7 +489,10 @@
 	// Set CSS custom property for miniPlayerScaleMobile from preferences
 	$: if (browser) {
 		const prefs = get(preferencesStore);
-		document.documentElement.style.setProperty('--mini-player-scale-mobile', String(prefs.miniPlayerScaleMobile));
+		document.documentElement.style.setProperty(
+			'--mini-player-scale-mobile',
+			String(prefs.miniPlayerScaleMobile)
+		);
 	}
 
 	onMount(() => {
@@ -458,20 +516,30 @@
 
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
+		rel="stylesheet"
+	/>
 
 	<script>
 		if (document) {
 			var stored = localStorage.getItem('theme');
-			var isDark = stored === 'true' || stored === '"true"'
-				|| (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+			var isDark =
+				stored === 'true' ||
+				stored === '"true"' ||
+				(!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
 			document.documentElement.classList.toggle('dark', isDark);
 		}
 	</script>
 </svelte:head>
 
-<body class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white">
-	<a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[600] focus:px-4 focus:py-2 focus:bg-violet-500 focus:text-white focus:rounded-lg">
+<body
+	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
+>
+	<a
+		href="#main-content"
+		class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[600] focus:px-4 focus:py-2 focus:bg-violet-500 focus:text-white focus:rounded-lg"
+	>
 		Skip to content
 	</a>
 
@@ -482,7 +550,9 @@
 
 	<!-- Drag-drop overlay -->
 	{#if dragOverlay}
-		<div class="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center pointer-events-none">
+		<div
+			class="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center pointer-events-none"
+		>
 			<div class="text-center">
 				<i class="material-icons !text-6xl text-violet-400 mb-4">upload_file</i>
 				<p class="text-white text-lg font-medium">Drop to open tab</p>
@@ -495,17 +565,19 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
-		class="{showMiniPlayer && miniPreviewVisible ? 'mini-player-wrapper group' : ''}"
-		on:mouseenter={() => { if (showMiniPlayer) miniHovered = true; }}
-		on:mouseleave={() => { miniHovered = false; }}
-		on:click={() => { if (showMiniPlayer) goto(base + '/play'); }}
+		class={showMiniPlayer && miniPreviewVisible ? 'mini-player-wrapper group' : ''}
+		on:mouseenter={() => {
+			if (showMiniPlayer) miniHovered = true;
+		}}
+		on:mouseleave={() => {
+			miniHovered = false;
+		}}
+		on:click={() => {
+			if (showMiniPlayer) goto(base + '/play');
+		}}
 		role={showMiniPlayer ? 'button' : undefined}
 	>
-		<div
-			bind:this={playerHostAnchor}
-			id="player-host-anchor"
-			class={playerHostClass}
-		>
+		<div bind:this={playerHostAnchor} id="player-host-anchor" class={playerHostClass}>
 			<div bind:this={playerHostEl} id="player-host" />
 		</div>
 		<!-- Persistent YouTube video host. One instance across all routes so the
@@ -514,11 +586,11 @@
 			 the overlay buttons (audio toggle, sync offset) on top of this. -->
 		{#if $activeVideoId}
 			<div
-				class="{$isFullPlayerView
+				class={$isFullPlayerView
 					? 'big-player-video-frame fixed bottom-[156px] right-4 z-[10] w-[340px] h-[220px] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
-					: (showMiniPlayer && miniPreviewVisible
+					: showMiniPlayer && miniPreviewVisible
 						? 'mini-player-overlay pointer-events-auto overflow-hidden rounded-xl'
-						: 'fixed -left-[9999px] top-0 w-[340px] h-[220px] opacity-0 pointer-events-none')}"
+						: 'fixed -left-[9999px] top-0 w-[340px] h-[220px] opacity-0 pointer-events-none'}
 			>
 				<VideoPlayer
 					videoId={$activeVideoId}
@@ -538,15 +610,15 @@
 								on:click|stopPropagation={toggleAudioSourceMini}
 								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
 									{$audioSource === 'video'
-										? 'bg-violet-500 text-white hover:bg-violet-600'
-										: $audioSource === 'both'
-											? 'bg-emerald-500 text-white hover:bg-emerald-600'
-											: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
-								title="{$audioSource === 'video'
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: $audioSource === 'both'
+										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
 									: $audioSource === 'both'
 										? 'Both tab + video audio — click for tab only'
-										: 'Tab audio only — click for video'}"
+										: 'Tab audio only — click for video'}
 							>
 								<i class="material-icons !text-lg"
 									>{$audioSource === 'video'
@@ -555,14 +627,20 @@
 											? 'headphones'
 											: 'music_note'}</i
 								>
-								<span>{$audioSource === 'video' ? 'Video' : $audioSource === 'both' ? 'Both' : 'Tab'}</span>
+								<span
+									>{$audioSource === 'video'
+										? 'Video'
+										: $audioSource === 'both'
+											? 'Both'
+											: 'Tab'}</span
+								>
 							</button>
 							<button
 								on:click|stopPropagation={() => (showMiniOffsetControl = !showMiniOffsetControl)}
 								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
 									{showMiniOffsetControl
-										? 'bg-violet-500 text-white hover:bg-violet-600'
-										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
+									? 'bg-violet-500 text-white hover:bg-violet-600'
+									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s"
 							>
 								<i class="material-icons !text-lg">sync</i>
@@ -582,7 +660,9 @@
 					</div>
 
 					{#if showMiniOffsetControl}
-						<div class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto z-[88]">
+						<div
+							class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto z-[88]"
+						>
 							<div class="flex items-center gap-2">
 								<span class="text-[10px] text-white/60 flex-shrink-0 w-8">Sync</span>
 								<input
@@ -646,35 +726,33 @@
 			</div>
 		{/if}
 
-		<!-- Close-preview button. Sits directly inside the wrapper (no full
-			 overlay covering the tablature) so the alphaTab mini preview is
-			 always visible beneath. Only shown on hover. -->
 		{#if showMiniPlayer && miniPreviewVisible && !$activeVideoId}
-			<div class="pointer-events-none absolute top-1 right-1 z-[90]">
+			<!-- Fullscreen hint over the mini preview: a dim scrim with a
+				 fullscreen icon centered on both axes, signalling that a click
+				 returns to the full player. Pointer-events pass through so the
+				 click still navigates. Shown on hover; faint on touch. -->
+			<div
+				class="pointer-events-none absolute inset-0 z-[89] flex items-center justify-center rounded-xl max-[480px]:rounded-none bg-black/60 transition-opacity duration-150
+					{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-70"
+				title="Back to full player"
+				aria-hidden="true"
+			>
+				<i class="material-icons !text-4xl text-white drop-shadow">fullscreen</i>
+			</div>
+
+			<!-- Hide-preview button, above the scrim. -->
+			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150 pointer-events-auto
-						{miniHovered ? 'opacity-100' : 'opacity-0'}"
-					on:click|stopPropagation={() => { miniPreviewVisible = false; }}
+					class="w-9 h-9 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-red-500 hover:ring-red-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
+						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
+					on:click|stopPropagation={() => {
+						miniPreviewVisible = false;
+					}}
 					title="Hide preview"
 					aria-label="Hide preview"
 				>
-					<i class="material-icons !text-xl">close</i>
+					<i class="material-icons !text-lg">close</i>
 				</button>
-			</div>
-		{/if}
-
-		<!-- Fullscreen hint. Signals that clicking the preview returns to the
-			 full player. Bottom-left to stay clear of the close button. -->
-		{#if showMiniPlayer && miniPreviewVisible && !$activeVideoId}
-			<div class="pointer-events-none absolute bottom-1 left-1 z-[89]">
-				<span
-					class="w-9 h-9 flex items-center justify-center rounded-full bg-black/60 text-white transition-opacity duration-150
-						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-70"
-					title="Back to full player"
-					aria-label="Open full player"
-				>
-					<i class="material-icons !text-lg">fullscreen</i>
-				</span>
 			</div>
 		{/if}
 	</div>
@@ -682,7 +760,14 @@
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
 
-	<main id="main-content" class="animate-fade-in min-h-dvh {showMiniPlayer ? (miniPreviewVisible ? 'pb-[272px] sm:pb-14' : 'pb-14') : ''}">
+	<main
+		id="main-content"
+		class="animate-fade-in min-h-dvh {showMiniPlayer
+			? miniPreviewVisible
+				? 'pb-[272px] sm:pb-14'
+				: 'pb-14'
+			: ''}"
+	>
 		<slot />
 	</main>
 
@@ -690,13 +775,15 @@
 	{#if showMiniPlayer}
 		<MiniPlayer
 			showPreview={miniPreviewVisible}
-			on:togglePreview={() => miniPreviewVisible = !miniPreviewVisible}
+			on:togglePreview={() => (miniPreviewVisible = !miniPreviewVisible)}
 		/>
 	{/if}
 
 	<!-- Toast notifications -->
 	{#if $toastStore.length > 0}
-		<div class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[500] flex flex-col items-center gap-2 pointer-events-none">
+		<div
+			class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[500] flex flex-col items-center gap-2 pointer-events-none"
+		>
 			{#each $toastStore as toast (toast.id)}
 				<div
 					class="pointer-events-auto px-4 py-2 rounded-lg shadow-lg text-sm font-medium animate-fade-in flex items-center gap-2
