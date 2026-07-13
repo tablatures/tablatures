@@ -143,7 +143,7 @@
 							<span class="text-[10px] uppercase tracking-wider opacity-70">Editing</span>
 							<span class="truncate">{tracks[activeTrackIndex]?.name ?? 'Track'}</span>
 						</h3>
-						<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3">
+						<div class="p-3 space-y-3">
 							{#if activeHasTuning}
 								<TuningTransposer
 									{api}
@@ -221,7 +221,6 @@
 			flex-direction: row;
 			align-items: stretch;
 			gap: 0;
-			max-height: min(28rem, 60svh);
 		}
 		.cc-master,
 		.cc-detail {

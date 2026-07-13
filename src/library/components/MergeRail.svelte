@@ -25,9 +25,13 @@
 			on:click={enter}
 			title="Merge tracks"
 			aria-label="Merge tracks"
-			class="flex-shrink-0 self-stretch w-8 flex items-center justify-center border-r border-neutral-200 dark:border-neutral-700 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
+			class="flex-shrink-0 self-stretch w-8 flex flex-col items-center justify-center gap-1 border-r border-neutral-200 dark:border-neutral-700 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
 		>
 			<i class="material-icons !text-lg">call_merge</i>
+			<span
+				class="text-[9px] font-semibold uppercase tracking-wide [writing-mode:vertical-rl] rotate-180"
+				>Merge</span
+			>
 		</button>
 	{:else}
 		<div
