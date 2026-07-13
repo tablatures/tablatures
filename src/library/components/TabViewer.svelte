@@ -32,7 +32,7 @@
 	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
-	import { lyricsStore, toggleLyricsBar } from '../utils/lyricsStore';
+	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -42,7 +42,14 @@
 	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
-	$: lyricsAvailable = ($lyricsStore.embedded?.lines.length ?? 0) > 0;
+	$: lyricsAvailable = hasAnyLyrics($lyricsStore);
+
+	function onLyricsButton() {
+		// With lyrics in hand the button just shows/hides the bar; otherwise it
+		// kicks off an on-demand online lookup (which opens the bar itself).
+		if (lyricsAvailable) toggleLyricsBar();
+		else findLyricsOnline();
+	}
 
 	function addCurrentToPlaylist(playlistIndex: number) {
 		if (!tabId) return;
@@ -2401,15 +2408,20 @@
 				getLyricsState: () => {
 					const s = get(lyricsStore);
 					const lines = s.embedded?.lines ?? [];
+					const hasAny = lines.length > 0 || !!s.synced || !!s.plain;
 					return {
-						visible: s.mode === 'auto' && lines.length > 0,
+						visible: s.mode === 'auto' && (hasAny || s.fetchState !== 'idle'),
 						mode: s.mode,
 						showInScore: s.showInScore,
 						lineCount: lines.length,
 						activeLine: s.activeLine,
 						activeChunk: s.activeChunk,
 						currentText:
-							s.activeLine >= 0 ? lines[s.activeLine]?.text ?? '' : lines[0]?.text ?? ''
+							s.activeLine >= 0 ? lines[s.activeLine]?.text ?? '' : lines[0]?.text ?? '',
+						provider: s.provider,
+						fetchState: s.fetchState,
+						syncedLineCount: s.synced?.lines.length ?? 0,
+						plain: s.plain
 					};
 				},
 				getTrackMutes: () => [...trackMutes],
@@ -4057,18 +4069,18 @@
 				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
 			{/if}
 
-			{#if lyricsAvailable}
+			{#if scoreLoaded}
 				<button
-					on:click={toggleLyricsBar}
+					on:click={onLyricsButton}
 					class="{compactBar
 						? 'p-1'
 						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{$lyricsStore.mode === 'auto'
+						{lyricsAvailable && $lyricsStore.mode === 'auto'
 						? 'text-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400'}"
-					title="Toggle lyrics"
-					aria-label="Toggle lyrics"
-					aria-pressed={$lyricsStore.mode === 'auto'}
+					title={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
+					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
+					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
 					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">lyrics</i>
 				</button>
