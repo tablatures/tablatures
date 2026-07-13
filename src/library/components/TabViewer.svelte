@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
+	import { configureImporterEncoding } from '../utils/lyrics';
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
@@ -3474,9 +3475,15 @@
 						on:click={() => {
 							apiError = '';
 							if (api) {
-								if (data.fileAsB64) api.load(base64ToArrayBuffer(data.fileAsB64));
-								else if (window.history?.state?.base64)
-									api.load(base64ToArrayBuffer(window.history.state.base64));
+								if (data.fileAsB64) {
+									const buffer = base64ToArrayBuffer(data.fileAsB64);
+									configureImporterEncoding(api, buffer);
+									api.load(buffer);
+								} else if (window.history?.state?.base64) {
+									const buffer = base64ToArrayBuffer(window.history.state.base64);
+									configureImporterEncoding(api, buffer);
+									api.load(buffer);
+								}
 							}
 						}}
 						class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"

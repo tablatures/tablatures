@@ -105,7 +105,10 @@ declare global {
 			renderStarted?: EventEmitter;
 			renderFinished?: EventEmitter;
 			error?: EventEmitter<unknown>;
-			settings: { display: { resources: DisplayResources } };
+			settings: {
+				display: { resources: DisplayResources };
+				importer?: { encoding?: string; beatTextAsLyrics?: boolean };
+			};
 			score: Score;
 			load(data: ArrayBuffer): void;
 			play(): void;
