@@ -101,7 +101,7 @@
 	}
 </script>
 
-<div class="flex flex-col items-center gap-1 select-none">
+<div class="knob-cell flex flex-col items-center gap-1 select-none">
 	<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 	<div
 		role="slider"
@@ -151,10 +151,32 @@
 			<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">{icon}</i>
 		</div>
 	</div>
-	<div class="text-center leading-tight">
-		<p class="text-[10px] font-medium text-neutral-600 dark:text-neutral-300">{label}</p>
-		<p class="text-[10px] font-mono {value === min ? 'text-neutral-400' : 'text-violet-500'}">
+	<button
+		type="button"
+		class="knob-text text-center leading-tight rounded px-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+		on:click={reset}
+		title="Toggle / reset {label}"
+		aria-label="Toggle {label}"
+	>
+		<span class="block text-[10px] font-medium text-neutral-600 dark:text-neutral-300">{label}</span
+		>
+		<span
+			class="block text-[10px] font-mono {value === min ? 'text-neutral-400' : 'text-violet-500'}"
+		>
 			{format(value)}
-		</p>
-	</div>
+		</span>
+	</button>
 </div>
+
+<style>
+	/* Lay the label beside the knob when the row is wide, to save height */
+	@container (min-width: 36rem) {
+		.knob-cell {
+			flex-direction: row;
+			gap: 0.4rem;
+		}
+		.knob-text {
+			text-align: left;
+		}
+	}
+</style>

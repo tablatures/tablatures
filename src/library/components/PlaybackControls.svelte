@@ -20,7 +20,7 @@
 </script>
 
 {#if knobs}
-	<div class="flex items-start justify-around gap-2">
+	<div class="knob-row flex flex-wrap items-center justify-around gap-x-3 gap-y-2">
 		<Knob bind:value={volume} min={0} max={2} step={0.1} label="Volume" icon="volume_up" />
 		<Knob
 			bind:value={speed}
@@ -107,3 +107,11 @@
 		/>
 	</div>
 {/if}
+
+<style>
+	/* Lets the child knobs switch to a horizontal (label beside) layout when
+	   this row is wide enough (see Knob.svelte container query). */
+	.knob-row {
+		container-type: inline-size;
+	}
+</style>
