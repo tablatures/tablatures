@@ -4594,7 +4594,7 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
-				class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto animate-fade-in"
+				class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85dvh] overflow-y-auto animate-fade-in"
 				on:click|stopPropagation
 			>
 				<!-- Header -->

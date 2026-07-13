@@ -266,7 +266,7 @@
 
 	<!-- Dropdown -->
 	{#if showDropdown}
-		<div id="search-dropdown" role="listbox" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl z-[90] overflow-hidden max-h-[70vh] overflow-y-auto">
+		<div id="search-dropdown" role="listbox" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl z-[90] overflow-hidden max-h-[70dvh] overflow-y-auto">
 
 			<!-- Recent items (when input is empty) -->
 			{#if showRecent}
