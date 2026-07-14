@@ -2343,6 +2343,7 @@
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
 				getTotalBars: () => totalBars,
+				getScale: () => ({ apiScale: api?.settings?.display?.scale, tabScale }),
 				getSpeed: () => speed,
 				getVolume: () => volume,
 				getBarPositions: () => {
@@ -2482,6 +2483,13 @@
 		const responsiveScale = getResponsiveScale();
 		if (savedScale === 1.0) {
 			tabScale = responsiveScale;
+		}
+
+		// After a mini->full adoption the shared API can still hold the previous
+		// scale (e.g. 1.0), rendering the tab far too large. Sync it to the
+		// resolved scale (debounced render, so it does not disturb adoption/audio).
+		if (api && api.settings?.display && api.settings.display.scale !== tabScale) {
+			updateTabScale();
 		}
 
 		let resizeDebounceTimeout: NodeJS.Timeout;
