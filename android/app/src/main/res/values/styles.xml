@@ -16,6 +16,10 @@
         <!-- Theme-aware window background (white / dark) so any edge-to-edge
              inset region shows the app colour instead of a black band. -->
         <item name="android:windowBackground">@color/splash_background</item>
+        <!-- Transparent system bars so the header/content shows through rather
+             than an opaque black bar. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
 
