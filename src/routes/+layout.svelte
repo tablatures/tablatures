@@ -14,6 +14,7 @@
 	import { validateFile, fileToBase64 } from '../library/utils/upload';
 	import { playerApi, playerTarget, playerState, updatePlayerState, isFullPlayerView, loadedTabB64, resetPlayerState, activeVideoId, isTransitioning, videoPlayerRef, audioSource, beatCursorEl, videoHandlers, videoSyncOffset } from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
+	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
@@ -278,6 +279,7 @@
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) {
 				api.load(base64ToArrayBuffer(tab.fileAsB64));
 				loadedTabB64.set(tab.fileAsB64);
+				resetScoreEdits(tab.fileAsB64);
 			}
 			// Resume playback if it was active before the soundfont change
 			// (AlphaTab's loadSoundFont always pauses the synth internally)
@@ -394,6 +396,7 @@
 				});
 				api.load(base64ToArrayBuffer(currentTab.fileAsB64));
 				loadedTabB64.set(currentTab.fileAsB64);
+				resetScoreEdits(currentTab.fileAsB64);
 			}
 		}
 	}
@@ -406,6 +409,7 @@
 		}
 		resetPlayerState();
 		loadedTabB64.set(null);
+		resetScoreEdits(null);
 	}
 
 	// Sync miniPreviewVisible with the showMiniPlayerPreview preference

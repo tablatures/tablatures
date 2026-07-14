@@ -48,7 +48,8 @@ test.describe('transposition', () => {
 		expect(tuningBefore.capo).toBe(4);
 
 		await openTuningTab(page);
-		await expect(page.locator('text=Capo 4')).toBeVisible();
+		// Exact match: the persistent tuning chip also renders "... · Capo 4"
+		await expect(page.getByText('Capo 4', { exact: true })).toBeVisible();
 
 		await transposeTo(page, STANDARD_LABEL);
 		await expect(page.locator('text=Transposed')).toBeVisible();
@@ -100,6 +101,56 @@ test.describe('transposition', () => {
 
 		const tuningAfter = await getStaffTuning(page);
 		expect(tuningAfter.tunings).toEqual([64, 59, 55, 50, 45, 38]);
+	});
+
+	test('keeps the transposition undo after closing and reopening', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
+
+		const before = await getTrackNotes(page);
+		const tuningBefore = await getStaffTuning(page);
+
+		await openTuningTab(page);
+		await transposeTo(page, STANDARD_LABEL);
+		await expect(page.locator('text=Transposed')).toBeVisible();
+
+		// Closing the dialog used to unmount the transposer and lose the undo
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+		await openTuningTab(page);
+		const resetButton = page.locator('button:has-text("Reset to original")');
+		await expect(resetButton).toBeVisible();
+		await resetButton.click();
+
+		const after = await getTrackNotes(page);
+		expect(after.map((n) => [n.string, n.fret])).toEqual(before.map((n) => [n.string, n.fret]));
+
+		const tuningAfter = await getStaffTuning(page);
+		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);
+		expect(tuningAfter.capo).toBe(tuningBefore.capo);
+	});
+
+	test('the tuning chip reflects the transposition and reverts it', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
+		const tuningBefore = await getStaffTuning(page);
+
+		await openTuningTab(page);
+		await transposeTo(page, STANDARD_LABEL);
+		await expect(page.locator('text=Transposed')).toBeVisible();
+
+		// Close the panel so only the metadata chip remains
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+
+		// The chip exposes a revert affordance only while transposed
+		const revertBtn = page.locator('button[aria-label="Revert transposition"]');
+		await expect(revertBtn).toBeVisible();
+		await revertBtn.first().click();
+		await expect(revertBtn).toHaveCount(0);
+
+		const tuningAfter = await getStaffTuning(page);
+		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);
+		expect(tuningAfter.capo).toBe(tuningBefore.capo);
 	});
 
 	test('reports out of range notes without altering them', async ({ page }) => {
