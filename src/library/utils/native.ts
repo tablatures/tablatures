@@ -92,6 +92,20 @@ export async function hideSplash(): Promise<void> {
 	}
 }
 
+// The WebView draws edge-to-edge behind transparent system bars; match the
+// status/navigation bar icon color to the theme so they stay legible.
+export async function syncStatusBar(isDark: boolean): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { SafeArea, SystemBarsStyle } = await import('@capacitor-community/safe-area');
+		await SafeArea.setSystemBarsStyle({
+			style: isDark ? SystemBarsStyle.Dark : SystemBarsStyle.Light
+		});
+	} catch {
+		// plugin unavailable
+	}
+}
+
 // Register a handler for the Android hardware back button. The callback gets
 // whether the WebView can navigate back; returns an unsubscribe function.
 export async function onBackButton(

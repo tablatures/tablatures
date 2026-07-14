@@ -13,6 +13,9 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Theme-aware window background (white / dark) so any edge-to-edge
+             inset region shows the app colour instead of a black band. -->
+        <item name="android:windowBackground">@color/splash_background</item>
     </style>
 
 

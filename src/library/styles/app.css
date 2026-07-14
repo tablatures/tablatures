@@ -90,6 +90,14 @@
 	.pb-safe {
 		padding-bottom: env(safe-area-inset-bottom);
 	}
+
+	/* Top counterpart: clears the status bar / notch when the WebView draws
+	   edge-to-edge (Capacitor native, installed PWA on notched phones). The
+	   element's own background fills the inset area, so the status bar sits on
+	   the header colour rather than a separate band. Zero where not needed. */
+	.pt-safe {
+		padding-top: env(safe-area-inset-top);
+	}
 }
 
 @layer components {
