@@ -7,9 +7,10 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // Draw edge-to-edge so the @capacitor-community/safe-area plugin can
-        // deliver correct env(safe-area-inset-*) values to the WebView.
-        EdgeToEdge.enable(this);
+        // super.onCreate() must run first so BridgeActivity applies the
+        // no-action-bar theme; enabling edge-to-edge before it leaves the
+        // system title bar (the black "Tablatures" bar) showing.
         super.onCreate(savedInstanceState);
+        EdgeToEdge.enable(this);
     }
 }
