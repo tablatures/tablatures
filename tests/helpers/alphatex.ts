@@ -61,6 +61,31 @@ export const TEX_SCORES = {
 		'5.1 5.1 5.1 5.1 | 6.1 6.1 6.1 6.1 | 7.1 7.1 7.1 7.1 |',
 		'\\ro 8.1 8.1 8.1 8.1 | 9.1 9.1 9.1 9.1 | \\rc 2 10.1 10.1 10.1 10.1 |',
 		'11.1 11.1 11.1 11.1 | 12.1 12.1 12.1 12.1'
+	].join(' '),
+
+	/**
+	 * 4 bars in a nonstandard tuning with a capo, single notes and chords.
+	 * Used by the transposition tests.
+	 */
+	alternateTuning: [
+		'\\title "Alternate Tuning" \\tempo 120 \\instrument 25',
+		'\\tuning e4 a3 g3 e3 c3 c2 \\capo 4',
+		'.',
+		':4 0.6 2.5 0.4 2.3 | 0.2 3.1 5.1 0.1 |',
+		'(0.6 0.4 2.3).2 (2.5 2.3 0.2).2 | 7.1 5.2 3.3 0.6'
+	].join(' '),
+
+	/**
+	 * Two guitar tracks in the same tuning: a melodic lead line and a
+	 * chordal rhythm. Used by the track merge tests.
+	 */
+	twoGuitars: [
+		'\\title "Two Guitars" \\tempo 120',
+		'.',
+		'\\track "Lead" \\instrument 25',
+		':4 5.1 7.1 8.1 7.1 | 5.2 7.2 8.2 7.2',
+		'\\track "Rhythm" \\instrument 25',
+		':4 (0.5 2.4 2.3).2 (0.5 2.4 2.3).2 | (3.6 5.5 5.4).2 (3.6 5.5 5.4).2'
 	].join(' ')
 } as const;
 
@@ -93,7 +118,11 @@ export const EXPECTED_SEQUENCES: Record<keyof typeof TEX_SCORES, number[]> = {
 		7, 8, 9,
 		7, 8, 9,
 		10, 11
-	]
+	],
+
+	alternateTuning: [0, 1, 2, 3],
+
+	twoGuitars: [0, 1]
 } as const;
 
 // ---------------------------------------------------------------------------

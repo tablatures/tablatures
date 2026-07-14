@@ -7,10 +7,13 @@
 		formatTuningNotes
 	} from '$utils/tunings';
 	import {
-		transposeScore,
-		saveNoteState,
-		restoreNoteState,
-		type SavedNoteState,
+		transposeTrack,
+		snapshotTrack,
+		restoreTrack,
+		readTrackTuning,
+		suggestOctaveShiftForTrack,
+		suggestCapoForTrack,
+		type TrackSnapshot,
 		type TranspositionResult
 	} from '$utils/transposition';
 
@@ -20,7 +23,7 @@
 
 	const dispatch = createEventDispatcher<{ transposed: TranspositionResult }>();
 
-	// Source tuning (read from the score)
+	// Source tuning (read from the score, low to high)
 	let sourceTuning: number[] = [];
 	let sourceCapo: number = 0;
 	let sourcePresetName: string | null = null;
@@ -30,11 +33,14 @@
 	let customTuning: number[] = [];
 	let targetCapo: number = 0;
 	let octaveShift: number = 0;
+	let octaveAuto: boolean = true;
 	let isCustom: boolean = false;
 
 	// State
-	let savedState: SavedNoteState[] | null = null;
+	let snapshot: TrackSnapshot | null = null;
+	let snapshotScore: any = null;
 	let lastResult: TranspositionResult | null = null;
+	let suggestionHint: string | null = null;
 	let isTransposed: boolean = false;
 
 	// MIDI range for custom tuning dropdowns
@@ -47,15 +53,26 @@
 	}
 
 	function readSourceTuning() {
-		const track = api?.score?.tracks?.[activeTrackIndex];
-		if (!track?.staves?.[0]) return;
-		const staff = track.staves[0];
+		if (!api?.score) return;
 
-		const tuning = staff.stringTuning?.tunings ?? staff.tuning;
-		if (!tuning || tuning.length === 0) return;
+		// Leaving a transposed track restores it before switching context
+		if (snapshot && (snapshot.trackIndex !== activeTrackIndex || snapshotScore !== api.score)) {
+			if (snapshotScore === api.score) {
+				restoreTrack(api.score, snapshot);
+				refreshScore();
+			}
+			snapshot = null;
+			snapshotScore = null;
+			lastResult = null;
+			suggestionHint = null;
+			isTransposed = false;
+		}
 
-		sourceTuning = [...tuning];
-		sourceCapo = staff.capo ?? 0;
+		const source = readTrackTuning(api.score, activeTrackIndex);
+		if (!source) return;
+
+		sourceTuning = source.tuning;
+		sourceCapo = source.capo;
 
 		// Try to match source to a preset
 		const match = TUNING_PRESETS.find(
@@ -67,13 +84,6 @@
 
 		customTuning = [...sourceTuning];
 		if (match) selectedPresetId = match.id;
-
-		// Reset transposition state when track changes
-		if (isTransposed) {
-			savedState = null;
-			lastResult = null;
-			isTransposed = false;
-		}
 	}
 
 	$: selectedPreset = TUNING_PRESETS.find((p) => p.id === selectedPresetId);
@@ -90,7 +100,7 @@
 		targetTuning.length === sourceTuning.length &&
 		targetTuning.every((v, i) => v === sourceTuning[i]) &&
 		targetCapo === sourceCapo &&
-		octaveShift === 0;
+		(octaveAuto || octaveShift === 0);
 
 	function handlePresetChange(e: Event) {
 		const value = (e.target as HTMLSelectElement).value;
@@ -103,29 +113,55 @@
 		}
 	}
 
+	function refreshScore() {
+		if (typeof api.loadMidiForScore === 'function') {
+			try {
+				api.loadMidiForScore();
+			} catch {
+				// midi regeneration unavailable, rendering still updates
+			}
+		}
+		api.render();
+	}
+
+	function updateSuggestionHint(result: TranspositionResult, target: { tuning: number[]; capo: number }) {
+		suggestionHint = null;
+		if (result.unplayableNotes.length === 0) return;
+
+		const shifts = suggestOctaveShiftForTrack(api.score, activeTrackIndex, target);
+		const best = shifts[0];
+		if (best && best.shift !== result.appliedOctaveShift && best.unplayableCount < result.unplayableNotes.length) {
+			suggestionHint = `Octave shift ${best.shift > 0 ? '+' : ''}${best.shift} would leave ${best.unplayableCount} notes out of range`;
+			return;
+		}
+
+		const capos = suggestCapoForTrack(api.score, activeTrackIndex, target.tuning);
+		const bestCapo = capos[0];
+		if (bestCapo && bestCapo.capo !== target.capo && bestCapo.unplayableCount < result.unplayableNotes.length) {
+			suggestionHint = `Capo ${bestCapo.capo} would leave ${bestCapo.unplayableCount} notes out of range`;
+		}
+	}
+
 	function applyTransposition() {
 		if (!api?.score) return;
 
-		if (!savedState) {
-			savedState = saveNoteState(api.score, activeTrackIndex);
+		// Always transpose from the original state so repeated applies never drift
+		if (snapshot && snapshotScore === api.score) {
+			restoreTrack(api.score, snapshot);
+		} else {
+			snapshot = snapshotTrack(api.score, activeTrackIndex);
+			snapshotScore = api.score;
 		}
 
-		const result = transposeScore(
-			api.score,
-			activeTrackIndex,
-			isTransposed ? targetTuning : sourceTuning,
-			isTransposed ? targetCapo : sourceCapo,
-			isCustom ? customTuning : targetTuning,
-			targetCapo,
-			octaveShift
-		);
+		const target = {
+			tuning: isCustom ? customTuning : targetTuning,
+			capo: targetCapo,
+			octaveShift: octaveAuto ? undefined : octaveShift
+		};
+		const result = transposeTrack(api.score, activeTrackIndex, target);
 
-		try {
-			api.score.finish(api.settings);
-		} catch {
-			// finish() may not exist on all versions
-		}
-		api.render();
+		refreshScore();
+		updateSuggestionHint(result, target);
 
 		lastResult = result;
 		isTransposed = true;
@@ -133,36 +169,18 @@
 	}
 
 	function resetTransposition() {
-		if (!api?.score || !savedState) return;
+		if (!api?.score || !snapshot || snapshotScore !== api.score) return;
 
-		restoreNoteState(api.score, activeTrackIndex, savedState);
+		restoreTrack(api.score, snapshot);
+		refreshScore();
 
-		const staves = api.score.tracks[activeTrackIndex]?.staves;
-		if (staves) {
-			for (const staff of staves) {
-				if (staff.stringTuning) {
-					staff.stringTuning.tunings = [...sourceTuning];
-				}
-				if (staff.tuning) {
-					for (let i = 0; i < sourceTuning.length && i < staff.tuning.length; i++) {
-						staff.tuning[i] = sourceTuning[i];
-					}
-				}
-				staff.capo = sourceCapo;
-			}
-		}
-
-		try {
-			api.score.finish(api.settings);
-		} catch {
-			// finish() may not exist on all versions
-		}
-		api.render();
-
-		savedState = null;
+		snapshot = null;
+		snapshotScore = null;
 		lastResult = null;
+		suggestionHint = null;
 		isTransposed = false;
 		octaveShift = 0;
+		octaveAuto = true;
 	}
 
 	function formatSourceTuning(midi: number[]): string {
@@ -204,6 +222,7 @@
 			</p>
 			<select
 				value={isCustom ? 'custom' : selectedPresetId}
+				aria-label="Target tuning"
 				on:change={handlePresetChange}
 				class="w-full px-3 py-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500/50"
 			>
@@ -281,11 +300,20 @@
 				</p>
 			</div>
 			<div class="flex items-center gap-1.5">
+				<button
+					on:click={() => { octaveAuto = true; }}
+					class="flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors
+						{octaveAuto
+						? 'bg-violet-500 text-white shadow-sm'
+						: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
+				>
+					Auto
+				</button>
 				{#each [-2, -1, 0, 1, 2] as shift}
 					<button
-						on:click={() => { octaveShift = shift; }}
+						on:click={() => { octaveAuto = false; octaveShift = shift; }}
 						class="flex-1 py-2.5 text-sm font-mono rounded-lg transition-colors
-							{octaveShift === shift
+							{!octaveAuto && octaveShift === shift
 							? 'bg-violet-500 text-white shadow-sm'
 							: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
 					>
@@ -330,11 +358,14 @@
 				{#if lastResult.success}
 					<i class="material-icons !text-sm align-middle mr-1">check_circle</i>
 					Transposed {lastResult.transposedCount} notes successfully
+					{#if lastResult.appliedOctaveShift !== 0}
+						<span class="block mt-1">Applied octave shift: {lastResult.appliedOctaveShift > 0 ? '+' : ''}{lastResult.appliedOctaveShift}</span>
+					{/if}
 				{:else}
 					<i class="material-icons !text-sm align-middle mr-1">warning</i>
 					{lastResult.transposedCount} transposed, {lastResult.unplayableNotes.length} out of range
-					{#if octaveShift === 0 && lastResult.unplayableNotes.length > 10}
-						<span class="block mt-1 text-violet-500">Try adjusting the octave shift above</span>
+					{#if suggestionHint}
+						<span class="block mt-1 text-violet-500">{suggestionHint}</span>
 					{/if}
 				{/if}
 			</div>

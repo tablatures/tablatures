@@ -1,6 +1,30 @@
-export interface FretPosition {
-	string: number; // 1-based string number (alphaTab convention)
-	fret: number;
+// alphaTab boundary adapter for transposition. This module owns every
+// convention conversion with the alphaTab score model:
+// - note.string is 1-based and 1 is the LOWEST string
+// - staff.stringTuning.tunings is ordered HIGHEST string first
+// - sounding pitch = fret + staff.capo + open string midi
+// Internally everything uses tunings ordered low string to high string,
+// matching the presets in tunings.ts, and the pure optimizer in fretting.ts.
+
+import {
+	optimizeFretting,
+	bestOctaveShift,
+	suggestCapo,
+	naturalHarmonicPitch,
+	DEFAULT_FRET_COUNT,
+	type ChordEvent,
+	type ChordNote,
+	type Instrument,
+	type NotePlacement,
+	type FrettingResult
+} from './fretting';
+
+// --- Types ---
+
+export interface TranspositionTarget {
+	tuning: number[]; // low string to high string
+	capo: number;
+	octaveShift?: number; // in octaves, undefined picks the best shift automatically
 }
 
 export interface UnplayableNote {
@@ -11,462 +35,429 @@ export interface UnplayableNote {
 	midiPitch: number;
 }
 
-export interface SavedNoteState {
+export interface TranspositionResult {
+	success: boolean;
+	transposedCount: number;
+	unplayableNotes: UnplayableNote[];
+	appliedOctaveShift: number; // in octaves
+}
+
+interface SavedNote {
 	barIndex: number;
 	voiceIndex: number;
 	beatIndex: number;
 	noteIndex: number;
 	fret: number;
 	string: number;
+	leftHandFinger: number;
 }
 
-export interface TranspositionResult {
-	success: boolean;
-	transposedCount: number;
-	unplayableNotes: UnplayableNote[];
+interface SavedStaff {
+	tunings: number[]; // raw alphaTab order, highest string first
+	capo: number;
+	notes: SavedNote[];
 }
 
-// --- Viterbi DP types ---
-
-/** A candidate assignment for all notes in one beat */
-interface BeatState {
-	positions: FretPosition[]; // one per note in the beat
-	avgFret: number;
+export interface TrackSnapshot {
+	trackIndex: number;
+	staves: SavedStaff[];
 }
 
-/** DP cell: best cost to reach this state, and which previous state led here */
-interface DPCell {
-	cost: number;
-	prevIndex: number; // index into previous beat's states, -1 for first beat
-}
+// --- alphaTab constants ---
 
-// --- Cost function ---
+const HARMONIC_TYPE_NATURAL = 1;
+const FINGER_UNKNOWN = -2;
 
-const MAX_COMFORTABLE_SPAN = 5;
-const BEAM_WIDTH = 50; // max states kept per beat
+// --- Reading ---
 
-function transitionCost(prev: BeatState, curr: BeatState): number {
-	let cost = 0;
+/** Read a track tuning as low to high midi values plus capo */
+export function readTrackTuning(
+	score: any,
+	trackIndex: number
+): { tuning: number[]; capo: number } | null {
+	const staves = score?.tracks?.[trackIndex]?.staves;
+	if (!staves) return null;
 
-	// Fret jump cost (quadratic penalty for jumps > 3 frets)
-	const fretDiff = Math.abs(curr.avgFret - prev.avgFret);
-	if (fretDiff <= 1) cost += 0;
-	else if (fretDiff <= 3) cost += fretDiff * 0.5;
-	else cost += 1.5 + (fretDiff - 3) ** 2 * 0.5;
-
-	return cost;
-}
-
-function stateCost(state: BeatState): number {
-	let cost = 0;
-
-	// Prefer lower fret positions
-	cost += state.avgFret * 0.05;
-
-	if (state.positions.length > 1) {
-		const frettedPositions = state.positions.filter((p) => p.fret > 0);
-		const frets = frettedPositions.map((p) => p.fret);
-
-		if (frets.length > 1) {
-			// Penalize wide fret span within a chord
-			const span = Math.max(...frets) - Math.min(...frets);
-			if (span > MAX_COMFORTABLE_SPAN) {
-				cost += (span - MAX_COMFORTABLE_SPAN) ** 2;
-			}
-
-			// Finger count constraint: count unique frets (same fret = 1 barre finger)
-			const uniqueFrets = new Set(frets);
-			const fingerCount = uniqueFrets.size;
-			if (fingerCount > 4) {
-				cost += (fingerCount - 4) * 10;
-			}
+	for (const staff of staves) {
+		if (staff.isPercussion) continue;
+		const tunings = staff.stringTuning?.tunings;
+		if (tunings && tunings.length > 0) {
+			return { tuning: [...tunings].reverse(), capo: staff.capo ?? 0 };
 		}
 	}
-
-	return cost;
+	return null;
 }
 
-// --- Candidate generation ---
-
-/** Get all valid (string, fret) for a single MIDI pitch on a tuning */
-function getCandidates(midiPitch: number, tuning: number[], capo: number): FretPosition[] {
-	const candidates: FretPosition[] = [];
-	for (let i = 0; i < tuning.length; i++) {
-		const fret = midiPitch - tuning[i] - capo;
-		if (fret >= 0 && fret <= 24) {
-			candidates.push({ string: i + 1, fret });
-		}
-	}
-	return candidates;
-}
-
-/** Generate all valid beat states for a set of notes (handles chords) */
-function generateBeatStates(
-	midiPitches: number[],
-	tuning: number[],
-	capo: number
-): BeatState[] {
-	if (midiPitches.length === 0) return [];
-
-	// Get candidates for each note
-	const perNote = midiPitches.map((p) => getCandidates(p, tuning, capo));
-
-	// If any note has zero candidates, return empty (unplayable)
-	if (perNote.some((c) => c.length === 0)) return [];
-
-	// For single notes, each candidate is a state
-	if (perNote.length === 1) {
-		return perNote[0].map((pos) => ({
-			positions: [pos],
-			avgFret: pos.fret
-		}));
-	}
-
-	// For chords, compute cartesian product and filter string conflicts
-	const states: BeatState[] = [];
-	const indices = new Array(perNote.length).fill(0);
-	const maxStates = BEAM_WIDTH * 2; // generate more, then prune
-
-	function recurse(noteIdx: number, current: FretPosition[], usedStrings: Set<number>) {
-		if (states.length >= maxStates) return;
-
-		if (noteIdx === perNote.length) {
-			const frets = current.filter((p) => p.fret > 0).map((p) => p.fret);
-			const avgFret = frets.length > 0 ? frets.reduce((a, b) => a + b, 0) / frets.length : 0;
-			states.push({ positions: [...current], avgFret });
-			return;
-		}
-
-		for (const candidate of perNote[noteIdx]) {
-			if (usedStrings.has(candidate.string)) continue;
-			usedStrings.add(candidate.string);
-			current.push(candidate);
-			recurse(noteIdx + 1, current, usedStrings);
-			current.pop();
-			usedStrings.delete(candidate.string);
-		}
-	}
-
-	recurse(0, [], new Set());
-
-	// Prune to beam width by state cost
-	if (states.length > BEAM_WIDTH) {
-		states.sort((a, b) => stateCost(a) - stateCost(b));
-		states.length = BEAM_WIDTH;
-	}
-
-	return states;
-}
-
-// --- Viterbi DP optimizer ---
-
-interface BeatInfo {
+interface CollectedNote {
+	note: any;
 	barIndex: number;
 	beatIndex: number;
-	notes: any[]; // references to actual note objects
-	midiPitches: number[];
 }
 
-function collectBeats(
-	staves: any[],
+interface StaffEvents {
+	events: ChordEvent[];
+	info: Map<number, CollectedNote>;
+	unresolved: UnplayableNote[]; // notes whose source pitch cannot be determined
+}
+
+function collectStaffEvents(
+	staff: any,
 	sourceTuning: number[],
 	sourceCapo: number,
-	octaveShift: number
-): BeatInfo[] {
-	const beats: BeatInfo[] = [];
+	semitoneShift: number,
+	firstId: number
+): StaffEvents {
+	const info = new Map<number, CollectedNote>();
+	const unresolved: UnplayableNote[] = [];
+	const byTick = new Map<number, ChordEvent>();
+	const idByNote = new Map<any, number>();
+	let nextId = firstId;
 
-	for (const staff of staves) {
-		for (let bi = 0; bi < staff.bars.length; bi++) {
-			const bar = staff.bars[bi];
-			if (!bar.voices) continue;
-			for (const voice of bar.voices) {
-				if (!voice.beats) continue;
-				for (let bei = 0; bei < voice.beats.length; bei++) {
-					const beat = voice.beats[bei];
-					if (!beat.notes || beat.notes.length === 0) continue;
+	for (let barIndex = 0; barIndex < staff.bars.length; barIndex++) {
+		const bar = staff.bars[barIndex];
+		if (!bar.voices) continue;
+		const barStart = bar.masterBar?.start ?? barIndex * 1e7;
 
-					const validNotes: any[] = [];
-					const midiPitches: number[] = [];
+		for (const voice of bar.voices) {
+			if (!voice.beats) continue;
+			for (let beatIndex = 0; beatIndex < voice.beats.length; beatIndex++) {
+				const beat = voice.beats[beatIndex];
+				if (!beat.notes || beat.notes.length === 0) continue;
 
-					for (const note of beat.notes) {
-						if (note.fret < 0 || note.string < 1) continue;
-						const stringIndex = note.string - 1;
-						if (stringIndex >= sourceTuning.length) continue;
-						const midi = note.fret + sourceTuning[stringIndex] + sourceCapo + octaveShift * 12;
-						validNotes.push(note);
-						midiPitches.push(midi);
+				const startTick = barStart + (beat.playbackStart ?? beatIndex * 1e3);
+				const endTick = startTick + (beat.playbackDuration ?? 0);
+
+				for (const note of beat.notes) {
+					if (note.isPercussion) continue;
+					if (note.fret < 0 || note.string < 1 || note.string > sourceTuning.length) continue;
+
+					const openMidi = sourceTuning[note.string - 1] + sourceCapo;
+					const isNaturalHarmonic = note.harmonicType === HARMONIC_TYPE_NATURAL;
+					let midi: number;
+
+					if (note.isDead) {
+						midi = 0;
+					} else if (isNaturalHarmonic) {
+						const pitch = naturalHarmonicPitch(openMidi, note.fret);
+						if (pitch === null) {
+							unresolved.push({
+								barIndex,
+								beatIndex,
+								originalString: note.string,
+								originalFret: note.fret,
+								midiPitch: 0
+							});
+							continue;
+						}
+						midi = pitch + semitoneShift;
+					} else {
+						midi = note.fret + openMidi + semitoneShift;
 					}
 
-					if (validNotes.length > 0) {
-						beats.push({ barIndex: bi, beatIndex: bei, notes: validNotes, midiPitches });
+					const id = nextId++;
+					idByNote.set(note, id);
+					info.set(id, { note, barIndex, beatIndex });
+
+					const chordNote: ChordNote = {
+						id,
+						midi,
+						isDead: !!note.isDead,
+						harmonicNode: isNaturalHarmonic ? note.fret : null,
+						tieOriginId:
+							note.isTieDestination && note.tieOrigin
+								? (idByNote.get(note.tieOrigin) ?? null)
+								: null,
+						slideOriginId: note.slideOrigin ? (idByNote.get(note.slideOrigin) ?? null) : null,
+						hasBend: (note.bendPoints?.length ?? 0) > 0,
+						originalString: note.string - 1,
+						originalFret: note.fret
+					};
+
+					const existing = byTick.get(startTick);
+					if (existing) {
+						existing.notes.push(chordNote);
+						existing.endTick = Math.max(existing.endTick, endTick);
+					} else {
+						byTick.set(startTick, { startTick, endTick, notes: [chordNote] });
 					}
 				}
 			}
 		}
 	}
 
-	return beats;
+	const events = [...byTick.values()].sort((a, b) => a.startTick - b.startTick);
+	return { events, info, unresolved };
 }
 
-function optimizeWithViterbi(
-	beats: BeatInfo[],
-	targetTuning: number[],
-	targetCapo: number
-): { assignments: Map<any, FretPosition>; unplayable: BeatInfo[] } {
-	const assignments = new Map<any, FretPosition>();
-	const unplayable: BeatInfo[] = [];
+// --- Snapshot and restore ---
 
-	if (beats.length === 0) return { assignments, unplayable };
-
-	// Generate states for each beat
-	const allStates: BeatState[][] = [];
-	const playableBeatIndices: number[] = [];
-
-	for (let i = 0; i < beats.length; i++) {
-		const states = generateBeatStates(beats[i].midiPitches, targetTuning, targetCapo);
-		if (states.length === 0) {
-			unplayable.push(beats[i]);
-		} else {
-			allStates.push(states);
-			playableBeatIndices.push(i);
-		}
-	}
-
-	if (allStates.length === 0) return { assignments, unplayable };
-
-	// Viterbi forward pass
-	const dp: DPCell[][] = [];
-
-	// Initialize first beat
-	dp.push(
-		allStates[0].map((state) => ({
-			cost: stateCost(state),
-			prevIndex: -1
-		}))
-	);
-
-	// Forward pass
-	for (let t = 1; t < allStates.length; t++) {
-		const prevCells = dp[t - 1];
-		const prevStates = allStates[t - 1];
-		const currStates = allStates[t];
-		const cells: DPCell[] = [];
-
-		for (let j = 0; j < currStates.length; j++) {
-			let bestCost = Infinity;
-			let bestPrev = 0;
-
-			for (let k = 0; k < prevStates.length; k++) {
-				const cost = prevCells[k].cost + transitionCost(prevStates[k], currStates[j]) + stateCost(currStates[j]);
-				if (cost < bestCost) {
-					bestCost = cost;
-					bestPrev = k;
-				}
-			}
-
-			cells.push({ cost: bestCost, prevIndex: bestPrev });
-		}
-
-		dp.push(cells);
-	}
-
-	// Backtrack to find optimal path
-	const path: number[] = new Array(allStates.length);
-
-	// Find best final state
-	let bestFinalCost = Infinity;
-	let bestFinalIndex = 0;
-	const lastCells = dp[dp.length - 1];
-	for (let j = 0; j < lastCells.length; j++) {
-		if (lastCells[j].cost < bestFinalCost) {
-			bestFinalCost = lastCells[j].cost;
-			bestFinalIndex = j;
-		}
-	}
-	path[path.length - 1] = bestFinalIndex;
-
-	for (let t = allStates.length - 2; t >= 0; t--) {
-		path[t] = dp[t + 1][path[t + 1]].prevIndex;
-	}
-
-	// Apply optimal assignments
-	for (let t = 0; t < allStates.length; t++) {
-		const beatIdx = playableBeatIndices[t];
-		const beat = beats[beatIdx];
-		const state = allStates[t][path[t]];
-
-		for (let n = 0; n < beat.notes.length && n < state.positions.length; n++) {
-			assignments.set(beat.notes[n], state.positions[n]);
-		}
-	}
-
-	return { assignments, unplayable };
-}
-
-// --- Public API (unchanged signatures) ---
-
-/**
- * Save the current fret/string state of all notes in a track for undo.
- */
-export function saveNoteState(score: any, trackIndex: number): SavedNoteState[] {
-	const saved: SavedNoteState[] = [];
-	const staves = score.tracks[trackIndex]?.staves;
-	if (!staves) return saved;
+/** Capture the full fretting and tuning state of a track for undo */
+export function snapshotTrack(score: any, trackIndex: number): TrackSnapshot {
+	const snapshot: TrackSnapshot = { trackIndex, staves: [] };
+	const staves = score?.tracks?.[trackIndex]?.staves;
+	if (!staves) return snapshot;
 
 	for (const staff of staves) {
-		for (let bi = 0; bi < staff.bars.length; bi++) {
-			const bar = staff.bars[bi];
+		const saved: SavedStaff = {
+			tunings: [...(staff.stringTuning?.tunings ?? [])],
+			capo: staff.capo ?? 0,
+			notes: []
+		};
+
+		for (let barIndex = 0; barIndex < staff.bars.length; barIndex++) {
+			const bar = staff.bars[barIndex];
 			if (!bar.voices) continue;
-			for (let vi = 0; vi < bar.voices.length; vi++) {
-				const voice = bar.voices[vi];
+			for (let voiceIndex = 0; voiceIndex < bar.voices.length; voiceIndex++) {
+				const voice = bar.voices[voiceIndex];
 				if (!voice.beats) continue;
-				for (let bei = 0; bei < voice.beats.length; bei++) {
-					const beat = voice.beats[bei];
+				for (let beatIndex = 0; beatIndex < voice.beats.length; beatIndex++) {
+					const beat = voice.beats[beatIndex];
 					if (!beat.notes) continue;
-					for (let ni = 0; ni < beat.notes.length; ni++) {
-						const note = beat.notes[ni];
-						saved.push({
-							barIndex: bi,
-							voiceIndex: vi,
-							beatIndex: bei,
-							noteIndex: ni,
+					for (let noteIndex = 0; noteIndex < beat.notes.length; noteIndex++) {
+						const note = beat.notes[noteIndex];
+						saved.notes.push({
+							barIndex,
+							voiceIndex,
+							beatIndex,
+							noteIndex,
 							fret: note.fret,
-							string: note.string
+							string: note.string,
+							leftHandFinger: note.leftHandFinger ?? FINGER_UNKNOWN
 						});
 					}
 				}
 			}
 		}
+
+		snapshot.staves.push(saved);
 	}
 
-	return saved;
+	return snapshot;
 }
 
-/**
- * Restore previously saved note state (undo transposition).
- */
-export function restoreNoteState(score: any, trackIndex: number, saved: SavedNoteState[]): void {
-	const staves = score.tracks[trackIndex]?.staves;
+/** Restore a track to a previously captured snapshot */
+export function restoreTrack(score: any, snapshot: TrackSnapshot): void {
+	const staves = score?.tracks?.[snapshot.trackIndex]?.staves;
 	if (!staves) return;
 
-	for (const s of saved) {
-		for (const staff of staves) {
-			const bar = staff.bars[s.barIndex];
-			if (!bar?.voices?.[s.voiceIndex]?.beats?.[s.beatIndex]?.notes?.[s.noteIndex]) continue;
-			const note = bar.voices[s.voiceIndex].beats[s.beatIndex].notes[s.noteIndex];
+	for (
+		let staffIndex = 0;
+		staffIndex < snapshot.staves.length && staffIndex < staves.length;
+		staffIndex++
+	) {
+		const saved = snapshot.staves[staffIndex];
+		const staff = staves[staffIndex];
+
+		if (staff.stringTuning && saved.tunings.length > 0) {
+			staff.stringTuning.tunings = [...saved.tunings];
+			if (typeof staff.stringTuning.finish === 'function') staff.stringTuning.finish();
+		}
+		staff.capo = saved.capo;
+
+		for (const s of saved.notes) {
+			const note =
+				staff.bars[s.barIndex]?.voices?.[s.voiceIndex]?.beats?.[s.beatIndex]?.notes?.[s.noteIndex];
+			if (!note) continue;
 			note.fret = s.fret;
 			note.string = s.string;
+			note.leftHandFinger = s.leftHandFinger;
 		}
 	}
 }
 
+// --- Applying ---
+
+function isFaithful(
+	chordNote: ChordNote,
+	placement: NotePlacement,
+	instrument: Instrument
+): boolean {
+	if (chordNote.isDead) return true;
+	const open = instrument.tuning[placement.stringIndex] + instrument.capo;
+	if (chordNote.harmonicNode !== null) {
+		return naturalHarmonicPitch(open, placement.fret) === chordNote.midi;
+	}
+	return placement.fret + open === chordNote.midi;
+}
+
 /**
- * Transpose all notes in a track using Viterbi DP optimization.
- *
- * Produces musically plausible fret positions by minimizing hand movement
- * across consecutive beats (quadratic penalty for large fret jumps,
- * chord span constraints, lower fret preference).
+ * Force tie destinations onto their origin placement, dropping both ends
+ * when that string is already taken in the destination event.
  */
-export function transposeScore(
+function enforceTieConsistency(events: ChordEvent[], result: FrettingResult): void {
+	for (const event of events) {
+		for (const note of event.notes) {
+			if (note.tieOriginId === null) continue;
+			const origin = result.placements.get(note.tieOriginId);
+			const current = result.placements.get(note.id);
+			if (!origin || !current) continue;
+			if (origin.stringIndex === current.stringIndex && origin.fret === current.fret) continue;
+
+			const conflict = event.notes.some(
+				(other) =>
+					other.id !== note.id &&
+					result.placements.get(other.id)?.stringIndex === origin.stringIndex
+			);
+			if (conflict) {
+				result.placements.delete(note.id);
+				result.placements.delete(note.tieOriginId);
+				result.unplayableIds.push(note.id, note.tieOriginId);
+			} else {
+				result.placements.set(note.id, { ...origin });
+			}
+		}
+	}
+}
+
+function applyTuningMetadata(staff: any, target: TranspositionTarget): void {
+	if (staff.stringTuning) {
+		staff.stringTuning.tunings = [...target.tuning].reverse();
+		if (typeof staff.stringTuning.finish === 'function') staff.stringTuning.finish();
+	}
+	staff.capo = target.capo;
+}
+
+interface EligibleStaff {
+	staff: any;
+	sourceTuning: number[]; // low to high
+	sourceCapo: number;
+}
+
+function eligibleStaves(score: any, trackIndex: number, stringCount: number): EligibleStaff[] {
+	const staves = score?.tracks?.[trackIndex]?.staves;
+	if (!staves) return [];
+
+	const result: EligibleStaff[] = [];
+	for (const staff of staves) {
+		if (staff.isPercussion) continue;
+		const tunings = staff.stringTuning?.tunings;
+		if (!tunings || tunings.length !== stringCount) continue;
+		result.push({ staff, sourceTuning: [...tunings].reverse(), sourceCapo: staff.capo ?? 0 });
+	}
+	return result;
+}
+
+// --- Public API ---
+
+/**
+ * Transpose a track to a target tuning and capo, assigning new string and
+ * fret positions that preserve every sounding pitch. Notes that cannot be
+ * placed are reported and left untouched, never silently altered.
+ */
+export function transposeTrack(
 	score: any,
 	trackIndex: number,
-	sourceTuning: number[],
-	sourceCapo: number,
-	targetTuning: number[],
-	targetCapo: number,
-	octaveShift: number = 0
+	target: TranspositionTarget
 ): TranspositionResult {
-	const staves = score.tracks[trackIndex]?.staves;
-	if (!staves) return { success: false, transposedCount: 0, unplayableNotes: [] };
+	const staffData = eligibleStaves(score, trackIndex, target.tuning.length);
+	if (staffData.length === 0) {
+		return { success: false, transposedCount: 0, unplayableNotes: [], appliedOctaveShift: 0 };
+	}
 
-	// Collect all beats with their MIDI pitches
-	const beats = collectBeats(staves, sourceTuning, sourceCapo, octaveShift);
+	const instrument: Instrument = {
+		tuning: target.tuning,
+		capo: target.capo,
+		fretCount: DEFAULT_FRET_COUNT
+	};
 
-	// Run Viterbi DP to find optimal fret assignments
-	const { assignments, unplayable } = optimizeWithViterbi(beats, targetTuning, targetCapo);
+	let octaveShift = target.octaveShift ?? 0;
+	if (target.octaveShift === undefined) {
+		const allEvents = staffData.flatMap(
+			(d) => collectStaffEvents(d.staff, d.sourceTuning, d.sourceCapo, 0, 0).events
+		);
+		const best = bestOctaveShift(allEvents, instrument)[0];
+		octaveShift = best ? best.shift / 12 : 0;
+	}
 
-	// Apply assignments to the score
 	let transposedCount = 0;
-	for (const [note, pos] of assignments) {
-		note.fret = pos.fret;
-		note.string = pos.string;
-		transposedCount++;
-	}
-
-	// Post-transposition collision check: ensure no beat has two notes on the same string
-	for (const beat of beats) {
-		const stringUsage = new Map<number, any[]>();
-		for (const note of beat.notes) {
-			const existing = stringUsage.get(note.string);
-			if (existing) {
-				existing.push(note);
-			} else {
-				stringUsage.set(note.string, [note]);
-			}
-		}
-		// Resolve collisions: keep the note with the lowest fret, try to reassign others
-		for (const [str, notes] of stringUsage) {
-			if (notes.length <= 1) continue;
-			// Sort by fret (keep lowest)
-			notes.sort((a: any, b: any) => a.fret - b.fret);
-			for (let i = 1; i < notes.length; i++) {
-				const note = notes[i];
-				const midi = note.fret + targetTuning[note.string - 1] + targetCapo;
-				// Try to find an alternative string
-				let reassigned = false;
-				for (let s = 0; s < targetTuning.length; s++) {
-					const altString = s + 1;
-					if (stringUsage.has(altString) && stringUsage.get(altString)!.length > 0 && altString !== str) {
-						// Check if this string is already used in this beat
-						const usedInBeat = beat.notes.some((n: any) => n !== note && n.string === altString);
-						if (usedInBeat) continue;
-					}
-					const altFret = midi - targetTuning[s] - targetCapo;
-					if (altFret >= 0 && altFret <= 24 && altString !== str) {
-						note.string = altString;
-						note.fret = altFret;
-						reassigned = true;
-						break;
-					}
-				}
-				if (!reassigned) {
-					// Mark as unplayable by setting fret to -1
-					note.fret = 0;
-				}
-			}
-		}
-	}
-
-	// Build unplayable notes list
 	const unplayableNotes: UnplayableNote[] = [];
-	for (const beat of unplayable) {
-		for (let n = 0; n < beat.notes.length; n++) {
-			unplayableNotes.push({
-				barIndex: beat.barIndex,
-				beatIndex: beat.beatIndex,
-				originalString: beat.notes[n].string,
-				originalFret: beat.notes[n].fret,
-				midiPitch: beat.midiPitches[n]
-			});
-		}
-	}
+	let nextId = 0;
 
-	// Update staff tuning metadata
-	for (const staff of staves) {
-		if (staff.stringTuning) {
-			staff.stringTuning.tunings = [...targetTuning];
+	for (const d of staffData) {
+		const { events, info, unresolved } = collectStaffEvents(
+			d.staff,
+			d.sourceTuning,
+			d.sourceCapo,
+			octaveShift * 12,
+			nextId
+		);
+		nextId += info.size;
+		unplayableNotes.push(...unresolved);
+
+		const result = optimizeFretting(events, instrument);
+		enforceTieConsistency(events, result);
+
+		const chordNoteById = new Map<number, ChordNote>();
+		for (const event of events) {
+			for (const chordNote of event.notes) chordNoteById.set(chordNote.id, chordNote);
 		}
-		if (staff.tuning) {
-			for (let i = 0; i < targetTuning.length && i < staff.tuning.length; i++) {
-				staff.tuning[i] = targetTuning[i];
+
+		for (const [id, collected] of info) {
+			const chordNote = chordNoteById.get(id);
+			const placement = result.placements.get(id);
+
+			if (!chordNote || !placement || !isFaithful(chordNote, placement, instrument)) {
+				unplayableNotes.push({
+					barIndex: collected.barIndex,
+					beatIndex: collected.beatIndex,
+					originalString: collected.note.string,
+					originalFret: collected.note.fret,
+					midiPitch: chordNote?.midi ?? 0
+				});
+				continue;
 			}
+
+			const note = collected.note;
+			const newString = placement.stringIndex + 1;
+			if (note.string !== newString || note.fret !== placement.fret) {
+				note.string = newString;
+				note.fret = placement.fret;
+				note.leftHandFinger = FINGER_UNKNOWN;
+			}
+			transposedCount++;
 		}
-		staff.capo = targetCapo;
+
+		applyTuningMetadata(d.staff, target);
 	}
 
 	return {
 		success: unplayableNotes.length === 0,
 		transposedCount,
-		unplayableNotes
+		unplayableNotes,
+		appliedOctaveShift: octaveShift
 	};
+}
+
+/** Rank octave shifts for a target tuning by how many notes stay reachable */
+export function suggestOctaveShiftForTrack(
+	score: any,
+	trackIndex: number,
+	target: TranspositionTarget
+): { shift: number; unplayableCount: number }[] {
+	const staffData = eligibleStaves(score, trackIndex, target.tuning.length);
+	const events = staffData.flatMap(
+		(d) => collectStaffEvents(d.staff, d.sourceTuning, d.sourceCapo, 0, 0).events
+	);
+	const instrument: Instrument = {
+		tuning: target.tuning,
+		capo: target.capo,
+		fretCount: DEFAULT_FRET_COUNT
+	};
+	return bestOctaveShift(events, instrument).map((r) => ({
+		shift: r.shift / 12,
+		unplayableCount: r.unplayableCount
+	}));
+}
+
+/** Rank capo positions for a target tuning by playability */
+export function suggestCapoForTrack(
+	score: any,
+	trackIndex: number,
+	tuning: number[]
+): { capo: number; unplayableCount: number; cost: number }[] {
+	const staffData = eligibleStaves(score, trackIndex, tuning.length);
+	const events = staffData.flatMap(
+		(d) => collectStaffEvents(d.staff, d.sourceTuning, d.sourceCapo, 0, 0).events
+	);
+	return suggestCapo(events, tuning);
 }

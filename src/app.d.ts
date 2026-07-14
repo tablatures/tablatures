@@ -41,15 +41,17 @@ declare global {
 		}
 
 		interface Staff {
-			stringTuning: { tunings: number[]; name: string };
+			stringTuning: { tunings: number[]; name: string; finish?: () => void };
 			tuning: number[];
 			capo: number;
 			transpositionPitch: number;
+			isPercussion?: boolean;
 			bars: Bar[];
 		}
 
 		interface Bar {
 			voices: Voice[];
+			masterBar?: { start: number; index: number };
 		}
 
 		interface Voice {
@@ -58,12 +60,24 @@ declare global {
 
 		interface Beat {
 			notes: Note[];
+			playbackStart?: number;
+			playbackDuration?: number;
+			duration?: number;
+			dots?: number;
 		}
 
 		interface Note {
 			fret: number;
 			string: number;
 			realValue: number;
+			isDead?: boolean;
+			isPercussion?: boolean;
+			isTieDestination?: boolean;
+			tieOrigin?: Note | null;
+			slideOrigin?: Note | null;
+			harmonicType?: number;
+			bendPoints?: unknown[] | null;
+			leftHandFinger?: number;
 		}
 
 		interface Color {
@@ -99,6 +113,7 @@ declare global {
 			updateSettings(): void;
 			render(): void;
 			renderScore(score: Score, trackIndexes?: number[]): void;
+			loadMidiForScore?(): void;
 			_beatCursor?: { element?: HTMLElement };
 			tickCache?: { masterBars: any[] } | null;
 		}

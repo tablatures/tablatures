@@ -29,6 +29,7 @@
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import TuningTransposer from '$components/TuningTransposer.svelte';
+	import TrackMerger from '$components/TrackMerger.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -2309,11 +2310,58 @@
 				getTrackSolos: () => [...trackSolos],
 				getTrackVolumes: () => [...trackVolumes],
 				getTrackCount: () => tracks.length,
+				getApi: () => api,
+				exportScore: () => {
+					const bytes = new window.alphaTab.exporter.Gp7Exporter().export(api.score, api.settings);
+					return (bytes as any).byteLength ?? (bytes as any).length ?? 0;
+				},
 				// Read the actual API internal state (not our UI copy)
 				getApiTrackMutes: () => tracks.map((t) => t.playbackInfo.isMute),
 				getApiMasterVolume: () => api?.masterVolume ?? -1,
 				getApiPlaybackSpeed: () => api?.playbackSpeed ?? -1,
-				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1
+				getApiMetronomeVolume: () => api?.metronomeVolume ?? -1,
+				getStaffTuning: (trackIndex: number) => {
+					const staff = api?.score?.tracks?.[trackIndex]?.staves?.[0];
+					if (!staff?.stringTuning?.tunings) return null;
+					return { tunings: [...staff.stringTuning.tunings], capo: staff.capo ?? 0 };
+				},
+				getTrackNotes: (trackIndex: number) => {
+					const result: Array<{
+						bar: number;
+						voice: number;
+						beat: number;
+						string: number;
+						fret: number;
+						realValue: number;
+					}> = [];
+					const staves = api?.score?.tracks?.[trackIndex]?.staves;
+					if (!staves) return result;
+					for (const staff of staves) {
+						for (let b = 0; b < staff.bars.length; b++) {
+							const bar = staff.bars[b];
+							if (!bar.voices) continue;
+							for (let v = 0; v < bar.voices.length; v++) {
+								const voice = bar.voices[v];
+								if (!voice.beats) continue;
+								for (let be = 0; be < voice.beats.length; be++) {
+									const beat = voice.beats[be];
+									if (!beat.notes) continue;
+									for (const note of beat.notes) {
+										result.push({
+											bar: b,
+											voice: v,
+											beat: be,
+											string: note.string,
+											fret: note.fret,
+											realValue: note.realValue
+										});
+									}
+								}
+							}
+						}
+					}
+					return result;
+				}
 			};
 		}
 
@@ -2846,6 +2894,24 @@
 		updatePlayerState({ activeTrackIndex: trackIndex });
 	}
 
+	function onTrackMerged(e: CustomEvent<{ trackIndex: number }>) {
+		tracks = api.score.tracks;
+		trackVolumes = [...trackVolumes, 1.0];
+		trackMutes = [...trackMutes, false];
+		trackSolos = [...trackSolos, false];
+		updatePlayerState({ tracks });
+		setActiveTrack(e.detail.trackIndex);
+	}
+
+	function onMergedTrackRemoved() {
+		tracks = api.score.tracks;
+		trackVolumes = trackVolumes.slice(0, tracks.length);
+		trackMutes = trackMutes.slice(0, tracks.length);
+		trackSolos = trackSolos.slice(0, tracks.length);
+		updatePlayerState({ tracks });
+		setActiveTrack(Math.min(activeTrackIndex, tracks.length - 1));
+	}
+
 	function getTrackInfo(track: any): string {
 		const parts = [];
 		if (track.channel?.instrument) parts.push(track.channel.instrument);
@@ -2854,8 +2920,10 @@
 	}
 
 	function getTrackTuning(track: any): string {
-		const tuning = track?.staves?.[0]?.stringTuning?.tunings ?? track?.staves?.[0]?.tuning;
-		if (!tuning || tuning.length === 0) return '';
+		const raw = track?.staves?.[0]?.stringTuning?.tunings ?? track?.staves?.[0]?.tuning;
+		if (!raw || raw.length === 0) return '';
+		// stringTuning.tunings is ordered highest string first, presets are low to high
+		const tuning = [...raw].reverse();
 		const match = TUNING_PRESETS.find(
 			(p) => p.strings.length === tuning.length && p.strings.every((s: any, i: number) => s.midi === tuning[i])
 		);
@@ -4503,6 +4571,13 @@
 							class="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-center"
 						>Unmute all</button>
 					</div>
+
+					<TrackMerger
+						api={$playerApi}
+						{tracks}
+						on:merged={onTrackMerged}
+						on:removed={onMergedTrackRemoved}
+					/>
 				</div>
 			{/if}
 
