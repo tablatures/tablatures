@@ -131,7 +131,7 @@
 
 <Header showSearch={true} />
 
-<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100vh-3.5rem)]">
+<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-3.5rem)]">
 	<!-- Page title -->
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">

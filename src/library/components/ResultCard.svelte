@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { favoritesStore } from '../utils/favorites';
-	import { toastStore } from '../utils/toast';
 	import { getSourceDisplay } from '../utils/sources';
+	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
 	export let title: string;
@@ -24,22 +23,6 @@
 		| undefined = undefined;
 	export let onVariantClick: ((variant: any) => void) | undefined = undefined;
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
-
-	$: isFavorite = id ? $favoritesStore.some((f) => f.id === id) : false;
-
-	function toggleFavorite(e: Event) {
-		e.stopPropagation();
-		if (!id) return;
-
-		if (isFavorite) {
-			favoritesStore.removeFavorite(id);
-			toastStore.info('Removed from favorites');
-		} else {
-			favoritesStore.addFavorite({ id, title, artist, source, type, album });
-			toastStore.success('Added to favorites');
-		}
-		$favoritesStore = $favoritesStore;
-	}
 
 	function typeIcon(t: string): string {
 		const lower = (t || '').toLowerCase();
@@ -143,18 +126,7 @@
 				<i class="material-icons !text-xl">playlist_add</i>
 			</button>
 		{/if}
-		{#if id}
-			<button
-				class="w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition-all duration-150
-					{isFavorite
-					? 'bg-red-500 text-white hover:bg-red-600'
-					: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-red-500 hover:text-white'}"
-				on:click={toggleFavorite}
-				aria-label="{isFavorite ? 'Remove' : 'Add'} {title} {isFavorite ? 'from' : 'to'} favorites"
-			>
-				<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
-			</button>
-		{/if}
+		<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="pill" />
 		<i
 			class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors"
 			>chevron_right</i

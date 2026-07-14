@@ -293,7 +293,7 @@
 
 <Header bind:this={headerRef} showSearch={true} on:search={handleHeaderSearch} on:openTab={handleHeaderOpenTab} />
 
-<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100vh-3.5rem)]">
+<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-3.5rem)]">
 	<!-- Shared playlist banner -->
 	{#if sharedPlaylist && !sharedPlaylistDismissed}
 		<div class="mb-4 p-4 rounded-xl border-2 border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 flex flex-col sm:flex-row items-start sm:items-center gap-3" transition:fade={{ duration: 150 }}>
@@ -335,10 +335,10 @@
 	</div>
 
 	<!-- Tab buttons -->
-	<div class="flex gap-1 mb-6 border-b border-neutral-200 dark:border-neutral-800">
+	<div class="flex gap-1 mb-6 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto scrollbar-none">
 		<button
 			on:click={() => activeTab = 'favorites'}
-			class="px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'favorites'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
@@ -353,7 +353,7 @@
 		</button>
 		<button
 			on:click={() => activeTab = 'history'}
-			class="px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'history'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
@@ -368,7 +368,7 @@
 		</button>
 		<button
 			on:click={() => activeTab = 'playlists'}
-			class="px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'playlists'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
@@ -486,7 +486,7 @@
 			{#if historyItems.length > 0}
 				<aside
 					aria-labelledby="recent-heading"
-					class="lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] flex flex-col min-h-0"
+					class="lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100dvh-6rem)] flex flex-col min-h-0"
 				>
 					<div class="flex items-end justify-between mb-3 flex-shrink-0">
 						<h2 id="recent-heading" class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
@@ -504,9 +504,12 @@
 						<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50 overflow-y-auto flex-1 min-h-0" role="list">
 							{#each historyItems as item}
 								<TabRow
+									id={item.id}
 									title={item.title}
 									artist={item.artist}
 									source={item.source}
+									album={item.album || ''}
+									type={item.type || ''}
 									artworkUrl={histArtwork[item.id] || ''}
 									artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 									onClick={() => openTab(item)}
@@ -556,9 +559,12 @@
 								<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50" role="list">
 									{#each items as item}
 										<TabRow
+											id={item.id}
 											title={item.title}
 											artist={item.artist}
 											source={item.source}
+											album={item.album || ''}
+											type={item.type || ''}
 											artworkUrl={histArtwork[item.id] || ''}
 											artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 											onClick={() => openTab(item)}
@@ -698,6 +704,7 @@
 								<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50" role="list">
 									{#each playlist.entries as entry, eIndex}
 										<TabRow
+											id={entry.id}
 											title={entry.title}
 											artist={entry.artist}
 											source={entry.source}

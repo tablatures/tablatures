@@ -7,13 +7,18 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { getSourceDisplay } from '../utils/sources';
+	import FavoriteButton from './FavoriteButton.svelte';
 
+	export let id: string = '';
 	export let title: string;
 	export let artist: string = 'Unknown';
 	export let source: string = '';
+	export let album: string = '';
+	export let type: string = '';
 	export let artworkUrl: string = '';
 	export let artworkLoading: boolean = false;
 	export let onClick: () => void = () => {};
+	export let onAddToPlaylist: (() => void) | undefined = undefined;
 
 	$: sourceDisplay = source ? getSourceDisplay(source) : null;
 
@@ -89,6 +94,17 @@
 
 	<!-- Trailing slot (badges, remove button, etc.) -->
 	<div class="flex items-center gap-1 pr-2 flex-shrink-0 self-stretch">
+		{#if onAddToPlaylist && id}
+			<button
+				on:click|stopPropagation={onAddToPlaylist}
+				class="w-9 h-9 flex items-center justify-center rounded-lg text-neutral-400 dark:text-neutral-500 hover:bg-violet-500 hover:text-white transition-colors self-center active:scale-90"
+				title="Add to playlist"
+				aria-label={`Add ${title} to playlist`}
+			>
+				<i class="material-icons !text-lg">playlist_add</i>
+			</button>
+		{/if}
+		<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="row" class="self-center" />
 		<slot />
 	</div>
 </div>

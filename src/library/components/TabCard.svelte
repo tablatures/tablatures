@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { favoritesStore } from '../utils/favorites';
-	import { toastStore } from '../utils/toast';
 	import { getSourceDisplay } from '../utils/sources';
+	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
 	export let title: string;
@@ -17,19 +17,6 @@
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 
 	$: isFavorite = id ? $favoritesStore.some(f => f.id === id) : false;
-
-	function toggleFavorite(e: Event) {
-		e.stopPropagation();
-		if (!id) return;
-		if (isFavorite) {
-			favoritesStore.removeFavorite(id);
-			toastStore.info('Removed from favorites');
-		} else {
-			favoritesStore.addFavorite({ id, title, artist, source, type, album });
-			toastStore.success('Added to favorites');
-		}
-		$favoritesStore = $favoritesStore;
-	}
 
 	function typeIcon(t: string): string {
 		const lower = (t || '').toLowerCase();
@@ -76,7 +63,7 @@
 
 		<!-- Hover action buttons (top-right) -->
 		{#if id}
-			<div class="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150">
+			<div class="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150">
 				{#if onAddToPlaylist}
 					<button
 						on:click|stopPropagation={onAddToPlaylist}
@@ -87,21 +74,13 @@
 						<i class="material-icons !text-xl">playlist_add</i>
 					</button>
 				{/if}
-				<button
-					on:click={toggleFavorite}
-					class="w-10 h-10 flex items-center justify-center rounded-lg bg-black/70 backdrop-blur-sm transition-colors
-						{isFavorite ? 'text-red-400' : 'text-white hover:text-red-400'}"
-					title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
-					aria-label="{isFavorite ? 'Remove' : 'Add'} {title} {isFavorite ? 'from' : 'to'} favorites"
-				>
-					<i class="material-icons !text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
-				</button>
+				<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="overlay" />
 			</div>
 		{/if}
 
 		<!-- Always-visible favorite (subtle) when favorited, shown even without hover -->
 		{#if id && isFavorite}
-			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-red-400 group-hover:opacity-0 transition-opacity">
+			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-red-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
 				<i class="material-icons !text-xl">favorite</i>
 			</div>
 		{/if}

@@ -7,7 +7,6 @@
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
-	import { favoritesStore } from '../utils/favorites';
 	import {
 		playerApi,
 		playerTarget,
@@ -30,6 +29,7 @@
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
+	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -273,8 +273,9 @@
 	let loopDragOriginX = 0;
 	let loopDragOriginPercent = 0;
 
-	// Favorite state
-	$: isFavorite = tabId ? $favoritesStore.some((f) => f.id === tabId) : false;
+	// Clean song title from the player state (falls back to the joined string
+	// only if the store has not populated yet). Avoids splitting "title - artist".
+	$: songTitle = $playerState.title || title;
 
 	// Artist metadata
 	let artistImage: string | null = null;
@@ -1741,25 +1742,6 @@
 	// Legacy mouse touch handler (kept for backward compat)
 	function handleProgressBarTouch(event: TouchEvent) {
 		// Now handled by touchstart/move/end handlers above
-	}
-
-	// Favorite toggle for current tab
-	function toggleFavorite() {
-		if (!tabId) return;
-		if (isFavorite) {
-			favoritesStore.removeFavorite(tabId);
-			toastStore.info('Removed from favorites');
-		} else {
-			favoritesStore.addFavorite({
-				id: tabId,
-				title: title !== '<no sheet loaded>' ? title.split(' - ')[0] || title : 'Unknown',
-				artist: title !== '<no sheet loaded>' ? title.split(' - ')[1] || 'Unknown' : 'Unknown',
-				source: '',
-				type: ''
-			});
-			toastStore.success('Added to favorites');
-		}
-		$favoritesStore = $favoritesStore;
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -3635,9 +3617,10 @@
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
 		bind:clientHeight={barHeight}
-		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200 pb-safe
+		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
+		style="padding-bottom: calc(env(safe-area-inset-bottom) + 5px)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
@@ -3909,7 +3892,7 @@
 				<select
 					value={activeTrackIndex}
 					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
-					class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
+					class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
 					title="Active track"
 					aria-label="Active track"
 				>
@@ -3922,7 +3905,7 @@
 			<!-- Speed selector -->
 			<select
 				bind:value={speed}
-				class="text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
+				class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{speedIsCustom
 					? 'text-violet-500 dark:text-violet-400 font-medium'
 					: 'text-neutral-600 dark:text-neutral-400'}"
@@ -4251,7 +4234,11 @@
 					{/if}
 					<div class="min-w-0 flex-1">
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
-							{title.split(' - ')[0] || title}
+							<a
+								href="{base}/search?q={encodeURIComponent(songTitle)}"
+								class="hover:text-violet-500 hover:underline transition-colors"
+								title="Search other versions">{songTitle}</a
+							>
 						</h1>
 						<!-- Subtitle + tuning chip share one horizontal line so the chip
 						     stays compact and does not add a row to the bottom bar -->
@@ -4323,16 +4310,12 @@
 					</div>
 					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
 						{#if tabId}
-							<button
-								on:click={toggleFavorite}
-								class="p-1.5 sm:p-2 rounded-full transition-all duration-150 active:scale-90
-								{isFavorite
-									? 'text-red-500'
-									: 'text-neutral-500 dark:text-neutral-400 hover:text-red-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
-								title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
-							>
-								<i class="material-icons !text-lg sm:!text-xl">{isFavorite ? 'favorite' : 'favorite_border'}</i>
-							</button>
+							<FavoriteButton
+								id={tabId}
+								title={$playerState.title || title}
+								artist={$playerState.artist || currentArtistName}
+								variant="plain"
+							/>
 						{/if}
 						{#if tabId && allPlaylists.length > 0}
 							<button
@@ -4611,7 +4594,7 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
-				class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto animate-fade-in"
+				class="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 max-w-lg w-full mx-4 max-h-[85dvh] overflow-y-auto animate-fade-in"
 				on:click|stopPropagation
 			>
 				<!-- Header -->
@@ -4691,7 +4674,7 @@
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
 			<div
-				class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-xs overflow-hidden animate-fade-in"
+				class="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 w-full max-w-xs overflow-hidden animate-fade-in pb-safe"
 				on:click|stopPropagation
 			>
 				<div class="px-4 py-3 border-b border-neutral-100 dark:border-neutral-700">
@@ -4699,7 +4682,7 @@
 						Add to playlist
 					</p>
 					<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
-						{title.split(' - ')[0] || title}
+						{songTitle}
 					</p>
 				</div>
 				<div class="max-h-60 overflow-y-auto">

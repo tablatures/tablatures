@@ -86,7 +86,7 @@
 				class="sm:w-8 sm:h-8"
 			/>
 			<span
-				class="font-black text-neutral-800 dark:text-neutral-100"
+				class="hidden min-[360px]:inline font-black text-neutral-800 dark:text-neutral-100"
 				style="font-size: 1rem; letter-spacing: -0.06em; transform: scaleX(1.3) scaleY(1.6); transform-origin: left center; line-height: 1;"
 			>
 				Tablatures

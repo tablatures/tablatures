@@ -149,8 +149,13 @@
 			{/if}
 		</button>
 
-		<!-- Artwork thumbnail -->
-		<a href="{base}/play" class="flex-shrink-0">
+		<!-- Artwork thumbnail: opens the full player, with a fullscreen hint -->
+		<a
+			href="{base}/play"
+			class="group relative flex-shrink-0 rounded overflow-hidden"
+			title="Back to full player"
+			aria-label="Open full player"
+		>
 			{#if artworkUrl}
 				<img src={artworkUrl} alt="" class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
@@ -158,6 +163,11 @@
 					<i class="material-icons !text-lg text-neutral-500">music_note</i>
 				</div>
 			{/if}
+			<span
+				class="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-60 transition-opacity"
+			>
+				<i class="material-icons !text-base">fullscreen</i>
+			</span>
 		</a>
 
 		<!-- Title/artist — whole flex area clickable to open /play; inner artist link stops propagation -->
@@ -191,7 +201,7 @@
 
 		<!-- Source variant switcher -->
 		{#if hasVariants}
-			<div class="flex items-center gap-1 flex-shrink-0">
+			<div class="hidden min-[360px]:flex items-center gap-1 flex-shrink-0">
 				{#each variants as variant}
 					<button
 						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors
@@ -223,11 +233,11 @@
 			</button>
 		{/if}
 
-		<!-- Open full player -->
+		<!-- Open full player: primary way back on mobile, so always visible -->
 		<a
 			href="{base}/play"
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors hidden sm:block"
-			title="Open full player"
+			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
+			title="Back to full player"
 			aria-label="Open full player"
 		>
 			<i class="material-icons !text-lg">keyboard_arrow_up</i>
