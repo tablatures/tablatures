@@ -79,3 +79,56 @@ export async function setKeepAwake(on: boolean): Promise<void> {
 		// plugin unavailable
 	}
 }
+
+// Dismiss the native splash screen once the web app has mounted. Configured
+// with launchAutoHide:false so it stays up until this is called (no flash).
+export async function hideSplash(): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { SplashScreen } = await import('@capacitor/splash-screen');
+		await SplashScreen.hide();
+	} catch {
+		// plugin unavailable
+	}
+}
+
+// The WebView draws edge-to-edge behind a transparent status bar; match the
+// icon color to the theme (dark icons on the light header, light icons on the
+// dark one) so they stay legible.
+export async function syncStatusBar(isDark: boolean): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { StatusBar, Style } = await import('@capacitor/status-bar');
+		await StatusBar.setOverlaysWebView({ overlay: true });
+		await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light });
+	} catch {
+		// plugin unavailable
+	}
+}
+
+// Register a handler for the Android hardware back button. The callback gets
+// whether the WebView can navigate back; returns an unsubscribe function.
+export async function onBackButton(
+	handler: (canGoBack: boolean) => void
+): Promise<() => void> {
+	if (!isNative()) return () => {};
+	try {
+		const { App } = await import('@capacitor/app');
+		const sub = await App.addListener('backButton', ({ canGoBack }) =>
+			handler(!!canGoBack)
+		);
+		return () => sub.remove();
+	} catch {
+		return () => {};
+	}
+}
+
+export async function exitApp(): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { App } = await import('@capacitor/app');
+		await App.exitApp();
+	} catch {
+		// plugin unavailable
+	}
+}

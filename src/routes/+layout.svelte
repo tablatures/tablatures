@@ -46,7 +46,13 @@
 		requestWakeLock,
 		releaseWakeLock
 	} from '../library/utils/playbackEnv';
-	import { setKeepAwake } from '../library/utils/native';
+	import {
+		setKeepAwake,
+		hideSplash,
+		syncStatusBar,
+		onBackButton,
+		exitApp
+	} from '../library/utils/native';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -534,6 +540,29 @@
 			setKeepAwake(false);
 		}
 	}
+
+	// Keep the native status bar icons legible against the themed header.
+	$: if (browser) syncStatusBar($themeStore);
+
+	onMount(() => {
+		// Native app startup: dismiss the splash once mounted, and route the
+		// Android hardware back button through the app (close the tuner first,
+		// otherwise navigate back, otherwise exit).
+		hideSplash();
+		let removeBack = () => {};
+		onBackButton((canGoBack) => {
+			if (get(tunerOpen)) {
+				tunerOpen.set(false);
+				return;
+			}
+			if (canGoBack) {
+				history.back();
+				return;
+			}
+			exitApp();
+		}).then((r) => (removeBack = r));
+		return () => removeBack();
+	});
 
 	onMount(() => {
 		// Wake locks are dropped when the tab is backgrounded; re-acquire on
