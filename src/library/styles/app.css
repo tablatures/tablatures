@@ -7,6 +7,33 @@
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
 		text-rendering: optimizeLegibility;
+		/* Kill the grey/blue tap flash so presses feel native in the WebView. */
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	/* Don't let taps on UI chrome start a text selection (the blue highlight
+	   that looks nothing like native). Real text — inputs, the score, and
+	   anything opted in with .selectable — stays selectable. */
+	button,
+	a,
+	label,
+	summary,
+	[role='button'],
+	[role='slider'],
+	[role='tab'],
+	.material-icons,
+	.material-icons-outlined {
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+
+	input,
+	textarea,
+	[contenteditable],
+	.selectable {
+		-webkit-user-select: text;
+		user-select: text;
 	}
 
 	.dark *:focus-visible {

@@ -92,15 +92,17 @@ export async function hideSplash(): Promise<void> {
 	}
 }
 
-// The WebView draws edge-to-edge behind a transparent status bar; match the
-// icon color to the theme (dark icons on the light header, light icons on the
-// dark one) so they stay legible.
+// The WebView draws edge-to-edge behind transparent system bars (see the
+// safe-area plugin); match the status/navigation bar icon color to the theme
+// (dark icons on the light header, light icons on the dark one) so they stay
+// legible against the themed content behind them.
 export async function syncStatusBar(isDark: boolean): Promise<void> {
 	if (!isNative()) return;
 	try {
-		const { StatusBar, Style } = await import('@capacitor/status-bar');
-		await StatusBar.setOverlaysWebView({ overlay: true });
-		await StatusBar.setStyle({ style: isDark ? Style.Dark : Style.Light });
+		const { SafeArea, SystemBarsStyle } = await import('@capacitor-community/safe-area');
+		await SafeArea.setSystemBarsStyle({
+			style: isDark ? SystemBarsStyle.Dark : SystemBarsStyle.Light
+		});
 	} catch {
 		// plugin unavailable
 	}

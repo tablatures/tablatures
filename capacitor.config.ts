@@ -17,6 +17,12 @@ const config: CapacitorConfig = {
 			launchAutoHide: false,
 			backgroundColor: '#ffffff',
 			showSpinner: false
+		},
+		// Let @capacitor-community/safe-area own the edge-to-edge insets (it fixes
+		// env(safe-area-inset-*) on Android); disable Capacitor's built-in handling
+		// so the two do not fight.
+		SystemBars: {
+			insetsHandling: 'disable'
 		}
 	}
 	// The search API is optional (the app works offline without it). If the real
