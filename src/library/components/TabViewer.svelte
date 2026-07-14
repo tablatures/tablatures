@@ -498,6 +498,17 @@
 				return;
 			}
 
+			// The video is playing; make sure the tab is playing too (muted, since
+			// the video is the audio source) so its cursor animates smoothly rather
+			// than lurching on each 200ms sync tick. api.play() is idempotent, so
+			// this is a no-op once playback is running.
+			if (!playing) {
+				try {
+					api.play();
+				} catch {}
+				return;
+			}
+
 			try {
 				const videoTime = ytPlayer.getCurrentTime?.() || 0;
 				const videoDuration = ytPlayer.getDuration?.() || 0;
