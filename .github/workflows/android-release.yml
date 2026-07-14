@@ -65,13 +65,20 @@ jobs:
           # versionCode is derived from this semver name by build.gradle.
           ANDROID_VERSION_NAME: ${{ steps.version.outputs.name }}
 
-      - name: Rename APK
+      - name: Stage APKs
         run: |
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/tablatures-${{ steps.version.outputs.tag }}.apk"
+          # Stable filename so releases/latest/download/tablatures.apk always
+          # resolves (the Download APK button and simple installers use it).
+          cp android/app/build/outputs/apk/release/app-release.apk dist/tablatures.apk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/tablatures-${{ steps.version.outputs.tag }}.apk
+          files: |
+            dist/tablatures-${{ steps.version.outputs.tag }}.apk
+            dist/tablatures.apk
+          # Recap of what changed since the previous release (commits and PRs).
+          generate_release_notes: true
           fail_on_unmatched_files: true
