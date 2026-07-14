@@ -27,8 +27,8 @@
 	import { preferencesStore } from '../utils/preferences';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
-	import Sheet from '$components/Sheet.svelte';
-	import PlayerPanel from '$components/PlayerPanel.svelte';
+	import PlayerConsole from '$components/PlayerConsole.svelte';
+	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
@@ -36,6 +36,7 @@
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { getArtwork } from '../utils/artwork';
+	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
 
@@ -150,10 +151,8 @@
 	let mountHandleResize: (() => void) | undefined;
 
 	let apiError = '';
-	// Which segment of the single player panel is showing
-	let panelSegment: 'tracks' | 'tuning' | 'playback' = 'playback';
 	// Merge mode state, shared between the track list checkboxes and the merge
-	// action bar (both live inside PlayerPanel)
+	// action bar (both live inside the console)
 	let mergeMode = false;
 	let mergeSelection: number[] = [];
 
@@ -171,7 +170,71 @@
 	// fullscreen-style compact layout so the bar doesn't eat half the screen.
 	// Desktops and tablets (height > 500px) keep the normal layout.
 	let isMobileLandscape = false;
-	$: compactBar = isFullscreen || isMobileLandscape;
+	// Narrow phones get the denser transport row too, not just fullscreen/landscape
+	let isSmallScreen = false;
+	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
+	// The compact tuning pill belongs in the bar only when the metadata row (which
+	// carries its own chip) is hidden, otherwise it would show the chip twice.
+	$: metadataHidden = isFullscreen || isMobileLandscape;
+	// At lg+ the settings panel becomes a docked split-view console instead of a
+	// bottom sheet, and the score reflows into the remaining width.
+	let isLargeScreen = false;
+	$: showConsole = showSettings && isLargeScreen;
+
+	// User-resizable width for the docked console (null = default clamp).
+	// Persisted via saveSettings. Drag is pointer based so it works on PC + touch.
+	let consoleWidth: number | null = null;
+	let resizingConsole = false;
+	let resizeStartX = 0;
+	let resizeStartWidth = 0;
+	let resizeRaf = false;
+	let resizePointerX = 0;
+	$: consolePanelWidthCss = showConsole
+		? consoleWidth != null
+			? `${Math.max(420, consoleWidth)}px`
+			: 'clamp(460px, 44vw, 760px)'
+		: '0px';
+
+	function consoleMaxWidth(): number {
+		return Math.min(760, Math.round(window.innerWidth * 0.6));
+	}
+
+	function consoleResizeDown(e: PointerEvent) {
+		resizingConsole = true;
+		resizeStartX = e.clientX;
+		const aside = (e.currentTarget as HTMLElement).closest('aside');
+		resizeStartWidth = consoleWidth ?? aside?.offsetWidth ?? 480;
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			// pointer capture is best effort
+		}
+		e.preventDefault();
+	}
+
+	function consoleResizeMove(e: PointerEvent) {
+		if (!resizingConsole) return;
+		resizePointerX = e.clientX;
+		if (resizeRaf) return;
+		resizeRaf = true;
+		requestAnimationFrame(() => {
+			resizeRaf = false;
+			// Dragging left widens the panel
+			const width = resizeStartWidth + (resizeStartX - resizePointerX);
+			consoleWidth = Math.max(420, Math.min(consoleMaxWidth(), Math.round(width)));
+		});
+	}
+
+	function consoleResizeUp(e: PointerEvent) {
+		if (!resizingConsole) return;
+		resizingConsole = false;
+		try {
+			(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+		} catch {
+			// nothing to release
+		}
+		saveSettings();
+	}
 
 	let topSentinel: HTMLElement;
 	let atTop = true;
@@ -497,7 +560,8 @@
 				metronome,
 				delaying,
 				tabScale,
-				activeTrackIndex
+				activeTrackIndex,
+				consoleWidth
 			};
 			localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsToSave));
 		} catch {
@@ -517,6 +581,7 @@
 			if (typeof parsed.delaying === 'number') delaying = parsed.delaying;
 			if (typeof parsed.tabScale === 'number') tabScale = parsed.tabScale;
 			if (typeof parsed.activeTrackIndex === 'number') activeTrackIndex = parsed.activeTrackIndex;
+			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
 		}
@@ -1103,6 +1168,10 @@
 	$: if (api && scoreLoaded && duration > 0 && loopSyncKey) {
 		syncPlaybackRange();
 		updateScoreSelection();
+	}
+	// Persist the loop region in the URL so it survives reloads / shared links.
+	$: if (browser && scoreLoaded && loopSyncKey) {
+		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled);
 	}
 
 	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
@@ -1889,6 +1958,16 @@
 				activeTrackIndex = 0;
 			}
 
+			// Restore a loop region carried in the URL (once, when no loop is set yet)
+			if (loopStartBar === null && loopEndBar === null) {
+				const { loop } = readUrlState();
+				if (loop && loop.endBar < totalBars) {
+					loopStartBar = loop.startBar;
+					loopEndBar = loop.endBar;
+					loopEnabled = loop.enabled;
+				}
+			}
+
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
@@ -2141,6 +2220,16 @@
 		if (mobileLandscapeMql) isMobileLandscape = mobileLandscapeMql.matches;
 	}
 
+	let largeScreenMql: MediaQueryList | null = null;
+	function syncLargeScreen() {
+		if (largeScreenMql) isLargeScreen = largeScreenMql.matches;
+	}
+
+	let smallScreenMql: MediaQueryList | null = null;
+	function syncSmallScreen() {
+		if (smallScreenMql) isSmallScreen = smallScreenMql.matches;
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
@@ -2148,6 +2237,14 @@
 			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
 			syncMobileLandscape();
 			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
+			// Split-view needs landscape width; portrait screens (phones and
+			// tablets alike) use the compact bottom sheet instead.
+			largeScreenMql = window.matchMedia('(min-width: 976px) and (orientation: landscape)');
+			syncLargeScreen();
+			largeScreenMql.addEventListener('change', syncLargeScreen);
+			smallScreenMql = window.matchMedia('(max-width: 480px)');
+			syncSmallScreen();
+			smallScreenMql.addEventListener('change', syncSmallScreen);
 		}
 		// Seed playerState.activeTrackIndex from URL so adoption sync below
 		// sees the URL value as authoritative. Otherwise the adoption sync
@@ -2457,13 +2554,13 @@
 			clickLooping();
 		} else if (event.code === 'KeyT') {
 			event.preventDefault();
-			togglePanel('tracks');
+			togglePanel();
 		} else if (event.code === 'KeyS') {
 			event.preventDefault();
-			togglePanel('playback');
+			togglePanel();
 		} else if (event.code === 'KeyU') {
 			event.preventDefault();
-			togglePanel('tuning');
+			togglePanel();
 		} else if (event.code === 'KeyF') {
 			event.preventDefault();
 			toggleFullscreen();
@@ -2616,6 +2713,8 @@
 		// Cleanup from onMount
 		themeUnsubscribe?.();
 		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
+		largeScreenMql?.removeEventListener('change', syncLargeScreen);
+		smallScreenMql?.removeEventListener('change', syncSmallScreen);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
@@ -2917,6 +3016,9 @@
 		mergeMode = false;
 		mergeSelection = [];
 		setActiveTrack(e.detail.trackIndex);
+		// Focus the fresh merged track by soloing it so the result is audible in
+		// isolation right away
+		if (!trackSolos[e.detail.trackIndex]) toggleTrackSolo(e.detail.trackIndex);
 	}
 
 	function onMergedTrackRemoved() {
@@ -3042,29 +3144,17 @@
 		}
 	}
 
-	// Single entry point: opening a segment that is already showing closes the
-	// panel, otherwise it opens the panel on that segment (toggle behavior).
-	function togglePanel(segment: 'tracks' | 'tuning' | 'playback') {
-		if (showSettings) {
-			if (panelSegment === segment) {
-				showSettings = false;
-			} else {
-				panelSegment = segment;
-			}
-		} else {
-			showSettings = true;
-			panelSegment = segment;
-		}
+	// Single settings console now; every entry point just toggles it open/closed.
+	function togglePanel() {
+		showSettings = !showSettings;
 	}
 
 	function closeSettings() {
 		showSettings = false;
 	}
 
-	// Open the panel straight on the tuning segment (from the tuning chip)
 	function openTuningPanel() {
 		showSettings = true;
-		panelSegment = 'tuning';
 	}
 
 	function handleFullscreenChange() {
@@ -3365,7 +3455,7 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3386,6 +3476,7 @@
 	     the long-press selection becomes active. -->
 	<div
 		class="relative"
+		style="padding-right: var(--player-panel-width)"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
@@ -3523,8 +3614,8 @@
 		     the metadata row that sits above the transport bar. -->
 		{#if scoreLoaded && !autoFollow}
 			<div
-				class="fixed left-1/2 -translate-x-1/2 z-[55]"
-				style="bottom: calc(var(--player-bar-height) + 12px)"
+				class="fixed -translate-x-1/2 z-[55]"
+				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
 			>
 				<button
 					on:click={scrollToCursor}
@@ -3949,13 +4040,14 @@
 				</button>
 			{/if}
 
-			<!-- Compact transposed pill: the metadata chip is hidden in this mode -->
-			{#if compactBar}
+			<!-- Compact transposed pill: only when the metadata row (and its chip)
+			     is hidden, otherwise the chip would appear twice -->
+			{#if metadataHidden}
 				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
 			{/if}
 
 			<button
-				on:click={() => togglePanel('playback')}
+				on:click={() => togglePanel()}
 				class="{compactBar
 					? 'p-1'
 					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
@@ -4161,27 +4253,29 @@
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
 							{title.split(' - ')[0] || title}
 						</h1>
-						<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
-							{#if currentArtistName}
-								<span class="relative inline-block">
-									<ArtistTooltip artistName={currentArtistName} position="bottom">
-										<a
-											href="{base}/search?q={encodeURIComponent(currentArtistName)}"
-											class="hover:text-violet-500 hover:underline transition-colors"
-											title="Search more by this artist">{currentArtistName}</a
-										>
-									</ArtistTooltip>
-								</span>
-								&middot;
-							{/if}
-							{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-								? ` \u00B7 ${totalBars} bars`
-								: ''}
-						</p>
-						<!-- Tuning + capo chip, opens the tuning segment; violet with a
-						     revert affordance while the active track is transposed -->
-						<div class="mt-1">
-							<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+						<!-- Subtitle + tuning chip share one horizontal line so the chip
+						     stays compact and does not add a row to the bottom bar -->
+						<div class="flex items-center gap-2 min-w-0">
+							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
+								{#if currentArtistName}
+									<span class="relative inline-block">
+										<ArtistTooltip artistName={currentArtistName} position="bottom">
+											<a
+												href="{base}/search?q={encodeURIComponent(currentArtistName)}"
+												class="hover:text-violet-500 hover:underline transition-colors"
+												title="Search more by this artist">{currentArtistName}</a
+											>
+										</ArtistTooltip>
+									</span>
+									&middot;
+								{/if}
+								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+									? ` \u00B7 ${totalBars} bars`
+									: ''}
+							</p>
+							<div class="flex-shrink-0">
+								<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+							</div>
 						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
@@ -4287,103 +4381,92 @@
 	</div>
 	<!-- end sticky controls wrapper -->
 
-	<!-- Settings sheet (bottom sheet on portrait, right anchored panel otherwise).
-	     The Sheet primitive owns the backdrop, anchoring above the control bar
-	     via --player-bar-height, and the mobile drag/snap behavior. -->
-	<Sheet bind:open={showSettings} bind:rootEl={settings} title="Player settings" on:close={closeSettings}>
-		<svelte:fragment slot="header">
-			<!-- Header with close -->
-			<div class="flex items-center justify-between gap-2 mb-2 pt-1 px-3 sm:px-4">
-				<span class="text-xs text-neutral-500 dark:text-neutral-400 flex-shrink-0">Player settings</span>
-				<div class="flex items-center gap-1 min-w-0">
-					<TuningChip
-						api={$playerApi}
-						{activeTrackIndex}
-						{tracks}
-						on:open={() => (panelSegment = 'tuning')}
+	<!-- Settings console: docked resizable panel on large landscape screens, a
+	     full-screen overlay (over the header and transport bar) on small screens.
+	     Same master-detail content either way. -->
+	{#if showSettings}
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+		<aside
+			bind:this={settings}
+			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
+				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
+				: 'z-[110] inset-0'}"
+			style={isLargeScreen
+				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
+				: ''}
+			role="dialog"
+			aria-label="Player settings"
+		>
+			{#if isLargeScreen}
+				<!-- Drag the left edge to resize (pointer based: PC and touch) -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<div
+					class="absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 z-10 flex items-center justify-center cursor-ew-resize touch-none group"
+					on:pointerdown={consoleResizeDown}
+					on:pointermove={consoleResizeMove}
+					on:pointerup={consoleResizeUp}
+					on:pointercancel={consoleResizeUp}
+					role="separator"
+					aria-label="Resize settings panel"
+					aria-orientation="vertical"
+				>
+					<div
+						class="h-10 w-1 rounded-full bg-neutral-300 dark:bg-neutral-600 group-hover:bg-violet-400 {resizingConsole
+							? '!bg-violet-500'
+							: ''} transition-colors"
 					/>
-					<button
-						on:click={closeSettings}
-						class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
-						title="Close"
-					>
-						<i class="material-icons !text-base">close</i>
-					</button>
 				</div>
-			</div>
-			<!-- Segmented navigation (role=tab preserved for existing selectors) -->
+			{/if}
+			<!-- Header holds the compact playback knobs plus close -->
 			<div
-				class="flex px-3 sm:px-4 border-b border-neutral-200 dark:border-neutral-700"
-				role="tablist"
+				class="flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200 dark:border-neutral-700 flex-shrink-0"
 			>
+				<div class="flex-1 min-w-0">
+					<PlaybackControls
+						knobs
+						bind:volume
+						bind:speed
+						bind:metronome
+						bind:tabScale
+						bind:delaying
+						onScaleInput={updateTabScale}
+					/>
+				</div>
 				<button
-					on:click={() => (panelSegment = 'tracks')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'tracks'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'tracks'}
+					on:click={closeSettings}
+					class="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0"
+					title="Close"
+					aria-label="Close settings"
 				>
-					Tracks ({tracks.length})
-				</button>
-				<button
-					on:click={() => (panelSegment = 'tuning')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'tuning'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'tuning'}
-				>
-					Tuning
-				</button>
-				<button
-					on:click={() => (panelSegment = 'playback')}
-					class="flex-1 sm:flex-none px-3 sm:px-4 pb-2 text-sm font-medium transition-colors text-center {panelSegment ===
-					'playback'
-						? 'text-violet-500 border-b-2 border-violet-500'
-						: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
-					role="tab"
-					aria-selected={panelSegment === 'playback'}
-				>
-					Playback
+					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-		</svelte:fragment>
-
-		<PlayerPanel
-			api={$playerApi}
-			{tracks}
-			{activeTrackIndex}
-			bind:segment={panelSegment}
-			bind:volume
-			bind:speed
-			bind:metronome
-			bind:tabScale
-			bind:delaying
-			onScaleInput={updateTabScale}
-			bind:trackVolumes
-			bind:trackMutes
-			bind:trackSolos
-			{loopStartBar}
-			{loopEndBar}
-			{loopEnabled}
-			bind:mergeMode
-			bind:selectedIndexes={mergeSelection}
-			on:selecttrack={(e) => setActiveTrack(e.detail)}
-			on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-			on:togglemute={(e) => toggleTrackMute(e.detail)}
-			on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-			on:muteall={muteAllTracks}
-			on:unmuteall={unmuteAllTracks}
-			on:resetlevels={resetAllVolumes}
-			on:toggleloop={toggleLoopEnabled}
-			on:clearloop={clearLoopPoints}
-			on:merged={onTrackMerged}
-			on:removed={onMergedTrackRemoved}
-		/>
-	</Sheet>
+			<PlayerConsole
+				api={$playerApi}
+				{tracks}
+				{activeTrackIndex}
+				bind:trackVolumes
+				bind:trackMutes
+				bind:trackSolos
+				{loopStartBar}
+				{loopEndBar}
+				{loopEnabled}
+				bind:mergeMode
+				bind:selectedIndexes={mergeSelection}
+				on:selecttrack={(e) => setActiveTrack(e.detail)}
+				on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+				on:togglemute={(e) => toggleTrackMute(e.detail)}
+				on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+				on:muteall={muteAllTracks}
+				on:unmuteall={unmuteAllTracks}
+				on:resetlevels={resetAllVolumes}
+				on:toggleloop={toggleLoopEnabled}
+				on:clearloop={clearLoopPoints}
+				on:merged={onTrackMerged}
+				on:removed={onMergedTrackRemoved}
+			/>
+		</aside>
+	{/if}
 
 	<!-- Countdown overlay (click anywhere outside center to cancel) -->
 	{#if rest > 0}

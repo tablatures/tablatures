@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPage } from './helpers/setup';
 
+// Below the lg (976px) breakpoint the settings console is a full-screen overlay
+// (no tabs) that covers the top and bottom bars; at lg+ it becomes the docked
+// console (covered by player-console.spec).
+test.use({ viewport: { width: 390, height: 820 } });
+
 async function openPanel(page: Page): Promise<void> {
 	const settingsBtn = page.locator('button[title="Settings [S]"]').first();
 	if (!(await settingsBtn.isVisible())) {
@@ -11,23 +16,32 @@ async function openPanel(page: Page): Promise<void> {
 	await expect(page.locator('[role="dialog"]')).toBeVisible();
 }
 
-test.describe('player panel sheet', () => {
-	test('opens from the settings button', async ({ page }) => {
+test.describe('player console (mobile full-screen)', () => {
+	test('opens from the settings button with the track console (no tabs)', async ({ page }) => {
 		await setupPlayPage(page);
 		await openPanel(page);
-		await expect(page.locator('[role="dialog"] [role="tablist"]')).toBeVisible();
+		// The unified console is used everywhere now — no tab strip.
+		await expect(page.locator('[role="dialog"] [role="tablist"]')).toHaveCount(0);
+		await expect(page.locator('[role="dialog"]').getByText(/Tracks \(/)).toBeVisible();
 	});
 
-	test('closes when the backdrop is tapped', async ({ page }) => {
+	test('covers the full viewport (over the top and bottom bars)', async ({ page }) => {
 		await setupPlayPage(page);
 		await openPanel(page);
 
-		// Tap the backdrop on the left, clear of the app header and the
-		// right anchored panel
-		await page
-			.locator('[role="presentation"]')
-			.last()
-			.click({ position: { x: 20, y: 220 } });
+		const viewport = page.viewportSize()!;
+		const panelBox = await page.locator('[role="dialog"]').boundingBox();
+		expect(panelBox).not.toBeNull();
+		// Full-screen overlay: starts at the very top and spans the whole viewport.
+		expect(panelBox!.y).toBeLessThanOrEqual(1);
+		expect(panelBox!.height).toBeGreaterThanOrEqual(viewport.height - 1);
+	});
+
+	test('closes via the close button', async ({ page }) => {
+		await setupPlayPage(page);
+		await openPanel(page);
+
+		await page.locator('button[aria-label="Close settings"]').click();
 		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
 	});
 

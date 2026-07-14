@@ -10,6 +10,8 @@
  *   ?video=<id>  — YouTube video id         (from activeVideoId)
  *   ?track=<n>   — active track index       (from playerState.activeTrackIndex, omitted when 0)
  *   ?t=<sec>     — playback time in seconds (from playerState.progress, debounced, omitted when 0)
+ *   ?loop=<a>.<b>[.off] — loop region as 0-based bar indices, `.off` when disabled
+ *                         (owned by TabViewer; restored after the score loads)
  *
  * Not managed here:
  *   #tab=1.<data> — heavy imported-tab binary payload, /play only
@@ -21,11 +23,18 @@ import { get } from 'svelte/store';
 import { tabStore } from './store';
 import { activeVideoId, playerState, updatePlayerState } from './playerStore';
 
+export interface LoopUrlState {
+	startBar: number;
+	endBar: number;
+	enabled: boolean;
+}
+
 export interface UrlState {
 	tabId?: string;
 	videoId?: string;
 	trackIndex?: number;
 	timeSec?: number;
+	loop?: LoopUrlState;
 }
 
 /** Read current URL query params into a UrlState snapshot. */
@@ -47,7 +56,25 @@ export function readUrlState(): UrlState {
 		const n = parseInt(t, 10);
 		if (!isNaN(n) && n >= 0) out.timeSec = n;
 	}
+	const loop = params.get('loop');
+	if (loop !== null) {
+		const [aStr, bStr, flag] = loop.split('.');
+		const a = parseInt(aStr, 10);
+		const b = parseInt(bStr, 10);
+		if (!isNaN(a) && !isNaN(b) && a >= 0 && b >= a) {
+			out.loop = { startBar: a, endBar: b, enabled: flag !== 'off' };
+		}
+	}
 	return out;
+}
+
+/** Write (or clear) the loop region param. Pass null bars to remove it. */
+export function syncLoopUrl(startBar: number | null, endBar: number | null, enabled: boolean) {
+	if (startBar === null || endBar === null) {
+		updateUrlParams({ loop: null });
+		return;
+	}
+	updateUrlParams({ loop: `${startBar}.${endBar}${enabled ? '' : '.off'}` });
 }
 
 /**

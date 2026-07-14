@@ -2,6 +2,9 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPage, setupPlayPageWithTex } from './helpers/setup';
 import { TEX_SCORES } from './helpers/alphatex';
 
+// Exercise the mobile full-screen console; the docked console has its own spec.
+test.use({ viewport: { width: 390, height: 820 } });
+
 interface NoteState {
 	bar: number;
 	voice: number;
@@ -27,7 +30,9 @@ async function openTuningTab(page: Page): Promise<void> {
 		await settingsBtn.click();
 	}
 	await expect(page.locator('[role="dialog"]')).toBeVisible();
-	await page.locator('button[role="tab"]:text("Tuning")').click();
+	// The console shows the active track's tuning transposer in the detail card;
+	// no tab to click. Wait for it to be present.
+	await expect(page.locator('select[aria-label="Target tuning"]')).toBeVisible();
 }
 
 async function transposeTo(page: Page, presetLabel: string): Promise<void> {

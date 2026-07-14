@@ -215,8 +215,9 @@
 		<!-- Target tuning selector -->
 		<div>
 			<p
-				class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
+				class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
 			>
+				<i class="material-icons !text-sm">swap_vert</i>
 				Transpose to
 			</p>
 			<select
@@ -260,12 +261,20 @@
 		<!-- Capo -->
 		<div>
 			<p
-				class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
+				class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
 			>
-				Capo position
+				<i class="material-icons !text-sm">straighten</i>
+				Capo
 			</p>
-			<div class="flex items-center gap-3">
-				<i class="material-icons !text-lg text-neutral-400 flex-shrink-0">straighten</i>
+			<div class="flex items-center gap-2">
+				<button
+					on:click={() => (targetCapo = Math.max(0, targetCapo - 1))}
+					disabled={targetCapo <= 0}
+					class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
+					aria-label="Lower capo"
+				>
+					<i class="material-icons !text-lg">remove</i>
+				</button>
 				<input
 					type="range"
 					min="0"
@@ -280,8 +289,16 @@
 						100}%, {'rgb(212,212,212)'} {(targetCapo / 12) * 100}%)"
 					aria-label="Capo position"
 				/>
+				<button
+					on:click={() => (targetCapo = Math.min(12, targetCapo + 1))}
+					disabled={targetCapo >= 12}
+					class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
+					aria-label="Raise capo"
+				>
+					<i class="material-icons !text-lg">add</i>
+				</button>
 				<span
-					class="text-sm font-mono w-10 text-center flex-shrink-0 px-2 py-1 rounded-lg
+					class="text-xs font-mono w-14 text-center flex-shrink-0 px-2 py-1.5 rounded-lg
 						{targetCapo > 0
 						? 'text-violet-500 font-semibold bg-violet-50 dark:bg-violet-900/20'
 						: 'text-neutral-400 bg-neutral-50 dark:bg-neutral-800'}"
@@ -295,13 +312,12 @@
 		<div>
 			<div class="flex items-center justify-between mb-2">
 				<p
-					class="text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
+					class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
 				>
+					<i class="material-icons !text-sm">height</i>
 					Octave shift
 				</p>
-				<p class="text-[10px] text-neutral-400 dark:text-neutral-500">
-					Shift all notes up or down by octaves
-				</p>
+				<p class="text-[10px] text-neutral-400 dark:text-neutral-500">Shift notes up or down</p>
 			</div>
 			<div class="flex items-center gap-1.5">
 				<button
@@ -337,7 +353,7 @@
 			<button
 				on:click={applyTransposition}
 				disabled={isSameTuning && !isTransposed}
-				class="w-full px-4 py-3 text-sm font-semibold rounded-lg transition-colors active:scale-[0.98]
+				class="w-full px-4 py-3.5 text-sm font-semibold rounded-xl transition-colors active:scale-[0.98]
 					{isSameTuning && !isTransposed
 					? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'
 					: 'bg-violet-500 hover:bg-violet-600 text-white shadow-sm'}"

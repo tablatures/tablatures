@@ -1,7 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { setupPlayPage, seekToPercent, dragProgressBar } from './helpers/setup';
-import { waitForScoreLoaded, waitForPlaying, waitForProgressAbove, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
+import {
+	waitForScoreLoaded,
+	waitForPlaying,
+	waitForProgressAbove,
+	waitForSeekSettled,
+	getTestApi,
+	sampleProgress
+} from './helpers/wait';
 import { setupMockApi } from './helpers/mock-api';
+
+// Exercise the mobile full-screen console; the docked console has its own spec.
+test.use({ viewport: { width: 390, height: 820 } });
 
 test.describe('Settings & Controls', () => {
 	// --- Test 22: Change playback speed ---
@@ -16,10 +26,9 @@ test.describe('Settings & Controls', () => {
 
 		// Set 0.5x and measure
 		await speedSelect.selectOption('0.5');
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getSpeed() === 0.5,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
+			timeout: 2000
+		});
 		await page.keyboard.press('Space');
 		await waitForProgressAbove(page, 1);
 		const start1 = await getTestApi<number>(page, 'getProgress');
@@ -34,10 +43,9 @@ test.describe('Settings & Controls', () => {
 		await seekToPercent(page, 10);
 		await waitForSeekSettled(page, 10);
 		await speedSelect.selectOption('2');
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getSpeed() === 2,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 2, {
+			timeout: 2000
+		});
 		await page.keyboard.press('Space');
 		await waitForProgressAbove(page, 11);
 		const start2 = await getTestApi<number>(page, 'getProgress');
@@ -59,10 +67,9 @@ test.describe('Settings & Controls', () => {
 		const speedSelect = page.locator('select[aria-label="Playback speed"]');
 		if (await speedSelect.isVisible()) {
 			await speedSelect.selectOption('0.5');
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getSpeed() === 0.5,
-				{ timeout: 2000 }
-			);
+			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
+				timeout: 2000
+			});
 		}
 
 		await seekToPercent(page, 50);
@@ -83,18 +90,16 @@ test.describe('Settings & Controls', () => {
 		const muteBtn = page.locator('button[title="Mute"]').first();
 		if (await muteBtn.isVisible()) {
 			await muteBtn.click();
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getVolume() === 0,
-				{ timeout: 2000 }
-			);
+			await page.waitForFunction(() => (window as any).__testApi?.getVolume() === 0, {
+				timeout: 2000
+			});
 
 			// Now it shows Unmute
 			const unmuteBtn = page.locator('button[title="Unmute"]').first();
 			await unmuteBtn.click();
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getVolume() === 1,
-				{ timeout: 2000 }
-			);
+			await page.waitForFunction(() => (window as any).__testApi?.getVolume() === 1, {
+				timeout: 2000
+			});
 		}
 	});
 
@@ -112,17 +117,15 @@ test.describe('Settings & Controls', () => {
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
-		// Set metronome via evaluate (fill doesn't work well on range inputs)
-		const metronomeSlider = page.locator('input[aria-label="Metronome slider"]').first();
-		if (await metronomeSlider.isVisible()) {
-			await metronomeSlider.evaluate((el: HTMLInputElement) => {
-				el.value = '0.5';
-				el.dispatchEvent(new Event('input', { bubbles: true }));
-			});
+		// Metronome is now a rotary knob (role=slider). Nudge it up via the keyboard.
+		const metronomeKnob = page.getByRole('slider', { name: 'Metro knob' }).first();
+		if (await metronomeKnob.isVisible()) {
+			await metronomeKnob.focus();
+			for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
 		}
 
-		// Close settings by pressing S (same key that opens it)
-		await page.keyboard.press('KeyS');
+		// Close settings via Escape
+		await page.keyboard.press('Escape');
 		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
 
 		// Play and pause
@@ -146,16 +149,7 @@ test.describe('Settings & Controls', () => {
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
-		const tracksTab = page.locator('button[role="tab"]:text("Tracks")');
-		if (!(await tracksTab.isVisible())) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
-
-		await tracksTab.click();
-
-		// Check if there's more than one track option
+		// The unified console shows the track list directly (no tabs).
 		const trackOptions = page.locator('[role="option"]');
 		const count = await trackOptions.count();
 		if (count <= 1) {
@@ -164,12 +158,12 @@ test.describe('Settings & Controls', () => {
 			return;
 		}
 
-		await trackOptions.nth(1).click();
+		// Click the select button (the track name) of the second track.
+		await trackOptions.nth(1).getByRole('button').first().click();
 		// Wait for re-render to complete
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getDuration() > 0,
-			{ timeout: 10000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getDuration() > 0, {
+			timeout: 10000
+		});
 		const dur = await getTestApi<number>(page, 'getDuration');
 		expect(dur).toBeGreaterThan(0);
 
@@ -183,10 +177,9 @@ test.describe('Settings & Controls', () => {
 		const speedSelect = page.locator('select[aria-label="Playback speed"]');
 		if (await speedSelect.isVisible()) {
 			await speedSelect.selectOption('0.75');
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getSpeed() === 0.75,
-				{ timeout: 2000 }
-			);
+			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, {
+				timeout: 2000
+			});
 		}
 
 		// Reload the page with the same tab
@@ -214,18 +207,16 @@ test.describe('Settings & Controls', () => {
 		await waitForSeekSettled(page, 50);
 
 		await dragProgressBar(page, 30, 50);
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() !== null,
-			{ timeout: 3000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() !== null, {
+			timeout: 3000
+		});
 
 		const speedSelect = page.locator('select[aria-label="Playback speed"]');
 		if (await speedSelect.isVisible()) {
 			await speedSelect.selectOption('1.5');
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getSpeed() === 1.5,
-				{ timeout: 2000 }
-			);
+			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 1.5, {
+				timeout: 2000
+			});
 		}
 
 		await page.keyboard.press('Space');
