@@ -37,7 +37,7 @@
     <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="56" />
   </a>
   <a href="https://github.com/tablatures/tablatures/releases/latest/download/tablatures.apk">
-    <img src="https://img.shields.io/badge/Download-APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Download APK" height="40" />
+    <img src="docs/badges/download-apk.png" alt="Download the APK" height="56" />
   </a>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522org.tablatures.app%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Ftablatures%252Ftablatures%2522%252C%2522author%2522%253A%2522tablatures%2522%252C%2522name%2522%253A%2522Tablatures%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522tablatures-.*%255C%255C%255C%255C.apk%255C%2522%252C%255C%2522invertAPKFilter%255C%2522%253Afalse%257D%2522%257D">
     <img src="https://github.com/ImranR98/Obtainium/blob/main/assets/graphics/badge_obtainium.png?raw=true" alt="Get it on Obtainium" height="56" />
