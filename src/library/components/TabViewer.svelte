@@ -1790,10 +1790,10 @@
 		const el = get(beatCursorEl);
 		if (!el) return;
 		const scrollElement = isFullscreen && page ? page : window;
-		// Land the cursor a clear gap below the sticky header (which itself clears
-		// the status bar via pt-safe on native) so it is never hidden behind the
-		// header. Compute the delta from the cursor's current viewport position;
-		// this works whether the scroller is the window or the fullscreen page.
+		// Land the cursor a clear gap below the sticky header so it is never
+		// hidden behind it. Compute the delta from the cursor's current viewport
+		// position; this works whether the scroller is the window or the
+		// fullscreen page.
 		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
 		const settingsH =
 			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
@@ -4384,7 +4384,7 @@
 			bind:this={settings}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
 				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
-				: 'z-[110] inset-0 pt-safe pb-safe'}"
+				: 'z-[110] inset-0'}"
 			style={isLargeScreen
 				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
 				: ''}

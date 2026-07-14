@@ -46,13 +46,7 @@
 		requestWakeLock,
 		releaseWakeLock
 	} from '../library/utils/playbackEnv';
-	import {
-		setKeepAwake,
-		hideSplash,
-		syncStatusBar,
-		onBackButton,
-		exitApp
-	} from '../library/utils/native';
+	import { setKeepAwake, hideSplash, onBackButton, exitApp } from '../library/utils/native';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -540,9 +534,6 @@
 			setKeepAwake(false);
 		}
 	}
-
-	// Keep the native status bar icons legible against the themed header.
-	$: if (browser) syncStatusBar($themeStore);
 
 	onMount(() => {
 		// Native app startup: dismiss the splash once mounted, and route the

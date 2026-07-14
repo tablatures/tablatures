@@ -296,7 +296,7 @@
 		on:keydown={handleKeydown}
 	>
 		<div
-			class="pointer-events-auto w-full h-full pt-safe pb-safe sm:h-auto sm:min-h-[80vh] sm:max-h-[92vh] sm:max-w-[640px] sm:pt-0 sm:pb-0 bg-white dark:bg-neutral-900 sm:border border-neutral-200 dark:border-neutral-700 shadow-2xl sm:rounded-2xl overflow-y-auto flex flex-col"
+			class="pointer-events-auto w-full h-full sm:h-auto sm:min-h-[80vh] sm:max-h-[92vh] sm:max-w-[640px] bg-white dark:bg-neutral-900 sm:border border-neutral-200 dark:border-neutral-700 shadow-2xl sm:rounded-2xl overflow-y-auto flex flex-col"
 			transition:fade={{ duration: 100 }}
 		>
 			<!-- Header bar -->
