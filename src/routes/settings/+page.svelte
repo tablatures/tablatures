@@ -202,26 +202,32 @@
 				<h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Get the app</h3>
 			</div>
 			<p class="text-xs text-neutral-600 dark:text-neutral-400 mb-3">
-				Install Tablatures on Android for offline use. Scan a code with your phone, or tap to open.
+				Install Tablatures on Android for offline use.<span class="hidden sm:inline">
+					&nbsp;Scan a code with your phone, or use the buttons below.</span>
 			</p>
 			<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-				{#each [{ id: 'fdroid', label: 'F-Droid', note: 'Coming soon', href: APP_LINKS.fdroid }, { id: 'apk', label: 'Direct APK', note: 'Latest release', href: APP_LINKS.apk }, { id: 'obtainium', label: 'Obtainium', note: 'Auto-updates', href: APP_LINKS.obtainium }] as opt}
-					<a
-						href={opt.href}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="flex flex-col items-center text-center gap-2 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-violet-400 dark:hover:border-violet-600 transition-colors"
+				{#each [{ id: 'fdroid', label: 'F-Droid', note: 'Coming soon', action: 'Open F-Droid', href: APP_LINKS.fdroid }, { id: 'apk', label: 'Direct APK', note: 'Latest release', action: 'Download APK', href: APP_LINKS.apk }, { id: 'obtainium', label: 'Obtainium', note: 'Auto-updates', action: 'Add to Obtainium', href: APP_LINKS.obtainium }] as opt}
+					<div
+						class="flex flex-col items-center text-center gap-2 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700"
 					>
 						<img
 							src="{base}/qr/{opt.id}.svg"
 							alt="{opt.label} QR code"
 							width="120"
 							height="120"
-							class="rounded bg-white p-1.5"
+							class="hidden sm:block rounded bg-white p-1.5"
 						/>
 						<span class="text-sm font-medium text-neutral-800 dark:text-neutral-100">{opt.label}</span>
 						<span class="text-[11px] text-neutral-500 dark:text-neutral-400">{opt.note}</span>
-					</a>
+						<a
+							href={opt.href}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="w-full mt-auto px-3 py-2 text-xs font-semibold text-center rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors active:scale-[0.98]"
+						>
+							{opt.action}
+						</a>
+					</div>
 				{/each}
 			</div>
 		</div>

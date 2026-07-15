@@ -606,7 +606,7 @@
 					</button>
 				{:else}
 					<div
-						class="flex flex-col w-full cursor-pointer
+						class="flex flex-col flex-1 min-h-0 w-full cursor-pointer
 							focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
 						on:dragenter={handleDragEnter}
 						on:dragleave={handleDragLeave}
