@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
+	import { configureImporterEncoding } from '../utils/lyrics';
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
@@ -29,8 +30,10 @@
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
+	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
+	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
@@ -40,6 +43,14 @@
 	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
+	$: lyricsAvailable = hasAnyLyrics($lyricsStore);
+
+	function onLyricsButton() {
+		// With lyrics in hand the button just shows/hides the bar; otherwise it
+		// kicks off an on-demand online lookup (which opens the bar itself).
+		if (lyricsAvailable) toggleLyricsBar();
+		else findLyricsOnline();
+	}
 
 	function addCurrentToPlaylist(playlistIndex: number) {
 		if (!tabId) return;
@@ -2274,13 +2285,19 @@
 					const tabSec = (st.progress / 100) * (st.duration / 1000);
 					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
 					userSeekLockUntil = Date.now() + 600;
-					try { yt.seekTo(videoSec, true); } catch {}
-					try { yt.playVideo(); } catch {}
+					try {
+						yt.seekTo(videoSec, true);
+					} catch {}
+					try {
+						yt.playVideo();
+					} catch {}
 					updatePlayerState({ videoWasPlaying: false });
 					return;
 				}
 				if (st.videoWasPlaying) {
-					try { yt?.playVideo(); } catch {}
+					try {
+						yt?.playVideo();
+					} catch {}
 					updatePlayerState({ videoWasPlaying: false });
 				}
 			}
@@ -2417,6 +2434,25 @@
 					if (api) api.tex(texString);
 				},
 				getMetronome: () => metronome,
+				getLyricsState: () => {
+					const s = get(lyricsStore);
+					const lines = s.embedded?.lines ?? [];
+					const hasAny = lines.length > 0 || !!s.synced || !!s.plain;
+					return {
+						visible: s.mode === 'auto' && (hasAny || s.fetchState !== 'idle'),
+						mode: s.mode,
+						showInScore: s.showInScore,
+						lineCount: lines.length,
+						activeLine: s.activeLine,
+						activeChunk: s.activeChunk,
+						currentText:
+							s.activeLine >= 0 ? (lines[s.activeLine]?.text ?? '') : (lines[0]?.text ?? ''),
+						provider: s.provider,
+						fetchState: s.fetchState,
+						syncedLineCount: s.synced?.lines.length ?? 0,
+						plain: s.plain
+					};
+				},
 				getTrackMutes: () => [...trackMutes],
 				getTrackSolos: () => [...trackSolos],
 				getTrackVolumes: () => [...trackVolumes],
@@ -3055,7 +3091,9 @@
 		// stringTuning.tunings is ordered highest string first, presets are low to high
 		const tuning = [...raw].reverse();
 		const match = TUNING_PRESETS.find(
-			(p) => p.strings.length === tuning.length && p.strings.every((s: any, i: number) => s.midi === tuning[i])
+			(p) =>
+				p.strings.length === tuning.length &&
+				p.strings.every((s: any, i: number) => s.midi === tuning[i])
 		);
 		if (match) return match.name;
 		return tuning.map((m: number) => midiToNoteName(m)).join(' ');
@@ -3463,7 +3501,10 @@
 	id="page"
 	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
 	bind:this={page}
-	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}"
+	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
+	!autoFollow
+		? '52px'
+		: '0px'}"
 >
 	<div bind:this={topSentinel} class="h-0" />
 
@@ -3500,9 +3541,15 @@
 						on:click={() => {
 							apiError = '';
 							if (api) {
-								if (data.fileAsB64) api.load(base64ToArrayBuffer(data.fileAsB64));
-								else if (window.history?.state?.base64)
-									api.load(base64ToArrayBuffer(window.history.state.base64));
+								if (data.fileAsB64) {
+									const buffer = base64ToArrayBuffer(data.fileAsB64);
+									configureImporterEncoding(api, buffer);
+									api.load(buffer);
+								} else if (window.history?.state?.base64) {
+									const buffer = base64ToArrayBuffer(window.history.state.base64);
+									configureImporterEncoding(api, buffer);
+									api.load(buffer);
+								}
 							}
 						}}
 						class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
@@ -3636,6 +3683,10 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Karaoke lyrics — a translucent card floating over the score, just above
+	     the transport. Self-positioned (fixed) so it never eats layout height. -->
+	<LyricsBar api={$playerApi} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style) -->
@@ -4052,7 +4103,30 @@
 			<!-- Compact transposed pill: only when the metadata row (and its chip)
 			     is hidden, otherwise the chip would appear twice -->
 			{#if metadataHidden}
-				<TuningChip compact api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+				<TuningChip
+					compact
+					api={$playerApi}
+					{activeTrackIndex}
+					{tracks}
+					on:open={openTuningPanel}
+				/>
+			{/if}
+
+			{#if scoreLoaded}
+				<button
+					on:click={onLyricsButton}
+					class="{compactBar
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{lyricsAvailable && $lyricsStore.mode === 'auto'
+						? 'text-violet-500'
+						: 'text-neutral-500 dark:text-neutral-400'}"
+					title={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
+					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
+					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
+				>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">lyrics</i>
+				</button>
 			{/if}
 
 			<button
@@ -4289,7 +4363,12 @@
 									: ''}
 							</p>
 							<div class="flex-shrink-0">
-								<TuningChip api={$playerApi} {activeTrackIndex} {tracks} on:open={openTuningPanel} />
+								<TuningChip
+									api={$playerApi}
+									{activeTrackIndex}
+									{tracks}
+									on:open={openTuningPanel}
+								/>
 							</div>
 						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
@@ -4312,7 +4391,8 @@
 						{/if}
 						{#if hasVariants}
 							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
-								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
+								<span
+									class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
 									>Sources:</span
 								>
 								{#each variants as variant}

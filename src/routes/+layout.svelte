@@ -36,6 +36,7 @@
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
+	import { configureImporterEncoding } from '../library/utils/lyrics';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
@@ -249,6 +250,13 @@
 				scriptFile: `${vendorBase}/alphaTab.min.js`,
 				fontDirectory: `${vendorBase}/font/`
 			},
+			importer: {
+				// Split whole-phrase per-beat text into per-beat syllables for old
+				// files that lack a proper lyrics track. Only applies when a track
+				// has no real lyrics, so it is safe to leave always on. The text
+				// encoding is set per-load in configureImporterEncoding().
+				beatTextAsLyrics: true
+			},
 			display: {
 				staveProfile: 'Default',
 				// padding is [horizontal, vertical]. Default is [35, 35]; at higher
@@ -344,7 +352,9 @@
 			const tab = get(tabStore);
 			const loaded = get(loadedTabB64);
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) {
-				api.load(base64ToArrayBuffer(tab.fileAsB64));
+				const buffer = base64ToArrayBuffer(tab.fileAsB64);
+				configureImporterEncoding(api, buffer);
+				api.load(buffer);
 				loadedTabB64.set(tab.fileAsB64);
 				resetScoreEdits(tab.fileAsB64);
 			}
@@ -474,7 +484,9 @@
 					progress: 0,
 					currentBar: 0
 				});
-				api.load(base64ToArrayBuffer(currentTab.fileAsB64));
+				const buffer = base64ToArrayBuffer(currentTab.fileAsB64);
+				configureImporterEncoding(api, buffer);
+				api.load(buffer);
 				loadedTabB64.set(currentTab.fileAsB64);
 				resetScoreEdits(currentTab.fileAsB64);
 			}
