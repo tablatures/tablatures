@@ -24,7 +24,7 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
-	import { isNative, saveFile, shareLink } from '../utils/native';
+	import { isNative, saveFile, shareLink, hapticTap } from '../utils/native';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -1609,7 +1609,7 @@
 			isDraggingLoop = true;
 			dismissPopoverAndRefresh();
 			updateScoreSelection();
-			try { navigator.vibrate?.(10); } catch {}
+			hapticTap();
 		}, LONG_PRESS_MS);
 	}
 
@@ -3347,7 +3347,7 @@
 		clearTimeout(scoreLongPressTimer);
 		scoreLongPressTimer = setTimeout(() => {
 			scoreLongPressActive = true;
-			try { navigator.vibrate?.(10); } catch {}
+			hapticTap();
 			dispatchMouseAt('mousedown', pressX, pressY);
 		}, SCORE_LONG_PRESS_MS);
 	}

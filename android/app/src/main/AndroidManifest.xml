@@ -43,4 +43,7 @@
          runtime permission prompt automatically. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Haptic feedback (loop-select long-press). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

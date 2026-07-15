@@ -132,3 +132,23 @@ export async function exitApp(): Promise<void> {
 		// plugin unavailable
 	}
 }
+
+// A short haptic tap, e.g. when a long-press enters loop-select mode. Uses the
+// native Haptics plugin (navigator.vibrate is unreliable in the WebView) and
+// falls back to navigator.vibrate on the web.
+export async function hapticTap(): Promise<void> {
+	if (isNative()) {
+		try {
+			const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
+			await Haptics.impact({ style: ImpactStyle.Medium });
+			return;
+		} catch {
+			// plugin unavailable
+		}
+	}
+	try {
+		navigator.vibrate?.(12);
+	} catch {
+		// unsupported
+	}
+}
