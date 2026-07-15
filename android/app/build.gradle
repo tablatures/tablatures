@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+// Resolve the version from the release tag so both this workflow and F-Droid
+// (which builds from the tagged source without the CI environment) agree.
+// versionName is the tag without the leading v; versionCode is derived from the
+// semver so it increases monotonically. Env vars override for CI convenience.
+def gitTag = {
+    try {
+        def p = ['git', 'describe', '--tags', '--abbrev=0'].execute(null, rootDir)
+        p.waitFor()
+        if (p.exitValue() == 0) return p.text.trim()
+    } catch (ignored) {}
+    return ''
+}
+def tagName = gitTag()
+def resolvedVersionName = System.getenv("ANDROID_VERSION_NAME") ?: (tagName ? tagName.replaceFirst(/^v/, '') : "0.0.1")
+def semverToCode = { String s ->
+    def m = (s =~ /(\d+)\.(\d+)\.(\d+)/)
+    m ? (m[0][1] as int) * 10000 + (m[0][2] as int) * 100 + (m[0][3] as int) : 1
+}
+def resolvedVersionCode = System.getenv("ANDROID_VERSION_CODE") ? System.getenv("ANDROID_VERSION_CODE").toInteger() : semverToCode(resolvedVersionName)
+
+android {
+    namespace = "org.tablatures.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "org.tablatures.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode resolvedVersionCode
+        versionName resolvedVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Release signing from environment variables (set by the release workflow
+    // from GitHub secrets). When absent (local builds) the release type falls
+    // back to the debug key so assembleRelease still works without a keystore.
+    def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystorePath) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig keystorePath ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

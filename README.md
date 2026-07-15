@@ -26,6 +26,28 @@
 
 **The YouTube of guitar tablatures**: search, play, and practice guitar tabs with a modern web player.
 
+## Install
+
+**Web / PWA:** open [tablatures.github.io/tablatures](https://tablatures.github.io/tablatures) in any modern browser and choose *Install app* / *Add to Home Screen*. The installed app works offline (tabs you import, playback with the bundled soundfont) on Android, desktop and iOS.
+
+<!-- Uncomment once the first Android release is published and listed.
+
+**Android:** install from F-Droid, download the APK directly, or use Obtainium for auto-updates from GitHub Releases.
+
+<p>
+  <a href="https://f-droid.org/packages/org.tablatures.app/">
+    <img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="56" />
+  </a>
+  <a href="https://github.com/tablatures/tablatures/releases/latest/download/tablatures.apk">
+    <img src="docs/badges/download-apk.png" alt="Download the APK" height="56" />
+  </a>
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522org.tablatures.app%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Ftablatures%252Ftablatures%2522%252C%2522author%2522%253A%2522tablatures%2522%252C%2522name%2522%253A%2522Tablatures%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522tablatures-.*%255C%255C%255C%255C.apk%255C%2522%252C%255C%2522invertAPKFilter%255C%2522%253Afalse%257D%2522%257D">
+    <img src="https://github.com/ImranR98/Obtainium/blob/main/assets/graphics/badge_obtainium.png?raw=true" alt="Get it on Obtainium" height="56" />
+  </a>
+</p>
+
+-->
+
 ## Features
 
 ### Player
@@ -83,6 +105,50 @@ pnpm run start
 pnpm run build
 pnpm run preview
 ```
+
+## Android app (Capacitor)
+
+The Android app wraps the same static build in a Capacitor 8 WebView shell.
+
+```bash
+# Build the web assets at the root base path, then sync into android/
+pnpm run build:app
+pnpm exec cap sync android
+
+# Debug build / run (needs JDK 21 and the Android SDK)
+cd android && ./gradlew assembleDebug
+```
+
+### Release signing
+
+Tagging a commit `v*` runs `.github/workflows/android-release.yml`, which builds a
+signed release APK and attaches `tablatures-<tag>.apk` to a GitHub Release. The
+`versionName` is the tag without the leading `v`; the `versionCode` is the
+workflow run number.
+
+You create the keystore and secrets yourself (they are never committed):
+
+```bash
+# 1. Generate a keystore ONCE and keep it safe. Never rotate it, or installed
+#    apps can no longer update.
+keytool -genkeypair -v -keystore release.keystore -alias tablatures \
+    -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. Base64-encode it for the GitHub secret
+base64 -i release.keystore | tr -d '\n' > release.keystore.base64
+```
+
+Then add these repository secrets (Settings > Secrets and variables > Actions):
+
+| Secret | Value |
+|--------|-------|
+| `ANDROID_KEYSTORE_BASE64` | contents of `release.keystore.base64` |
+| `ANDROID_KEYSTORE_PASSWORD` | the store password |
+| `ANDROID_KEY_ALIAS` | the key alias (e.g. `tablatures`) |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+Without these secrets, a local `./gradlew assembleRelease` falls back to the debug
+signing key so the build still succeeds.
 
 ## Environment Variables
 

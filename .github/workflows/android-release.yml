@@ -1,0 +1,84 @@
+name: Android Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Derive version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm run build:app
+        env:
+          NODE_ENV: production
+          ## Optional: set these secrets to enable the search API in the app.
+          VITE_SEARCH_API_BASE_URL: ${{ secrets.SEARCH_API_BASE_URL }}
+          VITE_SEARCH_API_TIMEOUT: ${{ secrets.SEARCH_API_TIMEOUT }}
+
+      - name: Sync Capacitor
+        run: pnpm exec cap sync android
+
+      - name: Decode keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "${RUNNER_TEMP}/release.keystore"
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # versionCode is derived from this semver name by build.gradle.
+          ANDROID_VERSION_NAME: ${{ steps.version.outputs.name }}
+
+      - name: Stage APKs
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/tablatures-${{ steps.version.outputs.tag }}.apk"
+          # Stable filename so releases/latest/download/tablatures.apk always
+          # resolves (the Download APK button and simple installers use it).
+          cp android/app/build/outputs/apk/release/app-release.apk dist/tablatures.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/tablatures-${{ steps.version.outputs.tag }}.apk
+            dist/tablatures.apk
+          # Recap of what changed since the previous release (commits and PRs).
+          generate_release_notes: true
+          fail_on_unmatched_files: true

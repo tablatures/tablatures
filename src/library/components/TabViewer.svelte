@@ -25,6 +25,7 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
+	import { isNative, saveFile, shareLink, hapticTap } from '../utils/native';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -135,6 +136,10 @@
 			playing
 		});
 	}
+
+	// Print and the Fullscreen API are unavailable in the Android WebView; hide
+	// those controls when running natively (share/download cover the same need).
+	const native = isNative();
 
 	let api: any = undefined;
 	let target: HTMLElement | undefined = undefined;
@@ -501,6 +506,17 @@
 				const ytState = ytPlayer.getPlayerState?.();
 				if (ytState !== 1) return;
 			} catch {
+				return;
+			}
+
+			// The video is playing; make sure the tab is playing too (muted, since
+			// the video is the audio source) so its cursor animates smoothly rather
+			// than lurching on each 200ms sync tick. api.play() is idempotent, so
+			// this is a no-op once playback is running.
+			if (!playing) {
+				try {
+					api.play();
+				} catch {}
 				return;
 			}
 
@@ -1604,9 +1620,7 @@
 			isDraggingLoop = true;
 			dismissPopoverAndRefresh();
 			updateScoreSelection();
-			try {
-				navigator.vibrate?.(10);
-			} catch {}
+			hapticTap();
 		}, LONG_PRESS_MS);
 	}
 
@@ -1792,17 +1806,23 @@
 	}
 
 	function scrollToCursor() {
-		const cursor = api?._beatCursor;
-		if (!cursor?.element || !target) return;
-		const containerRect = target.getBoundingClientRect();
-		const elRect = cursor.element.getBoundingClientRect();
-		const scrollTop =
-			target.scrollTop +
-			(elRect.top - containerRect.top) -
-			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = isFullscreen ? page : window;
-		if (!scrollElement) return;
-		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+		// Use the shared cursor element reference (the same one the auto-follow
+		// scroll uses) rather than an alphaTab private field, which is not
+		// exposed by the vendored build.
+		const el = get(beatCursorEl);
+		if (!el) return;
+		const scrollElement = isFullscreen && page ? page : window;
+		// Land the cursor a clear gap below the sticky header so it is never
+		// hidden behind it. Compute the delta from the cursor's current viewport
+		// position; this works whether the scroller is the window or the
+		// fullscreen page.
+		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const settingsH =
+			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
+		const desiredTop = headerBottom + settingsH + 24;
+		const currentTop = isFullscreen && page ? page.scrollTop : window.scrollY;
+		const delta = el.getBoundingClientRect().top - desiredTop;
+		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
 		autoFollow = true;
 	}
 
@@ -2351,6 +2371,7 @@
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
 				getTotalBars: () => totalBars,
+				getScale: () => ({ apiScale: api?.settings?.display?.scale, tabScale }),
 				getSpeed: () => speed,
 				getVolume: () => volume,
 				getBarPositions: () => {
@@ -2509,6 +2530,13 @@
 		const responsiveScale = getResponsiveScale();
 		if (savedScale === 1.0) {
 			tabScale = responsiveScale;
+		}
+
+		// After a mini->full adoption the shared API can still hold the previous
+		// scale (e.g. 1.0), rendering the tab far too large. Sync it to the
+		// resolved scale (debounced render, so it does not disturb adoption/audio).
+		if (api && api.settings?.display && api.settings.display.scale !== tabScale) {
+			updateTabScale();
 		}
 
 		let resizeDebounceTimeout: NodeJS.Timeout;
@@ -3137,15 +3165,11 @@
 		}, PRINT_DELAY_MS);
 	}
 
-	function clickDownload() {
+	async function clickDownload() {
 		const exporter = new window.alphaTab.exporter.Gp7Exporter();
 		const data = exporter.export(api.score, api.settings);
-		const a = document.createElement('a');
-		a.download = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
-		a.href = URL.createObjectURL(new Blob([data]));
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
+		const fileName = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
+		await saveFile(fileName, data);
 	}
 
 	async function toggleFullscreen() {
@@ -3310,8 +3334,8 @@
 		}
 
 		try {
-			await navigator.clipboard.writeText(url.toString());
-			toastStore.success('Link copied!');
+			const how = await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
+			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
 		} catch {
 			toastStore.error('Failed to copy link');
 		}
@@ -3361,9 +3385,7 @@
 		clearTimeout(scoreLongPressTimer);
 		scoreLongPressTimer = setTimeout(() => {
 			scoreLongPressActive = true;
-			try {
-				navigator.vibrate?.(10);
-			} catch {}
+			hapticTap();
 			dispatchMouseAt('mousedown', pressX, pressY);
 		}, SCORE_LONG_PRESS_MS);
 	}
@@ -4119,19 +4141,21 @@
 				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
 			</button>
 
-			<button
-				on:click={toggleFullscreen}
-				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-				title="Fullscreen [F]"
-				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
-					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+			{#if !native}
+				<button
+					on:click={toggleFullscreen}
+					class="{compactBar
+						? 'p-1'
+						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+					title="Fullscreen [F]"
+					aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 				>
-			</button>
+					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+						>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+					>
+				</button>
+			{/if}
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
@@ -4430,17 +4454,19 @@
 						>
 							<i class="material-icons !text-lg sm:!text-xl">download</i>
 						</button>
-						<!-- Print: desktop only. On mobile we rely on Share / Download so
-						     this row stays one line tall. -->
-						<button
-							disabled={!scoreLoaded}
-							on:click={clickPrint}
-							class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
-							title="Print"
-							aria-label="Print"
-						>
-							<i class="material-icons !text-xl">print</i>
-						</button>
+						<!-- Print: desktop only, and unsupported in the native WebView. On
+						     mobile we rely on Share / Download so this row stays one line. -->
+						{#if !native}
+							<button
+								disabled={!scoreLoaded}
+								on:click={clickPrint}
+								class="hidden sm:inline-flex p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30"
+								title="Print"
+								aria-label="Print"
+							>
+								<i class="material-icons !text-xl">print</i>
+							</button>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -4457,7 +4483,7 @@
 			bind:this={settings}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
 				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
-				: 'z-[110] inset-0'}"
+				: 'z-[110] inset-0 pt-safe pb-safe'}"
 			style={isLargeScreen
 				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
 				: ''}

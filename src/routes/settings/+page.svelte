@@ -8,6 +8,19 @@
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
+	import { saveFile, isNative } from '../../library/utils/native';
+
+	// Flip once the first Android release is published and listed on the stores.
+	const APP_RELEASED = false;
+	// Hide the "Get the app" section inside the installed app itself.
+	const showGetApp = APP_RELEASED && !isNative();
+
+	const APP_LINKS = {
+		fdroid: 'https://f-droid.org/packages/org.tablatures.app/',
+		apk: 'https://github.com/tablatures/tablatures/releases/latest/download/tablatures.apk',
+		obtainium:
+			'https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522org.tablatures.app%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Ftablatures%252Ftablatures%2522%252C%2522author%2522%253A%2522tablatures%2522%252C%2522name%2522%253A%2522Tablatures%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522tablatures-.*%255C%255C%255C%255C.apk%255C%2522%252C%255C%2522invertAPKFilter%255C%2522%253Afalse%257D%2522%257D'
+	};
 
 	let importDataInput: HTMLInputElement;
 	let customSfUrl = '';
@@ -59,21 +72,15 @@
 		}
 	}
 
-	function exportData() {
+	async function exportData() {
 		const data = {
 			favorites: favorites,
 			history: historyItems,
 			preferences: prefs,
 			exportedAt: new Date().toISOString()
 		};
-		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-		const a = document.createElement('a');
-		a.download = `tablatures-data-${new Date().toISOString().slice(0, 10)}.json`;
-		a.href = URL.createObjectURL(blob);
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(a.href);
+		const fileName = `tablatures-data-${new Date().toISOString().slice(0, 10)}.json`;
+		await saveFile(fileName, JSON.stringify(data, null, 2), 'application/json');
 		toastStore.success('Data exported');
 	}
 
@@ -131,7 +138,10 @@
 
 <Header showSearch={true} />
 
-<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-3.5rem)]">
+<main
+	id="main-content"
+	class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] min-h-[calc(100dvh-3.5rem)]"
+>
 	<!-- Page title -->
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
@@ -183,6 +193,47 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- ===== GET THE APP ===== -->
+	{#if showGetApp}
+		<div
+			class="mb-6 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900"
+		>
+			<div class="flex items-center gap-2 mb-1">
+				<i class="material-icons-outlined !text-xl text-violet-500">install_mobile</i>
+				<h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Get the app</h3>
+			</div>
+			<p class="text-xs text-neutral-600 dark:text-neutral-400 mb-3">
+				Install Tablatures on Android for offline use.<span class="hidden sm:inline">
+					&nbsp;Scan a code with your phone, or use the buttons below.</span>
+			</p>
+			<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+				{#each [{ id: 'fdroid', label: 'F-Droid', note: 'Coming soon', action: 'Open F-Droid', href: APP_LINKS.fdroid }, { id: 'apk', label: 'Direct APK', note: 'Latest release', action: 'Download APK', href: APP_LINKS.apk }, { id: 'obtainium', label: 'Obtainium', note: 'Auto-updates', action: 'Add to Obtainium', href: APP_LINKS.obtainium }] as opt}
+					<div
+						class="flex flex-col items-center text-center gap-2 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700"
+					>
+						<img
+							src="{base}/qr/{opt.id}.svg"
+							alt="{opt.label} QR code"
+							width="120"
+							height="120"
+							class="hidden sm:block rounded bg-white p-1.5"
+						/>
+						<span class="text-sm font-medium text-neutral-800 dark:text-neutral-100">{opt.label}</span>
+						<span class="text-[11px] text-neutral-500 dark:text-neutral-400">{opt.note}</span>
+						<a
+							href={opt.href}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="w-full mt-auto px-3 py-2 text-xs font-semibold text-center rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors active:scale-[0.98]"
+						>
+							{opt.action}
+						</a>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
 
 	<!-- ===== AUDIO SECTION ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-0">

@@ -1,0 +1,14 @@
+Tablatures is a modern player for Guitar Pro tablatures. Open a file from your device and read, hear and practice it, fully offline.
+
+Features:
+
+* Renders Guitar Pro files (.gp3, .gp4, .gp5, .gpx, .gp) and MusicXML with the alphaTab engine.
+* Playback with an on-screen cursor, adjustable tempo and a metronome, using a bundled soundfont so audio works with no connection.
+* A-B loop regions by dragging on the timeline or the score, for practising a passage.
+* Per-track mixer to solo, mute and balance instruments.
+* Transposition and tuning tools, including capo handling.
+* A built-in chromatic guitar tuner (uses the microphone).
+* Favorites, history and playlists, kept on the device.
+* Optional online search for tabs (needs a connection; the app works fully without it).
+
+The app runs the same code as the web version in a system WebView. Playback and rendering happen on the device; no account is required.

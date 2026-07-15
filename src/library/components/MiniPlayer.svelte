@@ -5,6 +5,7 @@
 	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
+	import { shareLink } from '../utils/native';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
@@ -47,7 +48,7 @@
 			if (state.duration > 0 && state.progress > 0) {
 				url.searchParams.set('t', String(Math.round((state.progress / 100) * (state.duration / 1000))));
 			}
-			await navigator.clipboard.writeText(url.toString());
+			await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
 			// Brief visual feedback
 			shareJustCopied = true;
 			setTimeout(() => { shareJustCopied = false; }, 1500);
@@ -123,6 +124,11 @@
 </script>
 
 <div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe">
+	<!-- Bleed the bar background a few pixels below its edge so a subpixel seam
+	     at the viewport bottom (fractional device-pixel rounding) does not show
+	     the page through. Off-screen and harmless when there is no seam. -->
+	<div class="absolute left-0 right-0 top-full h-[3px] bg-neutral-900 dark:bg-neutral-800" aria-hidden="true"></div>
+
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
 		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">

@@ -2,6 +2,10 @@
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 	import 'material-icons/iconfont/outlined.css';
+	import '@fontsource/ibm-plex-sans/400.css';
+	import '@fontsource/ibm-plex-sans/500.css';
+	import '@fontsource/ibm-plex-sans/600.css';
+	import '@fontsource/ibm-plex-sans/700.css';
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
@@ -36,7 +40,20 @@
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import PwaReloadPrompt from '../library/components/PwaReloadPrompt.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
+	import {
+		setAudioSessionType,
+		requestWakeLock,
+		releaseWakeLock
+	} from '../library/utils/playbackEnv';
+	import {
+		setKeepAwake,
+		hideSplash,
+		syncStatusBar,
+		onBackButton,
+		exitApp
+	} from '../library/utils/native';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -218,12 +235,20 @@
 		if (get(playerApi)) return; // Already initialized
 
 		const prefs = get(preferencesStore);
+		// alphaTab is now served from our own origin (see app.html and the
+		// vendor-alphatab vite plugin) instead of a CDN. Point it at the vendored
+		// script and Bravura font so workers and glyphs load locally and offline.
+		// These MUST be absolute URLs: the synth runs in a blob-origin worker whose
+		// importScripts cannot resolve a root-relative path.
+		const vendorBase = `${window.location.origin}${base}/vendor/alphatab`;
 		const api = new window.alphaTab.AlphaTabApi(playerHostEl, {
 			core: {
 				tex: true,
 				engine: 'html5',
 				logLevel: 1,
-				useWorkers: true
+				useWorkers: true,
+				scriptFile: `${vendorBase}/alphaTab.min.js`,
+				fontDirectory: `${vendorBase}/font/`
 			},
 			importer: {
 				// Split whole-phrase per-beat text into per-beat syllables for old
@@ -507,12 +532,96 @@
 		);
 	}
 
+	// Hint the audio session type: record mode while the tuner mic is live,
+	// playback while a tab is playing (so iOS does not mute Web Audio on the
+	// silent switch), otherwise auto. Feature-guarded.
+	$: if (browser) {
+		setAudioSessionType(
+			$tunerOpen ? 'play-and-record' : $playerState.playing ? 'playback' : 'auto'
+		);
+	}
+
+	// Keep the screen awake while playback runs, release it as soon as it stops.
+	// Web uses the Wake Lock API; native uses the keep-awake plugin.
+	$: if (browser) {
+		if ($playerState.playing) {
+			requestWakeLock();
+			setKeepAwake(true);
+		} else {
+			releaseWakeLock();
+			setKeepAwake(false);
+		}
+	}
+
+	// Keep the native status bar icons legible against the themed header.
+	$: if (browser) syncStatusBar($themeStore);
+
+	onMount(() => {
+		// Native app startup: dismiss the splash once mounted, and route the
+		// Android hardware back button through the app (close the tuner first,
+		// otherwise navigate back, otherwise exit).
+		hideSplash();
+		let removeBack = () => {};
+		onBackButton((canGoBack) => {
+			if (get(tunerOpen)) {
+				tunerOpen.set(false);
+				return;
+			}
+			if (canGoBack) {
+				history.back();
+				return;
+			}
+			exitApp();
+		}).then((r) => (removeBack = r));
+		return () => removeBack();
+	});
+
+	onMount(() => {
+		// Wake locks are dropped when the tab is backgrounded; re-acquire on
+		// return if playback is still running.
+		function onVisible() {
+			if (document.visibilityState === 'visible' && get(playerState).playing) {
+				requestWakeLock();
+			}
+		}
+		document.addEventListener('visibilitychange', onVisible);
+		return () => document.removeEventListener('visibilitychange', onVisible);
+	});
+
 	onMount(() => {
 		// Initialize API if tab already exists in store
 		const existingTab = tabStore.loadTab();
 		if (existingTab?.fileAsB64 && playerHostEl) {
 			ensureApiInitialized();
 		}
+
+		// iOS Safari requires AudioContext.resume() from a user gesture.
+		// Register a one-time click/touchstart handler to unlock Web Audio.
+		function resumeAudioOnGesture() {
+			const api = get(playerApi);
+			if (api) {
+				// Try various paths to alphaTab's internal AudioContext
+				const ctx =
+					(api as any).player?.output?.context ??
+					(api as any).player?.context ??
+					(api as any)._playerState?.output?.context;
+				if (ctx && ctx.state === 'suspended') {
+					ctx.resume();
+				}
+			}
+			// Also try the generic approach to unlock audio on iOS
+			try {
+				const AudioCtx = window.AudioContext || window.webkitAudioContext;
+				if (AudioCtx) {
+					const tempCtx = new AudioCtx();
+					tempCtx.resume().then(() => tempCtx.close());
+				}
+			} catch {}
+			document.removeEventListener('click', resumeAudioOnGesture);
+			document.removeEventListener('touchstart', resumeAudioOnGesture);
+		}
+		document.addEventListener('click', resumeAudioOnGesture, { once: true });
+		document.addEventListener('touchstart', resumeAudioOnGesture, { once: true });
 	});
 </script>
 
@@ -525,13 +634,6 @@
 
 <svelte:head>
 	<title>Tablatures</title>
-
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-	<link
-		href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap"
-		rel="stylesheet"
-	/>
 
 	<script>
 		if (document) {
@@ -771,6 +873,9 @@
 
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
+
+	<!-- Service worker update prompt (PWA) -->
+	<PwaReloadPrompt />
 
 	<main
 		id="main-content"
