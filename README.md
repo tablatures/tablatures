@@ -30,6 +30,8 @@
 
 **Web / PWA:** open [tablatures.github.io/tablatures](https://tablatures.github.io/tablatures) in any modern browser and choose *Install app* / *Add to Home Screen*. The installed app works offline (tabs you import, playback with the bundled soundfont) on Android, desktop and iOS.
 
+<!-- Uncomment once the first Android release is published and listed.
+
 **Android:** install from F-Droid, download the APK directly, or use Obtainium for auto-updates from GitHub Releases.
 
 <p>
@@ -44,7 +46,7 @@
   </a>
 </p>
 
-> The F-Droid badge goes live once the app is accepted into the F-Droid repository (see [docs/fdroid.md](docs/fdroid.md)). The Download APK button always points at the latest GitHub release.
+-->
 
 ## Features
 

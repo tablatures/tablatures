@@ -10,8 +10,10 @@
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
 	import { saveFile, isNative } from '../../library/utils/native';
 
+	// Flip once the first Android release is published and listed on the stores.
+	const APP_RELEASED = false;
 	// Hide the "Get the app" section inside the installed app itself.
-	const showGetApp = !isNative();
+	const showGetApp = APP_RELEASED && !isNative();
 
 	const APP_LINKS = {
 		fdroid: 'https://f-droid.org/packages/org.tablatures.app/',
