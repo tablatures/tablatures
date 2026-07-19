@@ -279,7 +279,8 @@
 				image: a.image,
 				bio: null,
 				country: null,
-				tags: a.genre ? [a.genre] : [],
+				// Genre first, then style tags - enough pills to fill the row
+				tags: Array.from(new Set([...(a.genre ? [a.genre] : []), ...((a as any).tags || [])])).slice(0, 5),
 				tabCount: a.tabCount
 			}));
 			artistHeroesLoading = false;

@@ -8,6 +8,7 @@
 	import ResultCard from '$components/ResultCard.svelte';
 	import SkeletonTabCard from '$components/SkeletonTabCard.svelte';
 	import TagPill from '$components/TagPill.svelte';
+	import LoadingScore from '$components/LoadingScore.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
@@ -447,7 +448,7 @@
 						{/if}
 					</div>
 					{#if albumLoading}
-						<div class="px-4 py-6 text-center text-sm text-neutral-400">Loading tracklist...</div>
+						<div class="px-4 py-6"><LoadingScore size="sm" message="Loading tracklist" /></div>
 					{:else}
 						<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60 max-h-96 overflow-y-auto">
 							{#each albumTracks as track}
@@ -519,10 +520,10 @@
 		<!-- ================= All tabs ================= -->
 		<h2 class="text-lg font-semibold text-neutral-900 dark:text-white mt-8 mb-1">All tabs</h2>
 		{#if organicLoading}
-			<div class="rounded-2xl border border-dashed border-violet-300 dark:border-violet-800 px-6 py-10 text-center mb-10">
-				<i class="material-icons !text-4xl text-violet-400 mb-2 animate-pulse">travel_explore</i>
-				<p class="text-sm text-neutral-500 dark:text-neutral-400">
-					Searching tab sources for {info.name}... found tabs are added to the catalog automatically.
+			<div class="rounded-2xl border border-dashed border-violet-300 dark:border-violet-800 px-6 py-10 mb-10">
+				<LoadingScore size="sm" message="Searching tab sources for {info.name}" />
+				<p class="text-xs text-neutral-400 dark:text-neutral-500 text-center mt-2">
+					Found tabs are added to the catalog automatically.
 				</p>
 			</div>
 		{:else if allTabs.length === 0 && !allTabsLoading}
@@ -563,7 +564,7 @@
 					disabled={allTabsLoading}
 					class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50"
 				>
-					{allTabsLoading ? 'Loading...' : `Load more (${allTabs.length}/${allTabsTotal})`}
+					{allTabsLoading ? 'Loading' : `Load more (${allTabs.length}/${allTabsTotal})`}
 				</button>
 			</div>
 		{:else}
