@@ -448,7 +448,24 @@
 
 		<!-- ================= All tabs ================= -->
 		<h2 class="text-lg font-semibold text-neutral-900 dark:text-white mt-8 mb-1">All tabs</h2>
-		<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60 rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden mb-4">
+		{#if allTabs.length === 0 && !allTabsLoading}
+			<!-- Empty catalog for this artist: point at live search, which also
+			     grows the catalog automatically -->
+			<div class="rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 px-6 py-10 text-center mb-10">
+				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2">travel_explore</i>
+				<p class="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
+					No tabs for {info.name} in the catalog yet. Run a live search - found tabs are added automatically.
+				</p>
+				<a
+					href="{base}/search?q={encodeURIComponent(info.name)}"
+					class="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
+				>
+					<i class="material-icons !text-lg">search</i>
+					Search {info.name} tabs live
+				</a>
+			</div>
+		{/if}
+		<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60 rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden mb-4 {allTabs.length === 0 ? 'hidden' : ''}">
 			{#each allTabs as tab (tab.id)}
 				<ResultCard
 					id={tab.id}

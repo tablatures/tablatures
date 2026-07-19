@@ -183,7 +183,15 @@
 		loadingFeed = true;
 		try {
 			const config = pool[nextPoolIndex++];
-			const res = await fetch(`${SEARCH_API_BASE_URL}${config.endpoint()}`);
+			let endpoint = config.endpoint();
+			if (feedTabs.length === 0) {
+				// First paint: only ~2 rows of cards (fast), the fill loop tops up
+				const firstBatch = Math.max(8, (gridCols || 4) * 2);
+				endpoint = endpoint
+					.replace(/limit=\d+/, `limit=${firstBatch}`)
+					.replace(/count=\d+/, `count=${firstBatch}`);
+			}
+			const res = await fetch(`${SEARCH_API_BASE_URL}${endpoint}`);
 			if (!res.ok) {
 				emptyFetchesInARow++;
 				markExhausted();
