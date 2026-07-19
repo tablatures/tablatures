@@ -109,8 +109,8 @@
 	function getSourceLabel(source: string): string {
 		const s = source.toLowerCase();
 		if (s.includes('songsterr')) return 'Songsterr';
-		if (s.includes('ultimate') || s === 'ug') return 'UG';
-		if (s.includes('guitarprotab')) return 'GP Tabs';
+		if (s.includes('ultimate') || s === 'ug') return 'Ultimate Guitar';
+		if (s.includes('guitarprotab')) return 'GuitarProTabs';
 		if (s === 'local') return 'Local';
 		return source.slice(0, 8);
 	}
