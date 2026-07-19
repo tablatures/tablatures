@@ -125,24 +125,24 @@
 				{#if trackCount}
 					<span class="text-[11px] text-neutral-500 dark:text-neutral-400">{trackCount} tracks</span>
 				{/if}
-				{#if hasVersions}
-					<button
-						class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors
-							{versionsExpanded
-								? 'bg-violet-500 text-white border-violet-500'
-								: 'text-violet-600 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
-						on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
-						title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
-					>
-						{versionsSummary}
-						<i class="material-icons !text-base">{versionsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-					</button>
-				{/if}
 			</div>
 		</div>
 
 		<!-- Right actions -->
 		<div class="flex items-center gap-1 flex-shrink-0">
+			{#if hasVersions}
+				<button
+					class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors mr-1
+						{versionsExpanded
+							? 'bg-violet-500 text-white border-violet-500'
+							: 'text-violet-600 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
+					on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
+					title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
+				>
+					{versionsSummary}
+					<i class="material-icons !text-base">{versionsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
+				</button>
+			{/if}
 			{#if onAddToPlaylist && id}
 				<button
 					class="w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition-all duration-150 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-violet-500 hover:text-white"

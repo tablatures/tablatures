@@ -488,8 +488,36 @@
 	// complete them into a full row.
 	$: feedFullRowCount = gridCols > 0 ? Math.floor(feedTabs.length / gridCols) * gridCols : feedTabs.length;
 	$: feedPartialCount = feedTabs.length - feedFullRowCount;
+
+	// Skeleton visibility with hysteresis: ON instantly when a fetch or
+	// artwork batch starts, OFF only after the feed has been idle for a
+	// moment. The fill loop alternates active/idle every second (fetch ->
+	// artwork resolves -> 100ms rearm -> next fetch); gating the block on
+	// the instantaneous state made every skeleton unmount and remount each
+	// cycle, which read as the whole grid flashing.
+	let showSkeletons = true;
+	let skeletonOffTimer: ReturnType<typeof setTimeout> | null = null;
+	$: {
+		const active = (loadingFeed || artworkLoadingIds.size > 0) && !exhausted;
+		if (active) {
+			if (skeletonOffTimer) {
+				clearTimeout(skeletonOffTimer);
+				skeletonOffTimer = null;
+			}
+			showSkeletons = true;
+		} else if (showSkeletons && !skeletonOffTimer) {
+			skeletonOffTimer = setTimeout(
+				() => {
+					skeletonOffTimer = null;
+					showSkeletons = false;
+				},
+				exhausted ? 0 : 600
+			);
+		}
+	}
+
 	$: visibleFeedTabs =
-		exhausted || loadingFeed || artworkLoadingIds.size > 0 || feedFullRowCount === 0
+		exhausted || showSkeletons || feedFullRowCount === 0
 			? feedTabs
 			: feedTabs.slice(0, feedFullRowCount);
 
@@ -902,7 +930,7 @@
 				     artwork is still loading. Count fills out the partial
 				     trailing row first and then adds a full row for the
 				     upcoming batch — so the grid never ends on a ragged edge. -->
-				{#if (loadingFeed || artworkLoadingIds.size > 0) && !exhausted}
+				{#if showSkeletons}
 					{#each Array(feedSkeletonCount) as _}
 						<SkeletonTabCard />
 					{/each}
