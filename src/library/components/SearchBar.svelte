@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { historyStore } from '../utils/history';
 	import type { HistoryItem } from '../utils/history';
 	import { getArtwork } from '../utils/artwork';
@@ -18,6 +20,7 @@
 		type?: string;
 		value: string;
 		info?: string;
+		image?: string;
 	}
 
 	let focused = false;
@@ -103,7 +106,7 @@
 		if (s.type === 'artist') {
 			value = s.value;
 			focused = false;
-			dispatch('search', s.value);
+			goto(`${base}/artist/${encodeURIComponent(s.value)}`);
 			return;
 		}
 		openTopResultForQuery(buildSongQuery(s));
@@ -198,7 +201,7 @@
 
 	function debounceAutocomplete() {
 		clearTimeout(autocompleteTimer);
-		autocompleteTimer = setTimeout(fetchAutocomplete, 300);
+		autocompleteTimer = setTimeout(fetchAutocomplete, 450);
 	}
 
 	export function focus() {
@@ -310,6 +313,22 @@
 
 			<!-- Autocomplete suggestions (when typing) -->
 			{#if showSuggestions}
+				<!-- Always-first: full search escape hatch -->
+				<button
+					role="option"
+					aria-selected={highlightedIndex === -1}
+					class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-violet-50 dark:hover:bg-violet-900/20 border-b border-neutral-100 dark:border-neutral-800 transition-colors"
+					on:mousedown|preventDefault={() => {
+						focused = false;
+						dispatch('search', value.trim());
+					}}
+				>
+					<i class="material-icons !text-lg text-violet-500 flex-shrink-0">search</i>
+					<span class="text-sm text-neutral-700 dark:text-neutral-200 truncate">
+						See all results for "<span class="font-medium">{value.trim()}</span>"
+					</span>
+					<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0 ml-auto">arrow_forward</i>
+				</button>
 				{#each suggestions as s, i}
 					{#if i === 0 || s.type !== suggestions[i - 1]?.type}
 						<div class="px-3 pt-2 pb-1">
@@ -329,8 +348,12 @@
 								: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}"
 						on:pointerdown|preventDefault={() => applySuggestion(s)}
 					>
-						<div class="flex-shrink-0 w-9 h-9 rounded-lg {s.type === 'artist' ? 'bg-violet-100 dark:bg-violet-900/30' : 'bg-neutral-100 dark:bg-neutral-800'} flex items-center justify-center">
-							<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
+						<div class="flex-shrink-0 w-9 h-9 {s.type === 'artist' ? 'rounded-full' : 'rounded-lg'} overflow-hidden {s.type === 'artist' ? 'bg-violet-100 dark:bg-violet-900/30' : 'bg-neutral-100 dark:bg-neutral-800'} flex items-center justify-center">
+							{#if s.type === 'artist' && s.image}
+								<img src={s.image} alt="" loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+							{:else}
+								<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
+							{/if}
 						</div>
 						<div class="flex-1 min-w-0">
 							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200">{s.value}</div>

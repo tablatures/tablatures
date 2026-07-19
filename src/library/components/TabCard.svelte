@@ -11,8 +11,17 @@
 	export let source: string = '';
 	export let type: string = '';
 	export let artworkUrl: string = '';
+	/** Artist image from the API: instant visual while song artwork resolves */
+	export let artistImage: string = '';
 	/** Set while artwork is being fetched — shows a pulse instead of the fallback icon */
 	export let artworkLoading: boolean = false;
+
+	let imageFailed = false;
+
+	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
+	// A failed load falls back to the icon (never a blank box).
+	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: artworkUrl, artistImage, (imageFailed = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 
@@ -29,20 +38,23 @@
 	$: sourceDisplay = getSourceDisplay(source);
 </script>
 
-<button
-	on:click={onClick}
-	class="group relative flex flex-col text-left w-full rounded-xl overflow-hidden focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black transition-transform duration-150 active:scale-[0.98]"
-	aria-label="{title} by {artist}"
->
+<!-- Outer wrapper: the play action is the thumbnail+title button; the artist
+     name is a REAL separate link so it can never trigger playback -->
+<div class="group relative flex flex-col w-full rounded-xl">
+	<button
+		on:click={onClick}
+		class="relative flex flex-col text-left w-full rounded-xl overflow-hidden focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black transition-transform duration-150 active:scale-[0.98]"
+		aria-label="Play {title} by {artist}"
+	>
 	<!-- Thumbnail -->
 	<div class="relative w-full aspect-square bg-neutral-100 dark:bg-neutral-800 overflow-hidden rounded-xl">
-		{#if artworkUrl}
+		{#if displayImage}
 			<img
-				src={artworkUrl}
+				src={displayImage}
 				alt=""
 				loading="lazy"
 				class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-				on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }}
+				on:error={() => (imageFailed = true)}
 			/>
 		{:else if artworkLoading}
 			<!-- Pulse while artwork is being fetched -->
@@ -86,21 +98,23 @@
 		{/if}
 	</div>
 
-	<!-- Title + artist below -->
-	<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
+	<!-- Title (still part of the play button) -->
+	<div class="pt-2 px-0.5 w-full min-w-0">
 		<p class="text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
 			{title}
 		</p>
-		<a
-			href="{base}/search?q={encodeURIComponent(artist)}"
-			class="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors"
-			on:click|stopPropagation
-			title="Search tabs by {artist}"
-		>
-			{artist}
-		</a>
 	</div>
-</button>
+	</button>
+
+	<!-- Artist: its own link, OUTSIDE the play button -->
+	<a
+		href="{base}/artist/{encodeURIComponent(artist)}"
+		class="mt-0.5 pb-1 px-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors self-start max-w-full"
+		title="View artist {artist}"
+	>
+		{artist}
+	</a>
+</div>
 
 <style>
 	.line-clamp-2 {

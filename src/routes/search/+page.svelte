@@ -5,12 +5,13 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Header from '../../library/components/Header.svelte';
+	import TagPill from '../../library/components/TagPill.svelte';
 	import ResultCard from '../../library/components/ResultCard.svelte';
 	import SkeletonCard from '../../library/components/SkeletonCard.svelte';
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import { tabStore } from '../../library/utils/store';
-	import { activeVideoId } from '../../library/utils/playerStore';
+	import { activeVideoId, sourceVariants } from '../../library/utils/playerStore';
 	import { historyStore } from '../../library/utils/history';
 	import { toastStore } from '../../library/utils/toast';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
@@ -65,6 +66,7 @@
 
 	interface TabVariant {
 		id: string;
+		title?: string;
 		source: string;
 		sourceUrl: string;
 		trackCount?: number;
@@ -79,12 +81,16 @@
 		type?: string;
 		source: string;
 		trackCount?: number;
+		artistImage?: string;
+		artworkUrl?: string;
+		sourceUrl?: string;
 		variants?: TabVariant[];
 	}
 
 	let tabs: TabResult[] = [];
 	let tabArtwork: Record<string, string> = {};
 	let artistHeroes: Array<{name: string; image: string|null; bio: string|null; country: string|null; tags: string[]; tabCount: number}> = [];
+	let apiArtists: Array<{name: string; image: string|null; genre: string|null; tabCount: number; popularity: number}> = [];
 	let artistHeroesLoading = false;
 	let failedHeroImages: Set<string> = new Set();
 
@@ -136,7 +142,11 @@
 				type: t.tabType || t.type || '',
 				source: t.source || '',
 				trackCount: t.trackCount,
-				variants: [{ id: t.id || '', source: t.source || '', sourceUrl: t.sourceUrl || '', trackCount: t.trackCount, instruments: t.instruments }]
+				artistImage: t.artistImage || '',
+				artworkUrl: t.artworkUrl || '',
+				variants: (Array.isArray(t.variants) && t.variants.length > 0)
+					? t.variants.map((v: any) => ({ id: v.id || '', source: v.source || '', sourceUrl: v.sourceUrl || '', trackCount: v.trackCount, instruments: v.instruments, title: v.title }))
+					: [{ id: t.id || '', source: t.source || '', sourceUrl: t.sourceUrl || '', trackCount: t.trackCount, instruments: t.instruments }]
 			}));
 	}
 
@@ -157,6 +167,8 @@
 
 		const data = await response.json();
 		if ('error' in data) return [];
+		// First-class artist results straight from the catalog
+		apiArtists = Array.isArray(data.artists) ? data.artists : [];
 		return parseResults(data);
 	}
 
@@ -195,7 +207,13 @@
 
 		function normalizeKey(tab: TabResult): string {
 			const a = normalizeArtist(tab.artist || 'unknown');
-			const t = (tab.title || '').toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+			// Fold version counters ("Song (2)", "Song V3") into the base song key
+			let raw = (tab.title || '').toLowerCase().trim();
+			for (let prev = ''; prev !== raw; ) {
+				prev = raw;
+				raw = raw.replace(/\s*\(\d+\)$|\s+v\d+$/i, '').trim();
+			}
+			const t = raw.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 			return `${a}|${t}`;
 		}
 
@@ -249,6 +267,26 @@
 		const snb = normalizeArtist(stripFeat(b));
 		if (sna.length > 0 && snb.length > 0 && (sna === snb || sna.includes(snb) || snb.includes(sna))) return true;
 		return false;
+	}
+
+	/** Heroes come straight from the catalog's artist results; the old
+	 *  emerge-from-rendered-tabs detection remains only as a fallback for
+	 *  live-only searches (no artists field on that endpoint). */
+	function applyArtistHeroes(results: TabResult[]) {
+		if (apiArtists.length > 0) {
+			artistHeroes = apiArtists.map((a) => ({
+				name: a.name,
+				image: a.image,
+				bio: null,
+				country: null,
+				// Genre first, then style tags - enough pills to fill the row
+				tags: Array.from(new Set([...(a.genre ? [a.genre] : []), ...((a as any).tags || [])])).slice(0, 5),
+				tabCount: a.tabCount
+			}));
+			artistHeroesLoading = false;
+			return;
+		}
+		detectArtistHeroes(results);
 	}
 
 	async function detectArtistHeroes(results: TabResult[]) {
@@ -373,7 +411,12 @@
 	}
 
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
-		tabArtwork = await fetchArtworkBatch(tabList, tabArtwork);
+		// Server embeds cached artwork - seed instantly, resolve only the rest
+		const embedded: Record<string, string> = {};
+		for (const t of tabList) if (t.artworkUrl && !tabArtwork[t.id]) embedded[t.id] = t.artworkUrl;
+		if (Object.keys(embedded).length > 0) tabArtwork = { ...tabArtwork, ...embedded };
+		const needs = tabList.filter((t) => !t.artworkUrl && !tabArtwork[t.id]);
+		if (needs.length > 0) tabArtwork = await fetchArtworkBatch(needs, tabArtwork);
 	}
 
 	async function performSearch(force: boolean = false): Promise<void> {
@@ -430,7 +473,7 @@
 				} finally {
 					searchingMore = false;
 				}
-				detectArtistHeroes(tabs);
+				applyArtistHeroes(tabs);
 				fetchArtworkForTabs(tabs);
 			} else {
 				const liveData = await performLiveSearch();
@@ -519,8 +562,12 @@
 		downloadingTab = true;
 		error = '';
 		try {
+			const srcHint =
+				tab.id.startsWith('ug:') && (tab as any).sourceUrl
+					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
+					: '';
 			const response = await fetchWithTimeout(
-				`${SEARCH_API_BASE_URL}/api/download/${tab.id}`,
+				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
 				{},
 				10000
 			);
@@ -550,8 +597,27 @@
 				tabId: tab.id,
 				source: tab.source,
 				title: tab.title,
-				artist: tab.artist
+				artist: tab.artist,
+				variants: tab.variants?.map((v) => ({
+					id: v.id,
+					title: v.title || tab.title,
+					source: v.source,
+					sourceUrl: v.sourceUrl,
+					trackCount: v.trackCount ?? undefined,
+					instruments: v.instruments ?? undefined
+				}))
 			});
+
+			// Light up the source pills in the player
+			sourceVariants.set(
+				(tab.variants || [])
+					.reduce((acc: any[], v) => {
+						const cur = acc.find((x) => x.source === v.source);
+						if (!cur) acc.push({ id: v.id, source: v.source, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
+						else if ((v.trackCount || 0) > (cur.trackCount || 0)) Object.assign(cur, { id: v.id, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
+						return acc;
+					}, [])
+			);
 
 			goto(`${base}/play`);
 		} catch (err: any) {
@@ -691,8 +757,8 @@
 							class="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
 							role="button"
 							tabindex="0"
-							on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
-							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); query = hero.name; currentPage = 1; updateURL(); performSearch(true); } }}
+							on:click={() => goto(`${base}/artist/${encodeURIComponent(hero.name)}`)}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(hero.name)}`); } }}
 						>
 							<div class="relative w-14 h-14 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
 								<i class="material-icons text-neutral-400 !text-2xl" aria-hidden="true">person</i>
@@ -735,7 +801,7 @@
 								{#if hero.tags && hero.tags.length > 0}
 									<div class="flex flex-wrap gap-1 mb-1.5">
 										{#each hero.tags.slice(0, 4) as tag}
-											<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">{tag}</span>
+											<TagPill label={tag} size="sm" />
 										{/each}
 									</div>
 								{/if}
@@ -768,8 +834,9 @@
 						type={tab.type || ''}
 						trackCount={tab.trackCount}
 						artworkUrl={tabArtwork[tab.id] || ''}
+						artistImage={tab.artistImage || ''}
 						variants={tab.variants}
-						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source })}
+						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
 						onClick={() => openTab(tab)}
 						onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
 					/>

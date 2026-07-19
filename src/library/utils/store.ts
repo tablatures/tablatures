@@ -1,11 +1,24 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
+export interface TabVersion {
+	id: string;
+	title: string;
+	source: string;
+	sourceUrl?: string | null;
+	trackCount?: number | null;
+	instruments?: string[] | null;
+	downloadCount?: number;
+}
+
 export interface TabData {
 	fileAsB64?: string;
 	source?: string;
 	title?: string;
 	artist?: string;
+	album?: string;
+	/** Other versions/sources of the same song (player version switcher) */
+	variants?: TabVersion[];
 	fileName?: string;
 	tabId?: string;
 	volume?: number;

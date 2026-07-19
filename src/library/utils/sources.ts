@@ -52,14 +52,14 @@ export function getSourceDisplay(source: string): SourceDisplay {
 	}
 	if (s.includes('ultimate') || s === 'ug') {
 		return {
-			label: 'UG',
+			label: 'Ultimate Guitar',
 			dotColor: 'bg-amber-500',
 			badgeClass: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
 		};
 	}
 	if (s.includes('guitarprotab')) {
 		return {
-			label: 'GP Tabs',
+			label: 'GuitarProTabs',
 			dotColor: 'bg-emerald-500',
 			badgeClass: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
 		};

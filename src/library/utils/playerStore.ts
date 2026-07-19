@@ -115,3 +115,83 @@ export function setMasterVolumeDebounced(api: any, vol: number) {
 		api.masterVolume = vol;
 	}, 150);
 }
+
+// ---------------------------------------------------------------------------
+// Play queue (playlist/album playback, YouTube-like prev/next)
+// ---------------------------------------------------------------------------
+
+export interface QueueItem {
+	id: string;
+	title: string;
+	artist?: string;
+	source?: string;
+	type?: string;
+	album?: string;
+	artworkUrl?: string;
+	hashPayload?: string;
+}
+
+export interface QueueState {
+	items: QueueItem[];
+	index: number;
+	/** Where the queue came from, e.g. a playlist or album name */
+	label: string | null;
+	/** Link to the fullscreen view of the playlist/album */
+	href: string | null;
+}
+
+const QUEUE_KEY = 'play-queue-v1';
+
+function loadQueue(): QueueState {
+	if (typeof sessionStorage !== 'undefined') {
+		try {
+			const raw = sessionStorage.getItem(QUEUE_KEY);
+			if (raw) return JSON.parse(raw);
+		} catch {
+			/* fresh queue */
+		}
+	}
+	return { items: [], index: -1, label: null, href: null };
+}
+
+function persistQueue(state: QueueState) {
+	try {
+		sessionStorage.setItem(QUEUE_KEY, JSON.stringify(state));
+	} catch {
+		/* best effort */
+	}
+}
+
+export const queueStore = writable<QueueState>(loadQueue());
+queueStore.subscribe((s) => {
+	if (typeof sessionStorage !== 'undefined') persistQueue(s);
+});
+
+export function setQueue(
+	items: QueueItem[],
+	startIndex: number = 0,
+	label: string | null = null,
+	href: string | null = null
+) {
+	queueStore.set({ items, index: Math.max(0, Math.min(startIndex, items.length - 1)), label, href });
+}
+
+export function clearQueue() {
+	queueStore.set({ items: [], index: -1, label: null, href: null });
+}
+
+/** Move within the queue; returns the item to open, or null at the edges. */
+export function stepQueue(delta: 1 | -1): QueueItem | null {
+	const s = get(queueStore);
+	const next = s.index + delta;
+	if (next < 0 || next >= s.items.length) return null;
+	queueStore.set({ ...s, index: next });
+	return s.items[next] ?? null;
+}
+
+export function jumpQueue(index: number): QueueItem | null {
+	const s = get(queueStore);
+	if (index < 0 || index >= s.items.length) return null;
+	queueStore.set({ ...s, index });
+	return s.items[index] ?? null;
+}

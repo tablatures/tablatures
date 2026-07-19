@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TagPill from './TagPill.svelte';
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import { onMount, tick } from 'svelte';
@@ -176,7 +177,7 @@
 				{#if info.tags && info.tags.length > 0}
 					<div class="flex flex-wrap gap-1 mt-2">
 						{#each info.tags.slice(0, 5) as tag}
-							<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400">{tag}</span>
+							<TagPill label={tag} size="sm" />
 						{/each}
 					</div>
 				{/if}
@@ -189,10 +190,16 @@
 					{isArtistFavorited ? 'Following' : 'Follow artist'}
 				</button>
 				<a
-					href="{base}/search?q={encodeURIComponent(artistName)}"
-					class="block mt-1 text-xs text-violet-500 hover:text-violet-600 transition-colors"
+					href="{base}/artist/{encodeURIComponent(info.name || artistName)}"
+					class="block mt-1 text-xs font-medium text-violet-500 hover:text-violet-600 transition-colors"
 				>
-					See all tabs by {info.name || artistName} &rarr;
+					View artist page &rarr;
+				</a>
+				<a
+					href="{base}/search?q={encodeURIComponent(artistName)}"
+					class="block mt-0.5 text-xs text-neutral-400 hover:text-violet-500 transition-colors"
+				>
+					See all tabs by {info.name || artistName}
 				</a>
 			{/if}
 		</div>

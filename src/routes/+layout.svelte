@@ -334,6 +334,11 @@
 				}
 			}
 
+			// Organic catalog metadata: the parsed score knows the real track
+			// count and instruments - report them so catalog rows missing this
+			// data (seeded tabs) fill themselves in as tabs get played
+			reportTabMeta(score);
+
 			// Apply theme
 			applyTheme(api);
 		});
@@ -384,6 +389,24 @@
 
 		playerApi.set(api);
 		playerTarget.set(playerHostEl);
+	}
+
+	async function reportTabMeta(score: any) {
+		try {
+			const tabId = get(tabStore)?.tabId;
+			const apiBase = import.meta.env.VITE_SEARCH_API_BASE_URL;
+			if (!tabId || !apiBase || !score?.tracks?.length) return;
+			const instruments = Array.from(
+				new Set(score.tracks.map((t: any) => (t.name || t.shortName || '').trim()).filter(Boolean))
+			).slice(0, 16);
+			await fetch(`${apiBase}/api/tab/${encodeURIComponent(tabId)}/meta`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ trackCount: score.tracks.length, instruments })
+			});
+		} catch {
+			/* metadata reporting is best effort */
+		}
 	}
 
 	function applyTheme(api: AlphaTab.Api) {

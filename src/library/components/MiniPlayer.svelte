@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, type SourceVariant } from '../utils/playerStore';
+	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, queueStore, stepQueue, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { shareLink } from '../utils/native';
@@ -84,6 +84,23 @@
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
 
 	$: variants = $sourceVariants;
+	$: queue = $queueStore;
+	$: hasQueue = queue.items.length > 1;
+	$: canPrev = hasQueue && queue.index > 0;
+	$: canNext = hasQueue && queue.index < queue.items.length - 1;
+
+	let steppingQueue = false;
+	async function queueStep(delta: 1 | -1) {
+		if (steppingQueue) return;
+		const item = stepQueue(delta);
+		if (!item) return;
+		steppingQueue = true;
+		try {
+			await openTabById({ ...item }, false);
+		} finally {
+			steppingQueue = false;
+		}
+	}
 	$: currentSource = currentTab?.source || '';
 	$: hasVariants = variants.length > 1;
 
@@ -92,8 +109,8 @@
 	function getSourceLabel(source: string): string {
 		const s = source.toLowerCase();
 		if (s.includes('songsterr')) return 'Songsterr';
-		if (s.includes('ultimate') || s === 'ug') return 'UG';
-		if (s.includes('guitarprotab')) return 'GP Tabs';
+		if (s.includes('ultimate') || s === 'ug') return 'Ultimate Guitar';
+		if (s.includes('guitarprotab')) return 'GuitarProTabs';
 		if (s === 'local') return 'Local';
 		return source.slice(0, 8);
 	}
@@ -140,6 +157,18 @@
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
 	<div class="flex items-center px-2 sm:px-4 py-1.5 sm:py-2 gap-2 sm:gap-3">
+		<!-- Queue previous -->
+		{#if hasQueue}
+			<button
+				on:click={() => queueStep(-1)}
+				class="flex-shrink-0 hidden sm:flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				aria-label="Previous in queue"
+				disabled={!canPrev || steppingQueue}
+			>
+				<i class="material-icons !text-lg sm:!text-xl">skip_previous</i>
+			</button>
+		{/if}
+
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
@@ -154,6 +183,18 @@
 				<i class="material-icons !text-xl sm:!text-2xl">{state.playing ? 'pause' : 'play_arrow'}</i>
 			{/if}
 		</button>
+
+		<!-- Queue next -->
+		{#if hasQueue}
+			<button
+				on:click={() => queueStep(1)}
+				class="flex-shrink-0 flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				aria-label="Next in queue"
+				disabled={!canNext || steppingQueue}
+			>
+				<i class="material-icons !text-lg sm:!text-xl">skip_next</i>
+			</button>
+		{/if}
 
 		<!-- Artwork thumbnail: opens the full player, with a fullscreen hint -->
 		<a
@@ -194,8 +235,8 @@
 							role="link"
 							tabindex="0"
 							class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
-							on:click|preventDefault|stopPropagation={() => goto(`${base}/search?q=${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
-							on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/search?q=${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
+							on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
+							on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
 						>{state.artist || currentTab?.artist || ''}</span>
 					</ArtistTooltip>
 				</span>

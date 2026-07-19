@@ -16,6 +16,7 @@
 	import { tabStore } from '../../library/utils/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { openTabById } from '../../library/utils/openTab';
+	import { setQueue } from '../../library/utils/playerStore';
 	import { shareLink } from '../../library/utils/native';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
@@ -178,6 +179,25 @@
 	}
 
 	$: historyGroups = groupByDate(historyItems);
+
+	/** Open a playlist as a play queue, starting at the given entry (YouTube-style). */
+	async function playPlaylist(pIndex: number, startIndex: number = 0): Promise<void> {
+		const playlist = playlists[pIndex];
+		if (!playlist || playlist.entries.length === 0) return;
+		setQueue(
+			playlist.entries.map((e) => ({
+				id: e.id,
+				title: e.title,
+				artist: e.artist,
+				source: e.source,
+				artworkUrl: playlistArtwork[e.id] || ''
+			})),
+			startIndex,
+			playlist.name,
+			`${base}/repertoire?view=playlists`
+		);
+		await openTab(playlist.entries[startIndex]);
+	}
 
 	async function openTab(item: FavoriteItem | HistoryItem | PlaylistEntry): Promise<void> {
 		loading = true;
@@ -417,7 +437,7 @@
 								<div class="flex flex-col items-center gap-2 flex-shrink-0 group">
 									<div class="relative">
 										<button
-											on:click={() => goto(`${base}/search?q=${encodeURIComponent(artist.name)}`)}
+											on:click={() => goto(`${base}/artist/${encodeURIComponent(artist.name)}`)}
 											class="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center border-2 border-transparent group-hover:border-violet-400 transition-all"
 											aria-label="Search tabs by {artist.name}"
 										>
@@ -439,7 +459,7 @@
 										</button>
 									</div>
 									<button
-										on:click={() => goto(`${base}/search?q=${encodeURIComponent(artist.name)}`)}
+										on:click={() => goto(`${base}/artist/${encodeURIComponent(artist.name)}`)}
 										class="text-xs sm:text-sm text-neutral-700 dark:text-neutral-300 truncate max-w-[96px] hover:text-violet-500 transition-colors text-center font-medium"
 									>
 										{artist.name}
@@ -648,155 +668,51 @@
 				</div>
 			{:else}
 				<div class="space-y-4">
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 					{#each playlists as playlist, pIndex}
-						<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-							<!-- Playlist header -->
-							<div class="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
-								<i class="material-icons !text-lg text-violet-500">queue_music</i>
-								{#if editingPlaylistIndex === pIndex}
-									<input
-										type="text"
-										value={playlist.name}
-										on:blur={(e) => { playlistStore.updatePlaylist(pIndex, { ...playlist, name: e.currentTarget.value.trim() || playlist.name }); editingPlaylistIndex = null; }}
-										on:keydown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { editingPlaylistIndex = null; } }}
-										class="flex-1 text-sm font-semibold bg-transparent border-b border-violet-500 outline-none text-neutral-800 dark:text-neutral-100 px-0 py-0"
-										autofocus
-									/>
-								{:else}
-									<span class="flex-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">{playlist.name}</span>
-								{/if}
-								<span class="text-[10px] text-neutral-500 dark:text-neutral-400">{playlist.entries.length} {playlist.entries.length === 1 ? 'tab' : 'tabs'}</span>
-
-								<!-- Actions -->
+						{@const covers = playlist.entries.map((e) => playlistArtwork[e.id]).filter(Boolean).slice(0, 4)}
+						<!-- Compact card: the whole card opens the playlist page -->
+						<div class="group relative bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-lg transition-all">
+							<a href="{base}/playlist?saved={pIndex}" class="flex items-center gap-3 p-3" title="Open {playlist.name}">
+								<!-- Cover mosaic -->
+								<span class="w-16 h-16 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
+									{#if covers.length >= 4}
+										<span class="grid grid-cols-2 w-full h-full">
+											{#each covers as c}<img src={c} alt="" class="w-full h-full object-cover" />{/each}
+										</span>
+									{:else if covers.length > 0}
+										<img src={covers[0]} alt="" class="w-full h-full object-cover" />
+									{:else}
+										<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600">queue_music</i>
+									{/if}
+								</span>
+								<span class="flex-1 min-w-0">
+									<span class="block truncate text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">{playlist.name}</span>
+									<span class="block text-xs text-neutral-400 mt-0.5">{playlist.entries.length} {playlist.entries.length === 1 ? 'tab' : 'tabs'}</span>
+									<span class="block text-[11px] text-violet-500 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Open to view, edit and share &rarr;</span>
+								</span>
+							</a>
+							<!-- Quick actions -->
+							<div class="absolute top-2 right-2 flex gap-1">
 								<button
-									on:click={() => { editingPlaylistIndex = editingPlaylistIndex === pIndex ? null : pIndex; }}
-									class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-									title="Rename"
+									on:click|stopPropagation={() => playPlaylist(pIndex, 0)}
+									class="w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
+									disabled={playlist.entries.length === 0}
+									title="Play all"
 								>
-									<i class="material-icons !text-lg">edit</i>
+									<i class="material-icons !text-lg">play_arrow</i>
 								</button>
 								<button
-									on:click={() => copyPlaylistLink(pIndex)}
-									class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-									title="Copy share link"
-								>
-									<i class="material-icons !text-lg">share</i>
-								</button>
-								<button
-									on:click={() => deletePlaylist(pIndex)}
-									class="w-8 h-8 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors"
+									on:click|stopPropagation={() => deletePlaylist(pIndex)}
+									class="w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-red-500 shadow transition-colors opacity-0 group-hover:opacity-100"
 									title="Delete playlist"
 								>
 									<i class="material-icons !text-lg">delete_outline</i>
 								</button>
 							</div>
-
-							<!-- Entries -->
-							{#if playlist.entries.length === 0}
-								<div class="px-4 py-6 text-center">
-									<p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2">Empty playlist</p>
-									{#if favorites.length > 0}
-										<button
-											on:click={() => addFavoritesToPlaylist(pIndex)}
-											class="text-xs text-violet-500 hover:underline"
-										>
-											Add all favorites
-										</button>
-									{/if}
-								</div>
-							{:else}
-								<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50" role="list">
-									{#each playlist.entries as entry, eIndex}
-										<TabRow
-											id={entry.id}
-											title={entry.title}
-											artist={entry.artist}
-											source={entry.source}
-											artworkUrl={playlistArtwork[entry.id] || ''}
-											artworkLoading={playlistArtworkLoading && !playlistArtwork[entry.id]}
-											onClick={() => openTab(entry)}
-										>
-											<!-- Leading: reorder arrows + track number -->
-											<svelte:fragment slot="leading">
-												<div class="flex items-center pl-2">
-													<div class="flex flex-col flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-														<button
-															on:click={() => moveEntry(pIndex, eIndex, -1)}
-															class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
-															disabled={eIndex === 0}
-															title="Move up"
-														>
-															<i class="material-icons !text-base">keyboard_arrow_up</i>
-														</button>
-														<button
-															on:click={() => moveEntry(pIndex, eIndex, 1)}
-															class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
-															disabled={eIndex === playlist.entries.length - 1}
-															title="Move down"
-														>
-															<i class="material-icons !text-base">keyboard_arrow_down</i>
-														</button>
-													</div>
-													<span class="text-[10px] text-neutral-300 dark:text-neutral-600 w-6 text-right pr-1 flex-shrink-0">{eIndex + 1}</span>
-												</div>
-											</svelte:fragment>
-
-											<!-- Trailing: remove button -->
-											<button
-												on:click={() => playlistStore.removeEntry(pIndex, entry.id)}
-												class="w-9 h-9 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 self-center"
-												title="Remove from playlist"
-											>
-												<i class="material-icons !text-lg">close</i>
-											</button>
-										</TabRow>
-									{/each}
-								</div>
-							{/if}
-
-							<!-- Add tabs footer -->
-							<div class="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800 flex items-center gap-2">
-								{#if addingToPlaylist === pIndex}
-									<div class="flex-1 flex flex-wrap gap-1">
-										{#each favorites.filter(f => !playlist.entries.some(e => e.id === f.id)).slice(0, 10) as fav}
-											<button
-												on:click={() => addSingleToPlaylist(pIndex, fav)}
-												class="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500 transition-colors"
-											>
-												<i class="material-icons !text-xs">add</i>
-												{fav.title}
-											</button>
-										{/each}
-										{#if favorites.filter(f => !playlist.entries.some(e => e.id === f.id)).length === 0}
-											<span class="text-[11px] text-neutral-400">All favorites already added</span>
-										{/if}
-									</div>
-									<button
-										on:click={() => { addingToPlaylist = null; }}
-										class="text-xs text-neutral-400 hover:text-neutral-600 transition-colors flex-shrink-0"
-									>
-										Done
-									</button>
-								{:else}
-									<button
-										on:click={() => { addingToPlaylist = pIndex; }}
-										class="text-sm text-violet-500 hover:underline flex items-center gap-1.5"
-									>
-										<i class="material-icons !text-base">add</i>
-										Add from favorites
-									</button>
-									<span class="text-neutral-300 dark:text-neutral-700">|</span>
-									<button
-										on:click={focusHeaderSearch}
-										class="text-sm text-violet-500 hover:underline flex items-center gap-1.5"
-									>
-										<i class="material-icons !text-base">search</i>
-										Add from search
-									</button>
-								{/if}
-							</div>
 						</div>
 					{/each}
+				</div>
 				</div>
 			{/if}
 		</div>

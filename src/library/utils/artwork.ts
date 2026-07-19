@@ -212,6 +212,31 @@ export async function getArtworkBatch(
 
 	if (toFetch.length === 0) return result;
 
+	// Phase 0: iTunes DIRECTLY from the browser (CORS is allowed by Apple).
+	// This spends Apple's quota instead of our Workers request budget; only
+	// the leftovers go to our batch endpoint (which also covers Deezer).
+	// Apple throttles bursts per IP (403), so lookups run in small chunks
+	// and a single 403 trips a breaker that routes everything to the batch
+	// endpoint for a while instead of hammering on.
+	const doneIds = new Set<string>();
+	for (let i = 0; i < toFetch.length; i += ITUNES_CHUNK) {
+		if (itunesBlocked()) break;
+		await Promise.allSettled(
+			toFetch.slice(i, i + ITUNES_CHUNK).map(async (t) => {
+				const url = await fetchItunesDirect(t.artist, t.title);
+				if (url) {
+					result[t.id] = url;
+					writeCache(t.key, url);
+					doneIds.add(t.id);
+				}
+			})
+		);
+	}
+	const leftovers = toFetch.filter((t) => !doneIds.has(t.id));
+	if (leftovers.length === 0) return result;
+	toFetch.length = 0;
+	toFetch.push(...leftovers);
+
 	// Phase 1: batch endpoint. Backend rejects >BATCH_MAX_ITEMS per call,
 	// so slice the un-cached items into chunks and fire them in parallel.
 	const resolved = new Set<string>();
@@ -243,39 +268,10 @@ export async function getArtworkBatch(
 		})
 	);
 
-	// Phase 2: artist-image fallback per unique artist for anything the
-	// batch didn't cover. Dedupes by artist so we issue one request per
-	// name no matter how many rows share it.
-	const stillMissing = toFetch.filter((t) => !resolved.has(t.id) && t.artist);
-	if (stillMissing.length > 0) {
-		const byArtist = new Map<string, typeof stillMissing>();
-		for (const item of stillMissing) {
-			const bucket = byArtist.get(item.artist) ?? [];
-			bucket.push(item);
-			byArtist.set(item.artist, bucket);
-		}
-		await Promise.allSettled(
-			Array.from(byArtist.entries()).map(async ([artist, bucket]) => {
-				try {
-					const resp = await fetch(
-						`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artist)}`
-					);
-					if (!resp.ok) return;
-					const data = await resp.json();
-					if (!data?.image) {
-						for (const t of bucket) writeCache(t.key, null);
-						return;
-					}
-					for (const t of bucket) {
-						if (!result[t.id]) {
-							result[t.id] = data.image;
-							writeCache(t.key, data.image);
-						}
-					}
-				} catch {}
-			})
-		);
-	}
+	// No client-side artist fallback: the batch endpoint already falls back
+	// to the artist image server-side, so a null here is definitive. The old
+	// per-artist fallback issued one request per unique artist and could blow
+	// through the API rate limit on a busy feed.
 
 	// Anything still unresolved becomes a negative cache entry so the
 	// next caller doesn't retry immediately.
@@ -294,3 +290,46 @@ export async function getArtworkBatch(
 // every call site; a follow-up can rename the imports for clarity.
 export const fetchArtworkBatch = getArtworkBatch;
 export const fetchSingleArtwork = getArtwork;
+
+
+/** Concurrent iTunes lookups per chunk: stay under Apple's burst threshold. */
+const ITUNES_CHUNK = 6;
+/** After a 403/429, stop calling iTunes for this long (batch endpoint covers). */
+const ITUNES_BREAKER_MS = 10 * 60 * 1000;
+const ITUNES_BREAKER_KEY = 'artwork-itunes-blocked-until';
+
+let itunesBlockedUntil = 0;
+
+function itunesBlocked(): boolean {
+	if (itunesBlockedUntil === 0 && browser) {
+		itunesBlockedUntil = Number(sessionStorage.getItem(ITUNES_BREAKER_KEY)) || -1;
+	}
+	return Date.now() < itunesBlockedUntil;
+}
+
+function tripItunesBreaker() {
+	itunesBlockedUntil = Date.now() + ITUNES_BREAKER_MS;
+	try {
+		sessionStorage.setItem(ITUNES_BREAKER_KEY, String(itunesBlockedUntil));
+	} catch {}
+}
+
+/** iTunes Search straight from the browser (Apple sends CORS headers). */
+async function fetchItunesDirect(artist: string, title: string): Promise<string | null> {
+	if (!artist && !title) return null;
+	if (itunesBlocked()) return null;
+	try {
+		const term = encodeURIComponent(`${artist} ${title}`.trim());
+		const resp = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&limit=1`);
+		if (resp.status === 403 || resp.status === 429) {
+			tripItunesBreaker();
+			return null;
+		}
+		if (!resp.ok) return null;
+		const data = await resp.json();
+		const raw = data?.results?.[0]?.artworkUrl100;
+		return raw ? raw.replace('100x100', '600x600') : null;
+	} catch {
+		return null;
+	}
+}

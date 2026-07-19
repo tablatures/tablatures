@@ -4350,9 +4350,9 @@
 									<span class="relative inline-block">
 										<ArtistTooltip artistName={currentArtistName} position="bottom">
 											<a
-												href="{base}/search?q={encodeURIComponent(currentArtistName)}"
+												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
 												class="hover:text-violet-500 hover:underline transition-colors"
-												title="Search more by this artist">{currentArtistName}</a
+												title="View artist page">{currentArtistName}</a
 											>
 										</ArtistTooltip>
 									</span>
