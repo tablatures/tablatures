@@ -89,16 +89,22 @@
 		}));
 	}
 
+	/** The address bar always carries the full encoded playlist - any view of
+	 *  this page is shareable by copying the URL. */
+	function syncUrl() {
+		const encoded = encodePlaylist({ name, entries, createdAt: Date.now() });
+		const url = new URL(window.location.href);
+		url.searchParams.set('data', encoded);
+		if (mode.kind === 'saved') url.searchParams.set('saved', String(mode.index));
+		else url.searchParams.delete('saved');
+		window.history.replaceState({}, '', url);
+	}
+
 	/** Persist edits to their home: repertoire store, URL data param, or the queue */
 	function persist() {
 		if (mode.kind === 'saved') {
 			playlistStore.updatePlaylist(mode.index, { name, entries, createdAt: Date.now() });
-		} else if (mode.kind === 'shared') {
-			const encoded = encodePlaylist({ name, entries, createdAt: Date.now() });
-			const url = new URL(window.location.href);
-			url.searchParams.set('data', encoded);
-			window.history.replaceState({}, '', url);
-		} else {
+		} else if (mode.kind === 'queue') {
 			// Live queue: keep playing state, swap items/label
 			setQueue(
 				entries.map((e) => ({ ...e, artworkUrl: art[e.id] || '' })),
@@ -107,6 +113,7 @@
 				`${base}/playlist`
 			);
 		}
+		syncUrl();
 	}
 
 	function commitName() {
@@ -120,6 +127,15 @@
 
 	function removeEntry(id: string) {
 		entries = entries.filter((e) => e.id !== id);
+		persist();
+	}
+
+	function moveEntry(index: number, delta: -1 | 1) {
+		const target = index + delta;
+		if (target < 0 || target >= entries.length) return;
+		const next = [...entries];
+		[next[index], next[target]] = [next[target]!, next[index]!];
+		entries = next;
 		persist();
 	}
 
@@ -189,7 +205,10 @@
 	}
 
 	onMount(() => {
-		const unsub = page.subscribe(() => load());
+		const unsub = page.subscribe(() => {
+			load();
+			if (entries.length > 0) syncUrl();
+		});
 		return unsub;
 	});
 </script>
@@ -323,6 +342,24 @@
 							</span>
 							<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors shrink-0">play_arrow</i>
 						</button>
+						<span class="flex flex-col shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+							<button
+								class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
+								on:click={() => moveEntry(i, -1)}
+								disabled={i === 0}
+								title="Move up"
+							>
+								<i class="material-icons !text-base">keyboard_arrow_up</i>
+							</button>
+							<button
+								class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
+								on:click={() => moveEntry(i, 1)}
+								disabled={i === entries.length - 1}
+								title="Move down"
+							>
+								<i class="material-icons !text-base">keyboard_arrow_down</i>
+							</button>
+						</span>
 						<button
 							class="w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
 							on:click={() => removeEntry(item.id)}
