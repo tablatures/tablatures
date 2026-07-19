@@ -185,9 +185,16 @@
 		const playlist = playlists[pIndex];
 		if (!playlist || playlist.entries.length === 0) return;
 		setQueue(
-			playlist.entries.map((e) => ({ id: e.id, title: e.title, artist: e.artist, source: e.source })),
+			playlist.entries.map((e) => ({
+				id: e.id,
+				title: e.title,
+				artist: e.artist,
+				source: e.source,
+				artworkUrl: playlistArtwork[e.id] || ''
+			})),
 			startIndex,
-			playlist.name
+			playlist.name,
+			`${base}/repertoire?view=playlists`
 		);
 		await openTab(playlist.entries[startIndex]);
 	}

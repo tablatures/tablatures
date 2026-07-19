@@ -127,6 +127,7 @@ export interface QueueItem {
 	source?: string;
 	type?: string;
 	album?: string;
+	artworkUrl?: string;
 	hashPayload?: string;
 }
 
@@ -135,6 +136,8 @@ export interface QueueState {
 	index: number;
 	/** Where the queue came from, e.g. a playlist or album name */
 	label: string | null;
+	/** Link to the fullscreen view of the playlist/album */
+	href: string | null;
 }
 
 const QUEUE_KEY = 'play-queue-v1';
@@ -148,7 +151,7 @@ function loadQueue(): QueueState {
 			/* fresh queue */
 		}
 	}
-	return { items: [], index: -1, label: null };
+	return { items: [], index: -1, label: null, href: null };
 }
 
 function persistQueue(state: QueueState) {
@@ -164,12 +167,17 @@ queueStore.subscribe((s) => {
 	if (typeof sessionStorage !== 'undefined') persistQueue(s);
 });
 
-export function setQueue(items: QueueItem[], startIndex: number = 0, label: string | null = null) {
-	queueStore.set({ items, index: Math.max(0, Math.min(startIndex, items.length - 1)), label });
+export function setQueue(
+	items: QueueItem[],
+	startIndex: number = 0,
+	label: string | null = null,
+	href: string | null = null
+) {
+	queueStore.set({ items, index: Math.max(0, Math.min(startIndex, items.length - 1)), label, href });
 }
 
 export function clearQueue() {
-	queueStore.set({ items: [], index: -1, label: null });
+	queueStore.set({ items: [], index: -1, label: null, href: null });
 }
 
 /** Move within the queue; returns the item to open, or null at the edges. */

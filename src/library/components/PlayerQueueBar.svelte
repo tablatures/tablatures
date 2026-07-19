@@ -143,6 +143,20 @@
 		tick().then(() => currentPillEl?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }));
 	}
 
+	/** Registers whichever strip block is current as the dropdown anchor */
+	function registerPill(node: HTMLElement, isCurrent: boolean) {
+		if (isCurrent) currentPillEl = node;
+		return {
+			update(isCur: boolean) {
+				if (isCur) currentPillEl = node;
+				else if (currentPillEl === node) currentPillEl = null;
+			},
+			destroy() {
+				if (currentPillEl === node) currentPillEl = null;
+			}
+		};
+	}
+
 	function closeMenus(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('[data-queuebar-menu]')) versionsOpen = false;
@@ -156,12 +170,31 @@
 
 {#if hasQueue || versions.length > 1}
 	<div
-		class="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm text-sm"
+		class="flex items-stretch h-12 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm text-sm"
 	>
-		<!-- Previous: pinned to the left edge -->
+		<!-- Playlist / album name: links to its fullscreen view -->
+		{#if hasQueue && queue.label}
+			{#if queue.href}
+				<a
+					href={queue.href}
+					class="flex-shrink-0 flex items-center gap-1.5 px-3 max-w-[180px] border-r border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500 transition-colors"
+					title="Open {queue.label}"
+				>
+					<i class="material-icons !text-lg shrink-0">queue_music</i>
+					<span class="truncate font-medium hidden sm:inline">{queue.label}</span>
+				</a>
+			{:else}
+				<span class="flex-shrink-0 flex items-center gap-1.5 px-3 max-w-[180px] border-r border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400">
+					<i class="material-icons !text-lg shrink-0">queue_music</i>
+					<span class="truncate font-medium hidden sm:inline">{queue.label}</span>
+				</span>
+			{/if}
+		{/if}
+
+		<!-- Previous -->
 		{#if hasQueue}
 			<button
-				class="flex-shrink-0 p-2 sm:p-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors"
+				class="flex-shrink-0 px-2 sm:px-3 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors border-r border-neutral-200 dark:border-neutral-800"
 				disabled={!canPrev || navigating}
 				on:click={() => goStep(-1)}
 				aria-label="Previous in queue"
@@ -170,65 +203,72 @@
 			</button>
 		{/if}
 
-		<!-- Middle: horizontal strip of queue items (or just the current tab) -->
-		<div bind:this={stripEl} class="flex-1 flex items-center gap-1.5 overflow-x-auto py-1.5 px-1 scrollbar-thin min-w-0">
+		<!-- Track strip: flush, full-height blocks like search results -->
+		<div bind:this={stripEl} class="flex-1 flex items-stretch overflow-x-auto scrollbar-thin min-w-0">
 			{#if hasQueue}
 				{#each queue.items as item, i}
-					{#if i === queue.index}
-						<!-- Current: clicking opens the version switcher -->
-						<button
-							bind:this={currentPillEl}
-							data-queuebar-menu
-							class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-violet-500 text-white font-medium max-w-[240px] transition-colors hover:bg-violet-600"
-							on:click={toggleVersions}
-							title={versions.length > 1 ? 'Switch version or source' : item.title}
-						>
-							{#if navigating}
-								<span class="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin shrink-0"></span>
+					{@const isCurrent = i === queue.index}
+					{@const sd = getSourceDisplay(item.source || '')}
+					<button
+						use:registerPill={isCurrent}
+						data-queuebar-menu={isCurrent || undefined}
+						class="flex-shrink-0 flex items-stretch text-left w-44 sm:w-52 border-r border-neutral-100 dark:border-neutral-800/60 transition-colors
+							{isCurrent
+							? 'bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)]'
+							: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'}"
+						on:click={() => goJump(i)}
+						disabled={navigating && !isCurrent}
+						title={isCurrent && versions.length > 1 ? 'Switch version or source' : `${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
+					>
+						<!-- Full-height square artwork -->
+						<span class="h-full aspect-square shrink-0 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
+							{#if navigating && isCurrent}
+								<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
+							{:else if item.artworkUrl}
+								<img src={item.artworkUrl} alt="" loading="lazy" class="w-full h-full object-cover" />
+							{:else}
+								<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
 							{/if}
-							<span class="truncate">{item.title}</span>
-							{#if versions.length > 1 && !navigating}
-								<span class="text-[10px] bg-white/25 rounded-full px-1.5">{versions.length}</span>
-								<i class="material-icons !text-base">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-							{/if}
-						</button>
-					{:else}
-						<button
-							class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 max-w-[200px] transition-colors disabled:opacity-50"
-							on:click={() => goJump(i)}
-							disabled={navigating}
-							title="{item.title}{item.artist ? ` - ${item.artist}` : ''}"
-						>
-							<span class="text-[10px] text-neutral-400 dark:text-neutral-500">{i + 1}</span>
-							<span class="truncate">{item.title}</span>
-						</button>
-					{/if}
+						</span>
+						<span class="flex-1 min-w-0 px-2 py-1 flex flex-col justify-center">
+							<span class="flex items-center gap-1 min-w-0">
+								<span class="truncate text-xs font-medium {isCurrent ? 'text-violet-700 dark:text-violet-300' : 'text-neutral-800 dark:text-neutral-200'}">{item.title}</span>
+								{#if isCurrent && versions.length > 1 && !navigating}
+									<i class="material-icons !text-sm text-violet-500 shrink-0">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
+								{/if}
+							</span>
+							<span class="flex items-center gap-1 min-w-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+								<span class="w-1.5 h-1.5 rounded-full shrink-0 {sd.dotColor}"></span>
+								<span class="truncate">{item.artist || sd.label}</span>
+							</span>
+						</span>
+					</button>
 				{/each}
 			{:else}
-				<!-- No queue: single current tab with its version switcher -->
+				<!-- No queue: single current tab block with its version switcher -->
 				<button
 					bind:this={currentPillEl}
 					data-queuebar-menu
-					class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-violet-500 text-white font-medium max-w-[280px] transition-colors hover:bg-violet-600"
+					class="flex-shrink-0 flex items-center gap-1.5 px-3 text-left max-w-[300px] bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)] transition-colors"
 					on:click={toggleVersions}
 					title="Switch version or source"
 				>
 					{#if navigating}
-						<span class="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin shrink-0"></span>
+						<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin shrink-0"></span>
 					{/if}
-					<span class="truncate">{currentTitle || 'Current tab'}</span>
+					<span class="truncate text-xs font-medium text-violet-700 dark:text-violet-300">{currentTitle || 'Current tab'}</span>
 					{#if !navigating}
-						<span class="text-[10px] bg-white/25 rounded-full px-1.5">{versions.length}</span>
-						<i class="material-icons !text-base">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
+						<span class="text-[10px] bg-violet-500/20 text-violet-600 dark:text-violet-300 rounded-full px-1.5 shrink-0">{versions.length}</span>
+						<i class="material-icons !text-base text-violet-500 shrink-0">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
 					{/if}
 				</button>
 			{/if}
 		</div>
 
-		<!-- Next: pinned to the right edge -->
+		<!-- Next -->
 		{#if hasQueue}
 			<button
-				class="flex-shrink-0 p-2 sm:p-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors"
+				class="flex-shrink-0 px-2 sm:px-3 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors border-l border-neutral-200 dark:border-neutral-800"
 				disabled={!canNext || navigating}
 				on:click={() => goStep(1)}
 				aria-label="Next in queue"

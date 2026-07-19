@@ -137,6 +137,13 @@
 			for (const t of topTabs) if ((t as any).artworkUrl) artwork[t.id] = (t as any).artworkUrl;
 			fetchArtworkBatch(topTabs.filter((t) => !(t as any).artworkUrl), {}).then((m) => (artwork = { ...artwork, ...m }));
 			loadAllTabs(1);
+
+			// Deep link: /artist/X?album=123 opens that album's playlist view
+			const albumParam = new URLSearchParams(window.location.search).get('album');
+			if (albumParam) {
+				const target = albums.find((a) => a.deezerId === Number(albumParam));
+				if (target) openAlbumView(target);
+			}
 		} catch {
 			notFound = true;
 		} finally {
@@ -234,7 +241,8 @@
 			id: t.tabId!,
 			title: t.title,
 			artist: info?.name || '',
-			source: t.variants[0]?.source || ''
+			source: t.variants[0]?.source || '',
+			artworkUrl: openAlbum?.cover || ''
 		}));
 	}
 
@@ -242,7 +250,12 @@
 		const items = albumQueueItems();
 		if (items.length === 0 || !openAlbum) return;
 		const startIndex = startTrack ? Math.max(0, items.findIndex((i) => i.id === startTrack.tabId)) : 0;
-		setQueue(items, startIndex, openAlbum.title);
+		setQueue(
+			items,
+			startIndex,
+			openAlbum.title,
+			`${base}/artist/${encodeURIComponent(info?.name || '')}?album=${openAlbum.deezerId}`
+		);
 		const first = items[startIndex];
 		await openTabById({ ...first, variants: startTrack?.variants }, true);
 	}
