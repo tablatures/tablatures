@@ -16,6 +16,15 @@
 	export let album: string = '';
 	export let type: string = '';
 	export let artworkUrl: string = '';
+	/** Artist image from the API: instant visual while song artwork resolves */
+	export let artistImage: string = '';
+
+	let imageFailed = false;
+
+	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
+	// A failed load falls back to the icon (never a blank box).
+	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: artworkUrl, artistImage, (imageFailed = false);
 	export let artworkLoading: boolean = false;
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
@@ -26,7 +35,7 @@
 		e.stopPropagation();
 		e.preventDefault();
 		if (!artist || artist === 'Unknown') return;
-		goto(`${base}/search?q=${encodeURIComponent(artist)}`);
+		goto(`${base}/artist/${encodeURIComponent(artist)}`);
 	}
 </script>
 
@@ -43,9 +52,9 @@
 		class="flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
 		aria-label={`Open ${title} by ${artist}`}
 	>
-		{#if artworkUrl}
+		{#if displayImage}
 			<img
-				src={artworkUrl}
+				src={displayImage}
 				alt=""
 				loading="lazy"
 				class="w-full h-full object-cover"
@@ -75,10 +84,10 @@
 		<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate flex items-center gap-1.5">
 			{#if artist && artist !== 'Unknown'}
 				<a
-					href="{base}/search?q={encodeURIComponent(artist)}"
+					href="{base}/artist/{encodeURIComponent(artist)}"
 					class="truncate hover:text-violet-500 hover:underline transition-colors"
 					on:click={openArtistSearch}
-					title="Search tabs by {artist}"
+					title="View artist {artist}"
 				>{artist}</a>
 			{:else}
 				<span class="truncate">{artist}</span>

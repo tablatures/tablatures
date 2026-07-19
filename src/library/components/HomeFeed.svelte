@@ -67,6 +67,8 @@
 				album: t.album || '',
 				type: t.tabType || t.type || '',
 				source: t.source || '',
+				artistImage: t.artistImage || '',
+				artworkUrl: t.artworkUrl || '',
 				trackCount: t.trackCount
 			}));
 	}
@@ -128,7 +130,7 @@
 		// Random batches — always available, cycles forever
 		for (let i = 0; i < 20; i++) {
 			pool.push({
-				endpoint: () => `/api/random?count=16`
+				endpoint: () => `/api/random?count=24`
 			});
 		}
 	}
@@ -147,11 +149,23 @@
 		fetchMore();
 	}
 
+	let throttleRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
 	async function fetchMore() {
 		if (loadingFeed || exhausted) return;
-		// Throttle: don't fetch more often than MIN_FETCH_INTERVAL_MS
+		// Throttle: don't fetch more often than MIN_FETCH_INTERVAL_MS.
+		// Crucially, a throttled call RESCHEDULES itself instead of dying -
+		// otherwise the initial viewport-fill loop stalls after one batch.
 		const now = Date.now();
-		if (now - lastFetchAt < MIN_FETCH_INTERVAL_MS) return;
+		if (now - lastFetchAt < MIN_FETCH_INTERVAL_MS) {
+			if (!throttleRetryTimer) {
+				throttleRetryTimer = setTimeout(() => {
+					throttleRetryTimer = null;
+					fetchMore();
+				}, MIN_FETCH_INTERVAL_MS - (now - lastFetchAt) + 20);
+			}
+			return;
+		}
 		lastFetchAt = now;
 
 		if (nextPoolIndex >= pool.length) {
@@ -206,8 +220,15 @@
 			emptyFetchesInARow = 0;
 			feedTabs = [...feedTabs, ...newTabs];
 
+			// Server already embeds cached artwork - seed those instantly and
+			// only resolve the leftovers
+			const embedded: Record<string, string> = {};
+			for (const t of newTabs) if (t.artworkUrl) embedded[t.id] = t.artworkUrl;
+			if (Object.keys(embedded).length > 0) feedArtwork = { ...feedArtwork, ...embedded };
+			const needsArtwork = newTabs.filter((t) => !t.artworkUrl);
+
 			// Mark these as "artwork loading" so cards show a pulse
-			for (const t of newTabs) artworkLoadingIds.add(t.id);
+			for (const t of needsArtwork) artworkLoadingIds.add(t.id);
 			artworkLoadingIds = artworkLoadingIds;
 
 			// Fetch artwork for new tabs in background.
@@ -215,17 +236,23 @@
 			// Using `feedArtwork = m` would overwrite other in-flight batches' updates
 			// because each call to fetchArtworkBatch returns a new map based on its own
 			// starting snapshot.
-			fetchArtworkBatch(newTabs, {}).then((m) => {
-				const additions: Record<string, string> = {};
-				for (const t of newTabs) {
-					if (m[t.id]) additions[t.id] = m[t.id];
-				}
-				if (Object.keys(additions).length > 0) {
-					feedArtwork = { ...feedArtwork, ...additions };
-				}
-				for (const t of newTabs) artworkLoadingIds.delete(t.id);
-				artworkLoadingIds = artworkLoadingIds;
-			});
+			fetchArtworkBatch(needsArtwork, {})
+				.then((m) => {
+					const additions: Record<string, string> = {};
+					for (const t of needsArtwork) {
+						if (m[t.id]) additions[t.id] = m[t.id];
+					}
+					if (Object.keys(additions).length > 0) {
+						feedArtwork = { ...feedArtwork, ...additions };
+					}
+				})
+				.catch(() => {})
+				.finally(() => {
+					// ALWAYS clear the pulse, even when the batch fails - a card
+					// stuck on artworkLoading shimmers forever otherwise
+					for (const t of needsArtwork) artworkLoadingIds.delete(t.id);
+					artworkLoadingIds = artworkLoadingIds;
+				});
 		} catch {
 			emptyFetchesInARow++;
 			markExhausted();
@@ -856,6 +883,7 @@
 						source={tab.source}
 						type={tab.type}
 						artworkUrl={feedArtwork[tab.id] || ''}
+						artistImage={tab.artistImage || ''}
 						artworkLoading={artworkLoadingIds.has(tab.id)}
 						onClick={() => openTab(tab)}
 						onAddToPlaylist={() => openPlaylistPicker(tab)}

@@ -6,6 +6,7 @@
 	import { goto } from '$app/navigation';
 	import Header from '../../library/components/Header.svelte';
 	import TabViewer from '../../library/components/TabViewer.svelte';
+	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
 	import { tabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
 	import type { Unsubscriber } from 'svelte/store';
@@ -381,6 +382,7 @@
 		</div>
 	</div>
 {:else if hasTab}
+	<PlayerQueueBar />
 	<TabViewer
 		{data}
 		tabId={currentTabId}

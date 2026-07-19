@@ -189,10 +189,16 @@
 					{isArtistFavorited ? 'Following' : 'Follow artist'}
 				</button>
 				<a
-					href="{base}/search?q={encodeURIComponent(artistName)}"
-					class="block mt-1 text-xs text-violet-500 hover:text-violet-600 transition-colors"
+					href="{base}/artist/{encodeURIComponent(info.name || artistName)}"
+					class="block mt-1 text-xs font-medium text-violet-500 hover:text-violet-600 transition-colors"
 				>
-					See all tabs by {info.name || artistName} &rarr;
+					View artist page &rarr;
+				</a>
+				<a
+					href="{base}/search?q={encodeURIComponent(artistName)}"
+					class="block mt-0.5 text-xs text-neutral-400 hover:text-violet-500 transition-colors"
+				>
+					See all tabs by {info.name || artistName}
 				</a>
 			{/if}
 		</div>

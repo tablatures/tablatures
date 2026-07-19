@@ -10,7 +10,7 @@
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import { tabStore } from '../../library/utils/store';
-	import { activeVideoId } from '../../library/utils/playerStore';
+	import { activeVideoId, sourceVariants } from '../../library/utils/playerStore';
 	import { historyStore } from '../../library/utils/history';
 	import { toastStore } from '../../library/utils/toast';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
@@ -65,6 +65,7 @@
 
 	interface TabVariant {
 		id: string;
+		title?: string;
 		source: string;
 		sourceUrl: string;
 		trackCount?: number;
@@ -79,6 +80,8 @@
 		type?: string;
 		source: string;
 		trackCount?: number;
+		artistImage?: string;
+		artworkUrl?: string;
 		variants?: TabVariant[];
 	}
 
@@ -136,7 +139,11 @@
 				type: t.tabType || t.type || '',
 				source: t.source || '',
 				trackCount: t.trackCount,
-				variants: [{ id: t.id || '', source: t.source || '', sourceUrl: t.sourceUrl || '', trackCount: t.trackCount, instruments: t.instruments }]
+				artistImage: t.artistImage || '',
+				artworkUrl: t.artworkUrl || '',
+				variants: (Array.isArray(t.variants) && t.variants.length > 0)
+					? t.variants.map((v: any) => ({ id: v.id || '', source: v.source || '', sourceUrl: v.sourceUrl || '', trackCount: v.trackCount, instruments: v.instruments, title: v.title }))
+					: [{ id: t.id || '', source: t.source || '', sourceUrl: t.sourceUrl || '', trackCount: t.trackCount, instruments: t.instruments }]
 			}));
 	}
 
@@ -195,7 +202,13 @@
 
 		function normalizeKey(tab: TabResult): string {
 			const a = normalizeArtist(tab.artist || 'unknown');
-			const t = (tab.title || '').toLowerCase().trim().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+			// Fold version counters ("Song (2)", "Song V3") into the base song key
+			let raw = (tab.title || '').toLowerCase().trim();
+			for (let prev = ''; prev !== raw; ) {
+				prev = raw;
+				raw = raw.replace(/\s*\(\d+\)$|\s+v\d+$/i, '').trim();
+			}
+			const t = raw.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 			return `${a}|${t}`;
 		}
 
@@ -373,7 +386,12 @@
 	}
 
 	async function fetchArtworkForTabs(tabList: TabResult[]) {
-		tabArtwork = await fetchArtworkBatch(tabList, tabArtwork);
+		// Server embeds cached artwork - seed instantly, resolve only the rest
+		const embedded: Record<string, string> = {};
+		for (const t of tabList) if (t.artworkUrl && !tabArtwork[t.id]) embedded[t.id] = t.artworkUrl;
+		if (Object.keys(embedded).length > 0) tabArtwork = { ...tabArtwork, ...embedded };
+		const needs = tabList.filter((t) => !t.artworkUrl && !tabArtwork[t.id]);
+		if (needs.length > 0) tabArtwork = await fetchArtworkBatch(needs, tabArtwork);
 	}
 
 	async function performSearch(force: boolean = false): Promise<void> {
@@ -550,8 +568,27 @@
 				tabId: tab.id,
 				source: tab.source,
 				title: tab.title,
-				artist: tab.artist
+				artist: tab.artist,
+				variants: tab.variants?.map((v) => ({
+					id: v.id,
+					title: v.title || tab.title,
+					source: v.source,
+					sourceUrl: v.sourceUrl,
+					trackCount: v.trackCount ?? undefined,
+					instruments: v.instruments ?? undefined
+				}))
 			});
+
+			// Light up the source pills in the player
+			sourceVariants.set(
+				(tab.variants || [])
+					.reduce((acc: any[], v) => {
+						const cur = acc.find((x) => x.source === v.source);
+						if (!cur) acc.push({ id: v.id, source: v.source, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
+						else if ((v.trackCount || 0) > (cur.trackCount || 0)) Object.assign(cur, { id: v.id, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
+						return acc;
+					}, [])
+			);
 
 			goto(`${base}/play`);
 		} catch (err: any) {
@@ -691,8 +728,8 @@
 							class="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
 							role="button"
 							tabindex="0"
-							on:click={() => { query = hero.name; currentPage = 1; updateURL(); performSearch(true); }}
-							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); query = hero.name; currentPage = 1; updateURL(); performSearch(true); } }}
+							on:click={() => goto(`${base}/artist/${encodeURIComponent(hero.name)}`)}
+							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(hero.name)}`); } }}
 						>
 							<div class="relative w-14 h-14 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
 								<i class="material-icons text-neutral-400 !text-2xl" aria-hidden="true">person</i>
@@ -768,6 +805,7 @@
 						type={tab.type || ''}
 						trackCount={tab.trackCount}
 						artworkUrl={tabArtwork[tab.id] || ''}
+						artistImage={tab.artistImage || ''}
 						variants={tab.variants}
 						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source })}
 						onClick={() => openTab(tab)}

@@ -1,8 +1,9 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
-import { tabStore } from './store';
+import { tabStore, type TabVersion } from './store';
 import { historyStore } from './history';
+import { sourceVariants } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
@@ -31,6 +32,7 @@ export async function openTabFromHash(
 			title: meta.title,
 			artist: meta.artist
 		});
+		sourceVariants.set([]);
 		if (navigate) goto(`${base}/play`);
 		return true;
 	} catch (err: any) {
@@ -44,7 +46,16 @@ export async function openTabFromHash(
  * Adds to history, sets the tab store, and optionally navigates to /play.
  */
 export async function openTabById(
-	tab: { id: string; title: string; artist?: string; source?: string; type?: string; album?: string; hashPayload?: string },
+	tab: {
+		id: string;
+		title: string;
+		artist?: string;
+		source?: string;
+		type?: string;
+		album?: string;
+		hashPayload?: string;
+		variants?: import('./store').TabVersion[];
+	},
 	navigate: boolean = true
 ): Promise<boolean> {
 	// Prefer the embedded hash payload for file-imported history entries;
@@ -83,8 +94,19 @@ export async function openTabById(
 			tabId: tab.id,
 			source: tab.source,
 			title: tab.title,
-			artist: tab.artist
+			artist: tab.artist,
+			album: tab.album,
+			variants: tab.variants
 		});
+
+		// Feed the source-switch pills (TabViewer/MiniPlayer): best version per source
+		if (tab.variants && tab.variants.length > 0) {
+			sourceVariants.set(bestPerSource(tab.variants));
+		} else {
+			// Versions are resolved lazily by the player UI (PlayerQueueBar)
+			// only when actually shown - saves one request per tab open
+			sourceVariants.set([]);
+		}
 
 		if (navigate) {
 			goto(`${base}/play`);
@@ -96,3 +118,20 @@ export async function openTabById(
 		return false;
 	}
 }
+
+
+/** One representative (most complete) version per source, for the source pills. */
+function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVariant[] {
+	const bySource = new Map<string, TabVersion>();
+	for (const v of versions) {
+		const cur = bySource.get(v.source);
+		if (!cur || (v.trackCount || 0) > (cur.trackCount || 0)) bySource.set(v.source, v);
+	}
+	return [...bySource.values()].map((v) => ({
+		id: v.id,
+		source: v.source,
+		sourceUrl: v.sourceUrl ?? undefined,
+		trackCount: v.trackCount ?? undefined
+	}));
+}
+

@@ -16,6 +16,7 @@
 	import { tabStore } from '../../library/utils/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { openTabById } from '../../library/utils/openTab';
+	import { setQueue } from '../../library/utils/playerStore';
 	import { shareLink } from '../../library/utils/native';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
@@ -178,6 +179,18 @@
 	}
 
 	$: historyGroups = groupByDate(historyItems);
+
+	/** Open a playlist as a play queue, starting at the given entry (YouTube-style). */
+	async function playPlaylist(pIndex: number, startIndex: number = 0): Promise<void> {
+		const playlist = playlists[pIndex];
+		if (!playlist || playlist.entries.length === 0) return;
+		setQueue(
+			playlist.entries.map((e) => ({ id: e.id, title: e.title, artist: e.artist, source: e.source })),
+			startIndex,
+			playlist.name
+		);
+		await openTab(playlist.entries[startIndex]);
+	}
 
 	async function openTab(item: FavoriteItem | HistoryItem | PlaylistEntry): Promise<void> {
 		loading = true;
@@ -417,7 +430,7 @@
 								<div class="flex flex-col items-center gap-2 flex-shrink-0 group">
 									<div class="relative">
 										<button
-											on:click={() => goto(`${base}/search?q=${encodeURIComponent(artist.name)}`)}
+											on:click={() => goto(`${base}/artist/${encodeURIComponent(artist.name)}`)}
 											class="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center border-2 border-transparent group-hover:border-violet-400 transition-all"
 											aria-label="Search tabs by {artist.name}"
 										>
@@ -439,7 +452,7 @@
 										</button>
 									</div>
 									<button
-										on:click={() => goto(`${base}/search?q=${encodeURIComponent(artist.name)}`)}
+										on:click={() => goto(`${base}/artist/${encodeURIComponent(artist.name)}`)}
 										class="text-xs sm:text-sm text-neutral-700 dark:text-neutral-300 truncate max-w-[96px] hover:text-violet-500 transition-colors text-center font-medium"
 									>
 										{artist.name}
@@ -676,6 +689,13 @@
 									<i class="material-icons !text-lg">edit</i>
 								</button>
 								<button
+									on:click={() => playPlaylist(pIndex, 0)}
+									class="w-8 h-8 flex items-center justify-center rounded-lg text-violet-500 hover:bg-violet-500 hover:text-white transition-colors"
+									title="Play all"
+								>
+									<i class="material-icons !text-lg">play_arrow</i>
+								</button>
+								<button
 									on:click={() => copyPlaylistLink(pIndex)}
 									class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 									title="Copy share link"
@@ -714,7 +734,7 @@
 											source={entry.source}
 											artworkUrl={playlistArtwork[entry.id] || ''}
 											artworkLoading={playlistArtworkLoading && !playlistArtwork[entry.id]}
-											onClick={() => openTab(entry)}
+											onClick={() => playPlaylist(pIndex, eIndex)}
 										>
 											<!-- Leading: reorder arrows + track number -->
 											<svelte:fragment slot="leading">
