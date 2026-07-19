@@ -5,6 +5,7 @@
 	import { page } from '$app/stores';
 	import Header from '$components/Header.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
+	import TagPill from '$components/TagPill.svelte';
 	import { queueStore, setQueue, jumpQueue, playerState } from '$utils/playerStore';
 	import { openTabById } from '$utils/openTab';
 	import { getSourceDisplay } from '$utils/sources';
@@ -55,6 +56,31 @@
 		}
 	}
 	$: heroArt = entries.map((i) => art[i.id]).filter(Boolean).slice(0, 4) as string[];
+
+	// Playlist insights: unique artists (clickable) + their genres/styles
+	let genres: string[] = [];
+	let genresFetchedFor = '';
+	$: uniqueArtists = [...new Map(entries.filter((e) => e.artist).map((e) => [e.artist.toLowerCase(), e.artist])).values()];
+	$: {
+		const key = uniqueArtists.slice(0, 4).join('|');
+		if (key && key !== genresFetchedFor && SEARCH_API_BASE_URL) {
+			genresFetchedFor = key;
+			Promise.all(
+				uniqueArtists.slice(0, 4).map(async (a) => {
+					try {
+						const r = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(a)}`);
+						if (!r.ok) return [];
+						const d = await r.json();
+						return [d.genre, ...(d.tags || []).slice(0, 2)].filter(Boolean) as string[];
+					} catch {
+						return [];
+					}
+				})
+			).then((lists) => {
+				genres = [...new Set(lists.flat())].slice(0, 6);
+			});
+		}
+	}
 
 	function load() {
 		const params = $page.url.searchParams;
@@ -316,9 +342,36 @@
 				{/if}
 				<p class="text-sm text-white/70 mt-1">
 					{entries.length} tracks
+					{#if uniqueArtists.length > 0}&middot; {uniqueArtists.length} {uniqueArtists.length === 1 ? 'artist' : 'artists'}{/if}
 					{#if mode.kind === 'saved'}&middot; in your repertoire{/if}
 					{#if mode.kind === 'shared'}&middot; shared playlist{/if}
 				</p>
+
+				{#if uniqueArtists.length > 0}
+					<div class="flex flex-wrap gap-1.5 mt-3">
+						{#each uniqueArtists.slice(0, 6) as artistName}
+							<a
+								href="{base}/artist/{encodeURIComponent(artistName)}"
+								class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-white/15 text-white hover:bg-white/30 transition-colors"
+								title="View {artistName}"
+							>
+								<i class="material-icons !text-xs">person</i>
+								{artistName}
+							</a>
+						{/each}
+						{#if uniqueArtists.length > 6}
+							<span class="text-xs text-white/50 self-center">+{uniqueArtists.length - 6}</span>
+						{/if}
+					</div>
+				{/if}
+
+				{#if genres.length > 0}
+					<div class="flex flex-wrap gap-1.5 mt-2">
+						{#each genres as g}
+							<TagPill label={g} size="sm" />
+						{/each}
+					</div>
+				{/if}
 
 				<div class="flex items-center gap-2 mt-4">
 					<button
