@@ -156,7 +156,7 @@
 			<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="pill" />
 			<i
 				class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors"
-				>chevron_right</i
+				>play_arrow</i
 			>
 		</div>
 	</button>

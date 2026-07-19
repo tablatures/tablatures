@@ -49,6 +49,7 @@
 	interface AlbumTrack {
 		position: number;
 		title: string;
+		duration?: number | null;
 		tabId: string | null;
 		variants: any[];
 	}
@@ -91,6 +92,13 @@
 		if (!info) return;
 		if (isFollowed) favoriteArtistsStore.removeArtist(info.name);
 		else favoriteArtistsStore.addArtist({ name: info.name, image: info.image || undefined });
+	}
+
+	function fmtDuration(seconds?: number | null): string {
+		if (!seconds) return '';
+		const m = Math.floor(seconds / 60);
+		const s = seconds % 60;
+		return `${m}:${String(s).padStart(2, '0')}`;
 	}
 
 	function fmtCount(n: number): string {
@@ -442,21 +450,41 @@
 					{:else}
 						<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60 max-h-96 overflow-y-auto">
 							{#each albumTracks as track}
-								<button
-									class="w-full flex items-center gap-3 px-4 py-2 text-left text-sm transition-colors {track.tabId
-										? 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'
-										: 'opacity-40 cursor-default'}"
-									on:click={() => track.tabId && playAlbum(track)}
-									disabled={!track.tabId}
-								>
-									<span class="w-6 text-right text-xs text-neutral-400">{track.position}</span>
-									<span class="flex-1 truncate {track.tabId ? 'text-neutral-800 dark:text-neutral-200' : 'text-neutral-400'}">{track.title}</span>
-									{#if track.tabId}
-										<i class="material-icons !text-base text-violet-400">play_arrow</i>
-									{:else}
-										<span class="text-[10px] text-neutral-400">no tab</span>
-									{/if}
-								</button>
+								{#if track.tabId}
+									<button
+										class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group/track"
+										on:click={() => playAlbum(track)}
+									>
+										<span class="w-6 text-right text-xs text-neutral-400">{track.position}</span>
+										<span class="flex-1 min-w-0">
+											<span class="block truncate text-neutral-800 dark:text-neutral-200">{track.title}</span>
+											{#if track.variants?.length > 1}
+												<span class="block text-[11px] text-neutral-400">{track.variants.length} versions</span>
+											{/if}
+										</span>
+										{#if track.duration}
+											<span class="text-xs text-neutral-400 tabular-nums">{fmtDuration(track.duration)}</span>
+										{/if}
+										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">play_arrow</i>
+									</button>
+								{:else}
+									<!-- No tab yet: click runs a search (live results get added to the catalog) -->
+									<a
+										href="{base}/search?q={encodeURIComponent(`${info.name} ${track.title}`)}"
+										class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group/track"
+										title="Search this track - found tabs are added automatically"
+									>
+										<span class="w-6 text-right text-xs text-neutral-300 dark:text-neutral-600">{track.position}</span>
+										<span class="flex-1 min-w-0">
+											<span class="block truncate text-neutral-400 dark:text-neutral-500">{track.title}</span>
+											<span class="block text-[11px] text-neutral-300 dark:text-neutral-600">No tab yet - search to find one</span>
+										</span>
+										{#if track.duration}
+											<span class="text-xs text-neutral-300 dark:text-neutral-600 tabular-nums">{fmtDuration(track.duration)}</span>
+										{/if}
+										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">search</i>
+									</a>
+								{/if}
 							{/each}
 						</div>
 					{/if}
