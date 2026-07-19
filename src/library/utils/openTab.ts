@@ -54,6 +54,7 @@ export async function openTabById(
 		type?: string;
 		album?: string;
 		hashPayload?: string;
+		sourceUrl?: string | null;
 		variants?: import('./store').TabVersion[];
 	},
 	navigate: boolean = true
@@ -68,7 +69,11 @@ export async function openTabById(
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
-		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}`, {
+		// Live UG results may not be persisted yet - pass the page URL so the
+		// server can resolve the file without a catalog row
+		const srcHint =
+			tab.id.startsWith('ug:') && tab.sourceUrl ? `?src=${encodeURIComponent(tab.sourceUrl)}` : '';
+		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`, {
 			signal: controller.signal
 		});
 		clearTimeout(timeoutId);

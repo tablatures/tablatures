@@ -76,7 +76,7 @@
 		versionsOpen = false;
 		switching = true;
 		await openTabById(
-			{ id: v.id, title: v.title, artist: currentArtist, source: v.source, variants: versions },
+			{ id: v.id, title: v.title, artist: currentArtist, source: v.source, sourceUrl: v.sourceUrl, variants: versions },
 			false
 		);
 		switching = false;

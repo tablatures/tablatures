@@ -127,12 +127,15 @@
 				{/if}
 				{#if hasVersions}
 					<button
-						class="inline-flex items-center gap-0.5 text-[11px] font-medium text-violet-500 hover:text-violet-600 hover:underline transition-colors"
+						class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors
+							{versionsExpanded
+								? 'bg-violet-500 text-white border-violet-500'
+								: 'text-violet-600 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
 						on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
-						title="Show all versions"
+						title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
 					>
 						{versionsSummary}
-						<i class="material-icons !text-sm">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
+						<i class="material-icons !text-base">{versionsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
 					</button>
 				{/if}
 			</div>
@@ -158,31 +161,34 @@
 		</div>
 	</button>
 
-	<!-- Expanded versions: vertical sub-list with real differentiators -->
+	<!-- Expanded versions: full-width playlist-like list with real differentiators -->
 	{#if hasVersions && versionsExpanded && variants}
-		<div class="ml-[4.5rem] sm:ml-28 mr-4 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden">
+		<div class="mx-3 sm:mx-4 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden bg-neutral-50/60 dark:bg-neutral-900/40">
 			{#each variants as v, i}
 				{@const vd = getSourceDisplay(v.source)}
 				{@const detail = versionDetail(v)}
 				<button
-					class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors {v.id === id ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
+					class="w-full flex items-center gap-3 px-3 sm:px-4 py-2.5 text-left text-sm hover:bg-white dark:hover:bg-neutral-800/80 transition-colors {v.id === id ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
 					on:click={() => onVariantClick?.(v)}
 					title="Open this version"
 				>
-					<span class="w-2 h-2 rounded-full shrink-0 {vd.dotColor}"></span>
+					<span class="w-6 text-right text-xs text-neutral-400 shrink-0">{i + 1}</span>
+					<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 shrink-0">
+						<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
+						{vd.label}
+					</span>
 					<span class="flex-1 min-w-0">
 						<span class="block truncate {v.id === id ? 'text-violet-600 dark:text-violet-300 font-medium' : 'text-neutral-700 dark:text-neutral-300'}">
-							{vd.label}
-							<span class="text-neutral-400 dark:text-neutral-500">- version {i + 1}</span>
+							{v.title || `Version ${i + 1}`}
 						</span>
-						{#if detail}
-							<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500">{detail}</span>
-						{/if}
+						<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500">
+							{detail || 'Details fill in once someone plays this version'}
+						</span>
 					</span>
 					{#if v.id === id}
-						<i class="material-icons !text-base text-violet-500">check</i>
+						<i class="material-icons !text-lg text-violet-500 shrink-0">check</i>
 					{:else}
-						<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600">play_arrow</i>
+						<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 shrink-0">play_arrow</i>
 					{/if}
 				</button>
 			{/each}

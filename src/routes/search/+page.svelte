@@ -82,6 +82,7 @@
 		trackCount?: number;
 		artistImage?: string;
 		artworkUrl?: string;
+		sourceUrl?: string;
 		variants?: TabVariant[];
 	}
 
@@ -537,8 +538,12 @@
 		downloadingTab = true;
 		error = '';
 		try {
+			const srcHint =
+				tab.id.startsWith('ug:') && (tab as any).sourceUrl
+					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
+					: '';
 			const response = await fetchWithTimeout(
-				`${SEARCH_API_BASE_URL}/api/download/${tab.id}`,
+				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
 				{},
 				10000
 			);
@@ -807,7 +812,7 @@
 						artworkUrl={tabArtwork[tab.id] || ''}
 						artistImage={tab.artistImage || ''}
 						variants={tab.variants}
-						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source })}
+						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
 						onClick={() => openTab(tab)}
 						onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
 					/>

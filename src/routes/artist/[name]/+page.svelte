@@ -73,6 +73,8 @@
 	let allTabsPage = 1;
 	let allTabsTotal = 0;
 	let allTabsLoading = false;
+	let organicLoading = false;
+	let organicDone = false;
 
 	let bioExpanded = false;
 	let bannerFailed = false;
@@ -158,6 +160,40 @@
 		} finally {
 			allTabsLoading = false;
 		}
+
+		// Organic growth: nothing in the catalog yet -> run a live search
+		// automatically (found tabs are persisted server-side as a side effect)
+		if (pageNum === 1 && allTabs.length === 0 && !organicDone) {
+			organicDone = true;
+			organicLoading = true;
+			try {
+				const resp = await fetch(
+					`${SEARCH_API_BASE_URL}/api/search/live?q=${encodeURIComponent(info!.name)}&limit=40`
+				);
+				if (resp.ok) {
+					const data = await resp.json();
+					const artistLower = info!.name.toLowerCase();
+					const found: TabItem[] = (data.results || [])
+						.filter((r: any) => r.id && (r.artist || '').toLowerCase() === artistLower)
+						.map((r: any) => ({
+							id: r.id,
+							title: r.title,
+							artist: r.artist,
+							type: r.tabType || '',
+							source: r.source,
+							sourceUrl: r.sourceUrl || '',
+							variants: r.variants
+						}));
+					allTabs = found;
+					allTabsTotal = found.length;
+					fetchArtworkBatch(found, {}).then((m) => (artwork = { ...artwork, ...m }));
+				}
+			} catch {
+				/* the manual search CTA remains */
+			} finally {
+				organicLoading = false;
+			}
+		}
 	}
 
 	async function openAlbumView(album: Album) {
@@ -217,7 +253,7 @@
 	}
 
 	async function openTab(tab: TabItem) {
-		await openTabById({ ...tab, artist: tab.artist || info?.name }, true);
+		await openTabById({ ...tab, artist: tab.artist || info?.name, sourceUrl: (tab as any).sourceUrl }, true);
 	}
 
 	onMount(() => {
@@ -350,11 +386,16 @@
 			<div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
 				{#each albums as album (album.deezerId)}
 					<button
-						class="flex-shrink-0 w-32 sm:w-40 text-left group {openAlbum?.deezerId === album.deezerId ? 'ring-2 ring-violet-500 rounded-xl' : ''}"
+						class="flex-shrink-0 w-32 sm:w-40 text-left group"
 						on:click={() => openAlbumView(album)}
 						title="Open album as playlist"
 					>
-						<div class="w-32 h-32 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 shadow-sm group-hover:shadow-lg transition-shadow">
+						<div class="relative w-32 h-32 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 shadow-sm group-hover:shadow-lg transition-all border-2 {openAlbum?.deezerId === album.deezerId ? 'border-violet-500' : 'border-transparent'}">
+							{#if openAlbum?.deezerId === album.deezerId}
+								<div class="absolute bottom-1.5 right-1.5 z-10 w-7 h-7 rounded-full bg-violet-500 text-white flex items-center justify-center shadow">
+									<i class="material-icons !text-base">queue_music</i>
+								</div>
+							{/if}
 							{#if album.cover}
 								<img src={album.cover} alt={album.title} loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
 							{:else}
@@ -448,20 +489,25 @@
 
 		<!-- ================= All tabs ================= -->
 		<h2 class="text-lg font-semibold text-neutral-900 dark:text-white mt-8 mb-1">All tabs</h2>
-		{#if allTabs.length === 0 && !allTabsLoading}
-			<!-- Empty catalog for this artist: point at live search, which also
-			     grows the catalog automatically -->
+		{#if organicLoading}
+			<div class="rounded-2xl border border-dashed border-violet-300 dark:border-violet-800 px-6 py-10 text-center mb-10">
+				<i class="material-icons !text-4xl text-violet-400 mb-2 animate-pulse">travel_explore</i>
+				<p class="text-sm text-neutral-500 dark:text-neutral-400">
+					Searching tab sources for {info.name}... found tabs are added to the catalog automatically.
+				</p>
+			</div>
+		{:else if allTabs.length === 0 && !allTabsLoading}
 			<div class="rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 px-6 py-10 text-center mb-10">
 				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2">travel_explore</i>
 				<p class="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-					No tabs for {info.name} in the catalog yet. Run a live search - found tabs are added automatically.
+					No tabs found for {info.name} yet. Try a full search - anything found is added automatically.
 				</p>
 				<a
 					href="{base}/search?q={encodeURIComponent(info.name)}"
 					class="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
 				>
 					<i class="material-icons !text-lg">search</i>
-					Search {info.name} tabs live
+					Search {info.name}
 				</a>
 			</div>
 		{/if}
