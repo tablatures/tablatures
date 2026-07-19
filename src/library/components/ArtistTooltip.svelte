@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TagPill from './TagPill.svelte';
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import { onMount, tick } from 'svelte';
@@ -176,7 +177,7 @@
 				{#if info.tags && info.tags.length > 0}
 					<div class="flex flex-wrap gap-1 mt-2">
 						{#each info.tags.slice(0, 5) as tag}
-							<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400">{tag}</span>
+							<TagPill label={tag} size="sm" />
 						{/each}
 					</div>
 				{/if}

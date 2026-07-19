@@ -7,6 +7,7 @@
 	import TabCard from '$components/TabCard.svelte';
 	import ResultCard from '$components/ResultCard.svelte';
 	import SkeletonTabCard from '$components/SkeletonTabCard.svelte';
+	import TagPill from '$components/TagPill.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
@@ -338,10 +339,10 @@
 				</div>
 				<div class="flex items-center gap-1.5 mt-2 flex-wrap">
 					{#if info.genre}
-						<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">{info.genre}</span>
+						<TagPill label={info.genre} variant="primary" />
 					{/if}
 					{#each info.tags.slice(0, 5) as tag}
-						<span class="px-2.5 py-0.5 rounded-full text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">{tag}</span>
+						<TagPill label={tag} />
 					{/each}
 				</div>
 			</div>

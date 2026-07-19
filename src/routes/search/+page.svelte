@@ -5,6 +5,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Header from '../../library/components/Header.svelte';
+	import TagPill from '../../library/components/TagPill.svelte';
 	import ResultCard from '../../library/components/ResultCard.svelte';
 	import SkeletonCard from '../../library/components/SkeletonCard.svelte';
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
@@ -777,7 +778,7 @@
 								{#if hero.tags && hero.tags.length > 0}
 									<div class="flex flex-wrap gap-1 mb-1.5">
 										{#each hero.tags.slice(0, 4) as tag}
-											<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">{tag}</span>
+											<TagPill label={tag} size="sm" />
 										{/each}
 									</div>
 								{/if}
