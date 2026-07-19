@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { base } from '$app/paths';
 	import { tabStore, type TabVersion } from '../utils/store';
 	import { queueStore, stepQueue, jumpQueue, sourceVariants, playerState } from '../utils/playerStore';
 	import { openTabById } from '../utils/openTab';
@@ -172,23 +173,17 @@
 	<div
 		class="flex items-stretch h-12 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm text-sm"
 	>
-		<!-- Playlist / album name: links to its fullscreen view -->
-		{#if hasQueue && queue.label}
-			{#if queue.href}
-				<a
-					href={queue.href}
-					class="flex-shrink-0 flex items-center gap-1.5 px-3 max-w-[180px] border-r border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500 transition-colors"
-					title="Open {queue.label}"
-				>
-					<i class="material-icons !text-lg shrink-0">queue_music</i>
-					<span class="truncate font-medium hidden sm:inline">{queue.label}</span>
-				</a>
-			{:else}
-				<span class="flex-shrink-0 flex items-center gap-1.5 px-3 max-w-[180px] border-r border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400">
-					<i class="material-icons !text-lg shrink-0">queue_music</i>
-					<span class="truncate font-medium hidden sm:inline">{queue.label}</span>
-				</span>
-			{/if}
+		<!-- Playlist / album name: always links to its page (dedicated queue page as fallback) -->
+		{#if hasQueue}
+			<a
+				href={queue.href || `${base}/playlist`}
+				class="flex-shrink-0 flex items-center gap-1.5 px-3 max-w-[200px] border-r border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500 transition-colors"
+				title="Open {queue.label || 'queue'}"
+			>
+				<i class="material-icons !text-lg shrink-0">queue_music</i>
+				<span class="truncate font-medium hidden sm:inline">{queue.label || 'Queue'}</span>
+				<i class="material-icons !text-sm shrink-0 opacity-60">open_in_new</i>
+			</a>
 		{/if}
 
 		<!-- Previous -->
@@ -204,7 +199,7 @@
 		{/if}
 
 		<!-- Track strip: flush, full-height blocks like search results -->
-		<div bind:this={stripEl} class="flex-1 flex items-stretch overflow-x-auto scrollbar-thin min-w-0">
+		<div bind:this={stripEl} class="flex-1 flex items-stretch gap-1 px-1 overflow-x-auto scrollbar-thin min-w-0">
 			{#if hasQueue}
 				{#each queue.items as item, i}
 					{@const isCurrent = i === queue.index}
@@ -212,10 +207,10 @@
 					<button
 						use:registerPill={isCurrent}
 						data-queuebar-menu={isCurrent || undefined}
-						class="flex-shrink-0 flex items-stretch text-left w-44 sm:w-52 border-r border-neutral-100 dark:border-neutral-800/60 transition-colors
+						class="flex-shrink-0 flex items-stretch text-left w-44 sm:w-52 my-1 rounded-md overflow-hidden transition-colors
 							{isCurrent
 							? 'bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)]'
-							: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'}"
+							: 'bg-neutral-50 dark:bg-neutral-900/60 hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
 						on:click={() => goJump(i)}
 						disabled={navigating && !isCurrent}
 						title={isCurrent && versions.length > 1 ? 'Switch version or source' : `${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
