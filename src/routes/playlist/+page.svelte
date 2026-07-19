@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import Header from '$components/Header.svelte';
+	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { queueStore, setQueue, jumpQueue, playerState } from '$utils/playerStore';
 	import { openTabById } from '$utils/openTab';
 	import { getSourceDisplay } from '$utils/sources';
@@ -417,6 +418,7 @@
 							</span>
 							<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors shrink-0">play_arrow</i>
 						</button>
+						<FavoriteButton id={item.id} title={item.title} artist={item.artist} source={item.source} variant="pill" />
 						<button
 							class="w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
 							on:click={() => removeEntry(item.id)}
