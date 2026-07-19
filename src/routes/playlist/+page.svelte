@@ -131,6 +131,42 @@
 		persist();
 	}
 
+	// Drag & drop reordering (native HTML5 DnD)
+	let draggedIndex: number | null = null;
+	let dropIndex: number | null = null;
+
+	function handleDragStart(e: DragEvent, i: number) {
+		draggedIndex = i;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', String(i));
+		}
+	}
+
+	function handleDragOver(e: DragEvent, i: number) {
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dropIndex = i;
+	}
+
+	function handleDrop(e: DragEvent, i: number) {
+		e.preventDefault();
+		if (draggedIndex !== null && draggedIndex !== i) {
+			const next = [...entries];
+			const [moved] = next.splice(draggedIndex, 1);
+			next.splice(i, 0, moved!);
+			entries = next;
+			persist();
+		}
+		draggedIndex = null;
+		dropIndex = null;
+	}
+
+	function handleDragEnd() {
+		draggedIndex = null;
+		dropIndex = null;
+	}
+
 	function moveEntry(index: number, delta: -1 | 1) {
 		const target = index + delta;
 		if (target < 0 || target >= entries.length) return;
@@ -318,9 +354,39 @@
 					{@const sd = getSourceDisplay(item.source || '')}
 					{@const isCurrent = isCurrentQueue && i === queue.index}
 					<div
-						class="w-full flex items-center gap-3 px-3 sm:px-4 py-2.5 transition-colors group
-							{isCurrent ? 'bg-violet-50 dark:bg-violet-900/20' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'}"
+						class="w-full flex items-center gap-3 px-2 sm:px-3 py-2.5 transition-colors group
+							{isCurrent ? 'bg-violet-50 dark:bg-violet-900/20' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'}
+							{dropIndex === i && draggedIndex !== i ? 'border-t-2 border-violet-500' : ''}
+							{draggedIndex === i ? 'opacity-40' : ''}"
+						draggable="true"
+						on:dragstart={(e) => handleDragStart(e, i)}
+						on:dragover={(e) => handleDragOver(e, i)}
+						on:drop={(e) => handleDrop(e, i)}
+						on:dragend={handleDragEnd}
+						role="listitem"
 					>
+						<!-- Reorder: drag handle + arrows, at the left -->
+						<span class="flex items-center shrink-0">
+							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 cursor-grab active:cursor-grabbing" title="Drag to reorder">drag_indicator</i>
+							<span class="flex flex-col">
+								<button
+									class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
+									on:click={() => moveEntry(i, -1)}
+									disabled={i === 0}
+									title="Move up"
+								>
+									<i class="material-icons !text-base">keyboard_arrow_up</i>
+								</button>
+								<button
+									class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
+									on:click={() => moveEntry(i, 1)}
+									disabled={i === entries.length - 1}
+									title="Move down"
+								>
+									<i class="material-icons !text-base">keyboard_arrow_down</i>
+								</button>
+							</span>
+						</span>
 						<button
 							class="flex-1 min-w-0 flex items-center gap-3 text-left"
 							on:click={() => playAt(i)}
@@ -351,24 +417,6 @@
 							</span>
 							<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors shrink-0">play_arrow</i>
 						</button>
-						<span class="flex flex-col shrink-0">
-							<button
-								class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
-								on:click={() => moveEntry(i, -1)}
-								disabled={i === 0}
-								title="Move up"
-							>
-								<i class="material-icons !text-base">keyboard_arrow_up</i>
-							</button>
-							<button
-								class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
-								on:click={() => moveEntry(i, 1)}
-								disabled={i === entries.length - 1}
-								title="Move down"
-							>
-								<i class="material-icons !text-base">keyboard_arrow_down</i>
-							</button>
-						</span>
 						<button
 							class="w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
 							on:click={() => removeEntry(item.id)}
