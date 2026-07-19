@@ -173,24 +173,25 @@
 		@apply transition-transform duration-200 hover:-translate-y-0.5;
 	}
 
+	/* Narrow highlight band swept across by transform: the band never covers
+	   the whole element, so skeletons glint instead of flashing */
 	@keyframes shimmer {
-		0% {
-			background-position: -200% 0;
-		}
 		100% {
-			background-position: 200% 0;
+			transform: translateX(300%);
 		}
 	}
 
 	.animate-shimmer {
+		width: 50%;
+		height: 100%;
+		transform: translateX(-100%);
 		background: linear-gradient(
 			90deg,
 			transparent 0%,
-			rgba(139, 92, 246, 0.3) 50%,
+			rgba(139, 92, 246, 0.12) 50%,
 			transparent 100%
 		);
-		background-size: 200% 100%;
-		animation: shimmer 2s ease-in-out infinite;
+		animation: shimmer 1.8s linear infinite;
 	}
 }
 
