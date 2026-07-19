@@ -90,6 +90,7 @@
 	let tabs: TabResult[] = [];
 	let tabArtwork: Record<string, string> = {};
 	let artistHeroes: Array<{name: string; image: string|null; bio: string|null; country: string|null; tags: string[]; tabCount: number}> = [];
+	let apiArtists: Array<{name: string; image: string|null; genre: string|null; tabCount: number; popularity: number}> = [];
 	let artistHeroesLoading = false;
 	let failedHeroImages: Set<string> = new Set();
 
@@ -166,6 +167,8 @@
 
 		const data = await response.json();
 		if ('error' in data) return [];
+		// First-class artist results straight from the catalog
+		apiArtists = Array.isArray(data.artists) ? data.artists : [];
 		return parseResults(data);
 	}
 
@@ -264,6 +267,25 @@
 		const snb = normalizeArtist(stripFeat(b));
 		if (sna.length > 0 && snb.length > 0 && (sna === snb || sna.includes(snb) || snb.includes(sna))) return true;
 		return false;
+	}
+
+	/** Heroes come straight from the catalog's artist results; the old
+	 *  emerge-from-rendered-tabs detection remains only as a fallback for
+	 *  live-only searches (no artists field on that endpoint). */
+	function applyArtistHeroes(results: TabResult[]) {
+		if (apiArtists.length > 0) {
+			artistHeroes = apiArtists.map((a) => ({
+				name: a.name,
+				image: a.image,
+				bio: null,
+				country: null,
+				tags: a.genre ? [a.genre] : [],
+				tabCount: a.tabCount
+			}));
+			artistHeroesLoading = false;
+			return;
+		}
+		detectArtistHeroes(results);
 	}
 
 	async function detectArtistHeroes(results: TabResult[]) {
@@ -450,7 +472,7 @@
 				} finally {
 					searchingMore = false;
 				}
-				detectArtistHeroes(tabs);
+				applyArtistHeroes(tabs);
 				fetchArtworkForTabs(tabs);
 			} else {
 				const liveData = await performLiveSearch();
