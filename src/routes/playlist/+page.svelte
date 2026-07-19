@@ -61,6 +61,14 @@
 	let genres: string[] = [];
 	let genresFetchedFor = '';
 	$: uniqueArtists = [...new Map(entries.filter((e) => e.artist).map((e) => [e.artist.toLowerCase(), e.artist])).values()];
+	$: inRepertoire =
+		mode.kind === 'saved' ||
+		$playlistStore.some(
+			(pl) =>
+				pl.name === name &&
+				pl.entries.length === entries.length &&
+				pl.entries.every((e, i) => e.id === entries[i]?.id)
+		);
 	$: {
 		const key = uniqueArtists.slice(0, 4).join('|');
 		if (key && key !== genresFetchedFor && SEARCH_API_BASE_URL) {
@@ -381,7 +389,15 @@
 					>
 						<i class="material-icons !text-lg">play_arrow</i> Play all
 					</button>
-					{#if mode.kind !== 'saved'}
+					{#if inRepertoire}
+						<a
+							href="{base}/repertoire?view=playlists"
+							class="flex items-center justify-center w-10 h-10 rounded-full bg-white/25 hover:bg-white/35 transition-colors"
+							title="In your repertoire - manage playlists there"
+						>
+							<i class="material-icons !text-lg">library_music</i>
+						</a>
+					{:else}
 						<button
 							on:click={saveToRepertoire}
 							class="flex items-center justify-center w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
