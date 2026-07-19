@@ -33,6 +33,45 @@
 	let navigatingIndex: number | null = null;
 	let art: Record<string, string> = {};
 	let artFetchedFor = '';
+	/** Entries the batch resolver could not match in the catalog */
+	let unresolved: Set<string> = new Set();
+	let resolvedFor = '';
+
+	/** One grouped call verifies every entry and repairs stale ids */
+	async function resolveEntries() {
+		if (!SEARCH_API_BASE_URL || entries.length === 0) return;
+		const key = entries.map((e) => e.id).join(',');
+		if (key === resolvedFor) return;
+		resolvedFor = key;
+		try {
+			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/tabs/resolve`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(entries.map((e) => ({ id: e.id, artist: e.artist, title: e.title })))
+			});
+			if (!resp.ok) return;
+			const data = await resp.json();
+			let repairedCount = 0;
+			const bad = new Set<string>();
+			entries = entries.map((e, i) => {
+				const r = data.results?.[i];
+				if (!r) return e;
+				if (r.repaired && r.tabId) {
+					repairedCount++;
+					return { ...e, id: r.tabId, source: r.source || e.source };
+				}
+				if (!r.tabId) bad.add(e.id);
+				return e;
+			});
+			unresolved = bad;
+			if (repairedCount > 0) {
+				persist();
+				toastStore.success(`${repairedCount} ${repairedCount === 1 ? 'entry' : 'entries'} re-linked to the catalog`);
+			}
+		} catch {
+			/* healing is best effort */
+		}
+	}
 
 	// Inline add-tabs search
 	let addQuery = '';
@@ -287,6 +326,7 @@
 		const unsub = page.subscribe(() => {
 			load();
 			if (entries.length > 0) syncUrl();
+			resolveEntries();
 		});
 		return unsub;
 	});
@@ -458,9 +498,12 @@
 							</span>
 						</span>
 						<button
-							class="flex-1 min-w-0 flex items-center gap-3 text-left"
-							on:click={() => playAt(i)}
+							class="flex-1 min-w-0 flex items-center gap-3 text-left {unresolved.has(item.id) ? 'opacity-45' : ''}"
+							on:click={() => unresolved.has(item.id)
+								? goto(`${base}/search?q=${encodeURIComponent(`${item.artist} ${item.title}`)}`)
+								: playAt(i)}
 							disabled={navigatingIndex !== null}
+							title={unresolved.has(item.id) ? 'Not in the catalog - search to find it (found tabs are added automatically)' : item.title}
 						>
 							<span class="w-6 text-right text-xs {isCurrent ? 'text-violet-500' : 'text-neutral-400'}">
 								{#if navigatingIndex === i}
