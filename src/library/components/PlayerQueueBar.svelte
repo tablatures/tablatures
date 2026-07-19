@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { tabStore, type TabVersion } from '../utils/store';
-	import { queueStore, stepQueue, jumpQueue, sourceVariants } from '../utils/playerStore';
+	import { queueStore, stepQueue, jumpQueue, sourceVariants, playerState } from '../utils/playerStore';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 
@@ -14,8 +14,10 @@
 	let fetchedFor = '';
 
 	$: currentTabId = $tabStore?.tabId || '';
-	$: currentTitle = $tabStore?.title || '';
-	$: currentArtist = $tabStore?.artist || '';
+	// Fall back to the parsed score's metadata (shared ?tab= URLs load the file
+	// before any artist/title is known)
+	$: currentTitle = $tabStore?.title || $playerState.title || '';
+	$: currentArtist = $tabStore?.artist || $playerState.artist || '';
 	$: queue = $queueStore;
 	$: hasQueue = queue.items.length > 1;
 	$: canPrev = hasQueue && queue.index > 0;
