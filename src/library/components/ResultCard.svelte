@@ -173,16 +173,16 @@
 					title="Open this version"
 				>
 					<span class="w-6 text-right text-xs text-neutral-400 shrink-0">{i + 1}</span>
-					<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 shrink-0">
-						<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
-						{vd.label}
+					<span class="inline-flex items-center justify-center gap-1.5 w-28 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 shrink-0">
+						<span class="w-1.5 h-1.5 rounded-full shrink-0 {vd.dotColor}"></span>
+						<span class="truncate">{vd.label}</span>
 					</span>
 					<span class="flex-1 min-w-0">
 						<span class="block truncate {v.id === id ? 'text-violet-600 dark:text-violet-300 font-medium' : 'text-neutral-700 dark:text-neutral-300'}">
 							{v.title || `Version ${i + 1}`}
 						</span>
 						<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500">
-							{detail || 'Details fill in once someone plays this version'}
+							{detail || 'No details yet - open it to find out'}
 						</span>
 					</span>
 					{#if v.id === id}
