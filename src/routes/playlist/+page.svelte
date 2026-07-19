@@ -7,12 +7,23 @@
 	import { getSourceDisplay } from '$utils/sources';
 	import { playlistStore } from '$utils/playlists';
 	import { toastStore } from '$utils/toast';
+	import { fetchArtworkBatch } from '$utils/artwork';
 
 	let navigatingIndex: number | null = null;
+	let art: Record<string, string> = {};
+	let artFetchedFor = '';
 
 	$: queue = $queueStore;
 	$: items = queue.items;
-	$: heroArt = items.map((i) => i.artworkUrl).filter(Boolean).slice(0, 4) as string[];
+	$: {
+		const key = items.map((i) => i.id).join(',');
+		if (items.length > 0 && key !== artFetchedFor) {
+			artFetchedFor = key;
+			const missing = items.filter((i) => !i.artworkUrl && !art[i.id] && i.artist);
+			if (missing.length > 0) fetchArtworkBatch(missing, {}).then((m) => (art = { ...art, ...m }));
+		}
+	}
+	$: heroArt = items.map((i) => i.artworkUrl || art[i.id]).filter(Boolean).slice(0, 4) as string[];
 
 	async function playAt(index: number) {
 		if (navigatingIndex !== null) return;
@@ -130,8 +141,8 @@
 							{/if}
 						</span>
 						<span class="w-11 h-11 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
-							{#if item.artworkUrl}
-								<img src={item.artworkUrl} alt="" loading="lazy" class="w-full h-full object-cover" />
+							{#if item.artworkUrl || art[item.id]}
+								<img src={item.artworkUrl || art[item.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
 							{:else}
 								<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
 							{/if}
