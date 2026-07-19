@@ -155,7 +155,7 @@
 			{/if}
 			<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="pill" />
 			<i
-				class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors"
+				class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors"
 				>play_arrow</i
 			>
 		</div>
@@ -188,7 +188,7 @@
 					{#if v.id === id}
 						<i class="material-icons !text-lg text-violet-500 shrink-0">check</i>
 					{:else}
-						<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 shrink-0">play_arrow</i>
+						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 shrink-0">play_arrow</i>
 					{/if}
 				</button>
 			{/each}

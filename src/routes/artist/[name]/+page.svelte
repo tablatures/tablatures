@@ -465,7 +465,7 @@
 										{#if track.duration}
 											<span class="text-xs text-neutral-400 tabular-nums">{fmtDuration(track.duration)}</span>
 										{/if}
-										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">play_arrow</i>
+										<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">play_arrow</i>
 									</button>
 								{:else}
 									<!-- No tab yet: click runs a search (live results get added to the catalog) -->
