@@ -702,6 +702,13 @@
 								>
 									<i class="material-icons !text-lg">play_arrow</i>
 								</button>
+								<a
+									href="{base}/playlist?saved={pIndex}"
+									class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+									title="Open playlist page (edit, share)"
+								>
+									<i class="material-icons !text-lg">open_in_full</i>
+								</a>
 								<button
 									on:click={() => copyPlaylistLink(pIndex)}
 									class="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
