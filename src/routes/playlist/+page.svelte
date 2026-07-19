@@ -259,8 +259,9 @@
 				<!-- Editable title -->
 				{#if editingName}
 					<!-- svelte-ignore a11y-autofocus -->
+					<!-- In-place edit: same look as the title, just a caret -->
 					<input
-						class="w-full bg-white/15 rounded-lg px-2 py-1 text-xl font-bold text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-white/50"
+						class="w-full bg-transparent p-0 text-xl font-bold text-white placeholder-white/40 outline-none border-none caret-white selection:bg-white/30"
 						bind:value={nameInput}
 						on:keydown={(e) => e.key === 'Enter' && commitName()}
 						on:blur={commitName}
