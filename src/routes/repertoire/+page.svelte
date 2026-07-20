@@ -205,14 +205,18 @@
 			playlist.name,
 			`${base}/repertoire?view=playlists`
 		);
-		await openTab(playlist.entries[startIndex]);
+		// play-playlist: keep the queue we just set (single-track opens clear it).
+		await openTab(playlist.entries[startIndex], true);
 	}
 
-	async function openTab(item: FavoriteItem | HistoryItem | PlaylistEntry): Promise<void> {
+	async function openTab(
+		item: FavoriteItem | HistoryItem | PlaylistEntry,
+		keepQueue = false
+	): Promise<void> {
 		loading = true;
 		error = '';
 		try {
-			await openTabById(item);
+			await openTabById(item, true, { keepQueue });
 		} catch (err: any) {
 			error = err?.message || 'Failed to open tab';
 			toastStore.error(error);

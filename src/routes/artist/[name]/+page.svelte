@@ -251,6 +251,8 @@
 		}));
 	}
 
+	/** "Play all" (play-playlist) button: THIS is the only entry point that
+	 *  populates the player queue with the whole album. */
 	async function playAlbum(startTrack?: AlbumTrack) {
 		const items = albumQueueItems();
 		if (items.length === 0 || !openAlbum) return;
@@ -262,7 +264,24 @@
 			`${base}/artist/${encodeURIComponent(info?.name || '')}?album=${openAlbum.deezerId}`
 		);
 		const first = items[startIndex];
-		await openTabById({ ...first, variants: startTrack?.variants }, true);
+		await openTabById({ ...first, variants: startTrack?.variants }, true, { keepQueue: true });
+	}
+
+	/** Tapping a single album track opens ONLY that track — no queue populated.
+	 *  openTabById (default) clears any active queue, so the row tap never leaks
+	 *  the album into the player as a playlist. */
+	async function openAlbumTrack(track: AlbumTrack) {
+		if (!track.tabId) return;
+		await openTabById(
+			{
+				id: track.tabId,
+				title: track.title,
+				artist: info?.name,
+				source: track.variants[0]?.source || '',
+				variants: track.variants
+			},
+			true
+		);
 	}
 
 	function saveAlbumAsPlaylist() {
@@ -479,7 +498,7 @@
 								{#if track.tabId}
 									<button
 										class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group/track"
-										on:click={() => playAlbum(track)}
+										on:click={() => openAlbumTrack(track)}
 									>
 										<span class="w-6 text-right text-xs text-neutral-400">{track.position}</span>
 										<span class="flex-1 min-w-0">
