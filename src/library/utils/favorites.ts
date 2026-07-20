@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { dataReady } from '../data/init';
 import { favoritesRepo, type FavoriteRow } from '../data/repositories';
+import { setTabPinned } from '../data/tabBytes';
 
 export interface FavoriteItem {
 	id: string;
@@ -71,11 +72,17 @@ function createFavoritesStore() {
 						addedAt
 					})
 					.catch(() => {});
+				// Pin the on-device tab row (if any) so the LRU never evicts a
+				// favorited tab's cached bytes.
+				void setTabPinned(item.id, true);
 			}
 		},
 		removeFavorite: (id: string) => {
 			update((items) => items.filter((f) => f.id !== id));
-			if (browser) favoritesRepo.remove(id).catch(() => {});
+			if (browser) {
+				favoritesRepo.remove(id).catch(() => {});
+				void setTabPinned(id, false);
+			}
 		},
 		isFavorite: (id: string): boolean => {
 			return get(store).some((f) => f.id === id);

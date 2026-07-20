@@ -19,6 +19,7 @@
 	import { toastStore } from '$utils/toast';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { shareLink } from '$utils/native';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA } from '../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -115,7 +116,10 @@
 			Promise.all(
 				uniqueArtists.slice(0, 4).map(async (a) => {
 					try {
-						const r = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(a)}`);
+						const r = await cachedFetch(
+							`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(a)}`,
+							{ ttl: TTL_METADATA }
+						);
 						if (!r.ok) return [];
 						const d = await r.json();
 						return [d.genre, ...(d.tags || []).slice(0, 2)].filter(Boolean) as string[];
@@ -271,7 +275,10 @@
 		addTimer = setTimeout(async () => {
 			addSearching = true;
 			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/search?q=${encodeURIComponent(q)}&limit=8`);
+				const resp = await cachedFetch(
+					`${SEARCH_API_BASE_URL}/api/search?q=${encodeURIComponent(q)}&limit=8`,
+					{ ttl: TTL_SEARCH }
+				);
 				if (resp.ok) {
 					const data = await resp.json();
 					addResults = (data.results || []).map((t: any) => ({

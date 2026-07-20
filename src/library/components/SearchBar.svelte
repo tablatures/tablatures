@@ -6,6 +6,7 @@
 	import { historyStore } from '../utils/history';
 	import type { HistoryItem } from '../utils/history';
 	import { getArtwork } from '../utils/artwork';
+	import { cachedFetch, TTL_SEARCH, TTL_AUTOCOMPLETE } from '../data/cachedFetch';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let value: string = '';
@@ -129,7 +130,7 @@
 		openingResult = true;
 		try {
 			const params = new URLSearchParams({ q: query, limit: '1' });
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/search?${params}`);
+			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${params}`, { ttl: TTL_SEARCH });
 			if (!resp.ok) throw new Error();
 			const data = await resp.json();
 			const top = Array.isArray(data?.results) ? data.results[0] : null;
@@ -180,7 +181,9 @@
 
 		try {
 			const params = new URLSearchParams({ q: value.trim(), limit: '8' });
-			const response = await fetch(`${SEARCH_API_BASE_URL}/api/autocomplete?${params}`);
+			const response = await cachedFetch(`${SEARCH_API_BASE_URL}/api/autocomplete?${params}`, {
+				ttl: TTL_AUTOCOMPLETE
+			});
 			if (!response.ok) throw new Error();
 			const data = await response.json();
 			if (Array.isArray(data.suggestions)) {

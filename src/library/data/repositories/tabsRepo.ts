@@ -209,6 +209,37 @@ export function createTabsRepo(getDb: () => Database) {
 		return toDelete;
 	}
 
+	/** Aggregate stats over rows that hold bytes — for the Storage settings UI. */
+	async function storedStats(): Promise<{ count: number; bytes: number; pinned: number }> {
+		const rows = await getDb().query<{ n: number; b: number; p: number }>(
+			`SELECT COUNT(*) AS n,
+				COALESCE(SUM(byte_size), 0) AS b,
+				COALESCE(SUM(CASE WHEN pinned = 1 THEN 1 ELSE 0 END), 0) AS p
+			 FROM tabs WHERE blob_path IS NOT NULL`
+		);
+		return { count: rows[0]?.n ?? 0, bytes: rows[0]?.b ?? 0, pinned: rows[0]?.p ?? 0 };
+	}
+
+	/** Unpin every row so the LRU can reclaim previously-protected bytes. */
+	async function unpinAll(): Promise<void> {
+		await getDb().run('UPDATE tabs SET pinned = 0 WHERE pinned = 1');
+	}
+
+	/**
+	 * Delete all cached tab *bytes* (blobs) but keep the metadata rows, so the
+	 * History/Continue lists survive while on-device storage is freed. Also
+	 * unpins, since nothing is stored to protect anymore.
+	 */
+	async function clearAllBytes(): Promise<void> {
+		const rows = await getDb().query<{ blob_path: string | null }>(
+			'SELECT blob_path FROM tabs WHERE blob_path IS NOT NULL'
+		);
+		for (const r of rows) if (r.blob_path) await deleteBlob(r.blob_path);
+		await getDb().run(
+			'UPDATE tabs SET blob_path = NULL, byte_size = 0, pinned = 0 WHERE blob_path IS NOT NULL'
+		);
+	}
+
 	/** Offline local search via FTS5 (title/artist/album). Consumed by P2. */
 	async function searchLocal(q: string, limit = 50): Promise<TabRow[]> {
 		const term = q.trim();
@@ -241,6 +272,9 @@ export function createTabsRepo(getDb: () => Database) {
 		remove,
 		clearKind,
 		enforceBudget,
+		storedStats,
+		unpinAll,
+		clearAllBytes,
 		searchLocal
 	};
 }

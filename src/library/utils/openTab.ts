@@ -7,6 +7,7 @@ import { sourceVariants } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
+import { loadStoredTabBytes, persistTabBytes } from '../data/tabBytes';
 
 const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -64,25 +65,10 @@ export async function openTabById(
 	if (tab.hashPayload) {
 		return openTabFromHash(tab.hashPayload, { title: tab.title, artist: tab.artist, source: tab.source }, navigate);
 	}
-	if (!browser || !SEARCH_API_BASE_URL || !tab.id) return false;
+	if (!browser || !tab.id) return false;
 
-	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
-		// Live UG results may not be persisted yet - pass the page URL so the
-		// server can resolve the file without a catalog row
-		const srcHint =
-			tab.id.startsWith('ug:') && tab.sourceUrl ? `?src=${encodeURIComponent(tab.sourceUrl)}` : '';
-		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`, {
-			signal: controller.signal
-		});
-		clearTimeout(timeoutId);
-
-		if (!response.ok) throw new Error(`Download failed (HTTP ${response.status})`);
-
-		const arrayBuffer = await response.arrayBuffer();
-		if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
+	// Push the loaded bytes into the stores + history and (optionally) navigate.
+	const applyToStores = (arrayBuffer: ArrayBuffer) => {
 		const b64 = arrayBufferToBase64(arrayBuffer);
 
 		historyStore.addToHistory({
@@ -116,6 +102,51 @@ export async function openTabById(
 		if (navigate) {
 			goto(`${base}/play`);
 		}
+	};
+
+	// Offline-first: a previously-opened tab reopens straight from the on-device
+	// blob store with no network at all (and works fully offline).
+	const stored = await loadStoredTabBytes(tab.id);
+	if (stored && stored.byteLength > 0) {
+		applyToStores(stored);
+		return true;
+	}
+
+	if (!SEARCH_API_BASE_URL) return false;
+
+	try {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
+		// Live UG results may not be persisted yet - pass the page URL so the
+		// server can resolve the file without a catalog row
+		const srcHint =
+			tab.id.startsWith('ug:') && tab.sourceUrl ? `?src=${encodeURIComponent(tab.sourceUrl)}` : '';
+		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`, {
+			signal: controller.signal
+		});
+		clearTimeout(timeoutId);
+
+		if (!response.ok) throw new Error(`Download failed (HTTP ${response.status})`);
+
+		const arrayBuffer = await response.arrayBuffer();
+		if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
+
+		applyToStores(arrayBuffer);
+
+		// Persist for offline reopen (LRU-evicted by the storage budget).
+		void persistTabBytes(
+			{
+				id: tab.id,
+				title: tab.title,
+				artist: tab.artist,
+				album: tab.album,
+				source: tab.source,
+				sourceUrl: tab.sourceUrl,
+				type: tab.type
+			},
+			new Uint8Array(arrayBuffer),
+			'history'
+		);
 
 		return true;
 	} catch (err: any) {

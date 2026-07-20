@@ -20,11 +20,15 @@
  *     the shared cache with the results so later callers see a hit.
  */
 import { browser } from '$app/environment';
+import { httpCacheRepo } from '../data/repositories';
+import { dataReady } from '../data/init';
 
 const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
-/** Persist cache across full-page reloads within the same tab. */
-const STORAGE_KEY = 'artwork-cache-v1';
+/** Cache key (a synthetic URL) under which the whole artwork map is persisted
+ *  in the on-device `http_cache` table — durable across reloads and available
+ *  offline, replacing the old sessionStorage backing. */
+const STORAGE_KEY = 'internal://artwork-cache-v1';
 /** Cache negative ("no artwork found") results for this long before retrying. */
 const NEGATIVE_TTL_MS = 30 * 60 * 1000;
 /** Backend rejects batches larger than this; chunk the POST body accordingly. */
@@ -67,18 +71,31 @@ export function normalizeArtworkKey(artist: string, title: string): string {
 // ---- Persistence ----------------------------------------------------
 
 let hydrated = false;
-function hydrate() {
+let hydrating: Promise<void> | null = null;
+/** Load the persisted map from `http_cache` into the in-memory cache once. */
+async function hydrate(): Promise<void> {
 	if (hydrated || !browser) return;
-	hydrated = true;
-	try {
-		const raw = sessionStorage.getItem(STORAGE_KEY);
-		if (!raw) return;
-		const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
-		for (const [k, v] of Object.entries(parsed)) {
-			if (!v || typeof v !== 'object') continue;
-			artworkCache.set(k, v);
+	if (hydrating) return hydrating;
+	hydrating = (async () => {
+		try {
+			await dataReady;
+			const hit = await httpCacheRepo.get(STORAGE_KEY);
+			if (hit) {
+				const raw = new TextDecoder().decode(hit.body);
+				const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
+				for (const [k, v] of Object.entries(parsed)) {
+					if (!v || typeof v !== 'object') continue;
+					// Don't clobber entries resolved while we were hydrating.
+					if (!artworkCache.has(k)) artworkCache.set(k, v);
+				}
+			}
+		} catch {
+			/* cache unavailable — operate in-memory only */
+		} finally {
+			hydrated = true;
 		}
-	} catch {}
+	})();
+	return hydrating;
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,16 +104,23 @@ function schedulePersist() {
 	if (persistTimer) return; // one flush per tick is enough
 	persistTimer = setTimeout(() => {
 		persistTimer = null;
-		try {
-			const obj: Record<string, CacheEntry> = {};
-			for (const [k, v] of artworkCache.entries()) obj[k] = v;
-			sessionStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-		} catch {}
+		(async () => {
+			try {
+				await dataReady;
+				const obj: Record<string, CacheEntry> = {};
+				for (const [k, v] of artworkCache.entries()) obj[k] = v;
+				const bytes = new TextEncoder().encode(JSON.stringify(obj));
+				// TTL 0 = never expires; per-entry negative-result TTL is handled
+				// in-memory by readCache().
+				await httpCacheRepo.put(STORAGE_KEY, bytes, 'application/json', 0);
+			} catch {
+				/* best-effort */
+			}
+		})();
 	}, 250);
 }
 
 function readCache(key: string): CacheEntry | undefined {
-	hydrate();
 	const hit = artworkCache.get(key);
 	if (!hit) return undefined;
 	if (hit.url === null && Date.now() - hit.at > NEGATIVE_TTL_MS) {
@@ -128,6 +152,7 @@ export async function getArtwork(
 	if (!browser || !SEARCH_API_BASE_URL) return null;
 	if (!artist && !title) return null;
 
+	await hydrate();
 	const key = normalizeArtworkKey(artist, title);
 	const cached = readCache(key);
 	if (cached) return cached.url;
@@ -185,7 +210,7 @@ export async function getArtworkBatch(
 	existing: Record<string, string> = {}
 ): Promise<Record<string, string>> {
 	if (!browser || !SEARCH_API_BASE_URL) return existing;
-	hydrate();
+	await hydrate();
 
 	const result = { ...existing };
 	const toFetch: Array<{ id: string; artist: string; title: string; key: string }> = [];
