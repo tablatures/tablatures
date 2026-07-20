@@ -15,6 +15,7 @@ export interface UserPreferences {
 	audioSourcePreference: 'tab' | 'video' | 'both';
 	autoPlayOnLoad: boolean;
 	showMiniPlayerPreview: boolean;
+	haptics: boolean;
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -79,7 +80,8 @@ const DEFAULTS: UserPreferences = {
 	miniPlayerScaleMobile: 0.7,
 	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
-	showMiniPlayerPreview: true
+	showMiniPlayerPreview: true,
+	haptics: true
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */
