@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { fadeInImage } from '$utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
@@ -442,7 +443,7 @@
 											aria-label="Search tabs by {artist.name}"
 										>
 											{#if artistImages[artist.name]}
-												<img src={artistImages[artist.name]} alt="" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+												<img src={artistImages[artist.name]} alt="" use:fadeInImage={artistImages[artist.name]} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 											{:else if artistImagesLoading.has(artist.name)}
 												<div class="w-full h-full animate-pulse bg-neutral-200 dark:bg-neutral-700"></div>
 											{:else}
@@ -678,10 +679,10 @@
 								<span class="w-16 h-16 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
 									{#if covers.length >= 4}
 										<span class="grid grid-cols-2 w-full h-full">
-											{#each covers as c}<img src={c} alt="" class="w-full h-full object-cover" />{/each}
+											{#each covers as c}<img src={c} alt="" use:fadeInImage={c} class="w-full h-full object-cover" />{/each}
 										</span>
 									{:else if covers.length > 0}
-										<img src={covers[0]} alt="" class="w-full h-full object-cover" />
+										<img src={covers[0]} alt="" use:fadeInImage={covers[0]} class="w-full h-full object-cover" />
 									{:else}
 										<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600">queue_music</i>
 									{/if}

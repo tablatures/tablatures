@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
@@ -845,6 +846,7 @@
 							<img
 								src={seeAllThumb}
 								alt=""
+								use:fadeInImage={seeAllThumb}
 								class="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
 							/>
 						{/if}

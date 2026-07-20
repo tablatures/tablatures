@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { favoritesStore } from '../utils/favorites';
 	import { getSourceDisplay } from '../utils/sources';
 	import FavoriteButton from './FavoriteButton.svelte';
@@ -53,6 +54,7 @@
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				use:fadeInImage={displayImage}
 				class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
 				on:error={() => (imageFailed = true)}
 			/>

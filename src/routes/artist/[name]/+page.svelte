@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '$utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import Header from '$components/Header.svelte';
 	import TabCard from '$components/TabCard.svelte';
@@ -318,11 +319,12 @@
 			<img
 				src={bannerUrl}
 				alt=""
+				use:fadeInImage={bannerUrl}
 				class="w-full h-full object-cover"
 				on:error={() => (bannerFailed = true)}
 			/>
 		{:else if avatarUrl}
-			<img src={avatarUrl} alt="" class="w-full h-full object-cover blur-2xl scale-110 opacity-60" on:error={() => (avatarFailed = true)} />
+			<img src={avatarUrl} alt="" use:fadeInImage={avatarUrl} class="w-full h-full object-cover blur-2xl scale-110 opacity-60" on:error={() => (avatarFailed = true)} />
 		{:else}
 			<div class="w-full h-full bg-gradient-to-br from-violet-500 via-violet-700 to-black"></div>
 		{/if}
@@ -336,7 +338,7 @@
 			<!-- Avatar -->
 			<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center">
 				{#if avatarUrl}
-					<img src={avatarUrl} alt={info.name} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
+					<img src={avatarUrl} alt={info.name} use:fadeInImage={avatarUrl} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
 				{:else}
 					<i class="material-icons !text-5xl text-neutral-400">person</i>
 				{/if}
@@ -420,7 +422,7 @@
 								</div>
 							{/if}
 							{#if album.cover}
-								<img src={album.cover} alt={album.title} loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+								<img src={album.cover} alt={album.title} loading="lazy" use:fadeInImage={album.cover} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
 							{:else}
 								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600">album</i></div>
 							{/if}
@@ -438,7 +440,7 @@
 				<div class="mt-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
 					<div class="flex items-center gap-3 px-4 py-3 bg-neutral-50 dark:bg-neutral-900">
 						{#if openAlbum.cover}
-							<img src={openAlbum.cover} alt="" class="w-12 h-12 rounded-lg object-cover" />
+							<img src={openAlbum.cover} alt="" use:fadeInImage={openAlbum.cover} class="w-12 h-12 rounded-lg object-cover" />
 						{/if}
 						<div class="flex-1 min-w-0">
 							<div class="font-medium text-neutral-900 dark:text-white truncate">{openAlbum.title}</div>
@@ -518,7 +520,7 @@
 					>
 						<div class="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 mx-auto shadow-sm group-hover:shadow-lg transition-all group-hover:scale-105">
 							{#if sim.image}
-								<img src={sim.image.replace(/^http:\/\//, 'https://')} alt={sim.name} loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+								<img src={sim.image.replace(/^http:\/\//, 'https://')} use:fadeInImage={sim.image} alt={sim.name} loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
 								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600">person</i></div>
 							{/if}

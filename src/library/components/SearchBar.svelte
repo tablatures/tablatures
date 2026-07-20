@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { browser } from '$app/environment';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { historyStore } from '../utils/history';
@@ -290,7 +291,7 @@
 					>
 						<div class="flex-shrink-0 w-9 h-9 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center">
 							{#if recentArtwork[item.id]}
-								<img src={recentArtwork[item.id]} alt="" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+								<img src={recentArtwork[item.id]} alt="" use:fadeInImage={recentArtwork[item.id]} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 							{:else}
 								<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">history</i>
 							{/if}
@@ -350,7 +351,7 @@
 					>
 						<div class="flex-shrink-0 w-9 h-9 {s.type === 'artist' ? 'rounded-full' : 'rounded-lg'} overflow-hidden {s.type === 'artist' ? 'bg-violet-100 dark:bg-violet-900/30' : 'bg-neutral-100 dark:bg-neutral-800'} flex items-center justify-center">
 							{#if s.type === 'artist' && s.image}
-								<img src={s.image} alt="" loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+								<img src={s.image} alt="" loading="lazy" use:fadeInImage={s.image} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
 								<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
 							{/if}
