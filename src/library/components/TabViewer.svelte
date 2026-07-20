@@ -36,6 +36,7 @@
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
+	import { scoreEdits } from '$utils/scoreEdits';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
 	import { openTabById } from '../utils/openTab';
@@ -4486,8 +4487,9 @@
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
-						<!-- Subtitle + tuning chip share one horizontal line so the chip
-						     stays compact and does not add a row to the bottom bar -->
+						<!-- Subtitle + current-track chip share one horizontal line. The
+						     prominent chip selects the track (opens the tracks panel); the
+						     tuning is demoted to muted text alongside the artist. -->
 						<div class="flex items-center gap-2 min-w-0">
 							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
@@ -4747,30 +4749,35 @@
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-			<PlayerConsole
-				api={$playerApi}
-				{tracks}
-				{activeTrackIndex}
-				bind:trackVolumes
-				bind:trackMutes
-				bind:trackSolos
-				{loopStartBar}
-				{loopEndBar}
-				{loopEnabled}
-				bind:mergeMode
-				bind:selectedIndexes={mergeSelection}
-				on:selecttrack={(e) => setActiveTrack(e.detail)}
-				on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-				on:togglemute={(e) => toggleTrackMute(e.detail)}
-				on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-				on:muteall={muteAllTracks}
-				on:unmuteall={unmuteAllTracks}
-				on:resetlevels={resetAllVolumes}
-				on:toggleloop={toggleLoopEnabled}
-				on:clearloop={clearLoopPoints}
-				on:merged={onTrackMerged}
-				on:removed={onMergedTrackRemoved}
-			/>
+			<!-- Fill the remaining height so the console (and its track list) is
+			     bounded and scrolls internally instead of pushing the footer
+			     controls off-screen on the full-screen mobile sheet. -->
+			<div class="flex-1 min-h-0">
+				<PlayerConsole
+					api={$playerApi}
+					{tracks}
+					{activeTrackIndex}
+					bind:trackVolumes
+					bind:trackMutes
+					bind:trackSolos
+					{loopStartBar}
+					{loopEndBar}
+					{loopEnabled}
+					bind:mergeMode
+					bind:selectedIndexes={mergeSelection}
+					on:selecttrack={(e) => setActiveTrack(e.detail)}
+					on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+					on:togglemute={(e) => toggleTrackMute(e.detail)}
+					on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+					on:muteall={muteAllTracks}
+					on:unmuteall={unmuteAllTracks}
+					on:resetlevels={resetAllVolumes}
+					on:toggleloop={toggleLoopEnabled}
+					on:clearloop={clearLoopPoints}
+					on:merged={onTrackMerged}
+					on:removed={onMergedTrackRemoved}
+				/>
+			</div>
 		</aside>
 	{/if}
 
