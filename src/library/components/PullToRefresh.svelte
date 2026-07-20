@@ -27,8 +27,19 @@
 	}
 
 	$: headerHeight = reduced ? (state === 'refreshing' ? 48 : 0) : distance;
-	$: spinning = state === 'refreshing';
-	$: iconRotation = progress * 180;
+	$: refreshing = state === 'refreshing';
+
+	// Circular "spring" loader. While pulling, the ring winds up: the arc grows
+	// with progress and the whole ring rotates counter-clockwise (reverse), like
+	// winding a spring. On release (refreshing) it releases into an indeterminate
+	// spinner spinning forward (clockwise) — mirrors YouTube/Material SwipeRefresh.
+	const RING_R = 9;
+	const RING_C = 2 * Math.PI * RING_R;
+	$: clampedProgress = Math.min(1, Math.max(0, progress));
+	// Arc grows as you pull (offset shrinks from full circumference to 0).
+	$: windOffset = RING_C * (1 - clampedProgress);
+	// Counter-clockwise wind-up while pulling.
+	$: windRotation = -clampedProgress * 270;
 </script>
 
 <div
@@ -53,20 +64,32 @@
 		aria-hidden={state === 'idle'}
 	>
 		<div class="mb-2 flex items-center justify-center">
-			{#if spinning}
-				<i class="material-icons animate-spin !text-2xl text-violet-500">autorenew</i>
-			{:else}
-				<i
-					class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500"
-					style="transform: rotate({iconRotation}deg); transition: transform 0.1s linear; opacity: {Math.min(
-						1,
-						progress + 0.2
-					)};"
-					class:!text-violet-500={state === 'ready'}
-				>
-					arrow_downward
-				</i>
-			{/if}
+			<!-- Circular progress ring: winds counter-clockwise as you pull, then
+			     releases into a clockwise indeterminate spinner while refreshing. -->
+			<svg
+				width="24"
+				height="24"
+				viewBox="0 0 24 24"
+				aria-hidden="true"
+				class="{refreshing && !reduced ? 'animate-spin' : ''} {state === 'ready' || refreshing
+					? 'text-violet-500'
+					: 'text-neutral-400 dark:text-neutral-500'}"
+				style="opacity: {refreshing ? 1 : Math.min(1, clampedProgress + 0.15)}; {refreshing
+					? ''
+					: `transform: rotate(${windRotation}deg); transition: transform 0.08s linear;`}"
+			>
+				<circle
+					cx="12"
+					cy="12"
+					r={RING_R}
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-dasharray={RING_C}
+					stroke-dashoffset={refreshing ? RING_C * 0.25 : windOffset}
+				/>
+			</svg>
 		</div>
 	</div>
 

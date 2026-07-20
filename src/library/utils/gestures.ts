@@ -16,8 +16,10 @@ export const SCALE_MIN = 0.5;
 export const SCALE_MAX = 3;
 /** Minimum travel (px) before a drag counts as a directional swipe. */
 export const SWIPE_THRESHOLD_PX = 50;
-/** Pull distance (px) at which pull-to-refresh commits. */
-export const PULL_TRIGGER_PX = 70;
+/** Pull distance (px) at which pull-to-refresh commits. Kept short so a small
+ *  drag triggers a refresh (YouTube/Material SwipeRefresh feel), but well above
+ *  accidental micro-drags. */
+export const PULL_TRIGGER_PX = 48;
 /** Max gap (ms) between two taps for a double-tap. */
 export const DOUBLE_TAP_MS = 300;
 
@@ -428,7 +430,10 @@ export function pullToRefresh(
 			return false;
 		}
 		if (e.cancelable) e.preventDefault();
-		const distance = resist(raw);
+		// Softer rubber-band (higher c) than the default so the shorter trigger
+		// distance is reached with less finger travel — responsive without
+		// triggering on tiny accidental drags.
+		const distance = resist(raw, 120, 0.8);
 		p.onState?.(shouldTriggerPull(distance, trigger()) ? 'ready' : 'pulling');
 		if (shouldTriggerPull(distance, trigger()) && !readyFired) {
 			readyFired = true;

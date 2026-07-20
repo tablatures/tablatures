@@ -12,8 +12,7 @@
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
 	import { tabStore } from '../../library/utils/store';
-	import { activeVideoId, sourceVariants } from '../../library/utils/playerStore';
-	import { historyStore } from '../../library/utils/history';
+	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
@@ -110,7 +109,6 @@
 		return url;
 	}
 	let loading = false;
-	let downloadingTab = false;
 	let error = '';
 	let apiAvailable = true;
 	let totalResults = 0;
@@ -585,27 +583,20 @@
 	}
 
 	async function openTab(tab: TabResult): Promise<void> {
-		downloadingTab = true;
 		error = '';
-
-		const applyToStores = (arrayBuffer: ArrayBuffer) => {
-			const base64 = arrayBufferToBase64(arrayBuffer);
-
-			historyStore.addToHistory({
+		// Delegate to the shared opener so a click navigates to /play IMMEDIATELY
+		// and the loading state shows there while the bytes resolve (offline-first,
+		// then download + persist), instead of blocking the search page behind a
+		// full-screen spinner. History, source pills and errors are handled inside.
+		await openTabById(
+			{
 				id: tab.id,
 				title: tab.title,
-				artist: tab.artist || 'Unknown',
+				artist: tab.artist,
 				source: tab.source,
 				type: tab.type,
-				album: tab.album
-			});
-
-			tabStore.setTab({
-				fileAsB64: base64,
-				tabId: tab.id,
-				source: tab.source,
-				title: tab.title,
-				artist: tab.artist,
+				album: tab.album,
+				sourceUrl: (tab as any).sourceUrl,
 				variants: tab.variants?.map((v) => ({
 					id: v.id,
 					title: v.title || tab.title,
@@ -614,70 +605,9 @@
 					trackCount: v.trackCount ?? undefined,
 					instruments: v.instruments ?? undefined
 				}))
-			});
-
-			// Light up the source pills in the player
-			sourceVariants.set(
-				(tab.variants || [])
-					.reduce((acc: any[], v) => {
-						const cur = acc.find((x) => x.source === v.source);
-						if (!cur) acc.push({ id: v.id, source: v.source, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
-						else if ((v.trackCount || 0) > (cur.trackCount || 0)) Object.assign(cur, { id: v.id, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
-						return acc;
-					}, [])
-			);
-
-			goto(`${base}/play`);
-		};
-
-		try {
-			// Offline-first: reopen from the on-device store with no network.
-			const stored = await loadStoredTabBytes(tab.id);
-			if (stored && stored.byteLength > 0) {
-				applyToStores(stored);
-				return;
-			}
-
-			const srcHint =
-				tab.id.startsWith('ug:') && (tab as any).sourceUrl
-					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
-					: '';
-			const response = await fetchWithTimeout(
-				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
-				{},
-				10000
-			);
-
-			if (!response.ok) {
-				if (response.status === 400) throw new Error('This tab is invalid or cannot be downloaded.');
-				if (response.status === 404) throw new Error('Tab not found.');
-				throw new Error('Download failed.');
-			}
-
-			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
-			applyToStores(arrayBuffer);
-
-			void persistTabBytes(
-				{
-					id: tab.id,
-					title: tab.title,
-					artist: tab.artist,
-					album: tab.album,
-					source: tab.source,
-					sourceUrl: (tab as any).sourceUrl,
-					type: tab.type
-				},
-				new Uint8Array(arrayBuffer),
-				'history'
-			);
-		} catch (err: any) {
-			error = err?.message || 'Download failed.';
-			tabStore.clearTab();
-		} finally {
-			downloadingTab = false;
-		}
+			},
+			true
+		);
 	}
 
 	function handleOpenTab(e: CustomEvent) {
@@ -748,12 +678,6 @@
 	on:input={handleSearchInput}
 	on:openTab={handleOpenTab}
 />
-
-{#if downloadingTab}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
-		<LoadingScore message="Downloading tablature" size="lg" />
-	</div>
-{/if}
 
 <main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-3.5rem)]">
 	<PullToRefresh on:refresh={handlePullRefresh}>

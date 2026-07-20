@@ -1,9 +1,9 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
-import { tabStore, type TabVersion } from './store';
+import { tabStore, pendingTabStore, type TabVersion } from './store';
 import { historyStore } from './history';
-import { sourceVariants } from './playerStore';
+import { sourceVariants, updatePlayerState } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
@@ -67,19 +67,46 @@ export async function openTabById(
 	}
 	if (!browser || !tab.id) return false;
 
-	// Push the loaded bytes into the stores + history and (optionally) navigate.
-	const applyToStores = (arrayBuffer: ArrayBuffer) => {
-		const b64 = arrayBufferToBase64(arrayBuffer);
+	// --- Optimistic, instant navigation ---
+	// History + the source-switch pills are known from the list item, so record
+	// them up front. Then, when navigating, flip to /play IMMEDIATELY with the
+	// optimistic metadata and let /play show its loading state while the bytes
+	// resolve below. This mirrors the shared-tab (?tab=) navigate-then-load path
+	// so every entry point feels instant instead of blocking on the ~1s download.
+	historyStore.addToHistory({
+		id: tab.id,
+		title: tab.title,
+		artist: tab.artist || 'Unknown',
+		source: tab.source || '',
+		type: tab.type,
+		album: tab.album
+	});
 
-		historyStore.addToHistory({
+	// Feed the source-switch pills (TabViewer/MiniPlayer): best version per source
+	if (tab.variants && tab.variants.length > 0) {
+		sourceVariants.set(bestPerSource(tab.variants));
+	} else {
+		// Versions are resolved lazily by the player UI (PlayerQueueBar)
+		// only when actually shown - saves one request per tab open
+		sourceVariants.set([]);
+	}
+
+	if (navigate) {
+		pendingTabStore.set({
 			id: tab.id,
 			title: tab.title,
-			artist: tab.artist || 'Unknown',
-			source: tab.source || '',
-			type: tab.type,
-			album: tab.album
+			artist: tab.artist,
+			source: tab.source
 		});
+		// Optimistic title/artist so the player chrome shows the right name while
+		// the score renders; alphaTab's scoreLoaded overrides with file metadata.
+		updatePlayerState({ title: tab.title || '', artist: tab.artist || '' });
+		goto(`${base}/play`);
+	}
 
+	// Push the resolved bytes into the tab store (history + pills already set).
+	const applyToStores = (arrayBuffer: ArrayBuffer) => {
+		const b64 = arrayBufferToBase64(arrayBuffer);
 		tabStore.setTab({
 			fileAsB64: b64,
 			tabId: tab.id,
@@ -89,19 +116,9 @@ export async function openTabById(
 			album: tab.album,
 			variants: tab.variants
 		});
-
-		// Feed the source-switch pills (TabViewer/MiniPlayer): best version per source
-		if (tab.variants && tab.variants.length > 0) {
-			sourceVariants.set(bestPerSource(tab.variants));
-		} else {
-			// Versions are resolved lazily by the player UI (PlayerQueueBar)
-			// only when actually shown - saves one request per tab open
-			sourceVariants.set([]);
-		}
-
-		if (navigate) {
-			goto(`${base}/play`);
-		}
+		// Bytes landed — drop the optimistic loading marker so /play reveals the
+		// score.
+		pendingTabStore.set(null);
 	};
 
 	// Offline-first: a previously-opened tab reopens straight from the on-device
@@ -112,7 +129,10 @@ export async function openTabById(
 		return true;
 	}
 
-	if (!SEARCH_API_BASE_URL) return false;
+	if (!SEARCH_API_BASE_URL) {
+		pendingTabStore.set(null);
+		return false;
+	}
 
 	try {
 		const controller = new AbortController();
@@ -150,6 +170,9 @@ export async function openTabById(
 
 		return true;
 	} catch (err: any) {
+		// Clear the loading marker so /play doesn't sit on a stuck spinner, then
+		// surface the failure.
+		pendingTabStore.set(null);
 		toastStore.error(err?.message || 'Failed to open tab');
 		return false;
 	}

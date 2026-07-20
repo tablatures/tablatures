@@ -67,3 +67,19 @@ function createTabStore() {
 }
 
 export const tabStore = createTabStore();
+
+/**
+ * Optimistic "a tab is being opened" signal. Set with the list item's known
+ * metadata the instant an open is requested so /play can navigate immediately
+ * and show its loading state (LoadingScore) while the bytes resolve in the
+ * background. Cleared once the bytes land in `tabStore` — or on failure, so the
+ * spinner never sticks.
+ */
+export interface PendingTab {
+	id?: string;
+	title?: string;
+	artist?: string;
+	source?: string;
+}
+
+export const pendingTabStore = writable<PendingTab | null>(null);

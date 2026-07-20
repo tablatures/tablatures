@@ -114,6 +114,19 @@
 		overscroll-behavior: none;
 	}
 
+	/* Clip any horizontal overflow at the page scroll container so no stray
+	   child (e.g. a right-edge control whose invisible .tap-target::after halo
+	   reaches past the viewport, or a full-bleed row) can make
+	   document.scrollWidth exceed innerWidth. That horizontal overflow is what
+	   left a phantom right-hand "gutter" on mobile, stopping content short of
+	   the screen edge. `clip` (not `hidden`) is used deliberately: it does NOT
+	   establish a scroll container, so the sticky header keeps sticking and hit
+	   areas are unchanged. overflow-y stays visible so vertical page scroll and
+	   pull-to-refresh are untouched. */
+	body {
+		overflow-x: clip;
+	}
+
 	/* Remove the legacy 300ms tap delay and disable double-tap-to-zoom on
 	   interactive chrome so presses register instantly and feel native. Real
 	   pinch-zoom targets (the score) are opted out via .touch-pan below. */
