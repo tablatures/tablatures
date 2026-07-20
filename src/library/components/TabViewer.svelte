@@ -36,6 +36,8 @@
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
+	import { readTrackTuning } from '$utils/transposition';
+	import { scoreEdits } from '$utils/scoreEdits';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
 	import { openTabById } from '../utils/openTab';
@@ -3267,6 +3269,28 @@
 		showSettings = true;
 	}
 
+	// The current-track chip (mobile primary control) and the tuning panel both
+	// open the single settings console; the console lists tracks at the top.
+	function openTracksPanel() {
+		showSettings = true;
+	}
+
+	// Live tuning label for the demoted tuning readout in the metadata row.
+	// `_edits` is an unused dependency so the label re-derives when a
+	// transposition edit mutates the score.
+	function deriveTuningLabel(_edits: unknown, a: any, idx: number): string {
+		const current = a?.score ? readTrackTuning(a.score, idx) : null;
+		if (!current || current.tuning.length === 0) return '';
+		const match = TUNING_PRESETS.find(
+			(p) =>
+				p.strings.length === current.tuning.length &&
+				p.strings.every((s, i) => s.midi === current.tuning[i])
+		);
+		const name = match ? match.name : current.tuning.map((m) => midiToNoteName(m)).join(' ');
+		return current.capo > 0 ? `${name} · Capo ${current.capo}` : name;
+	}
+	$: currentTuningLabel = deriveTuningLabel($scoreEdits, $playerApi, activeTrackIndex);
+
 	function handleFullscreenChange() {
 		isFullscreen = !!document.fullscreenElement;
 		// Rebind scroll listeners to the correct target (window vs page element)
@@ -4414,8 +4438,9 @@
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
-						<!-- Subtitle + tuning chip share one horizontal line so the chip
-						     stays compact and does not add a row to the bottom bar -->
+						<!-- Subtitle + current-track chip share one horizontal line. The
+						     prominent chip selects the track (opens the tracks panel); the
+						     tuning is demoted to muted text alongside the artist. -->
 						<div class="flex items-center gap-2 min-w-0">
 							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
 								{#if currentArtistName}
@@ -4430,18 +4455,20 @@
 									</span>
 									&middot;
 								{/if}
-								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+								{currentTuningLabel || tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
 									? ` \u00B7 ${totalBars} bars`
 									: ''}
 							</p>
-							<div class="flex-shrink-0">
-								<TuningChip
-									api={$playerApi}
-									{activeTrackIndex}
-									{tracks}
-									on:open={openTuningPanel}
-								/>
-							</div>
+							<button
+								type="button"
+								on:click={openTracksPanel}
+								class="tap-target flex-shrink-0 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+								title="Change track"
+								aria-label="Change track: {tracks[activeTrackIndex]?.name || 'Track'}"
+							>
+								<i class="material-icons !text-sm">queue_music</i>
+								<span class="max-w-[10rem] truncate">{tracks[activeTrackIndex]?.name || 'Track'}</span>
+							</button>
 						</div>
 						<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
@@ -4606,30 +4633,35 @@
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-			<PlayerConsole
-				api={$playerApi}
-				{tracks}
-				{activeTrackIndex}
-				bind:trackVolumes
-				bind:trackMutes
-				bind:trackSolos
-				{loopStartBar}
-				{loopEndBar}
-				{loopEnabled}
-				bind:mergeMode
-				bind:selectedIndexes={mergeSelection}
-				on:selecttrack={(e) => setActiveTrack(e.detail)}
-				on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-				on:togglemute={(e) => toggleTrackMute(e.detail)}
-				on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-				on:muteall={muteAllTracks}
-				on:unmuteall={unmuteAllTracks}
-				on:resetlevels={resetAllVolumes}
-				on:toggleloop={toggleLoopEnabled}
-				on:clearloop={clearLoopPoints}
-				on:merged={onTrackMerged}
-				on:removed={onMergedTrackRemoved}
-			/>
+			<!-- Fill the remaining height so the console (and its track list) is
+			     bounded and scrolls internally instead of pushing the footer
+			     controls off-screen on the full-screen mobile sheet. -->
+			<div class="flex-1 min-h-0">
+				<PlayerConsole
+					api={$playerApi}
+					{tracks}
+					{activeTrackIndex}
+					bind:trackVolumes
+					bind:trackMutes
+					bind:trackSolos
+					{loopStartBar}
+					{loopEndBar}
+					{loopEnabled}
+					bind:mergeMode
+					bind:selectedIndexes={mergeSelection}
+					on:selecttrack={(e) => setActiveTrack(e.detail)}
+					on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+					on:togglemute={(e) => toggleTrackMute(e.detail)}
+					on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+					on:muteall={muteAllTracks}
+					on:unmuteall={unmuteAllTracks}
+					on:resetlevels={resetAllVolumes}
+					on:toggleloop={toggleLoopEnabled}
+					on:clearloop={clearLoopPoints}
+					on:merged={onTrackMerged}
+					on:removed={onMergedTrackRemoved}
+				/>
+			</div>
 		</aside>
 	{/if}
 

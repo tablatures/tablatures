@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import Header from '../../library/components/Header.svelte';
 	import Button from '../../library/components/Button.svelte';
 	import { favoritesStore } from '../../library/utils/favorites';
@@ -226,6 +227,11 @@
 
 	onMount(refreshStorage);
 
+	function closeSettings() {
+		if (browser && window.history.length > 1) window.history.back();
+		else goto(`${base}/`);
+	}
+
 	function clearAllData() {
 		if (!browser) return;
 		historyStore.clearHistory();
@@ -255,6 +261,16 @@
 			<i class="material-icons-outlined !text-2xl text-violet-500">settings</i>
 			Settings
 		</h1>
+		<!-- Close: comfortably wide and kept clear of the right screen edge so it
+		     is easy to tap on mobile (>=48dp hit area via .tap-target). -->
+		<button
+			on:click={closeSettings}
+			class="tap-target mr-1 flex items-center justify-center h-11 px-4 rounded-lg text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+			title="Close settings"
+			aria-label="Close settings"
+		>
+			<i class="material-icons !text-2xl">close</i>
+		</button>
 	</div>
 
 	<!-- ===== SUPPORT / FEEDBACK BANNER ===== -->
