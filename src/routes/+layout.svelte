@@ -59,6 +59,7 @@
 		syncStableUrlFromState,
 		syncPlaybackTime
 	} from '../library/utils/urlState';
+	import { initData } from '../library/data/init';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
@@ -70,6 +71,11 @@
 	// persist across navigation.
 	let urlHydrated = false;
 	onMount(() => {
+		// P1 (persistence): open the on-device database, run migrations and the
+		// one-time localStorage import. The DB-backed stores await this via
+		// `dataReady`, so we don't need to block the rest of onMount on it.
+		initData().catch((e) => console.error('[data] init failed', e));
+
 		hydrateFromUrl();
 		urlHydrated = true;
 	});

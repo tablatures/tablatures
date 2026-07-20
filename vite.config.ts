@@ -53,7 +53,9 @@ const config: UserConfig = {
 			workbox: {
 				// The SvelteKit client output sits under client/; without the prefix
 				// server assets leak into the precache manifest.
-				globPatterns: ['client/**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
+				// `wasm` is included so the sqlite-wasm engine is precached and the
+				// on-device DB works on a cold offline start (the whole point of P1).
+				globPatterns: ['client/**/*.{js,css,html,ico,png,svg,webp,woff,woff2,wasm}'],
 				// Soundfonts (the bundled sf3 and the optional CDN upgrades) are large
 				// and range-requested; never precache them, serve CacheFirst at runtime.
 				globIgnores: ['**/*.sf2', '**/*.sf3'],
@@ -78,6 +80,17 @@ const config: UserConfig = {
 			}
 		})
 	],
+	worker: {
+		// The sqlite-wasm DB worker (src/library/data/db.worker.ts) is an ES
+		// module worker; emit workers as ESM so its imports resolve.
+		format: 'es'
+	},
+	optimizeDeps: {
+		// sqlite-wasm ships its own .wasm and must not be pre-bundled/split by
+		// esbuild, or the runtime wasm URL resolution breaks. Let Vite emit it
+		// as an asset from the worker import instead.
+		exclude: ['@sqlite.org/sqlite-wasm']
+	},
 	ssr: {
 		// due to https://github.com/airjp73/remix-validated-form/issues/230
 		noExternal: ['zod-form-data']

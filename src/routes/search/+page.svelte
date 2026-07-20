@@ -18,6 +18,9 @@
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA } from '../../library/data/cachedFetch';
+	import { searchLocalTabs } from '../../library/data/localSearch';
+	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import { playlistStore } from '../../library/utils/playlists';
 	import type { PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
@@ -158,10 +161,11 @@
 			limit: '20'
 		});
 
-		const response = await fetchWithTimeout(
-			`${SEARCH_API_BASE_URL}/api/search?${urlParams}`,
-			{ headers: { Accept: 'application/json' } }
-		);
+		// Network-first with a TTL cache so a repeat query works offline.
+		const response = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${urlParams}`, {
+			ttl: TTL_SEARCH,
+			init: { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(SEARCH_API_TIMEOUT) }
+		});
 
 		if (!response.ok) return [];
 
@@ -382,7 +386,10 @@
 			const heroResults = await Promise.all(
 				qualifying.map(async (group) => {
 					try {
-						const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(group.canonical)}`);
+						const resp = await cachedFetch(
+							`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(group.canonical)}`,
+							{ ttl: TTL_METADATA }
+						);
 						if (resp.ok) {
 							const data = await resp.json();
 							return {
@@ -445,13 +452,29 @@
 		searchLoading = true;
 		error = '';
 
+		// On-device matches from the local FTS index — available even fully
+		// offline, and the only live source when the network is down.
+		let onDeviceResults: TabResult[] = [];
+
 		try {
 			if (currentPage === 1) {
 				try {
+					onDeviceResults = (await searchLocalTabs(query)) as unknown as TabResult[];
+					if (onDeviceResults.length > 0) {
+						tabs = onDeviceResults;
+						totalResults = onDeviceResults.length;
+						loading = false;
+					}
+				} catch {
+					/* local index unavailable */
+				}
+
+				try {
 					const localResults = await performLocalSearch();
 					if (localResults.length > 0) {
-						tabs = localResults;
-						totalResults = localResults.length;
+						// Merge catalog rows on top of any on-device matches.
+						tabs = tabs.length > 0 ? mergeResults(tabs, localResults) : localResults;
+						totalResults = tabs.length;
 						loading = false;
 					}
 				} catch {
@@ -498,10 +521,12 @@
 			// Only wipe the grid on a failed *first* page. A pagination
 			// error (page 2+) should leave the already-loaded rows alone
 			// and just stop asking for more, otherwise the user loses all
-			// their results when the backend hiccups near the tail.
+			// their results when the backend hiccups near the tail. Keep any
+			// on-device matches so search still works offline.
 			if (currentPage === 1) {
-				tabs = [];
-				totalResults = 0;
+				tabs = onDeviceResults;
+				totalResults = onDeviceResults.length;
+				if (onDeviceResults.length > 0) error = '';
 			}
 			hasMorePages = false;
 		} finally {
@@ -561,26 +586,8 @@
 	async function openTab(tab: TabResult): Promise<void> {
 		downloadingTab = true;
 		error = '';
-		try {
-			const srcHint =
-				tab.id.startsWith('ug:') && (tab as any).sourceUrl
-					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
-					: '';
-			const response = await fetchWithTimeout(
-				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
-				{},
-				10000
-			);
 
-			if (!response.ok) {
-				if (response.status === 400) throw new Error('This tab is invalid or cannot be downloaded.');
-				if (response.status === 404) throw new Error('Tab not found.');
-				throw new Error('Download failed.');
-			}
-
-			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
+		const applyToStores = (arrayBuffer: ArrayBuffer) => {
 			const base64 = arrayBufferToBase64(arrayBuffer);
 
 			historyStore.addToHistory({
@@ -620,6 +627,50 @@
 			);
 
 			goto(`${base}/play`);
+		};
+
+		try {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(tab.id);
+			if (stored && stored.byteLength > 0) {
+				applyToStores(stored);
+				return;
+			}
+
+			const srcHint =
+				tab.id.startsWith('ug:') && (tab as any).sourceUrl
+					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
+					: '';
+			const response = await fetchWithTimeout(
+				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
+				{},
+				10000
+			);
+
+			if (!response.ok) {
+				if (response.status === 400) throw new Error('This tab is invalid or cannot be downloaded.');
+				if (response.status === 404) throw new Error('Tab not found.');
+				throw new Error('Download failed.');
+			}
+
+			const arrayBuffer = await response.arrayBuffer();
+			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
+
+			applyToStores(arrayBuffer);
+
+			void persistTabBytes(
+				{
+					id: tab.id,
+					title: tab.title,
+					artist: tab.artist,
+					album: tab.album,
+					source: tab.source,
+					sourceUrl: (tab as any).sourceUrl,
+					type: tab.type
+				},
+				new Uint8Array(arrayBuffer),
+				'history'
+			);
 		} catch (err: any) {
 			error = err?.message || 'Download failed.';
 			tabStore.clearTab();
@@ -648,20 +699,27 @@
 		// If ?tab= is in URL, load that tab into the store (for mini player)
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
-			try {
-				const response = await fetchWithTimeout(
-					`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
-					{},
-					10000
-				);
-				if (response.ok) {
-					const arrayBuffer = await response.arrayBuffer();
-					if (arrayBuffer && arrayBuffer.byteLength > 0) {
-						const base64 = arrayBufferToBase64(arrayBuffer);
-						tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(sharedTabId);
+			if (stored && stored.byteLength > 0) {
+				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
+			} else {
+				try {
+					const response = await fetchWithTimeout(
+						`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
+						{},
+						10000
+					);
+					if (response.ok) {
+						const arrayBuffer = await response.arrayBuffer();
+						if (arrayBuffer && arrayBuffer.byteLength > 0) {
+							const base64 = arrayBufferToBase64(arrayBuffer);
+							tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
+							void persistTabBytes({ id: sharedTabId }, new Uint8Array(arrayBuffer), 'history');
+						}
 					}
-				}
-			} catch {}
+				} catch {}
+			}
 		}
 
 		// Test API health

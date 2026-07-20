@@ -16,6 +16,7 @@
 	import { toastStore } from '$utils/toast';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { getSourceDisplay } from '$utils/sources';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -123,7 +124,9 @@
 		avatarFailed = false;
 
 		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(name)}`);
+			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(name)}`, {
+				ttl: TTL_METADATA
+			});
 			if (!resp.ok) {
 				notFound = true;
 				return;
@@ -162,7 +165,7 @@
 				page: String(pageNum),
 				sort: 'alphabetical'
 			});
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/search?${params}`);
+			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${params}`, { ttl: TTL_SEARCH });
 			if (!resp.ok) return;
 			const data = await resp.json();
 			const incoming: TabItem[] = (data.results || []).filter(
@@ -222,8 +225,9 @@
 		albumTracks = [];
 		albumLoading = true;
 		try {
-			const resp = await fetch(
-				`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(info!.name)}/album/${album.deezerId}`
+			const resp = await cachedFetch(
+				`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(info!.name)}/album/${album.deezerId}`,
+				{ ttl: TTL_METADATA }
 			);
 			if (!resp.ok) return;
 			const data = await resp.json();

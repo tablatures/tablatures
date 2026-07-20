@@ -13,6 +13,7 @@
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import { cachedFetch, TTL_HOME_FEED } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
 	import { debugEmptyContinue } from '../utils/debug';
 
@@ -191,7 +192,8 @@
 					.replace(/limit=\d+/, `limit=${firstBatch}`)
 					.replace(/count=\d+/, `count=${firstBatch}`);
 			}
-			const res = await fetch(`${SEARCH_API_BASE_URL}${endpoint}`);
+			// Network-first with a short TTL so the last feed is available offline.
+			const res = await cachedFetch(`${SEARCH_API_BASE_URL}${endpoint}`, { ttl: TTL_HOME_FEED });
 			if (!res.ok) {
 				emptyFetchesInARow++;
 				markExhausted();

@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import { onMount, tick } from 'svelte';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
+	import { cachedFetch, TTL_METADATA } from '../data/cachedFetch';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let artistName: string = '';
@@ -46,7 +47,10 @@
 		loading = true;
 		await positionTooltip();
 		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`);
+			const resp = await cachedFetch(
+				`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(artistName)}`,
+				{ ttl: TTL_METADATA }
+			);
 			if (resp.ok) {
 				info = await resp.json();
 				artistCache[key] = info;

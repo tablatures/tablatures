@@ -1,5 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { dataReady } from '../data/init';
+import { prefsRepo } from '../data/repositories';
+import { PREF_KEY_SOURCES } from '../data/migrate';
 
 export interface SearchSource {
 	id: string;
@@ -18,9 +21,30 @@ export interface SourceStatus {
 }
 
 export const DEFAULT_SOURCES: SearchSource[] = [
-	{ id: 'local', name: 'Local DB', icon: 'storage', color: 'bg-neutral-500', badgeColor: 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300', enabled: true },
-	{ id: 'songsterr', name: 'Songsterr', icon: 'music_note', color: 'bg-orange-500', badgeColor: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300', enabled: true },
-	{ id: 'ultimate_guitar', name: 'Ultimate Guitar', icon: 'guitar', color: 'bg-yellow-500', badgeColor: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300', enabled: true },
+	{
+		id: 'local',
+		name: 'Local DB',
+		icon: 'storage',
+		color: 'bg-neutral-500',
+		badgeColor: 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300',
+		enabled: true
+	},
+	{
+		id: 'songsterr',
+		name: 'Songsterr',
+		icon: 'music_note',
+		color: 'bg-orange-500',
+		badgeColor: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300',
+		enabled: true
+	},
+	{
+		id: 'ultimate_guitar',
+		name: 'Ultimate Guitar',
+		icon: 'guitar',
+		color: 'bg-yellow-500',
+		badgeColor: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300',
+		enabled: true
+	}
 ];
 
 /** Shared display descriptor for a source — label + dot color + badge classes. */
@@ -79,9 +103,10 @@ export function getSourceDisplay(source: string): SourceDisplay {
 	};
 }
 
-const STORAGE_KEY = 'search_sources';
+const STORAGE_KEY = PREF_KEY_SOURCES;
 
-function loadSourcePreferences(): Record<string, boolean> {
+/** Instant seed from the legacy localStorage backup for first paint. */
+function seedFromLegacy(): Record<string, boolean> {
 	if (!browser) return {};
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
@@ -91,31 +116,45 @@ function loadSourcePreferences(): Record<string, boolean> {
 	}
 }
 
-function saveSourcePreferences(prefs: Record<string, boolean>): void {
-	if (!browser) return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-}
-
-function createSourcesStore() {
-	const prefs = loadSourcePreferences();
-	const initial = DEFAULT_SOURCES.map((s) => ({
+function applyPrefs(prefs: Record<string, boolean>): SearchSource[] {
+	return DEFAULT_SOURCES.map((s) => ({
 		...s,
 		enabled: prefs[s.id] !== undefined ? prefs[s.id] : s.enabled
 	}));
+}
 
-	const store = writable<SearchSource[]>(initial);
-	const { subscribe, update } = store;
+function createSourcesStore() {
+	const store = writable<SearchSource[]>(applyPrefs(seedFromLegacy()));
+	const { subscribe, update, set } = store;
+
+	if (browser) {
+		dataReady
+			.then(async () => {
+				const raw = await prefsRepo.get(STORAGE_KEY);
+				if (raw) {
+					try {
+						set(applyPrefs(JSON.parse(raw)));
+					} catch {
+						/* keep seed */
+					}
+				}
+			})
+			.catch(() => {});
+	}
+
+	function persist(sources: SearchSource[]): void {
+		if (!browser) return;
+		const prefs: Record<string, boolean> = {};
+		sources.forEach((s) => (prefs[s.id] = s.enabled));
+		prefsRepo.set(STORAGE_KEY, JSON.stringify(prefs)).catch(() => {});
+	}
 
 	return {
 		subscribe,
 		toggle: (id: string) => {
 			update((sources) => {
-				const updated = sources.map((s) =>
-					s.id === id ? { ...s, enabled: !s.enabled } : s
-				);
-				const prefs: Record<string, boolean> = {};
-				updated.forEach((s) => (prefs[s.id] = s.enabled));
-				saveSourcePreferences(prefs);
+				const updated = sources.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s));
+				persist(updated);
 				return updated;
 			});
 		},

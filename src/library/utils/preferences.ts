@@ -1,6 +1,9 @@
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { base } from '$app/paths';
+import { dataReady } from '../data/init';
+import { prefsRepo } from '../data/repositories';
+import { PREF_KEY_PREFERENCES } from '../data/migrate';
 
 export interface UserPreferences {
 	soundFontUrl: string;
@@ -14,7 +17,7 @@ export interface UserPreferences {
 	showMiniPlayerPreview: boolean;
 }
 
-const STORAGE_KEY = 'user-preferences';
+const STORAGE_KEY = PREF_KEY_PREFERENCES;
 
 // Bundled offline soundfont (committed under static/soundfont, Apache-2.0).
 // Served relative to the app base path so it resolves both under /tablatures
@@ -79,7 +82,8 @@ const DEFAULTS: UserPreferences = {
 	showMiniPlayerPreview: true
 };
 
-function load(): UserPreferences {
+/** Instant seed from the legacy localStorage backup for first paint. */
+function seedFromLegacy(): UserPreferences {
 	if (!browser) return DEFAULTS;
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
@@ -89,18 +93,32 @@ function load(): UserPreferences {
 	}
 }
 
-function save(prefs: UserPreferences): void {
-	if (!browser) return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-}
-
 function createPreferencesStore() {
-	const store = writable<UserPreferences>(load());
+	const store = writable<UserPreferences>(seedFromLegacy());
+
+	// Guard write-through while we apply the initial DB hydration, so loading
+	// does not immediately echo the same value back to the DB.
+	let hydrating = false;
 
 	if (browser) {
-		store.subscribe(save);
-		window.addEventListener('storage', () => {
-			store.set(load());
+		dataReady
+			.then(async () => {
+				const raw = await prefsRepo.get(STORAGE_KEY);
+				if (raw) {
+					try {
+						hydrating = true;
+						store.set({ ...DEFAULTS, ...JSON.parse(raw) });
+					} finally {
+						hydrating = false;
+					}
+				}
+			})
+			.catch(() => {});
+
+		// Write-through: persist every change to the prefs table (as JSON).
+		store.subscribe((prefs) => {
+			if (hydrating) return;
+			prefsRepo.set(STORAGE_KEY, JSON.stringify(prefs)).catch(() => {});
 		});
 	}
 

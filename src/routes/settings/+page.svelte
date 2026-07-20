@@ -9,6 +9,15 @@
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
 	import { saveFile, isNative } from '../../library/utils/native';
+	import { onMount } from 'svelte';
+	import { tabsRepo, httpCacheRepo } from '../../library/data/repositories';
+	import { usage as blobUsage } from '../../library/data/blobStore';
+	import {
+		getBlobBudgetBytes,
+		setBlobBudgetBytes,
+		DEFAULT_BUDGET_BYTES
+	} from '../../library/data/storagePrefs';
+	import { dataReady } from '../../library/data/init';
 
 	// Flip once the first Android release is published and listed on the stores.
 	const APP_RELEASED = false;
@@ -118,6 +127,95 @@
 		}
 		target.value = '';
 	}
+
+	// ===== Storage (on-device tab bytes + response cache) =====
+	const MB = 1024 * 1024;
+	let storageBytes = 0;
+	let storedCount = 0;
+	let pinnedCount = 0;
+	let budgetMB = Math.round(DEFAULT_BUDGET_BYTES / MB);
+	let storageLoading = true;
+	let clearingCache = false;
+	let showDeleteTabsConfirm = false;
+
+	function fmtBytes(b: number): string {
+		if (b <= 0) return '0 MB';
+		if (b < MB) return `${(b / 1024).toFixed(0)} KB`;
+		if (b < 1024 * MB) return `${(b / MB).toFixed(1)} MB`;
+		return `${(b / (1024 * MB)).toFixed(2)} GB`;
+	}
+
+	async function refreshStorage() {
+		if (!browser) return;
+		storageLoading = true;
+		try {
+			await dataReady;
+			const [used, stats, budget] = await Promise.all([
+				blobUsage(),
+				tabsRepo.storedStats(),
+				getBlobBudgetBytes()
+			]);
+			storageBytes = used;
+			storedCount = stats.count;
+			pinnedCount = stats.pinned;
+			budgetMB = Math.round(budget / MB);
+		} catch {
+			/* storage unavailable */
+		} finally {
+			storageLoading = false;
+		}
+	}
+
+	async function applyBudget() {
+		const bytes = Math.max(0, Math.round(budgetMB)) * MB;
+		try {
+			await setBlobBudgetBytes(bytes);
+			await dataReady;
+			await tabsRepo.enforceBudget(bytes);
+			toastStore.success('Storage budget updated');
+		} catch {
+			/* ignore */
+		}
+		await refreshStorage();
+	}
+
+	async function clearResponseCache() {
+		clearingCache = true;
+		try {
+			await dataReady;
+			await httpCacheRepo.clear();
+			toastStore.info('Response cache cleared');
+		} catch {
+			/* ignore */
+		} finally {
+			clearingCache = false;
+		}
+	}
+
+	async function unpinTabs() {
+		try {
+			await dataReady;
+			await tabsRepo.unpinAll();
+			toastStore.info('Unpinned all saved tabs');
+		} catch {
+			/* ignore */
+		}
+		await refreshStorage();
+	}
+
+	async function deleteCachedTabs() {
+		try {
+			await dataReady;
+			await tabsRepo.clearAllBytes();
+			toastStore.info('Deleted cached tab files');
+		} catch {
+			/* ignore */
+		}
+		showDeleteTabsConfirm = false;
+		await refreshStorage();
+	}
+
+	onMount(refreshStorage);
 
 	function clearAllData() {
 		if (!browser) return;
@@ -491,5 +589,113 @@
 		<p class="text-[11px] text-neutral-300 dark:text-neutral-600">
 			{favorites.length} favorites &middot; {historyItems.length} history items &middot; {Math.round((JSON.stringify({favorites, history: historyItems, preferences: prefs}).length) / 1024)}KB used
 		</p>
+	</div>
+
+	<!-- ===== STORAGE SECTION (offline tab cache) ===== -->
+	<div class="flex items-center gap-2 mb-3 mt-6">
+		<i class="material-icons-outlined text-violet-500 !text-xl">sd_storage</i>
+		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Storage</h3>
+	</div>
+
+	<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 space-y-4">
+		<p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+			Tabs you open are cached on this device so they reopen instantly and work
+			offline. Favorited and imported tabs are pinned and never evicted; other
+			tabs are dropped oldest-first once the budget below is exceeded.
+		</p>
+
+		<!-- Usage summary -->
+		<div class="grid grid-cols-3 gap-2 text-center">
+			<div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-2.5">
+				<div class="text-lg font-semibold text-neutral-800 dark:text-neutral-100">
+					{storageLoading ? '…' : fmtBytes(storageBytes)}
+				</div>
+				<div class="text-[11px] text-neutral-500 dark:text-neutral-400">On-device usage</div>
+			</div>
+			<div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-2.5">
+				<div class="text-lg font-semibold text-neutral-800 dark:text-neutral-100">
+					{storageLoading ? '…' : storedCount}
+				</div>
+				<div class="text-[11px] text-neutral-500 dark:text-neutral-400">Cached tabs</div>
+			</div>
+			<div class="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-2.5">
+				<div class="text-lg font-semibold text-neutral-800 dark:text-neutral-100">
+					{storageLoading ? '…' : pinnedCount}
+				</div>
+				<div class="text-[11px] text-neutral-500 dark:text-neutral-400">Pinned</div>
+			</div>
+		</div>
+
+		<!-- LRU budget -->
+		<div>
+			<div class="flex items-center justify-between mb-1">
+				<label for="storage-budget" class="text-sm font-medium text-neutral-700 dark:text-neutral-200"
+					>Cache budget</label
+				>
+				<span class="text-xs text-neutral-500 dark:text-neutral-400">{budgetMB} MB</span>
+			</div>
+			<input
+				id="storage-budget"
+				type="range"
+				min="50"
+				max="2000"
+				step="50"
+				bind:value={budgetMB}
+				on:change={applyBudget}
+				class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+					[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
+					[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
+			/>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
+				Maximum on-device space for cached tab files. Lowering it evicts the
+				oldest unpinned tabs immediately.
+			</p>
+		</div>
+
+		<!-- Actions -->
+		<div class="flex flex-col sm:flex-row gap-2">
+			<button
+				on:click={clearResponseCache}
+				disabled={clearingCache}
+				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors disabled:opacity-50 w-full sm:w-auto"
+			>
+				<i class="material-icons !text-lg">cached</i>
+				Clear response cache
+			</button>
+
+			<button
+				on:click={unpinTabs}
+				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
+			>
+				<i class="material-icons !text-lg">push_pin</i>
+				Unpin saved tabs
+			</button>
+
+			{#if showDeleteTabsConfirm}
+				<div class="flex flex-col sm:flex-row gap-2 items-center">
+					<span class="text-sm text-red-500">Delete cached tab files?</span>
+					<button
+						on:click={deleteCachedTabs}
+						class="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors w-full sm:w-auto"
+					>
+						Yes, delete
+					</button>
+					<button
+						on:click={() => (showDeleteTabsConfirm = false)}
+						class="px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors w-full sm:w-auto"
+					>
+						Cancel
+					</button>
+				</div>
+			{:else}
+				<button
+					on:click={() => (showDeleteTabsConfirm = true)}
+					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors w-full sm:w-auto"
+				>
+					<i class="material-icons !text-lg">delete_sweep</i>
+					Delete cached tabs
+				</button>
+			{/if}
+		</div>
 	</div>
 </main>

@@ -15,6 +15,7 @@
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { activeVideoId, playerState, updatePlayerState } from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
+	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -94,13 +95,28 @@
 			const title = currentTab?.title || state.title || currentTab?.fileName?.replace(/\.[^./]+$/, '') || 'Imported tab';
 			const artist = currentTab?.artist || state.artist || 'Unknown';
 			const digest = hash.slice(7, 19); // skip `#tab=1.` prefix, take 12 chars
+			const importedId = `local:${digest}`;
 			historyStore.addToHistory({
-				id: `local:${digest}`,
+				id: importedId,
 				title,
 				artist,
 				source: currentTab?.source || 'upload',
 				hashPayload: hash
 			});
+
+			// Persist the imported bytes pinned (kind 'imported') so the LRU never
+			// evicts a user's own file and it reopens offline from the blob store.
+			void persistTabBytes(
+				{
+					id: importedId,
+					title,
+					artist,
+					source: currentTab?.source || 'upload',
+					hashPayload: hash
+				},
+				new Uint8Array(buf),
+				'imported'
+			);
 		} catch (err) {
 			console.error('Failed to embed tab in URL hash:', err);
 		} finally {
@@ -139,21 +155,9 @@
 
 	// Handle opening a tab from search results while on /play
 	async function openTab(tab: any): Promise<void> {
-		if (!tab?.id || !SEARCH_API_BASE_URL) return;
-		loadingSharedTab = true;
-		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
-			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}`, {
-				signal: controller.signal
-			});
-			clearTimeout(timeoutId);
+		if (!tab?.id) return;
 
-			if (!response.ok) throw new Error('Download failed.');
-
-			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
+		const applyToStores = (arrayBuffer: ArrayBuffer) => {
 			const b64 = arrayBufferToBase64(arrayBuffer);
 
 			historyStore.addToHistory({
@@ -173,6 +177,44 @@
 				title: tab.title,
 				artist: tab.artist
 			});
+		};
+
+		loadingSharedTab = true;
+		try {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(tab.id);
+			if (stored && stored.byteLength > 0) {
+				applyToStores(stored);
+				return;
+			}
+			if (!SEARCH_API_BASE_URL) return;
+
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
+			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}`, {
+				signal: controller.signal
+			});
+			clearTimeout(timeoutId);
+
+			if (!response.ok) throw new Error('Download failed.');
+
+			const arrayBuffer = await response.arrayBuffer();
+			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
+
+			applyToStores(arrayBuffer);
+
+			void persistTabBytes(
+				{
+					id: tab.id,
+					title: tab.title,
+					artist: tab.artist,
+					album: tab.album,
+					source: tab.source,
+					type: tab.type
+				},
+				new Uint8Array(arrayBuffer),
+				'history'
+			);
 		} catch (err: any) {
 			toastStore.error(err?.message || 'Failed to open tab');
 		} finally {
@@ -224,11 +266,41 @@
 	}
 
 	async function fetchSharedTab(tabId: string) {
-		if (!browser || !SEARCH_API_BASE_URL) return;
+		if (!browser) return;
 		loadingSharedTab = true;
 		sharedTabError = '';
 		currentTabId = tabId;
+
+		// Prefill title/artist/source from the ID so the UI has something to show
+		// even if the file has no embedded metadata. The alphaTab scoreLoaded event
+		// overrides these with real values from the file if present.
+		const parsed = parseTabId(tabId);
+		const applyToStores = (arrayBuffer: ArrayBuffer) => {
+			const b64 = arrayBufferToBase64(arrayBuffer);
+			tabStore.setTab({
+				fileAsB64: b64,
+				tabId,
+				source: parsed.source,
+				title: parsed.title,
+				artist: parsed.artist
+			});
+			if (parsed.title || parsed.artist) {
+				updatePlayerState({
+					title: parsed.title || '',
+					artist: parsed.artist || ''
+				});
+			}
+		};
+
 		try {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(tabId);
+			if (stored && stored.byteLength > 0) {
+				applyToStores(stored);
+				return;
+			}
+			if (!SEARCH_API_BASE_URL) throw new Error('Failed to load tab');
+
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
 			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tabId}`, {
@@ -244,25 +316,13 @@
 			const arrayBuffer = await response.arrayBuffer();
 			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Tab file is empty');
 
-			const b64 = arrayBufferToBase64(arrayBuffer);
-			// Prefill title/artist/source from the ID so the UI has something to show
-			// even if the downloaded file has no embedded metadata. The alphaTab scoreLoaded
-			// event will override these with real values from the file if present.
-			const parsed = parseTabId(tabId);
-			tabStore.setTab({
-				fileAsB64: b64,
-				tabId,
-				source: parsed.source,
-				title: parsed.title,
-				artist: parsed.artist
-			});
-			// Also pre-fill playerState so TabViewer shows the fallback title until scoreLoaded fires
-			if (parsed.title || parsed.artist) {
-				updatePlayerState({
-					title: parsed.title || '',
-					artist: parsed.artist || ''
-				});
-			}
+			applyToStores(arrayBuffer);
+
+			void persistTabBytes(
+				{ id: tabId, title: parsed.title, artist: parsed.artist, source: parsed.source },
+				new Uint8Array(arrayBuffer),
+				'history'
+			);
 		} catch (err: any) {
 			console.error('Failed to fetch shared tab:', err);
 			sharedTabError = err?.message || 'Failed to load tab';
