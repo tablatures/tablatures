@@ -8,9 +8,9 @@
 	import TabViewer from '../../library/components/TabViewer.svelte';
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
 	import RelatedStrip from '../../library/components/RelatedStrip.svelte';
-	import { tabStore } from '../../library/utils/store';
+	import { tabStore, pendingTabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
-	import type { Unsubscriber } from 'svelte/store';
+	import { get, type Unsubscriber } from 'svelte/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
@@ -39,6 +39,10 @@
 
 	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
 	$: hasTab = currentTab?.fileAsB64;
+	// A tab open was requested (from a list item) and its bytes haven't landed
+	// yet — show the loading state instead of the stale/empty tab. Cleared by
+	// openTabById once bytes arrive or on failure.
+	$: opening = !!$pendingTabStore;
 
 	// Stable-param writing (?tab, ?video, ?track) and playback-time syncing
 	// (?t) are handled globally in +layout.svelte via library/utils/urlState.ts
@@ -410,8 +414,10 @@
 			}
 		}
 
-		// If no tab and no share link, redirect to search
-		if (!existingTab && !sharedTabId) {
+		// If no tab and no share link, redirect to search — unless a tab open is
+		// in flight (optimistic navigation), in which case we stay and show the
+		// loading state until the bytes arrive.
+		if (!existingTab && !sharedTabId && !get(pendingTabStore)) {
 			goto(`${base}/`);
 		}
 
@@ -427,7 +433,7 @@
 
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
-{#if loadingSharedTab}
+{#if loadingSharedTab || opening}
 	<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<LoadingScore message="Loading tablature" size="lg" />
 	</div>

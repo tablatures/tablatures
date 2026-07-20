@@ -117,6 +117,19 @@ describe('shouldTriggerPull', () => {
 		expect(shouldTriggerPull(PULL_TRIGGER_PX)).toBe(true);
 		expect(shouldTriggerPull(PULL_TRIGGER_PX + 50)).toBe(true);
 	});
+	it('uses the shortened commit distance (48px)', () => {
+		// The pull-to-refresh trigger was shortened so a small drag commits.
+		// Kept comfortably above accidental micro-drags.
+		expect(PULL_TRIGGER_PX).toBe(48);
+		expect(PULL_TRIGGER_PX).toBeGreaterThanOrEqual(40);
+	});
+	it('reaches the shortened trigger with a reasonable finger travel', () => {
+		// With the softened rubber-band (c=0.8) used by pull-to-refresh, the
+		// resisted distance should clear the 48px trigger well before the finger
+		// has travelled a full screen — but not on a tiny drag.
+		expect(resist(30, 120, 0.8)).toBeLessThan(PULL_TRIGGER_PX); // small drag: no trigger
+		expect(resist(110, 120, 0.8)).toBeGreaterThanOrEqual(PULL_TRIGGER_PX); // deliberate pull: triggers
+	});
 });
 
 describe('isDoubleTap', () => {

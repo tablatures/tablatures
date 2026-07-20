@@ -81,28 +81,12 @@
 </script>
 
 <div class="group w-full">
-	<div class="relative {id ? 'overflow-hidden' : ''}">
-	{#if id}
-		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white {isFav
-				? 'bg-neutral-500'
-				: 'bg-pink-500'}"
-			aria-hidden="true"
-		>
-			<i class="material-icons">{isFav ? 'heart_broken' : 'favorite'}</i>
-		</div>
-	{/if}
+	<div class="relative">
 	<button
 		class="flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
 			? 'bg-white dark:bg-neutral-900'
 			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
 		on:click={onClick}
-		use:swipeActionGesture={{
-			onCommit: toggleFavorite,
-			directions: ['left'],
-			haptic: hapticTap,
-			enabled: !!id
-		}}
 	>
 		<!-- Artwork preview -->
 		<div
