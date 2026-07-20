@@ -1,5 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { dataReady } from '../data/init';
+import { playlistsRepo } from '../data/repositories';
 
 export interface PlaylistEntry {
 	id: string;
@@ -16,7 +18,8 @@ export interface Playlist {
 
 const STORAGE_KEY = 'playlists';
 
-function loadPlaylists(): Playlist[] {
+/** Instant seed from the legacy localStorage backup for first paint. */
+function seedFromLegacy(): Playlist[] {
 	if (!browser) return [];
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
@@ -26,16 +29,11 @@ function loadPlaylists(): Playlist[] {
 	}
 }
 
-function savePlaylists(items: Playlist[]): void {
-	if (!browser) return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
 /** Encode a playlist into a URL-safe base64 string */
 export function encodePlaylist(playlist: Playlist): string {
 	const compact = {
 		n: playlist.name,
-		e: playlist.entries.map(e => ({
+		e: playlist.entries.map((e) => ({
 			i: e.id,
 			t: e.title,
 			a: e.artist,
@@ -71,58 +69,61 @@ export function decodePlaylist(encoded: string): Playlist | null {
 }
 
 function createPlaylistStore() {
-	const store = writable<Playlist[]>(loadPlaylists());
+	const store = writable<Playlist[]>(seedFromLegacy());
 	const { subscribe, set, update } = store;
 
+	// Write the whole snapshot through to the DB. Playlists are few and small,
+	// so a full replace on each mutation is simple and always consistent with
+	// the store's index-based public API.
+	function persist(items: Playlist[]): Playlist[] {
+		if (browser) playlistsRepo.replaceAll(items).catch(() => {});
+		return items;
+	}
+
 	if (browser) {
-		window.addEventListener('storage', () => {
-			set(loadPlaylists());
-		});
+		dataReady
+			.then(async () => {
+				const rows = await playlistsRepo.loadAll();
+				set(rows);
+			})
+			.catch(() => {});
 	}
 
 	return {
 		subscribe,
 		addPlaylist: (playlist: Playlist) => {
-			update((items) => {
-				const updated = [...items, playlist];
-				savePlaylists(updated);
-				return updated;
-			});
+			update((items) => persist([...items, playlist]));
 		},
 		removePlaylist: (index: number) => {
-			update((items) => {
-				const updated = items.filter((_, i) => i !== index);
-				savePlaylists(updated);
-				return updated;
-			});
+			update((items) => persist(items.filter((_, i) => i !== index)));
 		},
 		updatePlaylist: (index: number, playlist: Playlist) => {
 			update((items) => {
 				const updated = [...items];
 				updated[index] = playlist;
-				savePlaylists(updated);
-				return updated;
+				return persist(updated);
 			});
 		},
 		addEntry: (playlistIndex: number, entry: PlaylistEntry) => {
 			update((items) => {
 				const updated = [...items];
 				const pl = { ...updated[playlistIndex], entries: [...updated[playlistIndex].entries] };
-				if (!pl.entries.some(e => e.id === entry.id)) {
+				if (!pl.entries.some((e) => e.id === entry.id)) {
 					pl.entries.push(entry);
 				}
 				updated[playlistIndex] = pl;
-				savePlaylists(updated);
-				return updated;
+				return persist(updated);
 			});
 		},
 		removeEntry: (playlistIndex: number, entryId: string) => {
 			update((items) => {
 				const updated = [...items];
-				const pl = { ...updated[playlistIndex], entries: updated[playlistIndex].entries.filter(e => e.id !== entryId) };
+				const pl = {
+					...updated[playlistIndex],
+					entries: updated[playlistIndex].entries.filter((e) => e.id !== entryId)
+				};
 				updated[playlistIndex] = pl;
-				savePlaylists(updated);
-				return updated;
+				return persist(updated);
 			});
 		},
 		reorderEntry: (playlistIndex: number, fromIndex: number, toIndex: number) => {
@@ -132,8 +133,7 @@ function createPlaylistStore() {
 				const [moved] = entries.splice(fromIndex, 1);
 				entries.splice(toIndex, 0, moved);
 				updated[playlistIndex] = { ...updated[playlistIndex], entries };
-				savePlaylists(updated);
-				return updated;
+				return persist(updated);
 			});
 		},
 		getPlaylists: (): Playlist[] => {

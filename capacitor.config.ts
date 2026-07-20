@@ -23,6 +23,11 @@ const config: CapacitorConfig = {
 		// so the two do not fight.
 		SystemBars: {
 			insetsHandling: 'disable'
+		},
+		// On-device SQLite (P1 persistence). No encryption: the data is a local
+		// cache of public tab metadata, so a passphrase would only add friction.
+		CapacitorSQLite: {
+			androidIsEncryption: false
 		}
 	}
 	// The search API is optional (the app works offline without it). If the real
