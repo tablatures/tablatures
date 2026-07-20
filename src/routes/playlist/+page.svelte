@@ -324,7 +324,7 @@
 				name,
 				mode.kind === 'shared' ? window.location.pathname + window.location.search : `${base}/playlist`
 			);
-			await openTabById({ ...entries[index] }, true);
+			await openTabById({ ...entries[index] }, true, { keepQueue: true });
 		} finally {
 			navigatingIndex = null;
 		}

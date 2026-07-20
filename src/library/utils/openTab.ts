@@ -3,7 +3,7 @@ import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { tabStore, pendingTabStore, type TabVersion } from './store';
 import { historyStore } from './history';
-import { sourceVariants, updatePlayerState } from './playerStore';
+import { sourceVariants, updatePlayerState, clearQueue } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
@@ -59,8 +59,19 @@ export async function openTabById(
 		variants?: import('./store').TabVersion[];
 	},
 	navigate: boolean = true,
-	opts: { silent?: boolean } = {}
+	opts: { silent?: boolean; keepQueue?: boolean } = {}
 ): Promise<boolean> {
+	// Queue-context reset: opening a *specific* track (a fresh navigation to
+	// /play) leaves whatever playlist/album queue was active. Only two kinds of
+	// open keep the queue: pressing a "play playlist/album" button (passes
+	// keepQueue) and advancing within the queue (navigate=false, an in-place
+	// swap done by the player prev/next and the source switcher). This is what
+	// separates "open single track" from "open playlist" — a lone track tap must
+	// never populate or inherit a queue.
+	if (navigate && !opts.keepQueue) {
+		clearQueue();
+	}
+
 	// Prefer the embedded hash payload for file-imported history entries;
 	// they have no catalog record to download from.
 	if (tab.hashPayload) {
