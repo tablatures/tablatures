@@ -12,7 +12,7 @@
 // Everything is best-effort: if the durable engine cannot open we fall back to
 // an in-memory DB (logged in db.ts) so the UI still works for the session.
 
-import { createPlatformDatabase, getDatabase, getEngineKind, setDatabase } from './db';
+import { createPlatformDatabase, getDatabase, getEngineKind, getFallbackReason, setDatabase } from './db';
 import { applyMigrations } from './schema';
 import { MIGRATION_FLAG, migrateLegacy, readLegacyLocalStorage } from './migrate';
 import { favoritesRepo, kvRepo, playlistsRepo, prefsRepo, tabsRepo } from './repositories';
@@ -65,7 +65,14 @@ export async function initData(): Promise<void> {
 		await getDatabase().ready();
 		await applyMigrations(getDatabase());
 		await runOneTimeMigration();
-		console.info(`[data] ready (engine: ${getEngineKind()})`);
+		const activeEngine = getEngineKind();
+		if (activeEngine === 'memory') {
+			console.error(
+				`[data] ready but on NON-PERSISTENT in-memory engine — ${getFallbackReason() ?? 'durable engine unavailable'}. Data will NOT survive a restart.`
+			);
+		} else {
+			console.info(`[data] ready (engine: ${activeEngine}) — durable/persistent`);
+		}
 		resolveReady();
 	} catch (err) {
 		console.error('[data] initialisation failed', err);

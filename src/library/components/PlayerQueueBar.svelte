@@ -391,7 +391,7 @@
 			</button>
 			<button
 				data-queuebar-menu
-				class="flex md:hidden flex-1 min-w-0 items-center justify-center gap-2 px-2 my-1 rounded-xl bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)] text-center transition-colors"
+				class="flex md:hidden flex-1 min-w-0 items-center justify-center gap-2 px-2 my-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/25 ring-1 ring-inset ring-violet-400/50 dark:ring-violet-500/40 text-center transition-colors"
 				on:click={toggleMobilePanel}
 				aria-label="Open queue"
 			>
@@ -421,7 +421,7 @@
 	{#if mobilePanelOpen && hasQueue}
 		<div
 			data-queuebar-menu
-			class="md:hidden fixed left-0 right-0 z-[95] max-h-[70dvh] overflow-y-auto border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl"
+			class="md:hidden fixed left-0 right-0 z-[110] max-h-[70dvh] overflow-y-auto border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl"
 			style="top: {mobilePanelTop}px;"
 		>
 			<!-- 1. Open the full playlist view as a full-screen page -->

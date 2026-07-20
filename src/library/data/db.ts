@@ -17,6 +17,20 @@ import type { Database, EngineKind, Row, SqlValue, Statement } from './types';
 let _db: Database | null = null;
 let _engine: EngineKind | null = null;
 
+/**
+ * Set when the durable engine (native SQLite on device, OPFS SAH on web) failed
+ * to open and the app is running on the NON-PERSISTENT in-memory fallback. This
+ * is a data-loss condition (nothing survives an app restart), so it is surfaced
+ * loudly rather than swallowed. Also mirrored to `window.__DB_FALLBACK__` for
+ * quick inspection from `chrome://inspect`.
+ */
+let _fallbackReason: string | null = null;
+
+/** Non-null iff the app fell back to the non-persistent in-memory engine. */
+export function getFallbackReason(): string | null {
+	return _fallbackReason;
+}
+
 /** The engine that ended up backing the app (for diagnostics / Storage UI). */
 export function getEngineKind(): EngineKind | null {
 	return _engine;
@@ -86,7 +100,21 @@ async function createNativeDatabase(): Promise<Database> {
 	const sqlite = new SQLiteConnection(CapacitorSQLite);
 	const dbName = 'tablatures';
 
-	// Reuse an existing connection across hot reloads / re-inits.
+	// STEP 1 (documented, and previously MISSING): reconcile the JS-side
+	// connection registry with the native one. On a WebView reload the native
+	// connection can outlive the fresh JS context; without this reconciliation
+	// `createConnection()` below throws "Connection <db> already exists" and the
+	// whole native open fails — silently downgrading the app to a non-persistent
+	// in-memory DB. This is the single most likely cause of "nothing persists".
+	try {
+		await sqlite.checkConnectionsConsistency();
+	} catch (e) {
+		// Throws when there are no connections on either side (normal cold start).
+		// Not an error; continue to create the connection below.
+		console.info('[data] checkConnectionsConsistency: no prior connections', e);
+	}
+
+	// STEP 2: reuse an existing JS connection if one is registered, else create.
 	const isConn = (await sqlite.isConnection(dbName, false)).result;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let conn: any;
@@ -95,7 +123,20 @@ async function createNativeDatabase(): Promise<Database> {
 	} else {
 		conn = await sqlite.createConnection(dbName, false, 'no-encryption', 1, false);
 	}
-	await conn.open();
+
+	// STEP 3: open only if not already open (retrieveConnection can hand back an
+	// already-open connection; calling open() twice throws on some versions).
+	let alreadyOpen = false;
+	try {
+		alreadyOpen = (await conn.isDBOpen()).result ?? false;
+	} catch {
+		/* isDBOpen unsupported → assume closed and open below */
+	}
+	if (!alreadyOpen) await conn.open();
+
+	// Proof line for on-device debugging (chrome://inspect / adb logcat). Seeing
+	// this means the DURABLE, persistent engine is active.
+	console.info(`[data] native SQLite OPEN ok — durable/persistent (db="${dbName}")`);
 
 	return {
 		ready: async () => {
@@ -157,7 +198,17 @@ export async function createPlatformDatabase(): Promise<{ db: Database; engine: 
 			await db.ready();
 			return { db, engine: 'native' };
 		} catch (err) {
-			console.warn('[data] native SQLite unavailable, falling back to in-memory', err);
+			// DATA-LOSS condition on a real device: loudly, not silently. The
+			// in-memory DB does not survive an app restart, and tab bytes never get
+			// a persisted blob row → offline reopen fails. Never let this masquerade
+			// as "working".
+			_fallbackReason = `native SQLite failed to open: ${err instanceof Error ? err.message : String(err)}`;
+			console.error(
+				'[data] ‼ NATIVE SQLITE FAILED TO OPEN — falling back to NON-PERSISTENT in-memory DB. ' +
+					'History/favorites/offline tabs WILL NOT survive an app restart.',
+				err
+			);
+			markFallbackGlobal(_fallbackReason);
 			const { createMemoryDatabase } = await import('./memoryDb');
 			return { db: await createMemoryDatabase(), engine: 'memory' };
 		}
@@ -169,11 +220,25 @@ export async function createPlatformDatabase(): Promise<{ db: Database; engine: 
 		await db.ready();
 		return { db, engine: 'opfs-sahpool' };
 	} catch (err) {
-		console.warn(
-			'[data] OPFS SyncAccessHandle VFS unavailable (old WebView?), falling back to in-memory (non-persistent)',
+		_fallbackReason = `OPFS SyncAccessHandle VFS unavailable: ${err instanceof Error ? err.message : String(err)}`;
+		console.error(
+			'[data] ‼ OPFS SyncAccessHandle VFS unavailable (old WebView?), falling back to in-memory (NON-PERSISTENT)',
 			err
 		);
+		markFallbackGlobal(_fallbackReason);
 		const { createMemoryDatabase } = await import('./memoryDb');
 		return { db: await createMemoryDatabase(), engine: 'memory' };
+	}
+}
+
+/** Mirror the fallback reason onto `window` for quick chrome://inspect checks. */
+function markFallbackGlobal(reason: string): void {
+	try {
+		if (typeof window !== 'undefined') {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(window as any).__DB_FALLBACK__ = reason;
+		}
+	} catch {
+		/* ignore */
 	}
 }
