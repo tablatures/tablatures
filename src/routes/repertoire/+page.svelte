@@ -451,7 +451,7 @@
 										</button>
 										<button
 											on:click={() => favoriteArtistsStore.removeArtist(artist.name)}
-											class="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 dark:hover:bg-red-900/30"
+											class="tap-target absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 dark:hover:bg-red-900/30"
 											title="Unfollow {artist.name}"
 											aria-label="Unfollow {artist.name}"
 										>
@@ -595,7 +595,7 @@
 										>
 											<button
 												on:click|stopPropagation={() => removeHistoryItem(item.id)}
-												class="w-9 h-9 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
+												class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
 												title="Remove from history"
 											>
 												<i class="material-icons !text-lg">close</i>
@@ -696,7 +696,7 @@
 							<div class="absolute top-2 right-2 flex gap-1">
 								<button
 									on:click|stopPropagation={() => playPlaylist(pIndex, 0)}
-									class="w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
+									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
 									disabled={playlist.entries.length === 0}
 									title="Play all"
 								>
@@ -704,7 +704,7 @@
 								</button>
 								<button
 									on:click|stopPropagation={() => deletePlaylist(pIndex)}
-									class="w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-red-500 shadow transition-colors opacity-0 group-hover:opacity-100"
+									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-red-500 shadow transition-colors opacity-0 group-hover:opacity-100"
 									title="Delete playlist"
 								>
 									<i class="material-icons !text-lg">delete_outline</i>

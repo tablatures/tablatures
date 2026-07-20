@@ -2,6 +2,7 @@
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import Header from '../../library/components/Header.svelte';
+	import Button from '../../library/components/Button.svelte';
 	import { favoritesStore } from '../../library/utils/favorites';
 	import { historyStore } from '../../library/utils/history';
 	import { tabStore } from '../../library/utils/store';
@@ -352,7 +353,7 @@
 			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Automatically start playback when a tab is opened</p>
 			<div>
 				<button
-					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.autoPlayOnLoad ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.autoPlayOnLoad ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
 					on:click={() => $preferencesStore.autoPlayOnLoad = !$preferencesStore.autoPlayOnLoad}
 				>
 					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.autoPlayOnLoad ? 'translate-x-6' : 'translate-x-1'}" />
@@ -404,7 +405,7 @@
 			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Show a preview thumbnail in the mini player</p>
 			<div>
 				<button
-					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.showMiniPlayerPreview ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.showMiniPlayerPreview ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
 					on:click={() => $preferencesStore.showMiniPlayerPreview = !$preferencesStore.showMiniPlayerPreview}
 				>
 					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.showMiniPlayerPreview ? 'translate-x-6' : 'translate-x-1'}" />
@@ -415,7 +416,7 @@
 
 	<button
 		on:click={() => preferencesStore.reset()}
-		class="text-xs text-neutral-400 hover:text-violet-500 transition-colors mb-3"
+		class="tap-target text-xs text-neutral-400 hover:text-violet-500 transition-colors mb-3"
 	>
 		Reset all preferences to defaults
 	</button>
@@ -436,22 +437,14 @@
 
 		<div class="flex flex-col sm:flex-row gap-2">
 			<!-- Export -->
-			<button
-				on:click={exportData}
-				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
-			>
-				<i class="material-icons !text-lg">download</i>
+			<Button variant="secondary" icon="download" on:click={exportData} class="w-full sm:w-auto">
 				Export to JSON
-			</button>
+			</Button>
 
 			<!-- Import -->
-			<button
-				on:click={importData}
-				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
-			>
-				<i class="material-icons !text-lg">upload</i>
+			<Button variant="secondary" icon="upload" on:click={importData} class="w-full sm:w-auto">
 				Import from JSON
-			</button>
+			</Button>
 			<input
 				bind:this={importDataInput}
 				on:change={handleImportData}
@@ -464,27 +457,17 @@
 			{#if showClearConfirm}
 				<div class="flex flex-col sm:flex-row gap-2 items-center">
 					<span class="text-sm text-red-500">Are you sure?</span>
-					<button
-						on:click={clearAllData}
-						class="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors w-full sm:w-auto"
-					>
+					<Button on:click={clearAllData} class="w-full sm:w-auto !bg-red-500 hover:!bg-red-600">
 						Yes, clear all
-					</button>
-					<button
-						on:click={() => showClearConfirm = false}
-						class="px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors w-full sm:w-auto"
-					>
+					</Button>
+					<Button variant="ghost" on:click={() => showClearConfirm = false} class="w-full sm:w-auto">
 						Cancel
-					</button>
+					</Button>
 				</div>
 			{:else}
-				<button
-					on:click={() => showClearConfirm = true}
-					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors w-full sm:w-auto"
-				>
-					<i class="material-icons !text-lg">delete_outline</i>
+				<Button variant="danger" icon="delete_outline" on:click={() => showClearConfirm = true} class="w-full sm:w-auto">
 					Clear all data
-				</button>
+				</Button>
 			{/if}
 		</div>
 

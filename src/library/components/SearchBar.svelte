@@ -240,7 +240,7 @@
 				<button
 					type="button"
 					on:pointerdown|preventDefault={clearQuery}
-					class="self-center mr-1 h-8 w-8 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					class="tap-target self-center mr-1 h-8 w-8 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 					title="Clear search"
 					aria-label="Clear search"
 				>
@@ -300,7 +300,7 @@
 							<div class="text-xs text-neutral-500 dark:text-neutral-400 truncate">{item.artist}</div>
 						</div>
 						<button
-							class="flex-shrink-0 p-1 rounded-full text-neutral-300 dark:text-neutral-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+							class="tap-target-sm flex-shrink-0 p-1 rounded-full text-neutral-300 dark:text-neutral-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
 							on:pointerdown|preventDefault|stopPropagation={(e) => searchArtist(item.artist, e)}
 							title="Search {item.artist}"
 						>

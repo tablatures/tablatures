@@ -194,6 +194,61 @@
 	}
 }
 
+/* ==========================================================================
+   P3 — Touch targets. This @layer block is OWNED by the touch-targets branch;
+   keep other app.css edits (P5 motion/overscroll) in their own blocks.
+
+   Goal: lift every control to a >=48dp (Material 3) / >=44px (WCAG 2.5.5) hit
+   area. In dense clusters we must NOT change the visual box (that would reflow
+   the layout), so an invisible absolutely-positioned ::after grows only the
+   *tappable* region. Roomy areas grow their real box instead.
+   ========================================================================== */
+@layer components {
+	/* Invisible hit-area expansion. Apply to a control; the ::after halo (which
+	   forwards its taps to the host element) reaches out past the visual box with
+	   zero layout impact. Default -12px each side => +24px (a 24px glyph => 48px).
+	   `touch-action: manipulation` also drops the legacy 300ms tap delay. */
+	.tap-target {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target::after {
+		content: '';
+		position: absolute;
+		inset: -12px;
+	}
+	/* Tighter / roomier halos for cramped rows or generous bars. */
+	.tap-target-sm {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target-sm::after {
+		content: '';
+		position: absolute;
+		inset: -8px;
+	}
+	.tap-target-lg {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target-lg::after {
+		content: '';
+		position: absolute;
+		inset: -16px;
+	}
+
+	/* Fast, native-feeling press for controls that already meet the size floor
+	   (so they don't need hit expansion). Reduced-motion is handled by the
+	   base-layer media query, which zeroes the transition. */
+	.tap-press {
+		touch-action: manipulation;
+		transition: transform 100ms ease-out;
+	}
+	.tap-press:active {
+		transform: scale(0.94);
+	}
+}
+
 /* Progress bar */
 .loading-bar {
 	width: 100%;
