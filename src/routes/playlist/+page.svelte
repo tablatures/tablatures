@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '$utils/fadeInImage';
 	import { page } from '$app/stores';
 	import Header from '$components/Header.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
@@ -355,11 +356,11 @@
 					{#if heroArt.length >= 4}
 						<div class="grid grid-cols-2 w-full h-full">
 							{#each heroArt.slice(0, 4) as coverUrl}
-								<img src={coverUrl} alt="" class="w-full h-full object-cover" />
+								<img src={coverUrl} alt="" use:fadeInImage={coverUrl} class="w-full h-full object-cover" />
 							{/each}
 						</div>
 					{:else if heroArt.length > 0}
-						<img src={heroArt[0]} alt="" class="w-full h-full object-cover" />
+						<img src={heroArt[0]} alt="" use:fadeInImage={heroArt[0]} class="w-full h-full object-cover" />
 					{:else}
 						<div class="w-full h-full flex items-center justify-center">
 							<i class="material-icons !text-6xl text-white/40">queue_music</i>
@@ -516,7 +517,7 @@
 							</span>
 							<span class="w-11 h-11 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
 								{#if art[item.id]}
-									<img src={art[item.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
+									<img src={art[item.id]} alt="" loading="lazy" use:fadeInImage={art[item.id]} class="w-full h-full object-cover" />
 								{:else}
 									<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
 								{/if}
@@ -580,7 +581,7 @@
 							>
 								<span class="w-11 h-11 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center shrink-0">
 									{#if addArt[tab.id] || tab.artistImage}
-										<img src={addArt[tab.id] || tab.artistImage} alt="" loading="lazy" class="w-full h-full object-cover" />
+										<img src={addArt[tab.id] || tab.artistImage} alt="" loading="lazy" use:fadeInImage={addArt[tab.id] || tab.artistImage} class="w-full h-full object-cover" />
 									{:else}
 										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
 									{/if}

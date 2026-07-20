@@ -1,6 +1,7 @@
 <script lang="ts">
 	import TagPill from './TagPill.svelte';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { browser } from '$app/environment';
 	import { onMount, tick } from 'svelte';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
@@ -156,7 +157,7 @@
 			{:else if info}
 				<div class="flex items-start gap-3">
 					{#if info.image}
-						<img src={info.image} alt="" class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+						<img src={info.image} alt="" use:fadeInImage={info.image} class="w-14 h-14 rounded-full object-cover flex-shrink-0 bg-neutral-100 dark:bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 					{:else}
 						<div class="w-14 h-14 rounded-full bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center flex-shrink-0">
 							<i class="material-icons !text-xl text-neutral-400">person</i>

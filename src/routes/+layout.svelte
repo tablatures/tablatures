@@ -11,6 +11,7 @@
 	import { navigating, page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
+	import { loadAlphaTab, warmAlphaTab } from '../library/utils/alphaTabLoader';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { toastStore } from '../library/utils/toast';
@@ -230,15 +231,27 @@
 	}
 
 	// --- Persistent alphaTab API management ---
-	function ensureApiInitialized() {
-		if (!browser || !window.alphaTab || !playerHostEl) return;
+	async function ensureApiInitialized() {
+		if (!browser || !playerHostEl) return;
 		if (get(playerApi)) return; // Already initialized
 
+		// The engine is loaded on demand (not a render-blocking script) so it
+		// never delays first paint on non-player pages. Await the shared load.
+		if (!window.alphaTab) {
+			try {
+				await loadAlphaTab();
+			} catch {
+				return;
+			}
+			// State may have changed while the engine downloaded.
+			if (!playerHostEl || get(playerApi)) return;
+		}
+
 		const prefs = get(preferencesStore);
-		// alphaTab is now served from our own origin (see app.html and the
-		// vendor-alphatab vite plugin) instead of a CDN. Point it at the vendored
-		// script and Bravura font so workers and glyphs load locally and offline.
-		// These MUST be absolute URLs: the synth runs in a blob-origin worker whose
+		// alphaTab is served from our own origin (see the vendor-alphatab vite
+		// plugin) instead of a CDN. Point it at the vendored script and Bravura
+		// font so workers and glyphs load locally and offline. These MUST be
+		// absolute URLs: the synth runs in a blob-origin worker whose
 		// importScripts cannot resolve a root-relative path.
 		const vendorBase = `${window.location.origin}${base}/vendor/alphatab`;
 		const api = new window.alphaTab.AlphaTabApi(playerHostEl, {
@@ -616,6 +629,10 @@
 		const existingTab = tabStore.loadTab();
 		if (existingTab?.fileAsB64 && playerHostEl) {
 			ensureApiInitialized();
+		} else {
+			// No tab open: prefetch the engine during idle so the first tab a
+			// user opens still loads instantly, without blocking first paint.
+			warmAlphaTab();
 		}
 
 		// iOS Safari requires AudioContext.resume() from a user gesture.
