@@ -67,6 +67,7 @@
 		"@capacitor-community/sqlite": "8.1.0",
 		"@sqlite.org/sqlite-wasm": "3.53.0-build1",
 		"@sveltejs/adapter-vercel": "^6.3.3",
+		"@use-gesture/vanilla": "^10.3.1",
 		"install": "^0.13.0",
 		"pitchy": "^4.1.0"
 	}

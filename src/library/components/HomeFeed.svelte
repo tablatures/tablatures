@@ -6,6 +6,7 @@
 	import TabCard from './TabCard.svelte';
 	import SkeletonTabCard from './SkeletonTabCard.svelte';
 	import LoadingScore from './LoadingScore.svelte';
+	import PullToRefresh from './PullToRefresh.svelte';
 	import { historyStore } from '../utils/history';
 	import { favoritesStore } from '../utils/favorites';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
@@ -151,6 +152,19 @@
 	}
 
 	let throttleRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Pull-to-refresh: clear the feed and re-fill from the top. */
+	async function refreshFeed() {
+		feedTabs = [];
+		feedArtwork = {};
+		seenIds.clear();
+		artworkLoadingIds = new Set();
+		exhausted = false;
+		emptyFetchesInARow = 0;
+		lastFetchAt = 0;
+		nextPoolIndex = 0;
+		await fetchMore();
+	}
 
 	async function fetchMore() {
 		if (loadingFeed || exhausted) return;
@@ -586,6 +600,7 @@
 	}
 </script>
 
+<PullToRefresh on:refresh={refreshFeed}>
 <div class="py-6 space-y-8">
 	<!-- Top section: unified grid with Continue cards + Import at top-right -->
 	<section aria-labelledby="continue-heading">
@@ -967,6 +982,7 @@
 		{/if}
 	</section>
 </div>
+</PullToRefresh>
 
 <!-- Playlist picker modal -->
 {#if playlistPickerTab}
