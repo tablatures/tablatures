@@ -1886,6 +1886,58 @@
 		}
 	}
 
+	// --- Orientation / viewport relayout (FIX F) ---
+	// Rotating landscape↔portrait (especially fast, repeatedly) left the whole
+	// player rendered at ~half width: alphaTab keeps the width it last laid out
+	// at, and the responsive-scale recompute alone doesn't fire a re-render when
+	// the scale bucket is unchanged (portrait and landscape phones are both
+	// < 768px). We fix it by, on a debounced orientationchange / width-changing
+	// resize, clearing any stale explicit width on the layout container, recomputing
+	// the responsive scale from the LIVE viewport width, and forcing alphaTab to
+	// relayout with api.render() so the score, cursor and our top/bottom bars all
+	// re-expand to the current width together.
+	let lastRelayoutWidth = browser ? window.innerWidth : 0;
+	let relayoutDebounceTimeout: NodeJS.Timeout;
+	function relayoutForViewport(force = false) {
+		if (!browser) return;
+		clearTimeout(relayoutDebounceTimeout);
+		// Debounce so a burst of rapid rotations collapses into a single relayout
+		// once the viewport has settled — the width is always read fresh inside
+		// the timeout, never cached from when the event fired.
+		relayoutDebounceTimeout = setTimeout(() => {
+			if (!api) return;
+			const width = window.innerWidth; // LIVE viewport width, read now
+			const widthChanged = width !== lastRelayoutWidth;
+			lastRelayoutWidth = width;
+			// Height-only resizes (e.g. the Android soft keyboard) don't need a
+			// costly relayout; orientationchange forces one regardless.
+			if (!force && !widthChanged) return;
+			// Clear any stale explicit width so alphaTab measures the full
+			// container on the next render instead of reusing the old width.
+			const host =
+				(target?.querySelector('#player-host') as HTMLElement | null) ??
+				document.getElementById('player-host');
+			if (host) host.style.width = '100%';
+			if (target) target.style.width = '100%';
+			// Recompute the responsive scale from the current viewport width.
+			const newScale = getResponsiveScale();
+			if (Math.abs(newScale - tabScale) > 0.01) {
+				tabScale = newScale;
+				try {
+					api.settings.display.scale = tabScale;
+					api.updateSettings();
+				} catch {}
+			}
+			// Force a full relayout at the current container width.
+			try {
+				api.render();
+			} catch {}
+		}, DEBOUNCE_DELAY_MS);
+	}
+	function handleOrientationChange() {
+		relayoutForViewport(true);
+	}
+
 	// Pinch-zoom handlers (see gestures.ts). Two-finger pinch drives the same
 	// tabScale → api.settings.display.scale path as the settings slider; a
 	// double-tap resets to the responsive default.
@@ -2552,19 +2604,16 @@
 			updateTabScale();
 		}
 
-		let resizeDebounceTimeout: NodeJS.Timeout;
-		mountHandleResize = () => {
-			clearTimeout(resizeDebounceTimeout);
-			resizeDebounceTimeout = setTimeout(() => {
-				const newScale = getResponsiveScale();
-				if (Math.abs(newScale - tabScale) > 0.1) {
-					tabScale = newScale;
-					updateTabScale();
-				}
-			}, DEBOUNCE_DELAY_MS);
-		};
+		// A width-changing resize (rotation, window resize) triggers a debounced
+		// relayout that clears the stale container width, recomputes the responsive
+		// scale from the live viewport and re-renders alphaTab (see FIX F).
+		lastRelayoutWidth = window.innerWidth;
+		mountHandleResize = () => relayoutForViewport(false);
 
 		window.addEventListener('resize', mountHandleResize);
+		// orientationchange forces the relayout even when the scale bucket is
+		// unchanged (portrait↔landscape on a phone stays < 768px).
+		window.addEventListener('orientationchange', handleOrientationChange);
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 
 		// Add mouse event listeners for controls
@@ -2777,6 +2826,8 @@
 		largeScreenMql?.removeEventListener('change', syncLargeScreen);
 		smallScreenMql?.removeEventListener('change', syncSmallScreen);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
+		window.removeEventListener('orientationchange', handleOrientationChange);
+		clearTimeout(relayoutDebounceTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3885,10 +3936,10 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 {compactBar ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
+		<div class="flex items-center px-2 {compactBar ? 'py-1.5 gap-0.5' : 'py-2.5 gap-1'}">
 			<!-- Left: playback controls -->
 			<button
-				class="{compactBar ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing
+				class="{compactBar ? 'p-1.5' : 'p-2.5'} rounded-xl transition-colors {playing
 					? 'text-violet-500'
 					: 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => {
@@ -3897,31 +3948,31 @@
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
+				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}"
 					>{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
 			<button
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_previous</i>
 			</button>
 
 			<button
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -3938,8 +3989,8 @@
 			>
 				<button
 					class="{isFullscreen
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{volume === 0
 						? 'text-neutral-400 dark:text-neutral-500'
 						: 'text-neutral-600 dark:text-neutral-400'}"
@@ -3954,7 +4005,7 @@
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
@@ -4023,12 +4074,12 @@
 				<div class="relative">
 					<button
 						on:click={() => (showVideoDropdown = !showVideoDropdown)}
-						class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						class="p-2.5 rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
 						aria-label="Play video"
 					>
-						<i class="material-icons !text-xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+						<i class="material-icons !text-2xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
 
 					{#if showVideoDropdown}
@@ -4096,14 +4147,14 @@
 				<button
 					on:click={toggleLoopEnabled}
 					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
 						1}) [Esc to clear]"
 					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 						>{loopEnabled ? 'repeat_on' : 'repeat'}</i
 					>
 				</button>
@@ -4111,13 +4162,13 @@
 				<button
 					on:click={clickLooping}
 					class="{isFullscreen
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
 					aria-label="Toggle loop"
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">repeat</i>
 				</button>
 			{/if}
 
@@ -4137,8 +4188,8 @@
 				<button
 					on:click={onLyricsButton}
 					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{lyricsAvailable && $lyricsStore.mode === 'auto'
 						? 'text-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400'}"
@@ -4146,33 +4197,33 @@
 					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
 					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">lyrics</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">lyrics</i>
 				</button>
 			{/if}
 
 			<button
 				on:click={() => togglePanel()}
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">tune</i>
 			</button>
 
 			{#if !native}
 				<button
 					on:click={toggleFullscreen}
 					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Fullscreen [F]"
 					aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 						>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 					>
 				</button>
@@ -4181,12 +4232,12 @@
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">keyboard</i>
 			</button>
 		</div>
 

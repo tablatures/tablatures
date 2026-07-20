@@ -177,7 +177,7 @@
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
 	<div
-		class="flex items-center px-2 sm:px-4 py-1.5 sm:py-2 gap-2 sm:gap-3"
+		class="flex items-center px-2 sm:px-4 py-2.5 sm:py-3.5 gap-2 sm:gap-3"
 		use:horizontalSwipe={{
 			onSwipe: handleSwitchSwipe,
 			haptic: hapticTap,
@@ -188,18 +188,18 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(-1)}
-				class="tap-press flex-shrink-0 hidden sm:flex items-center justify-center w-11 h-11 rounded-full text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 hidden sm:flex items-center justify-center w-12 h-12 rounded-xl text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Previous in queue"
 				disabled={!canPrev || steppingQueue}
 			>
-				<i class="material-icons !text-2xl">skip_previous</i>
+				<i class="material-icons !text-3xl">skip_previous</i>
 			</button>
 		{/if}
 
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
-			class="tap-press flex-shrink-0 flex items-center justify-center rounded-full w-11 h-11 sm:w-12 sm:h-12 transition-colors
+			class="tap-press flex-shrink-0 flex items-center justify-center rounded-2xl w-14 h-14 sm:w-16 sm:h-16 transition-colors
 				{soundFontLoading
 					? 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
 					: 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-500/30'}"
@@ -209,7 +209,7 @@
 			{#if soundFontLoading}
 				<LoadingScore size="xs" message="" />
 			{:else}
-				<i class="material-icons !text-2xl sm:!text-3xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons !text-3xl sm:!text-4xl">{state.playing ? 'pause' : 'play_arrow'}</i>
 			{/if}
 		</button>
 
@@ -217,11 +217,11 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(1)}
-				class="tap-press flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Next in queue"
 				disabled={!canNext || steppingQueue}
 			>
-				<i class="material-icons !text-2xl">skip_next</i>
+				<i class="material-icons !text-3xl">skip_next</i>
 			</button>
 		{/if}
 
