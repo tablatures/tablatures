@@ -10,6 +10,7 @@
 	import SkeletonCard from '../../library/components/SkeletonCard.svelte';
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
+	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
 	import { tabStore } from '../../library/utils/store';
 	import { activeVideoId, sourceVariants } from '../../library/utils/playerStore';
 	import { historyStore } from '../../library/utils/history';
@@ -632,6 +633,10 @@
 		openTabById(e.detail);
 	}
 
+	function handlePullRefresh() {
+		if (query.trim().length >= 2) return performSearch(true);
+	}
+
 	function retrySearch() {
 		error = '';
 		apiAvailable = true;
@@ -693,6 +698,7 @@
 {/if}
 
 <main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-3.5rem)]">
+	<PullToRefresh on:refresh={handlePullRefresh}>
 	{#if loading && currentPage === 1 && !tabs.length}
 		<!-- Loading -->
 		<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
@@ -891,6 +897,7 @@
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>
 	{/if}
+	</PullToRefresh>
 </main>
 
 <!-- Playlist picker modal -->

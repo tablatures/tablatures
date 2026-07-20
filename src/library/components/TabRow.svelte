@@ -7,6 +7,8 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { getSourceDisplay } from '../utils/sources';
+	import { swipeAction as swipeActionGesture } from '../utils/gestures';
+	import { hapticTap } from '../utils/native';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -28,6 +30,13 @@
 	export let artworkLoading: boolean = false;
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
+	/** Optional left-swipe action (e.g. remove). Reveals a colored background
+	 *  and runs `run` once the swipe passes the threshold. */
+	export let swipeAction:
+		| { icon: string; label: string; colorClass?: string; run: () => void }
+		| undefined = undefined;
+
+	$: enableSwipe = !!swipeAction;
 
 	$: sourceDisplay = source ? getSourceDisplay(source) : null;
 
@@ -39,10 +48,28 @@
 	}
 </script>
 
-<div
-	class="relative flex items-stretch w-full text-left hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors group h-14"
-	role="listitem"
->
+<div class="relative {enableSwipe ? 'overflow-hidden' : ''}" role="listitem">
+	{#if swipeAction}
+		<div
+			class="absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white {swipeAction.colorClass ||
+				'bg-red-500'}"
+			aria-hidden="true"
+		>
+			<i class="material-icons !text-lg">{swipeAction.icon}</i>
+		</div>
+	{/if}
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div
+		class="relative flex items-stretch w-full text-left {enableSwipe
+			? 'bg-white dark:bg-neutral-900'
+			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors group h-14"
+		use:swipeActionGesture={{
+			onCommit: () => swipeAction?.run(),
+			directions: ['left'],
+			haptic: hapticTap,
+			enabled: enableSwipe
+		}}
+	>
 	<!-- Leading slot (drag handle, index, etc.) -->
 	<slot name="leading" />
 
@@ -115,5 +142,6 @@
 		{/if}
 		<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="row" class="self-center" />
 		<slot />
+	</div>
 	</div>
 </div>

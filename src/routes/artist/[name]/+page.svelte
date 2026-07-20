@@ -9,6 +9,7 @@
 	import SkeletonTabCard from '$components/SkeletonTabCard.svelte';
 	import TagPill from '$components/TagPill.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
+	import PullToRefresh from '$components/PullToRefresh.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
@@ -289,6 +290,11 @@
 		});
 		return unsub;
 	});
+
+	// Pull-to-refresh: re-run the artist fetch.
+	function handlePullRefresh() {
+		if (artistName) return load(artistName);
+	}
 </script>
 
 <svelte:head>
@@ -297,6 +303,7 @@
 
 <Header showSearch={true} on:search={(e) => goto(`${base}/search?q=${encodeURIComponent(e.detail)}`)} />
 
+<PullToRefresh on:refresh={handlePullRefresh}>
 {#if loading}
 	<!-- Banner skeleton -->
 	<div class="w-full h-40 sm:h-56 lg:h-64 bg-gradient-to-br from-violet-100 via-neutral-100 to-white dark:from-violet-900/30 dark:via-neutral-900 dark:to-black animate-pulse"></div>
@@ -585,3 +592,4 @@
 		{/if}
 	</div>
 {/if}
+</PullToRefresh>
