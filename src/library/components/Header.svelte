@@ -127,7 +127,7 @@
 
 			<button
 				on:click={() => tunerOpen.update(v => !v)}
-				class="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$tunerOpen
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"
@@ -140,7 +140,7 @@
 
 			<a
 				href="{base}/repertoire"
-				class="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{isOnCollection
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"
@@ -152,7 +152,7 @@
 			</a>
 			<a
 				href="{base}/settings"
-				class="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{isOnSettings
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"

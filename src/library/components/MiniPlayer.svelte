@@ -5,7 +5,7 @@
 	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, queueStore, stepQueue, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
-	import { shareLink } from '../utils/native';
+	import { shareLink, hapticTap } from '../utils/native';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
@@ -22,6 +22,7 @@
 
 	function togglePlayPause() {
 		if (!api) return;
+		hapticTap();
 		api.playPause();
 	}
 
@@ -161,26 +162,28 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(-1)}
-				class="flex-shrink-0 hidden sm:flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 hidden sm:flex items-center justify-center w-11 h-11 rounded-full text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Previous in queue"
 				disabled={!canPrev || steppingQueue}
 			>
-				<i class="material-icons !text-lg sm:!text-xl">skip_previous</i>
+				<i class="material-icons !text-2xl">skip_previous</i>
 			</button>
 		{/if}
 
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
-			class="flex-shrink-0 flex items-center justify-center transition-colors active:scale-95
-				{soundFontLoading ? 'text-neutral-600 cursor-not-allowed' : 'text-white hover:text-violet-400'}"
+			class="tap-press flex-shrink-0 flex items-center justify-center rounded-full w-11 h-11 sm:w-12 sm:h-12 transition-colors
+				{soundFontLoading
+					? 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+					: 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-500/30'}"
 			aria-label={state.playing ? 'Pause' : 'Play'}
 			disabled={soundFontLoading}
 		>
 			{#if soundFontLoading}
 				<LoadingScore size="xs" message="" />
 			{:else}
-				<i class="material-icons !text-xl sm:!text-2xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons !text-2xl sm:!text-3xl">{state.playing ? 'pause' : 'play_arrow'}</i>
 			{/if}
 		</button>
 
@@ -188,11 +191,11 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(1)}
-				class="flex-shrink-0 flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Next in queue"
 				disabled={!canNext || steppingQueue}
 			>
-				<i class="material-icons !text-lg sm:!text-xl">skip_next</i>
+				<i class="material-icons !text-2xl">skip_next</i>
 			</button>
 		{/if}
 
@@ -272,7 +275,7 @@
 		{#if currentTab?.tabId}
 			<button
 				on:click={copyShareLink}
-				class="flex-shrink-0 transition-colors hidden sm:block {shareJustCopied ? 'text-green-400' : 'text-neutral-500 hover:text-white'}"
+				class="tap-target flex-shrink-0 transition-colors hidden sm:block {shareJustCopied ? 'text-green-400' : 'text-neutral-500 hover:text-white'}"
 				title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
 				aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
 			>
@@ -283,7 +286,7 @@
 		<!-- Open full player: primary way back on mobile, so always visible -->
 		<a
 			href="{base}/play"
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
+			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
 			title="Back to full player"
 			aria-label="Open full player"
 		>
@@ -293,7 +296,7 @@
 		<!-- Toggle preview -->
 		<button
 			on:click={() => dispatch('togglePreview')}
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
+			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
 			title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 		>
@@ -303,7 +306,7 @@
 		<!-- Close -->
 		<button
 			on:click={stopPlayer}
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
+			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
 			title="Close player"
 			aria-label="Close player"
 		>

@@ -539,7 +539,7 @@
 						</button>
 						<FavoriteButton id={item.id} title={item.title} artist={item.artist} source={item.source} variant="pill" />
 						<button
-							class="w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+							class="tap-target w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
 							on:click={() => removeEntry(item.id)}
 							title="Remove from playlist"
 						>

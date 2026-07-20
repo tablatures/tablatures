@@ -846,7 +846,7 @@
 									}
 									artistHeroes = artistHeroes;
 								}}
-								class="flex-shrink-0 p-1.5 rounded-full transition-all active:scale-90
+								class="tap-target flex-shrink-0 p-1.5 rounded-full transition-transform active:scale-90
 									{favoriteArtistsStore.isArtist(hero.name) ? 'text-red-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-red-400'}"
 								title="{favoriteArtistsStore.isArtist(hero.name) ? 'Unfollow' : 'Follow'} {hero.name}"
 							>

@@ -235,7 +235,7 @@
 
 			<!-- Prev / next together -->
 			<button
-				class="flex-shrink-0 px-2 sm:px-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors"
+				class="tap-press flex-shrink-0 px-2 sm:px-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors"
 				disabled={!canPrev || navigating}
 				on:click={() => goStep(-1)}
 				aria-label="Previous in queue"
@@ -243,7 +243,7 @@
 				<i class="material-icons !text-xl">skip_previous</i>
 			</button>
 			<button
-				class="flex-shrink-0 px-2 sm:px-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors border-r border-neutral-200 dark:border-neutral-800"
+				class="tap-press flex-shrink-0 px-2 sm:px-2.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-25 transition-colors border-r border-neutral-200 dark:border-neutral-800"
 				disabled={!canNext || navigating}
 				on:click={() => goStep(1)}
 				aria-label="Next in queue"
@@ -339,7 +339,7 @@
 			<button
 				bind:this={queueListBtnEl}
 				data-queuebar-menu
-				class="flex-shrink-0 px-2 sm:px-3 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors border-l border-neutral-200 dark:border-neutral-800 {queueListOpen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				class="tap-press flex-shrink-0 px-2 sm:px-3 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors border-l border-neutral-200 dark:border-neutral-800 {queueListOpen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				on:click={toggleQueueList}
 				aria-label="Show all queue items"
 				title="All tracks ({queue.items.length})"

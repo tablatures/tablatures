@@ -16,7 +16,7 @@
 	>
 		<button
 			on:click={() => dispatch('toggleloop')}
-			class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors {loopEnabled
+			class="tap-target w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors {loopEnabled
 				? 'bg-pink-500 text-white'
 				: 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}"
 			title={loopEnabled ? 'Loop on' : 'Loop off'}
@@ -38,7 +38,7 @@
 		</div>
 		<button
 			on:click={() => dispatch('clearloop')}
-			class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+			class="tap-target w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
 			title="Clear loop"
 			aria-label="Clear loop"
 		>

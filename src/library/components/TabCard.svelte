@@ -79,7 +79,7 @@
 				{#if onAddToPlaylist}
 					<button
 						on:click|stopPropagation={onAddToPlaylist}
-						class="w-10 h-10 flex items-center justify-center rounded-lg bg-black/70 backdrop-blur-sm text-white hover:bg-violet-500 transition-colors"
+						class="tap-target w-10 h-10 flex items-center justify-center rounded-lg bg-black/70 backdrop-blur-sm text-white hover:bg-violet-500 transition-colors"
 						title="Add to playlist"
 						aria-label="Add {title} to playlist"
 					>

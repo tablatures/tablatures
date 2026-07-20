@@ -16,11 +16,11 @@
 {#if href}
 	<a
 		{href}
-		class="inline-flex items-center justify-center rounded-lg transition-all duration-150 active:scale-90 cursor-pointer
+		class="tap-target inline-flex items-center justify-center rounded-lg transition-transform duration-150 active:scale-90 cursor-pointer
 			{sizeClasses[size]}
 			{active
-				? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
-				: 'text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+			? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
+			: 'text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
 		title={tooltip || label}
 		aria-label={label}
 	>
@@ -29,11 +29,11 @@
 {:else}
 	<button
 		on:click
-		class="inline-flex items-center justify-center rounded-lg transition-all duration-150 active:scale-90 cursor-pointer
+		class="tap-target inline-flex items-center justify-center rounded-lg transition-transform duration-150 active:scale-90 cursor-pointer
 			{sizeClasses[size]}
 			{active
-				? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
-				: 'text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+			? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
+			: 'text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
 		title={tooltip || label}
 		aria-label={label}
 	>
