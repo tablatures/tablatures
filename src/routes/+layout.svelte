@@ -9,7 +9,7 @@
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
@@ -52,7 +52,8 @@
 		hideSplash,
 		syncStatusBar,
 		onBackButton,
-		exitApp
+		exitApp,
+		onAppStateChange
 	} from '../library/utils/native';
 	import {
 		hydrateFromUrl,
@@ -609,6 +610,64 @@
 		}
 		document.addEventListener('visibilitychange', onVisible);
 		return () => document.removeEventListener('visibilitychange', onVisible);
+	});
+
+	onMount(() => {
+		// Native app-lifecycle handling. When the app is backgrounded we pause
+		// playback and release the keep-awake lock (the WebView keeps the synth
+		// running otherwise, draining the battery in the background). When it
+		// returns to the foreground we re-arm the one-time Web Audio unlock so the
+		// next user gesture can resume the AudioContext the OS may have suspended.
+		function armAudioUnlock() {
+			function resume() {
+				const api = get(playerApi);
+				const ctx =
+					(api as any)?.player?.output?.context ??
+					(api as any)?.player?.context ??
+					(api as any)?._playerState?.output?.context;
+				if (ctx && ctx.state === 'suspended') {
+					try {
+						ctx.resume();
+					} catch {}
+				}
+				document.removeEventListener('click', resume);
+				document.removeEventListener('touchstart', resume);
+			}
+			document.addEventListener('click', resume, { once: true });
+			document.addEventListener('touchstart', resume, { once: true });
+		}
+
+		let removeState = () => {};
+		onAppStateChange((isActive) => {
+			if (!isActive) {
+				const api = get(playerApi);
+				if (api) {
+					try {
+						api.pause();
+					} catch {}
+				}
+				setKeepAwake(false);
+			} else {
+				armAudioUnlock();
+			}
+		}).then((r) => (removeState = r));
+		return () => removeState();
+	});
+
+	// Route transitions via the View Transitions API. SvelteKit's onNavigate lets
+	// us wrap the DOM swap in document.startViewTransition() for a native-feeling
+	// crossfade. Disabled where unsupported and under prefers-reduced-motion.
+	onNavigate((navigation) => {
+		if (!browser || typeof document === 'undefined') return;
+		if (!('startViewTransition' in document)) return;
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+		return new Promise((resolve) => {
+			(document as any).startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+		});
 	});
 
 	onMount(() => {
