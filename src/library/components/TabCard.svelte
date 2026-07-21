@@ -3,6 +3,7 @@
 	import { fadeInImage } from '../utils/fadeInImage';
 	import { favoritesStore } from '../utils/favorites';
 	import { getSourceDisplay } from '../utils/sources';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -37,7 +38,9 @@
 	}
 
 	$: sourceDisplay = getSourceDisplay(source);
-</script>
+	// Deterministic generated tile shown when no artwork resolves — keeps the
+	// grid from ever displaying a permanently-empty cell.
+	$: placeholder = placeholderArtwork(artist, title);</script>
 
 <!-- Outer wrapper: the play action is the thumbnail+title button; the artist
      name is a REAL separate link so it can never trigger playback -->
@@ -62,8 +65,29 @@
 			<!-- Pulse while artwork is being fetched -->
 			<div class="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse" />
 		{:else}
-			<div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900">
-				<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors">{typeIcon(type)}</i>
+			<!-- No artwork found: deterministic generated tile (gradient + initials) -->
+			<div
+				class="w-full h-full flex items-center justify-center relative overflow-hidden"
+				style="background: {placeholder.gradient};"
+			>
+				<span class="text-3xl sm:text-4xl font-black text-white/90 tracking-tight select-none drop-shadow-sm">
+					{placeholder.initials}
+				</span>
+				<i class="material-icons absolute bottom-2 right-2 !text-base text-white/40">{typeIcon(type)}</i>
+			</div>
+		{/if}
+
+		<!-- Hover play affordance (desktop pointers only): a subtle scrim + violet
+		     play triangle so it's obvious the tile opens the player. -->
+		{#if !artworkLoading}
+			<div
+				class="pointer-events-none absolute inset-0 hidden [@media(hover:hover)]:flex items-center justify-center bg-black/0 group-hover:bg-black/25 transition-colors duration-200"
+			>
+				<span
+					class="flex items-center justify-center w-12 h-12 rounded-full bg-white/95 shadow-lg opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200"
+				>
+					<i class="material-icons !text-3xl text-violet-600 ml-0.5">play_arrow</i>
+				</span>
 			</div>
 		{/if}
 
