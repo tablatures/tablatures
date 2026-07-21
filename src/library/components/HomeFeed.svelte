@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { browser } from '$app/environment';
 	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
@@ -46,6 +47,14 @@
 	/** Stop trying after this many consecutive fetches that yielded zero new tabs. */
 	const EXHAUST_THRESHOLD = 15;
 	let lastFetchAt = 0;
+
+	// Cold-start friendliness: the Worker + D1 backend can cold-start on the
+	// first hit of a session. If the very first feed request is slow, show a
+	// tasteful one-time "tuning up" micro-animation instead of a frozen grid.
+	const COLD_START_MS = 1500;
+	const COLD_START_SESSION_KEY = 'feed-tuning-shown';
+	let showColdStart = false;
+	let coldStartTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Playlist picker state
 	let playlistPickerTab: any | null = null;
@@ -152,6 +161,143 @@
 
 	let throttleRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
+	/** Append a freshly-fetched, already-deduped batch to the feed and kick off
+	 *  its background artwork resolution. Shared by the throttled fill loop and
+	 *  the concurrent first-paint primer. */
+	function appendTabs(newTabs: any[]) {
+		feedTabs = [...feedTabs, ...newTabs];
+
+		// Server already embeds cached artwork - seed those instantly and
+		// only resolve the leftovers
+		const embedded: Record<string, string> = {};
+		for (const t of newTabs) if (t.artworkUrl) embedded[t.id] = t.artworkUrl;
+		if (Object.keys(embedded).length > 0) feedArtwork = { ...feedArtwork, ...embedded };
+		const needsArtwork = newTabs.filter((t) => !t.artworkUrl);
+
+		// Mark these as "artwork loading" so cards show a pulse
+		for (const t of needsArtwork) artworkLoadingIds.add(t.id);
+		artworkLoadingIds = artworkLoadingIds;
+
+		// Fetch artwork for new tabs in background.
+		// IMPORTANT: merge only this batch's own fetched entries into the live map.
+		// Using `feedArtwork = m` would overwrite other in-flight batches' updates
+		// because each call to fetchArtworkBatch returns a new map based on its own
+		// starting snapshot.
+		fetchArtworkBatch(needsArtwork, {})
+			.then((m) => {
+				const additions: Record<string, string> = {};
+				for (const t of needsArtwork) {
+					if (m[t.id]) additions[t.id] = m[t.id];
+				}
+				if (Object.keys(additions).length > 0) {
+					feedArtwork = { ...feedArtwork, ...additions };
+				}
+			})
+			.catch(() => {})
+			.finally(() => {
+				// ALWAYS clear the pulse, even when the batch fails - a card
+				// stuck on artworkLoading shimmers forever otherwise
+				for (const t of needsArtwork) artworkLoadingIds.delete(t.id);
+				artworkLoadingIds = artworkLoadingIds;
+			});
+	}
+
+	/** Fetch a single endpoint, dedupe, and append. Returns the count of new
+	 *  tabs (0 on network error / empty / all-duplicate). No throttle/pool
+	 *  bookkeeping — callers own that. */
+	async function runFetch(endpoint: string, firstBatch: number | null): Promise<number> {
+		let ep = endpoint;
+		if (firstBatch) {
+			ep = ep.replace(/limit=\d+/, `limit=${firstBatch}`).replace(/count=\d+/, `count=${firstBatch}`);
+		}
+		let res: Response;
+		try {
+			res = await fetch(`${SEARCH_API_BASE_URL}${ep}`);
+		} catch {
+			return 0;
+		}
+		if (!res.ok) return 0;
+		const data = await res.json();
+
+		let incoming: any[];
+		if (data.groups && Array.isArray(data.groups)) {
+			const all: any[] = [];
+			for (const g of data.groups) if (g.results) all.push(...g.results);
+			incoming = mapResults(all);
+		} else {
+			incoming = mapResults(data.results || data);
+		}
+
+		// Dedupe against already-seen
+		const newTabs = incoming.filter((t) => {
+			if (!t.id || seenIds.has(t.id)) return false;
+			seenIds.add(t.id);
+			return true;
+		});
+
+		if (newTabs.length === 0) return 0;
+		appendTabs(newTabs);
+		return newTabs.length;
+	}
+
+	/** First paint: fire the top recommendations batch AND a random batch
+	 *  concurrently, bypassing the throttle, so the first cards land as fast as
+	 *  the slower of two parallel round-trips instead of a sequential
+	 *  400ms-throttled chain. Each batch renders independently as it resolves.
+	 *  The throttled fill loop takes over afterwards for infinite scroll. */
+	async function primeFirstPaint() {
+		if (exhausted) return;
+		const firstBatch = Math.max(8, (gridCols || 4) * 2);
+		loadingFeed = true;
+		lastFetchAt = Date.now();
+
+		// Endpoint 1: the first pool entry — big mixed recommendations when the
+		// user has taste signals, otherwise a random batch.
+		// Endpoint 2: always a random batch, so something paints even when the
+		// recommendations endpoint has no coverage yet.
+		const endpoints: string[] = [];
+		if (pool.length > 0) {
+			endpoints.push(pool[0].endpoint());
+			nextPoolIndex = 1;
+		}
+		endpoints.push('/api/random?count=24');
+
+		// Arm the cold-start "tuning up" hint (session-scoped, at most once).
+		const seenColdStart = browser ? sessionStorage.getItem(COLD_START_SESSION_KEY) : '1';
+		if (!seenColdStart) {
+			coldStartTimer = setTimeout(() => {
+				coldStartTimer = null;
+				if (feedTabs.length === 0) {
+					showColdStart = true;
+					try {
+						sessionStorage.setItem(COLD_START_SESSION_KEY, '1');
+					} catch {}
+				}
+			}, COLD_START_MS);
+		}
+
+		try {
+			const counts = await Promise.all(endpoints.map((ep) => runFetch(ep, firstBatch)));
+			const total = counts.reduce((a, b) => a + b, 0);
+			if (total === 0) {
+				emptyFetchesInARow++;
+				markExhausted();
+			} else {
+				emptyFetchesInARow = 0;
+			}
+		} finally {
+			if (coldStartTimer) {
+				clearTimeout(coldStartTimer);
+				coldStartTimer = null;
+			}
+			// Let the hint linger a beat if it did appear, so it doesn't flash.
+			if (showColdStart) setTimeout(() => (showColdStart = false), 700);
+			loadingFeed = false;
+			// Hand off to the throttled fill loop to top up the viewport.
+			if (!exhausted) setTimeout(() => fetchMore(), 100);
+		}
+	}
+
 	async function fetchMore() {
 		if (loadingFeed || exhausted) return;
 		// Throttle: don't fetch more often than MIN_FETCH_INTERVAL_MS.
@@ -184,88 +330,18 @@
 		loadingFeed = true;
 		try {
 			const config = pool[nextPoolIndex++];
-			let endpoint = config.endpoint();
-			if (feedTabs.length === 0) {
-				// First paint: only ~2 rows of cards (fast), the fill loop tops up
-				const firstBatch = Math.max(8, (gridCols || 4) * 2);
-				endpoint = endpoint
-					.replace(/limit=\d+/, `limit=${firstBatch}`)
-					.replace(/count=\d+/, `count=${firstBatch}`);
-			}
-			const res = await fetch(`${SEARCH_API_BASE_URL}${endpoint}`);
-			if (!res.ok) {
+			// First paint is handled by primeFirstPaint(); here firstBatch stays
+			// null except in the rare case the feed is still empty (retry path).
+			const firstBatch = feedTabs.length === 0 ? Math.max(8, (gridCols || 4) * 2) : null;
+			const count = await runFetch(config.endpoint(), firstBatch);
+			if (count === 0) {
 				emptyFetchesInARow++;
 				markExhausted();
-				// Backoff so we don't hammer a failing server
+				// Backoff before the next attempt so we don't hammer the server
 				await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
 				return;
 			}
-			const data = await res.json();
-
-			let incoming: any[];
-			if (data.groups && Array.isArray(data.groups)) {
-				const all: any[] = [];
-				for (const g of data.groups) if (g.results) all.push(...g.results);
-				incoming = mapResults(all);
-			} else {
-				incoming = mapResults(data.results || data);
-			}
-
-			// Dedupe against already-seen
-			const newTabs = incoming.filter((t) => {
-				if (!t.id || seenIds.has(t.id)) return false;
-				seenIds.add(t.id);
-				return true;
-			});
-
-			if (newTabs.length === 0) {
-				emptyFetchesInARow++;
-				markExhausted();
-				// Short backoff before next attempt
-				await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
-				return;
-			}
-
 			emptyFetchesInARow = 0;
-			feedTabs = [...feedTabs, ...newTabs];
-
-			// Server already embeds cached artwork - seed those instantly and
-			// only resolve the leftovers
-			const embedded: Record<string, string> = {};
-			for (const t of newTabs) if (t.artworkUrl) embedded[t.id] = t.artworkUrl;
-			if (Object.keys(embedded).length > 0) feedArtwork = { ...feedArtwork, ...embedded };
-			const needsArtwork = newTabs.filter((t) => !t.artworkUrl);
-
-			// Mark these as "artwork loading" so cards show a pulse
-			for (const t of needsArtwork) artworkLoadingIds.add(t.id);
-			artworkLoadingIds = artworkLoadingIds;
-
-			// Fetch artwork for new tabs in background.
-			// IMPORTANT: merge only this batch's own fetched entries into the live map.
-			// Using `feedArtwork = m` would overwrite other in-flight batches' updates
-			// because each call to fetchArtworkBatch returns a new map based on its own
-			// starting snapshot.
-			fetchArtworkBatch(needsArtwork, {})
-				.then((m) => {
-					const additions: Record<string, string> = {};
-					for (const t of needsArtwork) {
-						if (m[t.id]) additions[t.id] = m[t.id];
-					}
-					if (Object.keys(additions).length > 0) {
-						feedArtwork = { ...feedArtwork, ...additions };
-					}
-				})
-				.catch(() => {})
-				.finally(() => {
-					// ALWAYS clear the pulse, even when the batch fails - a card
-					// stuck on artworkLoading shimmers forever otherwise
-					for (const t of needsArtwork) artworkLoadingIds.delete(t.id);
-					artworkLoadingIds = artworkLoadingIds;
-				});
-		} catch {
-			emptyFetchesInARow++;
-			markExhausted();
-			await new Promise((r) => setTimeout(r, EMPTY_BACKOFF_MS));
 		} finally {
 			loadingFeed = false;
 			// Self-rearm: keep fetching until either (a) the grid's bottom
@@ -390,15 +466,25 @@
 			const cols = cs.gridTemplateColumns.split(' ').filter((v) => v && v !== '0px').length;
 			if (cols > 0) gridCols = cols;
 		}
-		// Layout decision based on viewport + measured cols:
-		// - really small (< 480px): Import full-width row, Continue heading
-		//   rendered inside the grid below the Import tile
+		// Touch-first devices (coarse pointer / no hover) can't drag-drop a file,
+		// so the Import tile must ALWAYS be the compact button — never the
+		// drop zone. Gating on input capability rather than the measured column
+		// count also fixes a race where a late ResizeObserver/resize callback
+		// (fired before the grid had settled) flipped the mobile tile back to the
+		// drop zone. Width still drives the desktop layouts below.
+		const coarse =
+			typeof window.matchMedia === 'function' &&
+			(window.matchMedia('(pointer: coarse)').matches ||
+				!window.matchMedia('(hover: hover)').matches);
+
+		// Layout decision based on input capability + viewport + measured cols:
+		// - touch device OR really small (< 480px): Import full-width button row
 		// - 7+ cols: Import 3×2 (big)
 		// - 5-6 cols: Import 2×2 (medium)
 		// - otherwise (≈ 480-780px / just past mobile): Import is a single card
 		//   so the Welcome panel can sit beside it on the same row
 		const w = window.innerWidth;
-		if (w < 480) importLayout = 'full';
+		if (coarse || w < 480) importLayout = 'full';
 		else if (gridCols >= 7) importLayout = 'big';
 		else if (gridCols >= 5) importLayout = 'medium';
 		else importLayout = 'card';
@@ -542,10 +628,13 @@
 
 	onMount(() => {
 		mounted = true;
+		// Measure the grid before the first fetch so firstBatch is sized to the
+		// real column count.
+		measureLayout();
 		buildPool();
-		// Kick off first batch immediately, then another after delay
-		fetchMore();
-		setTimeout(() => fetchMore(), 200);
+		// First paint: fire recommendations + random concurrently (bypasses the
+		// throttle); the throttled fill loop is armed once these land.
+		primeFirstPaint();
 
 		if (typeof IntersectionObserver !== 'undefined') {
 			observer = new IntersectionObserver(
@@ -574,6 +663,8 @@
 	onDestroy(() => {
 		if (observer) observer.disconnect();
 		if (gridResizeObserver) gridResizeObserver.disconnect();
+		if (coldStartTimer) clearTimeout(coldStartTimer);
+		if (throttleRetryTimer) clearTimeout(throttleRetryTimer);
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('resize', measureLayout);
 			window.removeEventListener('scroll', handleScroll);
@@ -896,6 +987,23 @@
 			</h2>
 		</div>
 
+		<!-- Cold-start micro-easter-egg: the backend can nap between sessions, so
+		     if the first batch is slow we say we're "tuning up" instead of looking
+		     frozen. Session-scoped, shows at most once. -->
+		{#if showColdStart && feedTabs.length === 0}
+			<div
+				class="flex items-center justify-center gap-3 py-6 mb-2 rounded-xl bg-violet-50/60 dark:bg-violet-900/10 animate-fade-in"
+				aria-live="polite"
+			>
+				<i class="material-icons-outlined !text-2xl text-violet-500 tuning-peg" aria-hidden="true"
+					>compass_calibration</i
+				>
+				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
+					Tuning up your recommendations<span class="animate-ellipsis"></span>
+				</span>
+			</div>
+		{/if}
+
 		{#if feedTabs.length === 0 && !loadingFeed && exhausted}
 			<!-- Truly empty + exhausted: show nothing-to-show state -->
 			<div
@@ -1052,6 +1160,27 @@
 	   heading, and feed grids all share this class so they stay aligned. */
 	.responsive-tab-grid {
 		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+	}
+
+	/* Cold-start "tuning up" hint: the peg icon rocks back and forth like a
+	   tuning key being turned. */
+	@keyframes tuning-peg-turn {
+		0%,
+		100% {
+			transform: rotate(-22deg);
+		}
+		50% {
+			transform: rotate(22deg);
+		}
+	}
+	.tuning-peg {
+		animation: tuning-peg-turn 1.1s ease-in-out infinite;
+		transform-origin: center;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.tuning-peg {
+			animation: none;
+		}
 	}
 	@media (min-width: 1024px) {
 		.responsive-tab-grid {
