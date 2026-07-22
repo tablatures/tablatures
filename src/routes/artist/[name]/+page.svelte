@@ -482,11 +482,16 @@
 			</div>
 
 			<div class="flex-1 min-w-0 sm:pb-2">
-				<!-- White-over-banner only holds up when a real banner image renders
-				     behind the overlap; without one the line spills onto the page
-				     background, so fall back to adaptive neutral colors. -->
-				<h1 class="text-2xl sm:text-4xl font-bold truncate {bannerUrl ? 'text-neutral-900 dark:text-white sm:text-white sm:[text-shadow:0_1px_8px_rgba(0,0,0,0.8)]' : 'text-neutral-900 dark:text-white'}">{info.name}</h1>
-				<div class="flex items-center gap-2 mt-1 text-sm flex-wrap {bannerUrl ? 'text-neutral-500 dark:text-neutral-400 sm:text-white/90 sm:[text-shadow:0_1px_4px_rgba(0,0,0,0.8)]' : 'text-neutral-600 dark:text-neutral-400'}">
+				<!-- Geometry: pulled up 64px (sm:-mt-16) with items-end, the NAME
+				     overlaps the banner's dark lower region (real image, blurred
+				     avatar, or violet→black gradient — all dark, plus the
+				     from-black/70 overlay), so keep it white + shadow on sm+.
+				     The SUBTITLE sits ~12-32px BELOW the banner's bottom edge over
+				     the plain page background (the contrast gradient is clipped to
+				     the banner), so it must always use adaptive neutrals — white
+				     there is white-on-white in light mode. -->
+				<h1 class="text-2xl sm:text-4xl font-bold truncate text-neutral-900 dark:text-white sm:text-white sm:[text-shadow:0_1px_8px_rgba(0,0,0,0.8)]">{info.name}</h1>
+				<div class="flex items-center gap-2 mt-1 text-sm flex-wrap text-neutral-600 dark:text-neutral-400">
 					{#if info.country}<span>{info.country}</span><span>·</span>{/if}
 					<span>{headerTabCount} tabs</span>
 					{#if info.popularity > 0}<span>·</span><span>{fmtCount(info.popularity)} fans</span>{/if}
