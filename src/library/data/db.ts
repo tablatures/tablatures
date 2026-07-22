@@ -153,11 +153,13 @@ async function createNativeDatabase(): Promise<Database> {
 			await conn.beginTransaction();
 			try {
 				for (const s of statements) {
-					if (s.params && s.params.length) {
-						await conn.run(s.sql, s.params as unknown[], false);
-					} else {
-						await conn.execute(s.sql, false);
-					}
+					// Always use run() — it executes exactly ONE statement and does
+					// NOT split on semicolons the way execute() does. execute()'s
+					// splitting mangles the `CREATE TRIGGER … BEGIN … ; … END` bodies
+					// of the FTS sync triggers, so DDL (incl. param-less CREATE
+					// TRIGGER) must go through run() to preserve the trigger body.
+					// `transaction=false` because we manage the transaction here.
+					await conn.run(s.sql, (s.params ?? []) as unknown[], false);
 				}
 				await conn.commitTransaction();
 			} catch (err) {

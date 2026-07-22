@@ -7,9 +7,10 @@
 //   • imported — a user file, re-openable from `hash_payload` (pinned)
 // Bytes, when present, live in the external blob store; only the path is here.
 
-import type { Database } from '../types';
+import type { Database, SqlValue } from '../types';
 import { DEFAULT_BLOB_BUDGET_BYTES, planEviction, type BudgetRow } from '../budget';
 import { deleteBlob, readBlob, saveBlob } from '../blobStore';
+import { isFtsAvailable } from '../schema';
 
 export type TabKind = 'history' | 'saved' | 'imported';
 
@@ -240,22 +241,57 @@ export function createTabsRepo(getDb: () => Database) {
 		);
 	}
 
-	/** Offline local search via FTS5 (title/artist/album). Consumed by P2. */
+	/**
+	 * Offline local search over title/artist/album. Consumed by P2.
+	 *
+	 * Uses the FTS5 `MATCH` index when it is available (`ftsAvailable`); when FTS
+	 * is unavailable (e.g. the platform SQLite build lacks the FTS5 module) it
+	 * falls back to a case-insensitive `LIKE` scan over the same columns so local
+	 * search keeps working — just without FTS ranking/tokenisation.
+	 */
 	async function searchLocal(q: string, limit = 50): Promise<TabRow[]> {
 		const term = q.trim();
 		if (!term) return [];
-		// Prefix match on each token; quote to neutralise FTS syntax chars.
-		const match = term
-			.split(/\s+/)
-			.map((t) => `"${t.replace(/"/g, '""')}"*`)
-			.join(' ');
+
+		if (isFtsAvailable()) {
+			// Prefix match on each token; quote to neutralise FTS syntax chars.
+			const match = term
+				.split(/\s+/)
+				.map((t) => `"${t.replace(/"/g, '""')}"*`)
+				.join(' ');
+			return getDb().query<TabRow>(
+				`SELECT t.* FROM tab_fts f
+				 JOIN tabs t ON t.rowid = f.rowid
+				 WHERE tab_fts MATCH ?
+				 ORDER BY rank
+				 LIMIT ?`,
+				[match, limit]
+			);
+		}
+
+		// LIKE fallback (no FTS): each token must appear (case-insensitively) in
+		// at least one of title/artist/album; all tokens must match (AND). `%`,
+		// `_` and `\` in the query are escaped so they match literally.
+		const tokens = term.split(/\s+/).filter(Boolean);
+		const params: SqlValue[] = [];
+		const clauses: string[] = [];
+		for (const t of tokens) {
+			const escaped = t.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`);
+			const like = `%${escaped}%`;
+			clauses.push(
+				`(LOWER(COALESCE(title,'')) LIKE ? ESCAPE '\\'
+				  OR LOWER(COALESCE(artist,'')) LIKE ? ESCAPE '\\'
+				  OR LOWER(COALESCE(album,'')) LIKE ? ESCAPE '\\')`
+			);
+			params.push(like, like, like);
+		}
+		params.push(limit);
 		return getDb().query<TabRow>(
-			`SELECT t.* FROM tab_fts f
-			 JOIN tabs t ON t.rowid = f.rowid
-			 WHERE tab_fts MATCH ?
-			 ORDER BY rank
+			`SELECT * FROM tabs
+			 WHERE ${clauses.join(' AND ')}
+			 ORDER BY last_opened_at DESC
 			 LIMIT ?`,
-			[match, limit]
+			params
 		);
 	}
 
