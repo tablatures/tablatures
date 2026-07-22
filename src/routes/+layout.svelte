@@ -330,10 +330,15 @@
 		});
 
 		api.scoreLoaded.on((score) => {
-			const title = [score.title, score.artist].filter(Boolean).join(' - ');
+			// Don't clobber existing metadata with a blank when the loaded file has
+			// no embedded title/artist (common for Songsterr/GP exports). Fall back
+			// to the tab store (set from catalog metadata on open) and then to the
+			// current state so tuning changes and variant switches keep the label.
+			const tab = get(tabStore);
+			const prev = get(playerState);
 			updatePlayerState({
-				title: score.title || '',
-				artist: score.artist || '',
+				title: score.title || tab?.title || prev.title || '',
+				artist: score.artist || tab?.artist || prev.artist || '',
 				scoreLoaded: true,
 				tracks: score.tracks,
 				isRendering: false

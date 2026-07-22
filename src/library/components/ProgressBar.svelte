@@ -17,12 +17,37 @@
 	let tooltipTime = '';
 	let tooltipX = 0;
 	let showTooltip = false;
+	let scrubbing = false;
 
-	function handleClick(e: MouseEvent) {
-		if (!barEl) return;
+	function pctFromClientX(clientX: number): number {
+		if (!barEl) return 0;
 		const rect = barEl.getBoundingClientRect();
-		const pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-		dispatch('seek', pct);
+		return Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+	}
+
+	// Pointer-based scrubbing: a tap seeks, and dragging moves the playback
+	// cursor continuously (pointer capture keeps events flowing even when the
+	// finger/cursor leaves the thin bar). Works for both mouse and touch.
+	function handlePointerDown(e: PointerEvent) {
+		if (!barEl || e.button !== 0) return;
+		scrubbing = true;
+		try {
+			barEl.setPointerCapture(e.pointerId);
+		} catch {}
+		dispatch('seek', pctFromClientX(e.clientX));
+	}
+
+	function handlePointerMove(e: PointerEvent) {
+		if (!scrubbing) return;
+		dispatch('seek', pctFromClientX(e.clientX));
+	}
+
+	function handlePointerUp(e: PointerEvent) {
+		if (!scrubbing) return;
+		scrubbing = false;
+		try {
+			barEl.releasePointerCapture(e.pointerId);
+		} catch {}
 	}
 
 	function handleHover(e: MouseEvent) {
@@ -42,8 +67,11 @@
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 <div
 	bind:this={barEl}
-	class="relative w-full h-1 hover:h-3 overflow-visible cursor-pointer select-none group transition-all duration-200"
-	on:click={handleClick}
+	class="relative w-full h-1 hover:h-3 overflow-visible cursor-pointer select-none group transition-all duration-200 touch-none"
+	on:pointerdown={handlePointerDown}
+	on:pointermove={handlePointerMove}
+	on:pointerup={handlePointerUp}
+	on:pointercancel={handlePointerUp}
 	on:mousemove={handleHover}
 	on:mouseleave={() => { hovering = false; hoverPct = 0; showTooltip = false; }}
 	role="progressbar"
