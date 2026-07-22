@@ -135,7 +135,15 @@
 	function handleSheetChanged(event: CustomEvent) {
 		const { title, artist } = event.detail;
 		playerSettings = { volume: 1, speed: 1, metronome: 0, tabScale: 1.0, delaying: 0, scrollOffset: 0 };
-		if (currentTab) tabStore.updateSettings({ ...playerSettings, title, artist });
+		if (currentTab) {
+			// Only overwrite the stored title/artist when the newly loaded score
+			// actually carries them; otherwise keep whatever was resolved on open
+			// (catalog metadata / previous score) so it survives variant switches.
+			const patch: Record<string, unknown> = { ...playerSettings };
+			if (title) patch.title = title;
+			if (artist) patch.artist = artist;
+			tabStore.updateSettings(patch);
+		}
 	}
 
 	// Handle opening a tab from search results while on /play

@@ -113,6 +113,12 @@
 		if (switchingSource || sameId(version.id, tabId)) return;
 		switchingSource = true;
 		try {
+			// Carry the resolved metadata into the new variant so the bottom bar
+			// keeps its title/artist even when the variant file has no embedded
+			// metadata (fall back through state → store → version label).
+			const tab = get(tabStore);
+			const carriedTitle = $playerState.title || tab?.title || '';
+			const carriedArtist = currentArtistName || $playerState.artist || tab?.artist || '';
 			const sameSource = allVersions.filter((v) => v.source === version.source);
 			const ordered = [version, ...sameSource.filter((v) => v.id !== version.id)];
 			let ok = false;
@@ -120,8 +126,8 @@
 				ok = await openTabById(
 					{
 						id: v.id,
-						title: v.title || songTitle,
-						artist: currentArtistName || '',
+						title: v.title || carriedTitle || songTitle,
+						artist: carriedArtist,
 						source: v.source,
 						sourceUrl: v.sourceUrl ?? undefined,
 						variants: allVersions
@@ -1403,7 +1409,6 @@
 
 		const rect = range.getBoundingClientRect();
 		const mouseX = e.clientX - rect.left;
-		const pct = Math.max(0, Math.min(100, (mouseX / rect.width) * 100));
 		const EDGE_THRESHOLD_PX = 10;
 
 		// Check if clicking near existing loop edges for resize, or inside for move
@@ -1429,75 +1434,15 @@
 			}
 		}
 
-		// Track for potential loop creation or seek
-		const startX = e.clientX;
-		const startPct = pct;
-		let didDrag = false;
-		let peakEndBar = 0;
-		let peakEndPct = startPct;
-
-		const onMove = (me: MouseEvent) => {
-			const dx = Math.abs(me.clientX - startX);
-			const currentPct = getProgressPercent(me.clientX);
-
-			if (dx > 10) {
-				if (!didDrag) {
-					dismissPopoverAndRefresh();
-				}
-				didDrag = true;
-				isDraggingLoop = true;
-				const minMs = percentToTime(Math.min(startPct, currentPct));
-				const maxPct = Math.max(startPct, currentPct);
-				let eBar = msToBar(percentToTime(maxPct));
-				// Track peak endBar to prevent snapping at repeat boundaries.
-				// Only reset the peak when the user drags significantly backward
-				// (>2% hysteresis prevents wiggle-based bypass).
-				if (eBar > peakEndBar) {
-					peakEndBar = eBar;
-					peakEndPct = maxPct;
-				}
-				if (maxPct >= peakEndPct && eBar < peakEndBar) {
-					eBar = peakEndBar;
-				} else if (maxPct < peakEndPct - 2) {
-					// User is dragging clearly backward — reset peak
-					peakEndBar = eBar;
-					peakEndPct = maxPct;
-				}
-				setLoopBars(msToBar(minMs), eBar);
-				updateScoreSelection();
-			}
-		};
-
+		// Unified gesture: a plain drag scrubs the playhead, a press-and-hold
+		// (no movement for LONG_PRESS_MS) enters loop-select mode and subsequent
+		// movement sizes the loop. Shared with the touch handlers below.
+		pbBeginGesture(e.clientX);
+		const onMove = (me: MouseEvent) => pbMoveGesture(me.clientX);
 		const onUp = (me: MouseEvent) => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-
-			if (didDrag) {
-				isDraggingLoop = false;
-				if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-					clearLoopPoints();
-				}
-			} else {
-				// Single click = seek to position
-				const seekPct = getProgressPercent(me.clientX);
-				const seekTime = percentToTime(seekPct);
-
-				// If clicking outside the current loop, disable it
-				if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
-					const loopStartMs = (_loopTimelinePct.start / 100) * duration;
-					const loopEndMs = (_loopTimelinePct.end / 100) * duration;
-					if (seekTime < loopStartMs || seekTime > loopEndMs) {
-						clearLoopPoints();
-					}
-				}
-
-				progress = seekPct;
-				bindDuration = false;
-				api.player.timePosition = (progress / 100) * duration;
-				seekDebounce();
-				autoFollow = true;
-				autoFollowDisengagedAt = 0;
-			}
+			pbEndGesture(me.clientX);
 		};
 
 		document.addEventListener('mousemove', onMove);
@@ -1618,39 +1563,122 @@
 		showProgressTooltip = true;
 	}
 
-	// Touch-based loop and seek on progress bar
-	let touchDragStartX = 0;
-	let touchDragStartPct = 0;
-	let touchDidDrag = false;
-	let touchPeakEndBar = 0;
-	let touchPeakEndPct = 0;
+	// --- Unified progress-bar gesture engine (mouse + touch) -----------------
+	// One long-press-then-drag implementation shared by the mouse and touch
+	// entry points so both surfaces behave identically:
+	//   • a plain drag scrubs the playhead (immediate, no accidental loop)
+	//   • a press-and-hold (no movement for LONG_PRESS_MS) enters loop-select
+	//     mode (haptic on touch) and subsequent movement sizes the loop region
+	//   • a plain click/tap seeks to the position
 	let longPressTimer: NodeJS.Timeout;
-	// When true, the long-press has fired and subsequent touchmoves should
-	// grow/shrink the freshly-created loop region rather than seek or scrub.
-	let loopCreating = false;
-	// Anchor bar for the hold-and-drag loop — remembered so that dragging past
-	// the anchor in either direction swaps start/end correctly.
-	let loopCreatingAnchorBar = 0;
+	// Gesture start reference (client X + percent along the bar).
+	let pbStartX = 0;
+	let pbStartPct = 0;
+	// The long-press fired → subsequent movement grows/shrinks the loop region.
+	let pbLoopCreating = false;
+	// Anchor bar for the hold-and-drag loop — dragging past it in either
+	// direction swaps start/end correctly.
+	let pbLoopAnchorBar = 0;
+	// Movement before the hold fired → scrubbing the playhead, not looping.
+	let pbScrubbing = false;
 	// Movement threshold (px) before the long-press timer is cancelled. Small
 	// fat-finger jitter shouldn't abort a hold, but a real scrub should.
 	const LONG_PRESS_MOVE_CANCEL_PX = 6;
 	const LONG_PRESS_MS = 350;
 
+	function pbSeekTo(clientX: number) {
+		if (!range || !duration || !api) return;
+		const pct = getProgressPercent(clientX);
+		progress = pct;
+		bindDuration = false;
+		api.player.timePosition = (pct / 100) * duration;
+		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+	}
+
+	function pbBeginGesture(clientX: number) {
+		pbStartX = clientX;
+		pbStartPct = getProgressPercent(clientX);
+		pbLoopCreating = false;
+		pbScrubbing = false;
+		clearTimeout(longPressTimer);
+		longPressTimer = setTimeout(() => {
+			// Hold fired without a scrub — seed a 1-bar loop at the cursor/finger
+			// and flip into loop-sizing mode.
+			const barIdx = msToBar(percentToTime(pbStartPct));
+			pbLoopAnchorBar = barIdx;
+			loopStartBar = barIdx;
+			loopEndBar = barIdx;
+			loopEnabled = true;
+			pbLoopCreating = true;
+			isDraggingLoop = true;
+			dismissPopoverAndRefresh();
+			updateScoreSelection();
+			hapticTap();
+		}, LONG_PRESS_MS);
+	}
+
+	function pbMoveGesture(clientX: number) {
+		// Post-hold: grow the loop around the anchor bar.
+		if (pbLoopCreating) {
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const bar = Math.min(msToBar(percentToTime(getProgressPercent(clientX))), maxBar);
+			if (bar >= pbLoopAnchorBar) {
+				setLoopBars(pbLoopAnchorBar, bar);
+			} else {
+				setLoopBars(bar, pbLoopAnchorBar);
+			}
+			updateScoreSelection();
+			return;
+		}
+
+		// Pre-hold: meaningful movement cancels the hold and scrubs instead.
+		if (!pbScrubbing && Math.abs(clientX - pbStartX) > LONG_PRESS_MOVE_CANCEL_PX) {
+			clearTimeout(longPressTimer);
+			pbScrubbing = true;
+			dismissPopoverAndRefresh();
+		}
+		if (pbScrubbing) pbSeekTo(clientX);
+	}
+
+	function pbEndGesture(clientX: number) {
+		clearTimeout(longPressTimer);
+		if (pbLoopCreating) {
+			pbLoopCreating = false;
+			isDraggingLoop = false;
+			// Discard a zero-length loop — a hold with no drag shouldn't leave a
+			// single-bar selection behind.
+			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
+				clearLoopPoints();
+			}
+			return;
+		}
+		if (pbScrubbing) {
+			pbScrubbing = false;
+			return;
+		}
+
+		// Plain click/tap = seek. If seeking outside the current loop, disable it.
+		const seekTime = percentToTime(getProgressPercent(clientX));
+		if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
+			const loopStartMs = (_loopTimelinePct.start / 100) * duration;
+			const loopEndMs = (_loopTimelinePct.end / 100) * duration;
+			if (seekTime < loopStartMs || seekTime > loopEndMs) {
+				clearLoopPoints();
+			}
+		}
+		pbSeekTo(clientX);
+	}
+
+	// Touch entry points — thin wrappers over the shared gesture engine. Edge
+	// resize / inside-move of an existing loop keep their dedicated handlers.
 	function handleProgressBarTouchStart(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.touches[0].clientX - rect.left;
-		const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
-		touchDragStartX = event.touches[0].clientX;
-		touchDragStartPct = pct;
-		touchDidDrag = false;
-		touchPeakEndBar = 0;
-		touchPeakEndPct = pct;
-		loopCreating = false;
 
 		const EDGE_THRESHOLD_PX = 15;
-
-		// Check if touching near loop edges for resize
 		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
 			const startX = (_loopTimelinePct.start / 100) * rect.width;
 			const endX = (_loopTimelinePct.end / 100) * rect.width;
@@ -1663,113 +1691,26 @@
 				startLoopEdgeDragTouch(event, 'end');
 				return;
 			}
-			// Inside loop region - move
 			if (x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
 				startLoopMoveDragTouch(event);
 				return;
 			}
 		}
 
-		// Long-press-and-drag: after LONG_PRESS_MS without moving, seed a tiny
-		// loop region at the finger and flip into `loopCreating` mode so the
-		// next touchmoves extend the region rather than scrub the playhead.
-		longPressTimer = setTimeout(() => {
-			const barIdx = msToBar(percentToTime(pct));
-			loopCreatingAnchorBar = barIdx;
-			loopStartBar = barIdx;
-			loopEndBar = barIdx;
-			loopEnabled = true;
-			loopCreating = true;
-			isDraggingLoop = true;
-			dismissPopoverAndRefresh();
-			updateScoreSelection();
-			hapticTap();
-		}, LONG_PRESS_MS);
+		pbBeginGesture(event.touches[0].clientX);
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
-		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
-
-		// Post-longpress: grow the in-progress loop around the anchor bar.
-		if (loopCreating) {
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const currentPct = getProgressPercent(event.touches[0].clientX);
-			const currentBar = Math.min(msToBar(percentToTime(currentPct)), maxBar);
-			if (currentBar >= loopCreatingAnchorBar) {
-				loopStartBar = loopCreatingAnchorBar;
-				loopEndBar = currentBar;
-			} else {
-				loopStartBar = currentBar;
-				loopEndBar = loopCreatingAnchorBar;
-			}
-			updateScoreSelection();
-			return;
-		}
-
-		// Pre-longpress: any meaningful movement cancels the hold and falls
-		// back to the original tap-and-drag selection behavior.
-		if (dx > LONG_PRESS_MOVE_CANCEL_PX) {
-			if (!touchDidDrag) dismissPopoverAndRefresh();
-			touchDidDrag = true;
-			clearTimeout(longPressTimer);
-			isDraggingLoop = true;
-			const currentPct = getProgressPercent(event.touches[0].clientX);
-			const minMs = percentToTime(Math.min(touchDragStartPct, currentPct));
-			const maxPct = Math.max(touchDragStartPct, currentPct);
-			let eBar = msToBar(percentToTime(maxPct));
-			// Prevent endBar snap at repeat boundaries (same guard as mouse handler)
-			if (eBar > touchPeakEndBar) {
-				touchPeakEndBar = eBar;
-				touchPeakEndPct = maxPct;
-			}
-			if (maxPct >= touchPeakEndPct && eBar < touchPeakEndBar) {
-				eBar = touchPeakEndBar;
-			} else if (maxPct < touchPeakEndPct - 2) {
-				touchPeakEndBar = eBar;
-				touchPeakEndPct = maxPct;
-			}
-			setLoopBars(msToBar(minMs), eBar);
-			updateScoreSelection();
-		}
+		pbMoveGesture(event.touches[0].clientX);
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
-		clearTimeout(longPressTimer);
-		if (loopCreating) {
-			loopCreating = false;
-			isDraggingLoop = false;
-			// Discard a zero-length loop — long-press without drag shouldn't
-			// leave a single-bar selection behind.
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
+		if (!event.changedTouches[0]) {
+			clearTimeout(longPressTimer);
 			return;
 		}
-		if (touchDidDrag) {
-			isDraggingLoop = false;
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
-		} else {
-			// Simple tap = seek (set progress first to prevent flicker)
-			if (!event.changedTouches[0] || !range || !duration) return;
-			const pct = getProgressPercent(event.changedTouches[0].clientX);
-			const seekTime = percentToTime(pct);
-
-			// If tapping outside the current loop, disable it
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
-				const loopStartMs = (_loopTimelinePct.start / 100) * duration;
-				const loopEndMs = (_loopTimelinePct.end / 100) * duration;
-				if (seekTime < loopStartMs || seekTime > loopEndMs) {
-					clearLoopPoints();
-				}
-			}
-
-			progress = pct;
-			api.player.timePosition = (progress / 100) * duration;
-			seekDebounce();
-		}
+		pbEndGesture(event.changedTouches[0].clientX);
 	}
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
@@ -2000,9 +1941,14 @@
 
 		// Score loaded (detailed handler for full player)
 		const onScoreLoaded = (score: any) => {
-			const newTitle = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
-			const isNewSheet = title !== newTitle;
-			title = newTitle;
+			const scoreLabel = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
+			// Files without embedded metadata yield an empty label; keep the label
+			// resolved on open (store) instead of blanking the header/variant title.
+			const tab = get(tabStore);
+			const fallbackLabel = [tab?.title, tab?.artist].filter((s) => Boolean(s)).join(' - ');
+			const newTitle = scoreLabel || fallbackLabel;
+			const isNewSheet = !!newTitle && title !== newTitle;
+			if (newTitle) title = newTitle;
 			tracks = score.tracks;
 			scoreLoaded = true;
 			isRendering = false;
