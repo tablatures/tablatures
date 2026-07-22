@@ -9,21 +9,21 @@
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
+	// The per-version list still travels with the tab so the canonical version
+	// switcher (TabViewer's metadata-bar popover) can show it. We fetch it here
+	// lazily but no longer render a second switcher — only queue navigation.
 	let versions: TabVersion[] = [];
-	let versionsOpen = false;
 	/** Lazily-resolved artwork for queue items that came without any */
 	let queueArt: Record<string, string> = {};
 	let artFetchedFor = '';
 	let queueListOpen = false;
 	let queueListPos = { left: 0, top: 0 };
 	let queueListBtnEl: HTMLElement | null = null;
-	/** A tab download is in flight (step/jump/version switch) - show it */
+	/** A tab download is in flight (step/jump) - show it */
 	let navigating = false;
 	let fetchedFor = '';
 	let stripEl: HTMLElement | null = null;
 	let currentPillEl: HTMLElement | null = null;
-	/** Fixed-position anchor for the version dropdown (escapes any overflow clipping) */
-	let menuPos = { left: 0, top: 0 };
 
 	$: currentTabId = $tabStore?.tabId || '';
 	// Shared ?tab= URLs load the file before artist/title are known - fall back
@@ -79,45 +79,6 @@
 		}
 	}
 
-	function versionLabel(v: TabVersion): string {
-		const src = getSourceDisplay(v.source).label;
-		const tracks = v.trackCount ? ` - ${v.trackCount} tracks` : '';
-		return `${src}${tracks}`;
-	}
-
-	async function toggleVersions() {
-		if (versions.length < 2 || navigating) return;
-		if (versionsOpen) {
-			versionsOpen = false;
-			return;
-		}
-		versionsOpen = true;
-		await tick();
-		// Anchor the fixed dropdown under the current pill, clamped to viewport
-		const anchor = currentPillEl?.getBoundingClientRect();
-		if (anchor) {
-			const menuWidth = 300;
-			menuPos = {
-				left: Math.max(8, Math.min(anchor.left, window.innerWidth - menuWidth - 8)),
-				top: anchor.bottom + 6
-			};
-		}
-	}
-
-	async function switchVersion(v: TabVersion) {
-		if (v.id === currentTabId || navigating) return;
-		versionsOpen = false;
-		navigating = true;
-		try {
-			await openTabById(
-				{ id: v.id, title: v.title, artist: currentArtist, source: v.source, sourceUrl: v.sourceUrl, variants: versions },
-				false
-			);
-		} finally {
-			navigating = false;
-		}
-	}
-
 	async function goStep(delta: 1 | -1) {
 		if (navigating) return;
 		const item = stepQueue(delta);
@@ -131,10 +92,7 @@
 	}
 
 	async function goJump(index: number) {
-		if (index === queue.index) {
-			toggleVersions();
-			return;
-		}
+		if (index === queue.index) return;
 		if (navigating) return;
 		const item = jumpQueue(index);
 		if (!item) return;
@@ -184,7 +142,6 @@
 			return;
 		}
 		queueListOpen = true;
-		versionsOpen = false;
 		await tick();
 		const anchor = queueListBtnEl?.getBoundingClientRect();
 		if (anchor) {
@@ -204,7 +161,6 @@
 	function closeMenus(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('[data-queuebar-menu]')) {
-			versionsOpen = false;
 			queueListOpen = false;
 		}
 	}
@@ -215,7 +171,7 @@
 	});
 </script>
 
-{#if hasQueue || versions.length > 1}
+{#if hasQueue}
 	<div
 		class="flex items-stretch h-12 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm text-sm"
 	>
@@ -251,90 +207,58 @@
 		{/if}
 
 		<!-- Desktop: horizontal strip of track blocks -->
-		<div bind:this={stripEl} class="flex-1 {hasQueue ? 'hidden md:flex' : 'flex'} items-stretch gap-1 px-1 overflow-x-auto scrollbar-thin min-w-0">
-			{#if hasQueue}
-				{#each queue.items as item, i}
-					{@const isCurrent = i === queue.index}
-					{@const sd = getSourceDisplay(item.source || '')}
-					<button
-						use:registerPill={isCurrent}
-						data-queuebar-menu={isCurrent || undefined}
-						class="flex-shrink-0 flex items-stretch text-left w-44 sm:w-52 my-1 rounded-md overflow-hidden transition-colors
-							{isCurrent
-							? 'bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)]'
-							: 'bg-neutral-50 dark:bg-neutral-900/60 hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
-						on:click={() => goJump(i)}
-						disabled={navigating && !isCurrent}
-						title={isCurrent && versions.length > 1 ? 'Switch version or source' : `${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
-					>
-						<span class="h-full aspect-square shrink-0 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
-							{#if navigating && isCurrent}
-								<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
-							{:else if item.artworkUrl || queueArt[item.id]}
-								<img src={item.artworkUrl || queueArt[item.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
-							{:else}
-								<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
-							{/if}
-						</span>
-						<span class="flex-1 min-w-0 px-2 py-1 flex flex-col justify-center">
-							<span class="flex items-center gap-1 min-w-0">
-								<span class="truncate text-xs font-medium {isCurrent ? 'text-violet-700 dark:text-violet-300' : 'text-neutral-800 dark:text-neutral-200'}">{item.title}</span>
-								{#if isCurrent && versions.length > 1 && !navigating}
-									<i class="material-icons !text-sm text-violet-500 shrink-0">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-								{/if}
-							</span>
-							<span class="flex items-center gap-1 min-w-0 text-[10px] text-neutral-400 dark:text-neutral-500">
-								<span class="w-1.5 h-1.5 rounded-full shrink-0 {sd.dotColor}"></span>
-								<span class="truncate">{item.artist || sd.label}</span>
-							</span>
-						</span>
-					</button>
-				{/each}
-			{:else}
-				<!-- No queue: single current tab block with its version switcher -->
+		<div bind:this={stripEl} class="flex-1 hidden md:flex items-stretch gap-1 px-1 overflow-x-auto scrollbar-thin min-w-0">
+			{#each queue.items as item, i}
+				{@const isCurrent = i === queue.index}
+				{@const sd = getSourceDisplay(item.source || '')}
 				<button
-					bind:this={currentPillEl}
-					data-queuebar-menu
-					class="flex-shrink-0 flex items-center gap-1.5 px-3 my-1 rounded-md text-left max-w-[300px] bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)] transition-colors"
-					on:click={toggleVersions}
-					title="Switch version or source"
+					use:registerPill={isCurrent}
+					class="flex-shrink-0 flex items-stretch text-left w-44 sm:w-52 my-1 rounded-md overflow-hidden transition-colors
+						{isCurrent
+						? 'bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)]'
+						: 'bg-neutral-50 dark:bg-neutral-900/60 hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
+					on:click={() => goJump(i)}
+					disabled={navigating && !isCurrent}
+					title={`${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
 				>
-					{#if navigating}
-						<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin shrink-0"></span>
-					{/if}
-					<span class="truncate text-xs font-medium text-violet-700 dark:text-violet-300">{currentTitle || 'Current tab'}</span>
-					{#if !navigating}
-						<span class="text-[10px] bg-violet-500/20 text-violet-600 dark:text-violet-300 rounded-full px-1.5 shrink-0">{versions.length}</span>
-						<i class="material-icons !text-base text-violet-500 shrink-0">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-					{/if}
+					<span class="h-full aspect-square shrink-0 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
+						{#if navigating && isCurrent}
+							<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
+						{:else if item.artworkUrl || queueArt[item.id]}
+							<img src={item.artworkUrl || queueArt[item.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
+						{:else}
+							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
+						{/if}
+					</span>
+					<span class="flex-1 min-w-0 px-2 py-1 flex flex-col justify-center">
+						<span class="truncate text-xs font-medium {isCurrent ? 'text-violet-700 dark:text-violet-300' : 'text-neutral-800 dark:text-neutral-200'}">{item.title}</span>
+						<span class="flex items-center gap-1 min-w-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+							<span class="w-1.5 h-1.5 rounded-full shrink-0 {sd.dotColor}"></span>
+							<span class="truncate">{item.artist || sd.label}</span>
+						</span>
+					</span>
 				</button>
-			{/if}
+			{/each}
 		</div>
 
-		{#if hasQueue}
-			<!-- Mobile: current track block fills the middle (tap = versions) -->
-			<button
-				data-queuebar-menu
-				class="flex md:hidden flex-1 min-w-0 items-center gap-2 px-2 my-1 mx-1 rounded-md bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)] text-left transition-colors"
-				on:click={toggleVersions}
-				use:registerPill={true}
-			>
-				{#if navigating}
-					<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin shrink-0"></span>
-				{:else if queue.items[queue.index]?.artworkUrl || queueArt[queue.items[queue.index]?.id]}
-					<img src={queue.items[queue.index].artworkUrl || queueArt[queue.items[queue.index].id]} alt="" class="w-8 h-8 rounded object-cover shrink-0" />
-				{/if}
-				<span class="flex-1 min-w-0">
-					<span class="block truncate text-xs font-medium text-violet-700 dark:text-violet-300">{queue.items[queue.index]?.title}</span>
-					<span class="block truncate text-[10px] text-neutral-400">{queue.index + 1} / {queue.items.length}</span>
-				</span>
-				{#if versions.length > 1 && !navigating}
-					<i class="material-icons !text-base text-violet-500 shrink-0">{versionsOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-				{/if}
-			</button>
+		<!-- Mobile: current track display fills the middle -->
+		<div
+			class="flex md:hidden flex-1 min-w-0 items-center gap-2 px-2 my-1 mx-1 rounded-md bg-violet-50 dark:bg-violet-900/25 shadow-[inset_0_-2px_0_0_theme(colors.violet.500)]"
+			use:registerPill={true}
+		>
+			{#if navigating}
+				<span class="w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin shrink-0"></span>
+			{:else if queue.items[queue.index]?.artworkUrl || queueArt[queue.items[queue.index]?.id]}
+				<img src={queue.items[queue.index].artworkUrl || queueArt[queue.items[queue.index].id]} alt="" class="w-8 h-8 rounded object-cover shrink-0" />
+			{/if}
+			<span class="flex-1 min-w-0">
+				<span class="block truncate text-xs font-medium text-violet-700 dark:text-violet-300">{queue.items[queue.index]?.title}</span>
+				<span class="block truncate text-[10px] text-neutral-400">{queue.index + 1} / {queue.items.length}</span>
+			</span>
+		</div>
 
-			<!-- All items: vertical list dropdown (always available; the only list on mobile) -->
-			<button
+		<!-- All items: vertical list dropdown (always available; the only list on mobile) -->
+		<button
 				bind:this={queueListBtnEl}
 				data-queuebar-menu
 				class="flex-shrink-0 px-2 sm:px-3 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors border-l border-neutral-200 dark:border-neutral-800 {queueListOpen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
@@ -344,7 +268,6 @@
 			>
 				<i class="material-icons !text-xl">playlist_play</i>
 			</button>
-		{/if}
 	</div>
 
 	<!-- Vertical queue list: fixed positioning, right-aligned -->
@@ -378,38 +301,6 @@
 						</span>
 					</span>
 					{#if isCurrent}
-						<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
-					{:else}
-						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0">play_arrow</i>
-					{/if}
-				</button>
-			{/each}
-		</div>
-	{/if}
-
-	<!-- Version dropdown: fixed positioning escapes every overflow container -->
-	{#if versionsOpen}
-		<div
-			data-queuebar-menu
-			class="fixed z-[95] w-[300px] max-h-80 overflow-y-auto rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-2xl py-1"
-			style="left: {menuPos.left}px; top: {menuPos.top}px;"
-		>
-			{#each versions as v, i}
-				{@const vd = getSourceDisplay(v.source)}
-				<button
-					class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {v.id === currentTabId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
-					on:click={() => switchVersion(v)}
-					disabled={navigating}
-				>
-					<span class="w-5 text-right text-xs text-neutral-400 shrink-0">{i + 1}</span>
-					<span class="w-2 h-2 rounded-full shrink-0 {vd.dotColor}"></span>
-					<span class="flex-1 min-w-0">
-						<span class="block truncate {v.id === currentTabId ? 'text-violet-600 dark:text-violet-300 font-medium' : 'text-neutral-700 dark:text-neutral-300'}">
-							{v.title}
-						</span>
-						<span class="block truncate text-xs text-neutral-400">{versionLabel(v)}</span>
-					</span>
-					{#if v.id === currentTabId}
 						<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
 					{:else}
 						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0">play_arrow</i>
