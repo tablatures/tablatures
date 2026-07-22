@@ -7,13 +7,14 @@
 	import Header from '../../library/components/Header.svelte';
 	import TabViewer from '../../library/components/TabViewer.svelte';
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
+	import RelatedStrip from '../../library/components/RelatedStrip.svelte';
 	import { tabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
 	import type { Unsubscriber } from 'svelte/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState, updatePlayerState } from '../../library/utils/playerStore';
+	import { activeVideoId, playerState, updatePlayerState, queueStore } from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
@@ -383,6 +384,13 @@
 	</div>
 {:else if hasTab}
 	<PlayerQueueBar />
+	{#if $queueStore.items.length <= 1}
+		<RelatedStrip
+			artist={$playerState.artist || currentTab?.artist || ''}
+			title={$playerState.title || currentTab?.title || ''}
+			currentTabId={currentTabId}
+		/>
+	{/if}
 	<TabViewer
 		{data}
 		tabId={currentTabId}
