@@ -54,8 +54,10 @@
 		syncStatusBar,
 		onBackButton,
 		exitApp,
+		hapticTap,
 		onAppStateChange
 	} from '../library/utils/native';
+	import { edgeSwipe } from '../library/utils/gestures';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
@@ -618,6 +620,17 @@
 		return () => removeBack();
 	});
 
+	// P4: left-edge swipe → back, mirroring the hardware back button handler
+	// above (close the tuner first, otherwise navigate back). Attached to the
+	// app body via `use:edgeSwipe` in the template below.
+	function handleEdgeBack() {
+		if (get(tunerOpen)) {
+			tunerOpen.set(false);
+			return;
+		}
+		history.back();
+	}
+
 	onMount(() => {
 		// Wake locks are dropped when the tab is backgrounded; re-acquire on
 		// return if playback is still running.
@@ -753,6 +766,7 @@
 
 <body
 	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
+	use:edgeSwipe={{ onBack: handleEdgeBack, haptic: hapticTap }}
 >
 	<a
 		href="#main-content"

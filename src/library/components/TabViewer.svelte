@@ -25,6 +25,7 @@
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import { isNative, saveFile, shareLink, hapticTap } from '../utils/native';
+	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -1889,6 +1890,18 @@
 		}
 	}
 
+	// Pinch-zoom handlers (see gestures.ts). Two-finger pinch drives the same
+	// tabScale → api.settings.display.scale path as the settings slider; a
+	// double-tap resets to the responsive default.
+	function setTabScaleFromPinch(scale: number) {
+		tabScale = scale;
+		updateTabScale();
+	}
+	function resetTabScale() {
+		tabScale = getResponsiveScale();
+		updateTabScale();
+	}
+
 	// Create proper alphaTab Color instances for theme settings
 	function atColor(r: number, g: number, b: number, a: number = 255) {
 		const at = window.alphaTab;
@@ -3534,10 +3547,18 @@
 	     the long-press selection becomes active. -->
 	<div
 		class="relative"
-		style="padding-right: var(--player-panel-width)"
+		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y;"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
+		use:pinchZoom={{
+			getScale: () => tabScale,
+			setScale: setTabScaleFromPinch,
+			onReset: resetTabScale,
+			min: SCALE_MIN,
+			max: SCALE_MAX,
+			haptic: hapticTap
+		}}
 	>
 		{#if apiError}
 			<div class="flex items-center justify-center min-h-[60vh]">
@@ -4952,3 +4973,21 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* P4-local touch-target treatment (P3 owns the global `.tap-target`; this
+	   plan owns TabViewer, so it applies the equivalent here and P3 never edits
+	   this file). Every control button in this component gets a ~48dp touch
+	   target via an invisible ::after inset — no layout shift. Scoped to this
+	   component's template buttons; JS-created popover buttons and alphaTab's
+	   own rendered elements are unaffected. */
+	button {
+		position: relative;
+		touch-action: manipulation;
+	}
+	button::after {
+		content: '';
+		position: absolute;
+		inset: -8px;
+	}
+</style>

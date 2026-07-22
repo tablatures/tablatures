@@ -6,7 +6,8 @@
 	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, queueStore, stepQueue, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
-	import { shareLink } from '../utils/native';
+	import { shareLink, hapticTap } from '../utils/native';
+	import { horizontalSwipe } from '../utils/gestures';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
@@ -105,6 +106,24 @@
 	$: currentSource = currentTab?.source || '';
 	$: hasVariants = variants.length > 1;
 
+	// Horizontal swipe on the bar switches queue tracks (preferred) or, absent a
+	// queue, cycles through source variants. Reuses the same handlers as the
+	// prev/next buttons and the variant pills.
+	function cycleVariant(delta: 1 | -1) {
+		if (variants.length < 2) return;
+		const idx = variants.findIndex((v) => v.id === (currentTab?.tabId || ''));
+		const next = variants[(idx + delta + variants.length) % variants.length];
+		if (next) switchToVariant(next);
+	}
+	function handleSwitchSwipe(dir: 'left' | 'right') {
+		const delta: 1 | -1 = dir === 'left' ? 1 : -1;
+		if (hasQueue) {
+			if ((delta === 1 && canNext) || (delta === -1 && canPrev)) queueStep(delta);
+			return;
+		}
+		if (hasVariants) cycleVariant(delta);
+	}
+
 	let switchingSource = false;
 
 	function getSourceLabel(source: string): string {
@@ -157,7 +176,14 @@
 	<!-- Progress bar -->
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
-	<div class="flex items-center px-2 sm:px-4 py-1.5 sm:py-2 gap-2 sm:gap-3">
+	<div
+		class="flex items-center px-2 sm:px-4 py-1.5 sm:py-2 gap-2 sm:gap-3"
+		use:horizontalSwipe={{
+			onSwipe: handleSwitchSwipe,
+			haptic: hapticTap,
+			enabled: hasQueue || hasVariants
+		}}
+	>
 		<!-- Queue previous -->
 		{#if hasQueue}
 			<button

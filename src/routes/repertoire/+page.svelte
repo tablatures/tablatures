@@ -25,6 +25,7 @@
 	import { playlistStore, encodePlaylist, decodePlaylist } from '../../library/utils/playlists';
 	import type { Playlist, PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
+	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -149,6 +150,14 @@
 		playlistArtworkLoading = true;
 		playlistArtwork = await fetchArtworkBatch(newEntries, playlistArtwork);
 		playlistArtworkLoading = false;
+	}
+
+	// Pull-to-refresh: re-fetch artwork for the (localStorage-backed) lists.
+	async function handlePullRefresh() {
+		favArtworkFetched = false;
+		histArtworkFetched = false;
+		playlistArtworkFetched.clear();
+		await Promise.all([fetchFavArtwork(), fetchHistArtwork(), fetchPlaylistArtwork()]);
 	}
 
 	$: if (favorites.length > 0) fetchFavArtwork();
@@ -319,6 +328,7 @@
 <Header bind:this={headerRef} showSearch={true} on:search={handleHeaderSearch} on:openTab={handleHeaderOpenTab} />
 
 <main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-3.5rem)]">
+	<PullToRefresh on:refresh={handlePullRefresh}>
 	<!-- Shared playlist banner -->
 	{#if sharedPlaylist && !sharedPlaylistDismissed}
 		<div class="mb-4 p-4 rounded-xl border-2 border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 flex flex-col sm:flex-row items-start sm:items-center gap-3" transition:fade={{ duration: 150 }}>
@@ -538,6 +548,7 @@
 									artworkUrl={histArtwork[item.id] || ''}
 									artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 									onClick={() => openTab(item)}
+									swipeAction={{ icon: 'delete', label: 'Remove from history', run: () => removeHistoryItem(item.id) }}
 								>
 									<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 group-hover:text-violet-500 transition-colors self-center" aria-hidden="true">chevron_right</i>
 								</TabRow>
@@ -593,6 +604,7 @@
 											artworkUrl={histArtwork[item.id] || ''}
 											artworkLoading={histArtworkLoading && !histArtwork[item.id]}
 											onClick={() => openTab(item)}
+											swipeAction={{ icon: 'delete', label: 'Remove from history', run: () => removeHistoryItem(item.id) }}
 										>
 											<button
 												on:click|stopPropagation={() => removeHistoryItem(item.id)}
@@ -718,4 +730,5 @@
 			{/if}
 		</div>
 	{/if}
+	</PullToRefresh>
 </main>
