@@ -4429,19 +4429,24 @@
 								>
 								{#each variants as variant}
 									{@const vd = getSourceDisplay(variant.source)}
+									{@const isActive = variant.id === tabId}
 									<button
-										class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50
-											{variant.id === tabId
-											? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
-											: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
+										class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors disabled:opacity-50
+											{isActive
+											? 'bg-violet-500 text-white shadow-sm shadow-violet-500/20'
+											: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-violet-600 dark:hover:text-violet-400'}"
 										on:click={() => switchToVariant(variant)}
-										disabled={switchingSource || variant.id === tabId}
-										title={variant.id === tabId ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
+										disabled={switchingSource || isActive}
+										title={isActive ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
 									>
-										<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
+										<span
+											class="w-1.5 h-1.5 rounded-full {isActive ? 'bg-white/90' : vd.dotColor}"
+										></span>
 										{vd.label}
 										{#if variant.trackCount}
-											<span class="text-neutral-400">({variant.trackCount})</span>
+											<span class={isActive ? 'text-white/70' : 'text-neutral-400'}
+												>({variant.trackCount})</span
+											>
 										{/if}
 									</button>
 								{/each}
