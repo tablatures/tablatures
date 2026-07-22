@@ -3964,38 +3964,64 @@
 			<div class="flex-1" />
 
 			<!-- Right: settings controls -->
-			<!-- Track selector (native picker, only when there is more than one track) -->
+			<!-- Quick controls: track + speed. Styled as pills to match the source
+			     chips / tuning chip, and shown on every screen size (label folds
+			     to an icon on phones) so mobile users can switch track and speed
+			     without opening the settings panel. A native <select> overlay
+			     drives each pill — no custom dropdown to maintain. -->
 			{#if tracks.length > 1}
-				<select
-					value={activeTrackIndex}
-					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
-					class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
+				<div
+					class="relative inline-flex items-center rounded-full py-1 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors focus-within:ring-2 focus-within:ring-violet-500"
 					title="Active track"
-					aria-label="Active track"
 				>
-					{#each tracks as track, i}
-						<option value={i}>{track.name || `Track ${i + 1}`}</option>
-					{/each}
-				</select>
+					<i class="material-icons !text-base pl-1.5 pointer-events-none">queue_music</i>
+					<span class="hidden sm:inline text-xs font-medium pl-1 max-w-[8rem] truncate">
+						{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}
+					</span>
+					<i
+						class="material-icons !text-base px-0.5 text-neutral-400 pointer-events-none"
+						>arrow_drop_down</i
+					>
+					<select
+						value={activeTrackIndex}
+						on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
+						class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+						aria-label="Active track"
+					>
+						{#each tracks as track, i}
+							<option value={i}>{track.name || `Track ${i + 1}`}</option>
+						{/each}
+					</select>
+				</div>
 			{/if}
 
-			<!-- Speed selector -->
-			<select
-				bind:value={speed}
-				class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
+			<div
+				class="relative inline-flex items-center rounded-full py-1 transition-colors focus-within:ring-2 focus-within:ring-violet-500
 					{speedIsCustom
-					? 'text-violet-500 dark:text-violet-400 font-medium'
-					: 'text-neutral-600 dark:text-neutral-400'}"
+					? 'bg-violet-500 text-white'
+					: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
 				title="Playback speed [+/-]"
-				aria-label="Playback speed"
 			>
-				{#if speedIsCustom}
-					<option value={speedRounded}>{speedRounded}x</option>
-				{/if}
-				{#each speedPresets as s}
-					<option value={s}>{s}x</option>
-				{/each}
-			</select>
+				<i class="material-icons !text-sm pl-2 pointer-events-none">speed</i>
+				<span class="pl-1 text-xs font-medium tabular-nums">{speedRounded}x</span>
+				<i
+					class="material-icons !text-base px-0.5 pointer-events-none {speedIsCustom
+						? 'text-white/70'
+						: 'text-neutral-400'}">arrow_drop_down</i
+				>
+				<select
+					bind:value={speed}
+					class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+					aria-label="Playback speed"
+				>
+					{#if speedIsCustom}
+						<option value={speedRounded}>{speedRounded}x</option>
+					{/if}
+					{#each speedPresets as s}
+						<option value={s}>{s}x</option>
+					{/each}
+				</select>
+			</div>
 
 			<!-- Video picker button -->
 			{#if youtubeResults.length > 0}
