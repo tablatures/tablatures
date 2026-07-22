@@ -182,7 +182,6 @@
 			return;
 		}
 		mobilePanelOpen = true;
-		versionsOpen = false;
 		queueListOpen = false;
 		await tick();
 		const rect = barEl?.getBoundingClientRect();
@@ -193,6 +192,35 @@
 		hapticTap();
 		mobilePanelOpen = false;
 		goto(queue.href || `${base}/playlist`);
+	}
+
+	function versionLabel(v: TabVersion): string {
+		const src = getSourceDisplay(v.source).label;
+		const tracks = v.trackCount ? ` - ${v.trackCount} tracks` : '';
+		return `${src}${tracks}`;
+	}
+
+	// Main's PlayerQueueBar dropped the in-bar (desktop) version switcher in
+	// favour of TabViewer's metadata-bar popover, but the mobile full-width panel
+	// keeps its own source switcher — this is the only version switcher on mobile.
+	async function switchVersion(v: TabVersion) {
+		if (v.id === currentTabId || navigating) return;
+		navigating = true;
+		try {
+			await openTabById(
+				{
+					id: v.id,
+					title: v.title,
+					artist: currentArtist,
+					source: v.source,
+					sourceUrl: v.sourceUrl,
+					variants: versions
+				},
+				false
+			);
+		} finally {
+			navigating = false;
+		}
 	}
 
 	async function switchVersionMobile(v: TabVersion) {
