@@ -8,6 +8,7 @@
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
+	import { tabStore, type TabVersion } from '../utils/store';
 	import {
 		playerApi,
 		playerTarget,
@@ -19,9 +20,7 @@
 		isTransitioning,
 		setMasterVolumeDebounced,
 		beatCursorEl,
-		sourceVariants,
-		videoHandlers,
-		type SourceVariant
+		videoHandlers
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
@@ -32,12 +31,12 @@
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
+	import PopoverMenu from '$components/PopoverMenu.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
-	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { getArtwork } from '../utils/artwork';
@@ -69,26 +68,87 @@
 	let showPlaylistPicker = false;
 
 	let switchingSource = false;
-	$: variants = $sourceVariants;
-	$: hasVariants = variants.length > 1;
+	// The full per-version list (all sources, every version) travels with the
+	// tab in the store. Unlike the collapsed per-source pills we used to show,
+	// this lets the user reach ANY individual version.
+	$: allVersions = ($tabStore?.variants ?? []) as TabVersion[];
+	$: hasVariants = allVersions.length > 1;
 
-	async function switchToVariant(variant: SourceVariant) {
-		if (switchingSource || variant.id === tabId) return;
+	/** Loose id comparison so 'songsterr:123' and 'songsterr_123' still match. */
+	function sameId(a?: string, b?: string): boolean {
+		if (!a || !b) return false;
+		if (a === b) return true;
+		const norm = (s: string) => s.toLowerCase().replace(/[:_\-\s]+/g, '');
+		return norm(a) === norm(b);
+	}
+
+	$: activeVersion = allVersions.find((v) => sameId(v.id, tabId));
+	$: currentSourceDisplay = getSourceDisplay(activeVersion?.source || $tabStore?.source || '');
+
+	interface VersionGroup {
+		source: string;
+		versions: TabVersion[];
+	}
+	$: versionGroups = ((): VersionGroup[] => {
+		const map = new Map<string, TabVersion[]>();
+		for (const v of allVersions) {
+			const arr = map.get(v.source) ?? [];
+			arr.push(v);
+			map.set(v.source, arr);
+		}
+		return [...map.entries()].map(([source, versions]) => ({ source, versions }));
+	})();
+
+	function versionDetail(v: TabVersion): string {
+		const parts: string[] = [];
+		if (v.trackCount) parts.push(`${v.trackCount} tracks`);
+		if (v.instruments && v.instruments.length > 0) parts.push(v.instruments.slice(0, 3).join(', '));
+		return parts.join(' · ');
+	}
+
+	// Switch to a concrete version. If its download 404s (stale id, unpersisted
+	// live result…) fall back to the other versions of the same source before
+	// giving up, so a bad id never leaves the player in a broken state.
+	async function switchToVariant(version: TabVersion) {
+		if (switchingSource || sameId(version.id, tabId)) return;
 		switchingSource = true;
 		try {
 			// Carry the resolved metadata into the new variant so the bottom bar
 			// keeps its title/artist even when the variant file has no embedded
-			// metadata (fall back through state → store → local label).
+			// metadata (fall back through state → store → version label).
 			const tab = get(tabStore);
-			await openTabById(
-				{
-					id: variant.id,
-					title: $playerState.title || tab?.title || title.split(' - ')[0] || title,
-					artist: currentArtistName || $playerState.artist || tab?.artist || '',
-					source: variant.source
-				},
-				false
-			);
+			const carriedTitle = $playerState.title || tab?.title || '';
+			const carriedArtist = currentArtistName || $playerState.artist || tab?.artist || '';
+			const sameSource = allVersions.filter((v) => v.source === version.source);
+			const ordered = [version, ...sameSource.filter((v) => v.id !== version.id)];
+			let ok = false;
+			for (const v of ordered) {
+				ok = await openTabById(
+					{
+						id: v.id,
+						title: v.title || carriedTitle || songTitle,
+						artist: carriedArtist,
+						source: v.source,
+						sourceUrl: v.sourceUrl ?? undefined,
+						variants: allVersions
+					},
+					false,
+					{ silent: true }
+				);
+				if (ok) {
+					if (v.id !== version.id) {
+						toastStore.info(
+							`That version was unavailable — opened another ${getSourceDisplay(v.source).label} version instead`
+						);
+					}
+					break;
+				}
+			}
+			if (!ok) {
+				toastStore.error(
+					`Couldn't load this ${getSourceDisplay(version.source).label} version. Try another source.`
+				);
+			}
 		} finally {
 			switchingSource = false;
 		}
@@ -388,6 +448,10 @@
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 	$: speedRounded = Math.round(speed * 100) / 100;
 	$: speedIsCustom = !speedPresets.includes(speedRounded);
+	// Preset list for the speed menu, with the current custom value folded in.
+	$: speedOptions = speedIsCustom
+		? [...speedPresets, speedRounded].sort((a, b) => a - b)
+		: speedPresets;
 
 	// Sheet selection → loop popover
 	let showSelectionPopover = false;
@@ -3909,38 +3973,101 @@
 			<div class="flex-1" />
 
 			<!-- Right: settings controls -->
-			<!-- Track selector (native picker, only when there is more than one track) -->
+			<!-- Quick controls: track + speed. Pills styled like the source / tuning
+			     chips, shown on every screen size (the track label folds to an icon
+			     on phones) so mobile users can switch track and speed without opening
+			     the settings panel. Each opens a shared PopoverMenu. -->
 			{#if tracks.length > 1}
-				<select
-					value={activeTrackIndex}
-					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
-					class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
-					title="Active track"
-					aria-label="Active track"
-				>
+				<PopoverMenu placement="top" align="end" width={240} ariaLabel="Select track" let:close>
+					<button
+						slot="trigger"
+						let:toggle
+						let:open
+						on:click={toggle}
+						class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+							{open
+							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
+						title="Active track"
+						aria-haspopup="menu"
+						aria-expanded={open}
+					>
+						<i class="material-icons !text-lg">queue_music</i>
+						<span class="hidden sm:inline max-w-[8rem] truncate"
+							>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
+						>
+						<i
+							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
+								? 'rotate-180'
+								: ''}">arrow_drop_down</i
+						>
+					</button>
 					{#each tracks as track, i}
-						<option value={i}>{track.name || `Track ${i + 1}`}</option>
+						<button
+							role="menuitem"
+							aria-current={i === activeTrackIndex}
+							class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors focus:outline-none
+								{i === activeTrackIndex
+								? 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-medium'
+								: 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+							on:click={() => {
+								setActiveTrack(i);
+								close();
+							}}
+						>
+							<span class="flex-1 min-w-0 truncate">{track.name || `Track ${i + 1}`}</span>
+							{#if i === activeTrackIndex}
+								<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+							{/if}
+						</button>
 					{/each}
-				</select>
+				</PopoverMenu>
 			{/if}
 
-			<!-- Speed selector -->
-			<select
-				bind:value={speed}
-				class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{speedIsCustom
-					? 'text-violet-500 dark:text-violet-400 font-medium'
-					: 'text-neutral-600 dark:text-neutral-400'}"
-				title="Playback speed [+/-]"
-				aria-label="Playback speed"
-			>
-				{#if speedIsCustom}
-					<option value={speedRounded}>{speedRounded}x</option>
-				{/if}
-				{#each speedPresets as s}
-					<option value={s}>{s}x</option>
+			<PopoverMenu placement="top" align="end" width={130} ariaLabel="Playback speed" let:close>
+				<button
+					slot="trigger"
+					let:toggle
+					let:open
+					on:click={toggle}
+					class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+						{speedIsCustom
+						? 'bg-violet-500 text-white'
+						: open
+							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
+					title="Playback speed [+/-]"
+					aria-haspopup="menu"
+					aria-expanded={open}
+				>
+					<i class="material-icons !text-base">speed</i>
+					<span class="tabular-nums">{speedRounded}x</span>
+					<i
+						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
+							? 'text-white/70'
+							: 'text-neutral-400'} {open ? 'rotate-180' : ''}">arrow_drop_down</i
+					>
+				</button>
+				{#each speedOptions as s}
+					<button
+						role="menuitem"
+						aria-current={s === speedRounded}
+						class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm tabular-nums transition-colors focus:outline-none
+							{s === speedRounded
+							? 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-medium'
+							: 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+						on:click={() => {
+							speed = s;
+							close();
+						}}
+					>
+						<span class="flex-1">{s}x</span>
+						{#if s === speedRounded}
+							<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+						{/if}
+					</button>
 				{/each}
-			</select>
+			</PopoverMenu>
 
 			<!-- Video picker button -->
 			{#if youtubeResults.length > 0}
@@ -4280,33 +4407,39 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
 							<a
 								href="{base}/search?q={encodeURIComponent(songTitle)}"
-								class="hover:text-violet-500 hover:underline transition-colors"
+								class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
 						<!-- Subtitle + tuning chip share one horizontal line so the chip
 						     stays compact and does not add a row to the bottom bar -->
 						<div class="flex items-center gap-2 min-w-0">
-							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
+							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
-									<span class="relative inline-block">
-										<ArtistTooltip artistName={currentArtistName} position="bottom">
+									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
+										<ArtistTooltip
+											artistName={currentArtistName}
+											position="bottom"
+											className="block min-w-0 max-w-full"
+										>
 											<a
 												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-												class="hover:text-violet-500 hover:underline transition-colors"
+												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 												title="View artist page">{currentArtistName}</a
 											>
 										</ArtistTooltip>
 									</span>
-									&middot;
+									<span class="flex-shrink-0 opacity-60">&middot;</span>
 								{/if}
-								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-									? ` \u00B7 ${totalBars} bars`
-									: ''}
-							</p>
+								<span class="truncate min-w-0 flex-1">
+									{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+										? ` \u00B7 ${totalBars} bars`
+										: ''}
+								</span>
+							</div>
 							<div class="flex-shrink-0">
 								<TuningChip
 									api={$playerApi}
@@ -4335,29 +4468,92 @@
 							</div>
 						{/if}
 						{#if hasVariants}
-							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
-								<span
-									class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
-									>Sources:</span
+							<!-- Version selector: browse and pick ANY version (grouped by
+							     source), not just one representative per source. Mirrors the
+							     search results' expanded-versions list. -->
+							<div class="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
+									>Source:</span
 								>
-								{#each variants as variant}
-									{@const vd = getSourceDisplay(variant.source)}
+								<PopoverMenu placement="bottom" align="start" width={300} ariaLabel="Select version" let:close>
 									<button
-										class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50
-											{variant.id === tabId
-											? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
-											: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
-										on:click={() => switchToVariant(variant)}
-										disabled={switchingSource || variant.id === tabId}
-										title={variant.id === tabId ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
+										slot="trigger"
+										let:toggle
+										let:open
+										on:click={toggle}
+										class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+											{open
+											? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+											: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
+										aria-haspopup="menu"
+										aria-expanded={open}
+										title="Switch source or version"
 									>
-										<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
-										{vd.label}
-										{#if variant.trackCount}
-											<span class="text-neutral-400">({variant.trackCount})</span>
+										{#if switchingSource}
+											<span
+												class="w-3 h-3 rounded-full border-2 border-neutral-300 border-t-violet-500 animate-spin"
+											></span>
+										{:else}
+											<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
 										{/if}
+										<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
+										<span class="text-neutral-400 dark:text-neutral-500">· {allVersions.length}</span>
+										<i
+											class="material-icons !text-base text-neutral-400 transition-transform duration-150 {open
+												? 'rotate-180'
+												: ''}">arrow_drop_down</i
+										>
 									</button>
-								{/each}
+									{#each versionGroups as group}
+										{@const gd = getSourceDisplay(group.source)}
+										<div class="flex items-center gap-1.5 px-3 pt-2 pb-1">
+											<span class="w-1.5 h-1.5 rounded-full {gd.dotColor}"></span>
+											<span
+												class="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400"
+												>{gd.label}</span
+											>
+											<span class="text-[10px] text-neutral-400">{group.versions.length}</span>
+										</div>
+										{#each group.versions as v, i}
+											{@const active = sameId(v.id, tabId)}
+											<button
+												role="menuitem"
+												aria-current={active}
+												class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors focus:outline-none disabled:opacity-50
+													{active
+													? 'bg-violet-50 dark:bg-violet-900/20'
+													: 'hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+												on:click={() => {
+													switchToVariant(v);
+													close();
+												}}
+												disabled={switchingSource || active}
+											>
+												<span class="flex-1 min-w-0">
+													<span
+														class="block truncate {active
+															? 'text-violet-600 dark:text-violet-300 font-medium'
+															: 'text-neutral-700 dark:text-neutral-300'}"
+														>{v.title || `${gd.label} version ${i + 1}`}</span
+													>
+													{#if versionDetail(v)}
+														<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
+															>{versionDetail(v)}</span
+														>
+													{/if}
+												</span>
+												{#if active}
+													<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+												{:else}
+													<i
+														class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0"
+														>play_arrow</i
+													>
+												{/if}
+											</button>
+										{/each}
+									{/each}
+								</PopoverMenu>
 							</div>
 						{/if}
 					</div>

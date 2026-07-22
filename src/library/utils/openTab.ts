@@ -57,7 +57,8 @@ export async function openTabById(
 		sourceUrl?: string | null;
 		variants?: import('./store').TabVersion[];
 	},
-	navigate: boolean = true
+	navigate: boolean = true,
+	opts: { silent?: boolean } = {}
 ): Promise<boolean> {
 	// Prefer the embedded hash payload for file-imported history entries;
 	// they have no catalog record to download from.
@@ -119,7 +120,7 @@ export async function openTabById(
 
 		return true;
 	} catch (err: any) {
-		toastStore.error(err?.message || 'Failed to open tab');
+		if (!opts.silent) toastStore.error(err?.message || 'Failed to open tab');
 		return false;
 	}
 }

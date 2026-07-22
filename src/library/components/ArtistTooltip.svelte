@@ -9,6 +9,10 @@
 
 	export let artistName: string = '';
 	export let position: 'top' | 'bottom' = 'top';
+	// Lets callers control the layout of the anchor wrapper (e.g. constrain its
+	// width so a long name truncates). Defaults to the inline-block chip used
+	// everywhere else.
+	export let className = 'inline-block';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -126,7 +130,7 @@
 <!-- svelte-ignore a11y-mouse-events-have-key-events a11y-no-static-element-interactions a11y-click-events-have-key-events -->
 <span
 	bind:this={wrapperEl}
-	class="inline-block"
+	class={className}
 	role="button"
 	tabindex="0"
 	on:mouseenter={show}
