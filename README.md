@@ -56,6 +56,8 @@
 - **YouTube video sync**: play along with YouTube videos, with bidirectional playback sync and adjustable time offset
 - **Drag-to-loop**: drag on the progress bar or the tablature sheet to create A-B loop regions with floating controls
 - **Smart cursor follow**: auto-scrolls with the cursor, pauses when you scroll away, resumes when you scroll back
+- **Versions & sources**: switch between the same song's versions and sources (Songsterr, Ultimate Guitar, …) without leaving the player
+- **Player queue**: play through a playlist or album, with prev/next and a jump-to-track list
 - **Dark theme support**: proper alphaTab color theming with dark mode
 - **Track mixer**: solo, mute, and adjust volume per track
 - **Keyboard shortcuts**: Space, arrows, +/-, and more
@@ -64,16 +66,18 @@
 - **Multi-source search**: searches local database, Songsterr, and Ultimate Guitar in parallel
 - **Dedicated search page** (`/search?q=...`) with shareable URLs
 - **Artist hero banner**: fuzzy-matched artist detection with image, bio, country, and genre tags
+- **Artist pages** (`/artist/[name]`): top tabs, albums, similar artists, and the full tab list for an artist
 - **Album artwork**: fetched from iTunes for search results, favorites, and the player
 - **Artist tooltips**: hover any artist name to see their photo, bio, and a link to search their tabs
 - **Autocomplete** with section headers (songs first, then albums, then artists)
 
-### Collection
+### Repertoire & Playlists
 - **Favorite songs** with album artwork, grouped by artist
 - **Favorite artists** with follow/unfollow from tooltips and hero banners
 - **History** grouped by day with individual item removal
+- **Playlists**: create, edit, and reorder playlists; share them via a URL and load them straight into the player queue
 - **Preferences**: soundfont selection, default speed/metronome, data export/import
-- **Local-only data**: everything stored in browser localStorage, nothing sent to servers
+- **Local-first data**: favorites, history, playlists, and preferences live only in your browser (localStorage) and are never uploaded. Search, tab downloads, album artwork, and recommendations are served by the Search API.
 
 ### Player Controls
 - **YouTube-style volume**: icon + hover slider with violet fill
@@ -88,8 +92,11 @@
 |-------|-------------|
 | `/` | Home: discovery feed with recommendations, recent tabs, import |
 | `/search?q=...` | Search results with artist hero section |
-| `/play?tab=...&video=...&t=...` | Full player with shareable state |
-| `/collection` | Favorites, history, settings |
+| `/play?tab=...&video=...&track=...&t=...` | Full player with shareable state (tab, video, active track, playback time) |
+| `/artist/[name]` | Artist page: top tabs, albums, similar artists, and all tabs |
+| `/repertoire` | Your collection: `favorites` \| `history` \| `playlists` tabs |
+| `/playlist` | A single playlist: saved, shared (via URL), or the live player queue |
+| `/settings` | Soundfont presets, default speed/metronome, data export/import |
 
 ## Getting Started
 

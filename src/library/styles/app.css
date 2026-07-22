@@ -100,6 +100,66 @@
 	}
 }
 
+/* ===========================================================================
+   P5 — native motion / touch tuning (global). Owns overscroll-behavior,
+   touch-action defaults, and route-transition motion. Distinct from P3's
+   .tap-target block and from the existing -webkit-tap-highlight-color above.
+   =========================================================================== */
+@layer base {
+	/* Kill the WebView overscroll glow / rubber-band and prevent scroll
+	   chaining to parents. Leaves inner scroll strips (which set their own
+	   overscroll-behavior) free, and lets P4 own pull-to-refresh. */
+	html,
+	body {
+		overscroll-behavior: none;
+	}
+
+	/* Remove the legacy 300ms tap delay and disable double-tap-to-zoom on
+	   interactive chrome so presses register instantly and feel native. Real
+	   pinch-zoom targets (the score) are opted out via .touch-pan below. */
+	button,
+	a,
+	label,
+	summary,
+	select,
+	[role='button'],
+	[role='switch'],
+	[role='tab'],
+	[role='menuitem'] {
+		touch-action: manipulation;
+	}
+
+	/* Escape hatch for surfaces that need full gesture control (pinch/pan),
+	   e.g. the tablature viewport handled by P4. */
+	.touch-pan {
+		touch-action: pan-x pan-y;
+	}
+	.touch-none {
+		touch-action: none;
+	}
+
+	/* Route transitions (View Transitions API, driven by onNavigate). A quick
+	   crossfade between old and new views. */
+	@media (prefers-reduced-motion: no-preference) {
+		::view-transition-old(root),
+		::view-transition-new(root) {
+			animation-duration: 0.2s;
+			animation-timing-function: ease;
+		}
+	}
+
+	/* Respect reduced-motion: cut route transitions and any view-transition
+	   animation. Complements the animation/transition reset in the base block
+	   above. */
+	@media (prefers-reduced-motion: reduce) {
+		::view-transition-group(*),
+		::view-transition-old(*),
+		::view-transition-new(*) {
+			animation: none !important;
+		}
+	}
+}
+
 @layer components {
 	::-webkit-scrollbar {
 		width: 5px;
@@ -179,6 +239,16 @@
 		}
 		100% {
 			background-position: 200% 0;
+		}
+	}
+
+	/* Artwork dissolves in over its placeholder once its bytes load (use:fadeInImage) */
+	@keyframes img-fade-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
 		}
 	}
 

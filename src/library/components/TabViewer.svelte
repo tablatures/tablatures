@@ -8,6 +8,7 @@
 	import { displayTime } from '../utils/format';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
+	import { tabStore, type TabVersion } from '../utils/store';
 	import {
 		playerApi,
 		playerTarget,
@@ -19,9 +20,7 @@
 		isTransitioning,
 		setMasterVolumeDebounced,
 		beatCursorEl,
-		sourceVariants,
-		videoHandlers,
-		type SourceVariant
+		videoHandlers
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
@@ -33,6 +32,7 @@
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
+	import PopoverMenu from '$components/PopoverMenu.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
@@ -69,22 +69,87 @@
 	let showPlaylistPicker = false;
 
 	let switchingSource = false;
-	$: variants = $sourceVariants;
-	$: hasVariants = variants.length > 1;
+	// The full per-version list (all sources, every version) travels with the
+	// tab in the store. Unlike the collapsed per-source pills we used to show,
+	// this lets the user reach ANY individual version.
+	$: allVersions = ($tabStore?.variants ?? []) as TabVersion[];
+	$: hasVariants = allVersions.length > 1;
 
-	async function switchToVariant(variant: SourceVariant) {
-		if (switchingSource || variant.id === tabId) return;
+	/** Loose id comparison so 'songsterr:123' and 'songsterr_123' still match. */
+	function sameId(a?: string, b?: string): boolean {
+		if (!a || !b) return false;
+		if (a === b) return true;
+		const norm = (s: string) => s.toLowerCase().replace(/[:_\-\s]+/g, '');
+		return norm(a) === norm(b);
+	}
+
+	$: activeVersion = allVersions.find((v) => sameId(v.id, tabId));
+	$: currentSourceDisplay = getSourceDisplay(activeVersion?.source || $tabStore?.source || '');
+
+	interface VersionGroup {
+		source: string;
+		versions: TabVersion[];
+	}
+	$: versionGroups = ((): VersionGroup[] => {
+		const map = new Map<string, TabVersion[]>();
+		for (const v of allVersions) {
+			const arr = map.get(v.source) ?? [];
+			arr.push(v);
+			map.set(v.source, arr);
+		}
+		return [...map.entries()].map(([source, versions]) => ({ source, versions }));
+	})();
+
+	function versionDetail(v: TabVersion): string {
+		const parts: string[] = [];
+		if (v.trackCount) parts.push(`${v.trackCount} tracks`);
+		if (v.instruments && v.instruments.length > 0) parts.push(v.instruments.slice(0, 3).join(', '));
+		return parts.join(' · ');
+	}
+
+	// Switch to a concrete version. If its download 404s (stale id, unpersisted
+	// live result…) fall back to the other versions of the same source before
+	// giving up, so a bad id never leaves the player in a broken state.
+	async function switchToVariant(version: TabVersion) {
+		if (switchingSource || sameId(version.id, tabId)) return;
 		switchingSource = true;
 		try {
-			await openTabById(
-				{
-					id: variant.id,
-					title: title.split(' - ')[0] || title,
-					artist: currentArtistName || '',
-					source: variant.source
-				},
-				false
-			);
+			// Carry the resolved metadata into the new variant so the bottom bar
+			// keeps its title/artist even when the variant file has no embedded
+			// metadata (fall back through state → store → version label).
+			const tab = get(tabStore);
+			const carriedTitle = $playerState.title || tab?.title || '';
+			const carriedArtist = currentArtistName || $playerState.artist || tab?.artist || '';
+			const sameSource = allVersions.filter((v) => v.source === version.source);
+			const ordered = [version, ...sameSource.filter((v) => v.id !== version.id)];
+			let ok = false;
+			for (const v of ordered) {
+				ok = await openTabById(
+					{
+						id: v.id,
+						title: v.title || carriedTitle || songTitle,
+						artist: carriedArtist,
+						source: v.source,
+						sourceUrl: v.sourceUrl ?? undefined,
+						variants: allVersions
+					},
+					false,
+					{ silent: true }
+				);
+				if (ok) {
+					if (v.id !== version.id) {
+						toastStore.info(
+							`That version was unavailable — opened another ${getSourceDisplay(v.source).label} version instead`
+						);
+					}
+					break;
+				}
+			}
+			if (!ok) {
+				toastStore.error(
+					`Couldn't load this ${getSourceDisplay(version.source).label} version. Try another source.`
+				);
+			}
 		} finally {
 			switchingSource = false;
 		}
@@ -384,6 +449,10 @@
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 	$: speedRounded = Math.round(speed * 100) / 100;
 	$: speedIsCustom = !speedPresets.includes(speedRounded);
+	// Preset list for the speed menu, with the current custom value folded in.
+	$: speedOptions = speedIsCustom
+		? [...speedPresets, speedRounded].sort((a, b) => a - b)
+		: speedPresets;
 
 	// Sheet selection → loop popover
 	let showSelectionPopover = false;
@@ -1341,7 +1410,6 @@
 
 		const rect = range.getBoundingClientRect();
 		const mouseX = e.clientX - rect.left;
-		const pct = Math.max(0, Math.min(100, (mouseX / rect.width) * 100));
 		const EDGE_THRESHOLD_PX = 10;
 
 		// Check if clicking near existing loop edges for resize, or inside for move
@@ -1367,75 +1435,15 @@
 			}
 		}
 
-		// Track for potential loop creation or seek
-		const startX = e.clientX;
-		const startPct = pct;
-		let didDrag = false;
-		let peakEndBar = 0;
-		let peakEndPct = startPct;
-
-		const onMove = (me: MouseEvent) => {
-			const dx = Math.abs(me.clientX - startX);
-			const currentPct = getProgressPercent(me.clientX);
-
-			if (dx > 10) {
-				if (!didDrag) {
-					dismissPopoverAndRefresh();
-				}
-				didDrag = true;
-				isDraggingLoop = true;
-				const minMs = percentToTime(Math.min(startPct, currentPct));
-				const maxPct = Math.max(startPct, currentPct);
-				let eBar = msToBar(percentToTime(maxPct));
-				// Track peak endBar to prevent snapping at repeat boundaries.
-				// Only reset the peak when the user drags significantly backward
-				// (>2% hysteresis prevents wiggle-based bypass).
-				if (eBar > peakEndBar) {
-					peakEndBar = eBar;
-					peakEndPct = maxPct;
-				}
-				if (maxPct >= peakEndPct && eBar < peakEndBar) {
-					eBar = peakEndBar;
-				} else if (maxPct < peakEndPct - 2) {
-					// User is dragging clearly backward — reset peak
-					peakEndBar = eBar;
-					peakEndPct = maxPct;
-				}
-				setLoopBars(msToBar(minMs), eBar);
-				updateScoreSelection();
-			}
-		};
-
+		// Unified gesture: a plain drag scrubs the playhead, a press-and-hold
+		// (no movement for LONG_PRESS_MS) enters loop-select mode and subsequent
+		// movement sizes the loop. Shared with the touch handlers below.
+		pbBeginGesture(e.clientX);
+		const onMove = (me: MouseEvent) => pbMoveGesture(me.clientX);
 		const onUp = (me: MouseEvent) => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-
-			if (didDrag) {
-				isDraggingLoop = false;
-				if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-					clearLoopPoints();
-				}
-			} else {
-				// Single click = seek to position
-				const seekPct = getProgressPercent(me.clientX);
-				const seekTime = percentToTime(seekPct);
-
-				// If clicking outside the current loop, disable it
-				if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
-					const loopStartMs = (_loopTimelinePct.start / 100) * duration;
-					const loopEndMs = (_loopTimelinePct.end / 100) * duration;
-					if (seekTime < loopStartMs || seekTime > loopEndMs) {
-						clearLoopPoints();
-					}
-				}
-
-				progress = seekPct;
-				bindDuration = false;
-				api.player.timePosition = (progress / 100) * duration;
-				seekDebounce();
-				autoFollow = true;
-				autoFollowDisengagedAt = 0;
-			}
+			pbEndGesture(me.clientX);
 		};
 
 		document.addEventListener('mousemove', onMove);
@@ -1556,39 +1564,122 @@
 		showProgressTooltip = true;
 	}
 
-	// Touch-based loop and seek on progress bar
-	let touchDragStartX = 0;
-	let touchDragStartPct = 0;
-	let touchDidDrag = false;
-	let touchPeakEndBar = 0;
-	let touchPeakEndPct = 0;
+	// --- Unified progress-bar gesture engine (mouse + touch) -----------------
+	// One long-press-then-drag implementation shared by the mouse and touch
+	// entry points so both surfaces behave identically:
+	//   • a plain drag scrubs the playhead (immediate, no accidental loop)
+	//   • a press-and-hold (no movement for LONG_PRESS_MS) enters loop-select
+	//     mode (haptic on touch) and subsequent movement sizes the loop region
+	//   • a plain click/tap seeks to the position
 	let longPressTimer: NodeJS.Timeout;
-	// When true, the long-press has fired and subsequent touchmoves should
-	// grow/shrink the freshly-created loop region rather than seek or scrub.
-	let loopCreating = false;
-	// Anchor bar for the hold-and-drag loop — remembered so that dragging past
-	// the anchor in either direction swaps start/end correctly.
-	let loopCreatingAnchorBar = 0;
+	// Gesture start reference (client X + percent along the bar).
+	let pbStartX = 0;
+	let pbStartPct = 0;
+	// The long-press fired → subsequent movement grows/shrinks the loop region.
+	let pbLoopCreating = false;
+	// Anchor bar for the hold-and-drag loop — dragging past it in either
+	// direction swaps start/end correctly.
+	let pbLoopAnchorBar = 0;
+	// Movement before the hold fired → scrubbing the playhead, not looping.
+	let pbScrubbing = false;
 	// Movement threshold (px) before the long-press timer is cancelled. Small
 	// fat-finger jitter shouldn't abort a hold, but a real scrub should.
 	const LONG_PRESS_MOVE_CANCEL_PX = 6;
 	const LONG_PRESS_MS = 350;
 
+	function pbSeekTo(clientX: number) {
+		if (!range || !duration || !api) return;
+		const pct = getProgressPercent(clientX);
+		progress = pct;
+		bindDuration = false;
+		api.player.timePosition = (pct / 100) * duration;
+		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+	}
+
+	function pbBeginGesture(clientX: number) {
+		pbStartX = clientX;
+		pbStartPct = getProgressPercent(clientX);
+		pbLoopCreating = false;
+		pbScrubbing = false;
+		clearTimeout(longPressTimer);
+		longPressTimer = setTimeout(() => {
+			// Hold fired without a scrub — seed a 1-bar loop at the cursor/finger
+			// and flip into loop-sizing mode.
+			const barIdx = msToBar(percentToTime(pbStartPct));
+			pbLoopAnchorBar = barIdx;
+			loopStartBar = barIdx;
+			loopEndBar = barIdx;
+			loopEnabled = true;
+			pbLoopCreating = true;
+			isDraggingLoop = true;
+			dismissPopoverAndRefresh();
+			updateScoreSelection();
+			hapticTap();
+		}, LONG_PRESS_MS);
+	}
+
+	function pbMoveGesture(clientX: number) {
+		// Post-hold: grow the loop around the anchor bar.
+		if (pbLoopCreating) {
+			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+			const bar = Math.min(msToBar(percentToTime(getProgressPercent(clientX))), maxBar);
+			if (bar >= pbLoopAnchorBar) {
+				setLoopBars(pbLoopAnchorBar, bar);
+			} else {
+				setLoopBars(bar, pbLoopAnchorBar);
+			}
+			updateScoreSelection();
+			return;
+		}
+
+		// Pre-hold: meaningful movement cancels the hold and scrubs instead.
+		if (!pbScrubbing && Math.abs(clientX - pbStartX) > LONG_PRESS_MOVE_CANCEL_PX) {
+			clearTimeout(longPressTimer);
+			pbScrubbing = true;
+			dismissPopoverAndRefresh();
+		}
+		if (pbScrubbing) pbSeekTo(clientX);
+	}
+
+	function pbEndGesture(clientX: number) {
+		clearTimeout(longPressTimer);
+		if (pbLoopCreating) {
+			pbLoopCreating = false;
+			isDraggingLoop = false;
+			// Discard a zero-length loop — a hold with no drag shouldn't leave a
+			// single-bar selection behind.
+			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
+				clearLoopPoints();
+			}
+			return;
+		}
+		if (pbScrubbing) {
+			pbScrubbing = false;
+			return;
+		}
+
+		// Plain click/tap = seek. If seeking outside the current loop, disable it.
+		const seekTime = percentToTime(getProgressPercent(clientX));
+		if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
+			const loopStartMs = (_loopTimelinePct.start / 100) * duration;
+			const loopEndMs = (_loopTimelinePct.end / 100) * duration;
+			if (seekTime < loopStartMs || seekTime > loopEndMs) {
+				clearLoopPoints();
+			}
+		}
+		pbSeekTo(clientX);
+	}
+
+	// Touch entry points — thin wrappers over the shared gesture engine. Edge
+	// resize / inside-move of an existing loop keep their dedicated handlers.
 	function handleProgressBarTouchStart(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.touches[0].clientX - rect.left;
-		const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
-		touchDragStartX = event.touches[0].clientX;
-		touchDragStartPct = pct;
-		touchDidDrag = false;
-		touchPeakEndBar = 0;
-		touchPeakEndPct = pct;
-		loopCreating = false;
 
 		const EDGE_THRESHOLD_PX = 15;
-
-		// Check if touching near loop edges for resize
 		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
 			const startX = (_loopTimelinePct.start / 100) * rect.width;
 			const endX = (_loopTimelinePct.end / 100) * rect.width;
@@ -1601,113 +1692,26 @@
 				startLoopEdgeDragTouch(event, 'end');
 				return;
 			}
-			// Inside loop region - move
 			if (x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
 				startLoopMoveDragTouch(event);
 				return;
 			}
 		}
 
-		// Long-press-and-drag: after LONG_PRESS_MS without moving, seed a tiny
-		// loop region at the finger and flip into `loopCreating` mode so the
-		// next touchmoves extend the region rather than scrub the playhead.
-		longPressTimer = setTimeout(() => {
-			const barIdx = msToBar(percentToTime(pct));
-			loopCreatingAnchorBar = barIdx;
-			loopStartBar = barIdx;
-			loopEndBar = barIdx;
-			loopEnabled = true;
-			loopCreating = true;
-			isDraggingLoop = true;
-			dismissPopoverAndRefresh();
-			updateScoreSelection();
-			hapticTap();
-		}, LONG_PRESS_MS);
+		pbBeginGesture(event.touches[0].clientX);
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
 		if (!range || !duration || !event.touches[0]) return;
-		const dx = Math.abs(event.touches[0].clientX - touchDragStartX);
-
-		// Post-longpress: grow the in-progress loop around the anchor bar.
-		if (loopCreating) {
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const currentPct = getProgressPercent(event.touches[0].clientX);
-			const currentBar = Math.min(msToBar(percentToTime(currentPct)), maxBar);
-			if (currentBar >= loopCreatingAnchorBar) {
-				loopStartBar = loopCreatingAnchorBar;
-				loopEndBar = currentBar;
-			} else {
-				loopStartBar = currentBar;
-				loopEndBar = loopCreatingAnchorBar;
-			}
-			updateScoreSelection();
-			return;
-		}
-
-		// Pre-longpress: any meaningful movement cancels the hold and falls
-		// back to the original tap-and-drag selection behavior.
-		if (dx > LONG_PRESS_MOVE_CANCEL_PX) {
-			if (!touchDidDrag) dismissPopoverAndRefresh();
-			touchDidDrag = true;
-			clearTimeout(longPressTimer);
-			isDraggingLoop = true;
-			const currentPct = getProgressPercent(event.touches[0].clientX);
-			const minMs = percentToTime(Math.min(touchDragStartPct, currentPct));
-			const maxPct = Math.max(touchDragStartPct, currentPct);
-			let eBar = msToBar(percentToTime(maxPct));
-			// Prevent endBar snap at repeat boundaries (same guard as mouse handler)
-			if (eBar > touchPeakEndBar) {
-				touchPeakEndBar = eBar;
-				touchPeakEndPct = maxPct;
-			}
-			if (maxPct >= touchPeakEndPct && eBar < touchPeakEndBar) {
-				eBar = touchPeakEndBar;
-			} else if (maxPct < touchPeakEndPct - 2) {
-				touchPeakEndBar = eBar;
-				touchPeakEndPct = maxPct;
-			}
-			setLoopBars(msToBar(minMs), eBar);
-			updateScoreSelection();
-		}
+		pbMoveGesture(event.touches[0].clientX);
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
-		clearTimeout(longPressTimer);
-		if (loopCreating) {
-			loopCreating = false;
-			isDraggingLoop = false;
-			// Discard a zero-length loop — long-press without drag shouldn't
-			// leave a single-bar selection behind.
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
+		if (!event.changedTouches[0]) {
+			clearTimeout(longPressTimer);
 			return;
 		}
-		if (touchDidDrag) {
-			isDraggingLoop = false;
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
-		} else {
-			// Simple tap = seek (set progress first to prevent flicker)
-			if (!event.changedTouches[0] || !range || !duration) return;
-			const pct = getProgressPercent(event.changedTouches[0].clientX);
-			const seekTime = percentToTime(pct);
-
-			// If tapping outside the current loop, disable it
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
-				const loopStartMs = (_loopTimelinePct.start / 100) * duration;
-				const loopEndMs = (_loopTimelinePct.end / 100) * duration;
-				if (seekTime < loopStartMs || seekTime > loopEndMs) {
-					clearLoopPoints();
-				}
-			}
-
-			progress = pct;
-			api.player.timePosition = (progress / 100) * duration;
-			seekDebounce();
-		}
+		pbEndGesture(event.changedTouches[0].clientX);
 	}
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
@@ -1950,9 +1954,14 @@
 
 		// Score loaded (detailed handler for full player)
 		const onScoreLoaded = (score: any) => {
-			const newTitle = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
-			const isNewSheet = title !== newTitle;
-			title = newTitle;
+			const scoreLabel = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
+			// Files without embedded metadata yield an empty label; keep the label
+			// resolved on open (store) instead of blanking the header/variant title.
+			const tab = get(tabStore);
+			const fallbackLabel = [tab?.title, tab?.artist].filter((s) => Boolean(s)).join(' - ');
+			const newTitle = scoreLabel || fallbackLabel;
+			const isNewSheet = !!newTitle && title !== newTitle;
+			if (newTitle) title = newTitle;
 			tracks = score.tracks;
 			scoreLoaded = true;
 			isRendering = false;
@@ -3985,38 +3994,101 @@
 			<div class="flex-1" />
 
 			<!-- Right: settings controls -->
-			<!-- Track selector (native picker, only when there is more than one track) -->
+			<!-- Quick controls: track + speed. Pills styled like the source / tuning
+			     chips, shown on every screen size (the track label folds to an icon
+			     on phones) so mobile users can switch track and speed without opening
+			     the settings panel. Each opens a shared PopoverMenu. -->
 			{#if tracks.length > 1}
-				<select
-					value={activeTrackIndex}
-					on:change={(e) => setActiveTrack(parseInt(e.currentTarget.value, 10))}
-					class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400 max-w-[7rem] truncate"
-					title="Active track"
-					aria-label="Active track"
-				>
+				<PopoverMenu placement="top" align="end" width={240} ariaLabel="Select track" let:close>
+					<button
+						slot="trigger"
+						let:toggle
+						let:open
+						on:click={toggle}
+						class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+							{open
+							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
+						title="Active track"
+						aria-haspopup="menu"
+						aria-expanded={open}
+					>
+						<i class="material-icons !text-lg">queue_music</i>
+						<span class="hidden sm:inline max-w-[8rem] truncate"
+							>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
+						>
+						<i
+							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
+								? 'rotate-180'
+								: ''}">arrow_drop_down</i
+						>
+					</button>
 					{#each tracks as track, i}
-						<option value={i}>{track.name || `Track ${i + 1}`}</option>
+						<button
+							role="menuitem"
+							aria-current={i === activeTrackIndex}
+							class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors focus:outline-none
+								{i === activeTrackIndex
+								? 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-medium'
+								: 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+							on:click={() => {
+								setActiveTrack(i);
+								close();
+							}}
+						>
+							<span class="flex-1 min-w-0 truncate">{track.name || `Track ${i + 1}`}</span>
+							{#if i === activeTrackIndex}
+								<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+							{/if}
+						</button>
 					{/each}
-				</select>
+				</PopoverMenu>
 			{/if}
 
-			<!-- Speed selector -->
-			<select
-				bind:value={speed}
-				class="hidden sm:block text-xs bg-transparent outline-none cursor-pointer px-1 py-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800
-					{speedIsCustom
-					? 'text-violet-500 dark:text-violet-400 font-medium'
-					: 'text-neutral-600 dark:text-neutral-400'}"
-				title="Playback speed [+/-]"
-				aria-label="Playback speed"
-			>
-				{#if speedIsCustom}
-					<option value={speedRounded}>{speedRounded}x</option>
-				{/if}
-				{#each speedPresets as s}
-					<option value={s}>{s}x</option>
+			<PopoverMenu placement="top" align="end" width={130} ariaLabel="Playback speed" let:close>
+				<button
+					slot="trigger"
+					let:toggle
+					let:open
+					on:click={toggle}
+					class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+						{speedIsCustom
+						? 'bg-violet-500 text-white'
+						: open
+							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
+					title="Playback speed [+/-]"
+					aria-haspopup="menu"
+					aria-expanded={open}
+				>
+					<i class="material-icons !text-base">speed</i>
+					<span class="tabular-nums">{speedRounded}x</span>
+					<i
+						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
+							? 'text-white/70'
+							: 'text-neutral-400'} {open ? 'rotate-180' : ''}">arrow_drop_down</i
+					>
+				</button>
+				{#each speedOptions as s}
+					<button
+						role="menuitem"
+						aria-current={s === speedRounded}
+						class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm tabular-nums transition-colors focus:outline-none
+							{s === speedRounded
+							? 'bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-medium'
+							: 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+						on:click={() => {
+							speed = s;
+							close();
+						}}
+					>
+						<span class="flex-1">{s}x</span>
+						{#if s === speedRounded}
+							<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+						{/if}
+					</button>
 				{/each}
-			</select>
+			</PopoverMenu>
 
 			<!-- Video picker button -->
 			{#if youtubeResults.length > 0}
@@ -4356,33 +4428,39 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
 							<a
 								href="{base}/search?q={encodeURIComponent(songTitle)}"
-								class="hover:text-violet-500 hover:underline transition-colors"
+								class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
 						<!-- Subtitle + tuning chip share one horizontal line so the chip
 						     stays compact and does not add a row to the bottom bar -->
 						<div class="flex items-center gap-2 min-w-0">
-							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
+							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
-									<span class="relative inline-block">
-										<ArtistTooltip artistName={currentArtistName} position="bottom">
+									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
+										<ArtistTooltip
+											artistName={currentArtistName}
+											position="bottom"
+											className="block min-w-0 max-w-full"
+										>
 											<a
 												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-												class="hover:text-violet-500 hover:underline transition-colors"
+												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 												title="View artist page">{currentArtistName}</a
 											>
 										</ArtistTooltip>
 									</span>
-									&middot;
+									<span class="flex-shrink-0 opacity-60">&middot;</span>
 								{/if}
-								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-									? ` \u00B7 ${totalBars} bars`
-									: ''}
-							</p>
+								<span class="truncate min-w-0 flex-1">
+									{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+										? ` \u00B7 ${totalBars} bars`
+										: ''}
+								</span>
+							</div>
 							<div class="flex-shrink-0">
 								<TuningChip
 									api={$playerApi}
@@ -4411,29 +4489,92 @@
 							</div>
 						{/if}
 						{#if hasVariants}
-							<div class="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-1.5 flex-wrap">
-								<span
-									class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500 mr-0.5"
-									>Sources:</span
+							<!-- Version selector: browse and pick ANY version (grouped by
+							     source), not just one representative per source. Mirrors the
+							     search results' expanded-versions list. -->
+							<div class="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
+									>Source:</span
 								>
-								{#each variants as variant}
-									{@const vd = getSourceDisplay(variant.source)}
+								<PopoverMenu placement="bottom" align="start" width={300} ariaLabel="Select version" let:close>
 									<button
-										class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50
-											{variant.id === tabId
-											? 'bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
-											: 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-violet-400 hover:text-violet-500'}"
-										on:click={() => switchToVariant(variant)}
-										disabled={switchingSource || variant.id === tabId}
-										title={variant.id === tabId ? `Current: ${vd.label}` : `Switch to ${vd.label}`}
+										slot="trigger"
+										let:toggle
+										let:open
+										on:click={toggle}
+										class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
+											{open
+											? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
+											: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
+										aria-haspopup="menu"
+										aria-expanded={open}
+										title="Switch source or version"
 									>
-										<span class="w-1.5 h-1.5 rounded-full {vd.dotColor}"></span>
-										{vd.label}
-										{#if variant.trackCount}
-											<span class="text-neutral-400">({variant.trackCount})</span>
+										{#if switchingSource}
+											<span
+												class="w-3 h-3 rounded-full border-2 border-neutral-300 border-t-violet-500 animate-spin"
+											></span>
+										{:else}
+											<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
 										{/if}
+										<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
+										<span class="text-neutral-400 dark:text-neutral-500">· {allVersions.length}</span>
+										<i
+											class="material-icons !text-base text-neutral-400 transition-transform duration-150 {open
+												? 'rotate-180'
+												: ''}">arrow_drop_down</i
+										>
 									</button>
-								{/each}
+									{#each versionGroups as group}
+										{@const gd = getSourceDisplay(group.source)}
+										<div class="flex items-center gap-1.5 px-3 pt-2 pb-1">
+											<span class="w-1.5 h-1.5 rounded-full {gd.dotColor}"></span>
+											<span
+												class="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400"
+												>{gd.label}</span
+											>
+											<span class="text-[10px] text-neutral-400">{group.versions.length}</span>
+										</div>
+										{#each group.versions as v, i}
+											{@const active = sameId(v.id, tabId)}
+											<button
+												role="menuitem"
+												aria-current={active}
+												class="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors focus:outline-none disabled:opacity-50
+													{active
+													? 'bg-violet-50 dark:bg-violet-900/20'
+													: 'hover:bg-neutral-100 dark:hover:bg-neutral-800 focus-visible:bg-neutral-100 dark:focus-visible:bg-neutral-800'}"
+												on:click={() => {
+													switchToVariant(v);
+													close();
+												}}
+												disabled={switchingSource || active}
+											>
+												<span class="flex-1 min-w-0">
+													<span
+														class="block truncate {active
+															? 'text-violet-600 dark:text-violet-300 font-medium'
+															: 'text-neutral-700 dark:text-neutral-300'}"
+														>{v.title || `${gd.label} version ${i + 1}`}</span
+													>
+													{#if versionDetail(v)}
+														<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
+															>{versionDetail(v)}</span
+														>
+													{/if}
+												</span>
+												{#if active}
+													<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+												{:else}
+													<i
+														class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0"
+														>play_arrow</i
+													>
+												{/if}
+											</button>
+										{/each}
+									{/each}
+								</PopoverMenu>
 							</div>
 						{/if}
 					</div>

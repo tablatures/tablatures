@@ -12,6 +12,7 @@ export interface UserPreferences {
 	audioSourcePreference: 'tab' | 'video' | 'both';
 	autoPlayOnLoad: boolean;
 	showMiniPlayerPreview: boolean;
+	haptics: boolean;
 }
 
 const STORAGE_KEY = 'user-preferences';
@@ -76,7 +77,8 @@ const DEFAULTS: UserPreferences = {
 	miniPlayerScaleMobile: 0.7,
 	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
-	showMiniPlayerPreview: true
+	showMiniPlayerPreview: true,
+	haptics: true
 };
 
 function load(): UserPreferences {

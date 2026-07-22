@@ -9,8 +9,9 @@
 
 	import { onMount } from 'svelte';
 	import { navigating, page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
+	import { loadAlphaTab, warmAlphaTab } from '../library/utils/alphaTabLoader';
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { toastStore } from '../library/utils/toast';
@@ -53,7 +54,8 @@
 		syncStatusBar,
 		onBackButton,
 		exitApp,
-		hapticTap
+		hapticTap,
+		onAppStateChange
 	} from '../library/utils/native';
 	import { edgeSwipe } from '../library/utils/gestures';
 	import {
@@ -232,15 +234,27 @@
 	}
 
 	// --- Persistent alphaTab API management ---
-	function ensureApiInitialized() {
-		if (!browser || !window.alphaTab || !playerHostEl) return;
+	async function ensureApiInitialized() {
+		if (!browser || !playerHostEl) return;
 		if (get(playerApi)) return; // Already initialized
 
+		// The engine is loaded on demand (not a render-blocking script) so it
+		// never delays first paint on non-player pages. Await the shared load.
+		if (!window.alphaTab) {
+			try {
+				await loadAlphaTab();
+			} catch {
+				return;
+			}
+			// State may have changed while the engine downloaded.
+			if (!playerHostEl || get(playerApi)) return;
+		}
+
 		const prefs = get(preferencesStore);
-		// alphaTab is now served from our own origin (see app.html and the
-		// vendor-alphatab vite plugin) instead of a CDN. Point it at the vendored
-		// script and Bravura font so workers and glyphs load locally and offline.
-		// These MUST be absolute URLs: the synth runs in a blob-origin worker whose
+		// alphaTab is served from our own origin (see the vendor-alphatab vite
+		// plugin) instead of a CDN. Point it at the vendored script and Bravura
+		// font so workers and glyphs load locally and offline. These MUST be
+		// absolute URLs: the synth runs in a blob-origin worker whose
 		// importScripts cannot resolve a root-relative path.
 		const vendorBase = `${window.location.origin}${base}/vendor/alphatab`;
 		const api = new window.alphaTab.AlphaTabApi(playerHostEl, {
@@ -319,10 +333,15 @@
 		});
 
 		api.scoreLoaded.on((score) => {
-			const title = [score.title, score.artist].filter(Boolean).join(' - ');
+			// Don't clobber existing metadata with a blank when the loaded file has
+			// no embedded title/artist (common for Songsterr/GP exports). Fall back
+			// to the tab store (set from catalog metadata on open) and then to the
+			// current state so tuning changes and variant switches keep the label.
+			const tab = get(tabStore);
+			const prev = get(playerState);
 			updatePlayerState({
-				title: score.title || '',
-				artist: score.artist || '',
+				title: score.title || tab?.title || prev.title || '',
+				artist: score.artist || tab?.artist || prev.artist || '',
 				scoreLoaded: true,
 				tracks: score.tracks,
 				isRendering: false
@@ -625,10 +644,72 @@
 	});
 
 	onMount(() => {
+		// Native app-lifecycle handling. When the app is backgrounded we pause
+		// playback and release the keep-awake lock (the WebView keeps the synth
+		// running otherwise, draining the battery in the background). When it
+		// returns to the foreground we re-arm the one-time Web Audio unlock so the
+		// next user gesture can resume the AudioContext the OS may have suspended.
+		function armAudioUnlock() {
+			function resume() {
+				const api = get(playerApi);
+				const ctx =
+					(api as any)?.player?.output?.context ??
+					(api as any)?.player?.context ??
+					(api as any)?._playerState?.output?.context;
+				if (ctx && ctx.state === 'suspended') {
+					try {
+						ctx.resume();
+					} catch {}
+				}
+				document.removeEventListener('click', resume);
+				document.removeEventListener('touchstart', resume);
+			}
+			document.addEventListener('click', resume, { once: true });
+			document.addEventListener('touchstart', resume, { once: true });
+		}
+
+		let removeState = () => {};
+		onAppStateChange((isActive) => {
+			if (!isActive) {
+				const api = get(playerApi);
+				if (api) {
+					try {
+						api.pause();
+					} catch {}
+				}
+				setKeepAwake(false);
+			} else {
+				armAudioUnlock();
+			}
+		}).then((r) => (removeState = r));
+		return () => removeState();
+	});
+
+	// Route transitions via the View Transitions API. SvelteKit's onNavigate lets
+	// us wrap the DOM swap in document.startViewTransition() for a native-feeling
+	// crossfade. Disabled where unsupported and under prefers-reduced-motion.
+	onNavigate((navigation) => {
+		if (!browser || typeof document === 'undefined') return;
+		if (!('startViewTransition' in document)) return;
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+		return new Promise((resolve) => {
+			(document as any).startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+		});
+	});
+
+	onMount(() => {
 		// Initialize API if tab already exists in store
 		const existingTab = tabStore.loadTab();
 		if (existingTab?.fileAsB64 && playerHostEl) {
 			ensureApiInitialized();
+		} else {
+			// No tab open: prefetch the engine during idle so the first tab a
+			// user opens still loads instantly, without blocking first paint.
+			warmAlphaTab();
 		}
 
 		// iOS Safari requires AudioContext.resume() from a user gesture.

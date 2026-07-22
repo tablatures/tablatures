@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '$utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import Header from '$components/Header.svelte';
 	import TabCard from '$components/TabCard.svelte';
@@ -17,6 +18,8 @@
 	import { toastStore } from '$utils/toast';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { getSourceDisplay } from '$utils/sources';
+	import { inViewport } from '$utils/inViewport';
+	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -71,6 +74,14 @@
 	let albumTracks: AlbumTrack[] = [];
 	let albumLoading = false;
 	let albumMatched = 0;
+	// Positions whose catalog match is being looked up in the background.
+	let resolvingTracks = new Set<number>();
+	// Resolved (or definitively-missing) background lookups, keyed
+	// `${deezerId}:${position}`, so reopening an album never refetches.
+	const resolvedTrackCache = new Map<string, { tabId: string; variants: any[] } | null>();
+
+	// Enriched images for artist circles that shipped without one.
+	let simImages: Record<string, string> = {};
 
 	// All tabs (paginated)
 	let allTabs: TabItem[] = [];
@@ -109,6 +120,22 @@
 		if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
 		return String(n);
 	}
+
+	/** Collapse case / diacritics / punctuation so scraped artist and track
+	 *  strings compare reliably (mirrors the artwork cache's key normalizer). */
+	function normalizeName(s: string | null | undefined): string {
+		return (s || '')
+			.normalize('NFD')
+			.replace(/[̀-ͯ]/g, '')
+			.toLowerCase()
+			.replace(/[^a-z0-9\s]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	// The header's own tabCount can lag behind reality; once we have paginated
+	// or live-augmented past it, show the larger, truer figure.
+	$: headerTabCount = Math.max(info?.tabCount ?? 0, allTabsTotal);
 
 	async function load(name: string) {
 		loading = true;
@@ -179,20 +206,25 @@
 			allTabsLoading = false;
 		}
 
-		// Organic growth: nothing in the catalog yet -> run a live search
-		// automatically (found tabs are persisted server-side as a side effect)
-		if (pageNum === 1 && allTabs.length === 0 && !organicDone) {
+		// Organic growth: run a live search on the first page whenever the
+		// catalog gave us only a partial picture (not just when it's empty).
+		// The catalog's artist filter can undercount vs. a plain search, so we
+		// merge live hits in to converge on the true count. Found tabs are
+		// persisted server-side as a side effect.
+		if (pageNum === 1 && allTabs.length < LIVE_AUGMENT_THRESHOLD && !organicDone) {
 			organicDone = true;
-			organicLoading = true;
+			// Only take over the panel with the "searching" placeholder while the
+			// list is still empty; otherwise augment quietly behind the results.
+			organicLoading = allTabs.length === 0;
 			try {
 				const resp = await fetch(
 					`${SEARCH_API_BASE_URL}/api/search/live?q=${encodeURIComponent(info!.name)}&limit=40`
 				);
 				if (resp.ok) {
 					const data = await resp.json();
-					const artistLower = info!.name.toLowerCase();
+					const target = normalizeName(info!.name);
 					const found: TabItem[] = (data.results || [])
-						.filter((r: any) => r.id && (r.artist || '').toLowerCase() === artistLower)
+						.filter((r: any) => r.id && normalizeName(r.artist) === target)
 						.map((r: any) => ({
 							id: r.id,
 							title: r.title,
@@ -202,9 +234,10 @@
 							sourceUrl: r.sourceUrl || '',
 							variants: r.variants
 						}));
-					allTabs = found;
-					allTabsTotal = found.length;
-					fetchArtworkBatch(found, {}).then((m) => (artwork = { ...artwork, ...m }));
+					const fresh = found.filter((f) => !allTabs.some((e) => e.id === f.id));
+					allTabs = [...allTabs, ...fresh];
+					allTabsTotal = Math.max(allTabsTotal, allTabs.length);
+					fetchArtworkBatch(fresh, {}).then((m) => (artwork = { ...artwork, ...m }));
 				}
 			} catch {
 				/* the manual search CTA remains */
@@ -214,6 +247,16 @@
 		}
 	}
 
+	/** Live-augment only when the catalog returned fewer than this many rows. */
+	const LIVE_AUGMENT_THRESHOLD = 40;
+
+	/** Infinite-scroll / button handler: pull the next page, guarded so the
+	 *  sentinel and the button can't kick off overlapping fetches. */
+	function loadMoreTabs() {
+		if (allTabsLoading || allTabs.length >= allTabsTotal) return;
+		loadAllTabs(allTabsPage + 1);
+	}
+
 	async function openAlbumView(album: Album) {
 		if (openAlbum?.deezerId === album.deezerId) {
 			openAlbum = null;
@@ -221,6 +264,7 @@
 		}
 		openAlbum = album;
 		albumTracks = [];
+		resolvingTracks = new Set();
 		albumLoading = true;
 		try {
 			const resp = await fetch(
@@ -233,6 +277,90 @@
 		} finally {
 			albumLoading = false;
 		}
+		// Fill in tracks the catalog didn't match by looking each up live.
+		resolveUnmatchedTracks(album);
+	}
+
+	function markResolving(position: number, on: boolean) {
+		if (on) resolvingTracks.add(position);
+		else resolvingTracks.delete(position);
+		resolvingTracks = resolvingTracks;
+	}
+
+	/** Merge a resolved lookup into the tracklist (if its album is still open). */
+	function applyResolvedTrack(
+		album: Album,
+		position: number,
+		resolved: { tabId: string; variants: any[] }
+	) {
+		if (openAlbum?.deezerId !== album.deezerId) return;
+		albumTracks = albumTracks.map((t) =>
+			t.position === position
+				? { ...t, tabId: resolved.tabId, variants: resolved.variants?.length ? resolved.variants : t.variants }
+				: t
+		);
+		albumMatched = albumTracks.filter((t) => t.tabId).length;
+	}
+
+	/** Pick the best live-search hit for a track: same (normalized) artist, and
+	 *  an exact-then-contains title match. Returns null when nothing fits. */
+	function pickTrackMatch(results: any[], title: string): any | null {
+		const artist = normalizeName(info?.name);
+		const want = normalizeName(title);
+		const byArtist = results.filter((r) => r?.id && normalizeName(r.artist) === artist);
+		return (
+			byArtist.find((r) => normalizeName(r.title) === want) ||
+			byArtist.find((r) => normalizeName(r.title).includes(want)) ||
+			null
+		);
+	}
+
+	async function resolveOneTrack(album: Album, track: AlbumTrack) {
+		const key = `${album.deezerId}:${track.position}`;
+		markResolving(track.position, true);
+		try {
+			const resp = await fetch(
+				`${SEARCH_API_BASE_URL}/api/search/live?q=${encodeURIComponent(`${info!.name} ${track.title}`)}&limit=5`
+			);
+			if (resp.ok) {
+				const data = await resp.json();
+				const match = pickTrackMatch(data.results || [], track.title);
+				if (match) {
+					const resolved = { tabId: match.id as string, variants: match.variants || [] };
+					resolvedTrackCache.set(key, resolved);
+					applyResolvedTrack(album, track.position, resolved);
+					return;
+				}
+			}
+			resolvedTrackCache.set(key, null);
+		} catch {
+			/* leave the row as a manual-search link */
+		} finally {
+			markResolving(track.position, false);
+		}
+	}
+
+	/** Background-fill unmatched tracks with small concurrency; served from the
+	 *  session cache first so reopening an album never refetches. */
+	async function resolveUnmatchedTracks(album: Album) {
+		const queue: AlbumTrack[] = [];
+		for (const track of albumTracks) {
+			if (track.tabId) continue;
+			const cached = resolvedTrackCache.get(`${album.deezerId}:${track.position}`);
+			if (cached === undefined) queue.push(track);
+			else if (cached) applyResolvedTrack(album, track.position, cached);
+		}
+		if (queue.length === 0) return;
+
+		let next = 0;
+		const CONCURRENCY = 3;
+		const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+			while (next < queue.length) {
+				if (openAlbum?.deezerId !== album.deezerId) return; // album closed/switched
+				await resolveOneTrack(album, queue[next++]);
+			}
+		});
+		await Promise.all(workers);
 	}
 
 	$: playableAlbumTracks = albumTracks.filter((t) => t.tabId);
@@ -277,7 +405,17 @@
 	}
 
 	async function openTab(tab: TabItem) {
-		await openTabById({ ...tab, artist: tab.artist || info?.name, sourceUrl: (tab as any).sourceUrl }, true);
+		// These tabs are attributed to this artist page, so prefer the page's
+		// canonical name over the raw scraped string (e.g. "Not animals as
+		// leaders"). True alias resolution lives server-side.
+		await openTabById({ ...tab, artist: info?.name || tab.artist, sourceUrl: (tab as any).sourceUrl }, true);
+	}
+
+	/** Enrich an artist circle that shipped without a usable image. */
+	async function ensureSimImage(name: string, existing: string | null) {
+		if (simImages[name] || safeImageUrl(existing)) return;
+		const url = await enrichArtistImage(name);
+		if (url) simImages = { ...simImages, [name]: url };
 	}
 
 	onMount(() => {
@@ -325,11 +463,12 @@
 			<img
 				src={bannerUrl}
 				alt=""
+				use:fadeInImage={bannerUrl}
 				class="w-full h-full object-cover"
 				on:error={() => (bannerFailed = true)}
 			/>
 		{:else if avatarUrl}
-			<img src={avatarUrl} alt="" class="w-full h-full object-cover blur-2xl scale-110 opacity-60" on:error={() => (avatarFailed = true)} />
+			<img src={avatarUrl} alt="" use:fadeInImage={avatarUrl} class="w-full h-full object-cover blur-2xl scale-110 opacity-60" on:error={() => (avatarFailed = true)} />
 		{:else}
 			<div class="w-full h-full bg-gradient-to-br from-violet-500 via-violet-700 to-black"></div>
 		{/if}
@@ -343,18 +482,25 @@
 			<!-- Avatar -->
 			<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center">
 				{#if avatarUrl}
-					<img src={avatarUrl} alt={info.name} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
+					<img src={avatarUrl} alt={info.name} use:fadeInImage={avatarUrl} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
 				{:else}
 					<i class="material-icons !text-5xl text-neutral-400">person</i>
 				{/if}
 			</div>
 
 			<div class="flex-1 min-w-0 sm:pb-2">
-				<!-- Overlaps the banner on sm+ (white + shadow); flows below it on mobile (normal colors) -->
+				<!-- Geometry: pulled up 64px (sm:-mt-16) with items-end, the NAME
+				     overlaps the banner's dark lower region (real image, blurred
+				     avatar, or violet→black gradient — all dark, plus the
+				     from-black/70 overlay), so keep it white + shadow on sm+.
+				     The SUBTITLE sits ~12-32px BELOW the banner's bottom edge over
+				     the plain page background (the contrast gradient is clipped to
+				     the banner), so it must always use adaptive neutrals — white
+				     there is white-on-white in light mode. -->
 				<h1 class="text-2xl sm:text-4xl font-bold truncate text-neutral-900 dark:text-white sm:text-white sm:[text-shadow:0_1px_8px_rgba(0,0,0,0.8)]">{info.name}</h1>
-				<div class="flex items-center gap-2 mt-1 text-sm flex-wrap text-neutral-500 dark:text-neutral-400 sm:text-white/80 sm:[text-shadow:0_1px_4px_rgba(0,0,0,0.8)]">
+				<div class="flex items-center gap-2 mt-1 text-sm flex-wrap text-neutral-600 dark:text-neutral-400">
 					{#if info.country}<span>{info.country}</span><span>·</span>{/if}
-					<span>{info.tabCount} tabs</span>
+					<span>{headerTabCount} tabs</span>
 					{#if info.popularity > 0}<span>·</span><span>{fmtCount(info.popularity)} fans</span>{/if}
 					{#if info.downloadCount > 0}<span>·</span><span>{fmtCount(info.downloadCount)} plays</span>{/if}
 				</div>
@@ -427,7 +573,7 @@
 								</div>
 							{/if}
 							{#if album.cover}
-								<img src={album.cover} alt={album.title} loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+								<img src={album.cover} alt={album.title} loading="lazy" use:fadeInImage={album.cover} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
 							{:else}
 								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600">album</i></div>
 							{/if}
@@ -445,7 +591,7 @@
 				<div class="mt-4 rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
 					<div class="flex items-center gap-3 px-4 py-3 bg-neutral-50 dark:bg-neutral-900">
 						{#if openAlbum.cover}
-							<img src={openAlbum.cover} alt="" class="w-12 h-12 rounded-lg object-cover" />
+							<img src={openAlbum.cover} alt="" use:fadeInImage={openAlbum.cover} class="w-12 h-12 rounded-lg object-cover" />
 						{/if}
 						<div class="flex-1 min-w-0">
 							<div class="font-medium text-neutral-900 dark:text-white truncate">{openAlbum.title}</div>
@@ -489,6 +635,19 @@
 										{/if}
 										<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">play_arrow</i>
 									</button>
+								{:else if resolvingTracks.has(track.position)}
+									<!-- Background catalog lookup in flight -->
+									<div class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm">
+										<span class="w-6 text-right text-xs text-neutral-300 dark:text-neutral-600">{track.position}</span>
+										<span class="flex-1 min-w-0">
+											<span class="block truncate text-neutral-400 dark:text-neutral-500">{track.title}</span>
+											<span class="block text-[11px] text-neutral-300 dark:text-neutral-600">Looking for a tab</span>
+										</span>
+										{#if track.duration}
+											<span class="text-xs text-neutral-300 dark:text-neutral-600 tabular-nums">{fmtDuration(track.duration)}</span>
+										{/if}
+										<i class="material-icons !text-lg text-violet-400 animate-spin">progress_activity</i>
+									</div>
 								{:else}
 									<!-- No tab yet: click runs a search (live results get added to the catalog) -->
 									<a
@@ -519,13 +678,20 @@
 			<h2 class="text-lg font-semibold text-neutral-900 dark:text-white mt-8 mb-3">Fans also like</h2>
 			<div class="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1">
 				{#each similarArtists as sim (sim.name)}
+					{@const simImg = simImages[sim.name] || safeImageUrl(sim.image)}
 					<a
 						href="{base}/artist/{encodeURIComponent(sim.name)}"
 						class="flex-shrink-0 w-24 sm:w-28 text-center group"
 					>
-						<div class="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 mx-auto shadow-sm group-hover:shadow-lg transition-all group-hover:scale-105">
-							{#if sim.image}
-								<img src={sim.image.replace(/^http:\/\//, 'https://')} alt={sim.name} loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+						<!-- Fixed-size circle clips; only the inner image scales on hover
+						     so the avatar can't overflow the container. Missing images are
+						     enriched on first view (server-side persisted, validated URL). -->
+						<div
+							class="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-neutral-100 dark:bg-neutral-800 mx-auto shadow-sm group-hover:shadow-lg transition-all"
+							use:inViewport={{ onEnter: () => ensureSimImage(sim.name, sim.image), once: true }}
+						>
+							{#if simImg}
+								<img src={simImg} use:fadeInImage={simImg} alt={sim.name} loading="lazy" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
 								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600">person</i></div>
 							{/if}
@@ -578,9 +744,13 @@
 			{/each}
 		</div>
 		{#if allTabs.length < allTabsTotal}
+			<!-- Auto-load the next page as this sentinel nears the viewport;
+			     the button below stays as an accessible / no-JS fallback. Both
+			     funnel through loadMoreTabs, which guards against double fetches. -->
+			<div use:inViewport={{ onEnter: loadMoreTabs, rootMargin: '600px' }} aria-hidden="true"></div>
 			<div class="text-center mb-10">
 				<button
-					on:click={() => loadAllTabs(allTabsPage + 1)}
+					on:click={loadMoreTabs}
 					disabled={allTabsLoading}
 					class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50"
 				>

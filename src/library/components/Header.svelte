@@ -76,26 +76,31 @@
 		: ''}"
 >
 	<div class="flex items-center h-14 px-4 gap-2 sm:gap-3">
-		<!-- Logo (always visible, including name on mobile) -->
-		<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">
-			<img
-				src="{base}/logos/icon.svg"
-				width="28"
-				height="28"
-				alt="Tablatures"
-				class="sm:w-8 sm:h-8"
-			/>
-			<span
-				class="hidden min-[360px]:inline font-black text-neutral-800 dark:text-neutral-100"
-				style="font-size: 1rem; letter-spacing: -0.06em; transform: scaleX(1.3) scaleY(1.6); transform-origin: left center; line-height: 1;"
-			>
-				Tablatures
-			</span>
-		</a>
+		<!-- Left: logo. Equal-weight flex-1 with the right actions so the search
+		     bar between them lands in the true horizontal center of the header. -->
+		<div class="flex items-center flex-1 min-w-0">
+			<!-- Logo (always visible, including name on mobile) -->
+			<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">
+				<img
+					src="{base}/logos/icon.svg"
+					width="28"
+					height="28"
+					alt="Tablatures"
+					class="sm:w-8 sm:h-8"
+				/>
+				<span
+					class="hidden min-[360px]:inline font-black text-neutral-800 dark:text-neutral-100"
+					style="font-size: 1rem; letter-spacing: -0.06em; transform: scaleX(1.3) scaleY(1.6); transform-origin: left center; line-height: 1;"
+				>
+					Tablatures
+				</span>
+			</a>
+		</div>
 
-		<!-- Search bar (desktop) -->
+		<!-- Center: search bar (desktop). Shrinks to fit; the equal flex-1 sides
+		     keep it centered and prevent it from ever overlapping logo/buttons. -->
 		{#if showSearch}
-			<div class="flex-1 hidden md:flex justify-center ml-6">
+			<div class="hidden md:flex justify-center min-w-0 w-full max-w-2xl">
 				<SearchBar
 					bind:this={searchBar}
 					value={searchValue}
@@ -105,15 +110,10 @@
 					on:openTab={handleOpenTab}
 				/>
 			</div>
-		{:else}
-			<div class="flex-1" />
 		{/if}
 
-		<!-- Spacer on mobile to push icons right -->
-		<div class="flex-1 md:hidden" />
-
 		<!-- Right actions -->
-		<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+		<div class="flex items-center justify-end gap-0.5 sm:gap-1 flex-1 min-w-0">
 			<!-- Mobile search toggle -->
 			{#if showSearch}
 				<div class="md:hidden">

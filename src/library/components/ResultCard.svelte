@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
 	import { favoritesStore } from '../utils/favorites';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -59,6 +61,8 @@
 		if (favoritesStore.isFavorite(id)) favoritesStore.removeFavorite(id);
 		else favoritesStore.addFavorite({ id, title, artist, source, type, album });
 	}
+
+	$: placeholder = placeholderArtwork(artist, title);
 	$: hasVersions = variants && variants.length > 1;
 	// "7 versions - GP Tabs, Songsterr, UG"
 	$: versionsSummary = (() => {
@@ -102,23 +106,42 @@
 	>
 		<!-- Artwork preview -->
 		<div
-			class="flex-shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center transition-all group-hover:scale-[1.03] group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30 shadow-sm"
+			class="relative flex-shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center transition-all group-hover:scale-[1.03] group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30 shadow-sm"
 		>
 			{#if displayImage}
 				<img
 					src={displayImage}
 					alt=""
 					loading="lazy"
+					use:fadeInImage={displayImage}
 					class="w-full h-full object-cover"
 					on:error={() => (imageFailed = true)}
 				/>
 			{:else if artworkLoading}
 				<div class="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse"></div>
 			{:else}
-				<i
-					class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500 group-hover:text-violet-500"
-					>{typeIcon(type)}</i
+				<!-- No artwork found: deterministic generated tile (gradient + initials) -->
+				<div
+					class="w-full h-full flex items-center justify-center"
+					style="background: {placeholder.gradient};"
 				>
+					<span class="text-base sm:text-xl font-black text-white/90 tracking-tight select-none">
+						{placeholder.initials}
+					</span>
+				</div>
+			{/if}
+
+			<!-- Hover play affordance (desktop pointers only) -->
+			{#if !artworkLoading}
+				<div
+					class="pointer-events-none absolute inset-0 hidden [@media(hover:hover)]:flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors duration-200"
+				>
+					<span
+						class="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/95 shadow-md opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200"
+					>
+						<i class="material-icons !text-xl sm:!text-2xl text-violet-600 ml-0.5">play_arrow</i>
+					</span>
+				</div>
 			{/if}
 		</div>
 

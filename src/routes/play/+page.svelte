@@ -7,13 +7,14 @@
 	import Header from '../../library/components/Header.svelte';
 	import TabViewer from '../../library/components/TabViewer.svelte';
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
+	import RelatedStrip from '../../library/components/RelatedStrip.svelte';
 	import { tabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
 	import type { Unsubscriber } from 'svelte/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState, updatePlayerState } from '../../library/utils/playerStore';
+	import { activeVideoId, playerState, updatePlayerState, queueStore } from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
@@ -134,7 +135,15 @@
 	function handleSheetChanged(event: CustomEvent) {
 		const { title, artist } = event.detail;
 		playerSettings = { volume: 1, speed: 1, metronome: 0, tabScale: 1.0, delaying: 0, scrollOffset: 0 };
-		if (currentTab) tabStore.updateSettings({ ...playerSettings, title, artist });
+		if (currentTab) {
+			// Only overwrite the stored title/artist when the newly loaded score
+			// actually carries them; otherwise keep whatever was resolved on open
+			// (catalog metadata / previous score) so it survives variant switches.
+			const patch: Record<string, unknown> = { ...playerSettings };
+			if (title) patch.title = title;
+			if (artist) patch.artist = artist;
+			tabStore.updateSettings(patch);
+		}
 	}
 
 	// Handle opening a tab from search results while on /play
@@ -383,6 +392,13 @@
 	</div>
 {:else if hasTab}
 	<PlayerQueueBar />
+	{#if $queueStore.items.length <= 1}
+		<RelatedStrip
+			artist={$playerState.artist || currentTab?.artist || ''}
+			title={$playerState.title || currentTab?.title || ''}
+			currentTabId={currentTabId}
+		/>
+	{/if}
 	<TabViewer
 		{data}
 		tabId={currentTabId}

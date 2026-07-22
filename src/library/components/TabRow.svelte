@@ -5,6 +5,7 @@
 	 *    - default    : trailing content after title/artist (e.g. badges, remove button)
 	 */
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
@@ -84,6 +85,7 @@
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				use:fadeInImage={displayImage}
 				class="w-full h-full object-cover"
 				on:error={(e) => {
 					if (e.target instanceof HTMLElement) e.target.style.display = 'none';

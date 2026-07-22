@@ -4,6 +4,8 @@
 // imported so they never enter the browser bundle.
 
 import { Capacitor } from '@capacitor/core';
+import { get } from 'svelte/store';
+import { preferencesStore } from './preferences';
 
 export function isNative(): boolean {
 	return typeof window !== 'undefined' && Capacitor.isNativePlatform();
@@ -133,22 +135,268 @@ export async function exitApp(): Promise<void> {
 	}
 }
 
-// A short haptic tap, e.g. when a long-press enters loop-select mode. Uses the
-// native Haptics plugin (navigator.vibrate is unreliable in the WebView) and
-// falls back to navigator.vibrate on the web.
-export async function hapticTap(): Promise<void> {
+// ---------------------------------------------------------------------------
+// Haptics
+// ---------------------------------------------------------------------------
+// All haptic helpers map to @capacitor/haptics on native and degrade to
+// navigator.vibrate on the web (unreliable in some WebViews, hence the native
+// path is preferred). Every call is gated behind the user's `haptics`
+// preference and no-ops silently when there is no vibrator / the plugin is
+// missing. Mapping (see plan P5 haptic table): light = tap/press,
+// medium = toggle/long-press, heavy = strong confirm; notify = success/
+// warning/error transients; selection = scrub/tick sequences.
+
+export type HapticImpactStyle = 'light' | 'medium' | 'heavy';
+export type HapticNotifyType = 'success' | 'warning' | 'error';
+
+// Read the user preference synchronously. Defaults to enabled if the store is
+// not readable yet (SSR / very early startup).
+function hapticsEnabled(): boolean {
+	try {
+		return get(preferencesStore).haptics !== false;
+	} catch {
+		return true;
+	}
+}
+
+// Best-effort web fallback. navigator.vibrate is a no-op (returns false) when
+// there is no vibrator or the user/OS disabled it, so this respects the system
+// setting for free.
+function webVibrate(pattern: number | number[]): void {
+	try {
+		navigator.vibrate?.(pattern);
+	} catch {
+		// unsupported
+	}
+}
+
+// A physical impact of the given strength. Button/tap presses use 'light',
+// toggles / long-presses use 'medium', strong confirmations use 'heavy'.
+export async function hapticImpact(style: HapticImpactStyle = 'light'): Promise<void> {
+	if (!hapticsEnabled()) return;
 	if (isNative()) {
 		try {
 			const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
-			await Haptics.impact({ style: ImpactStyle.Medium });
+			const mapped =
+				style === 'heavy'
+					? ImpactStyle.Heavy
+					: style === 'medium'
+						? ImpactStyle.Medium
+						: ImpactStyle.Light;
+			await Haptics.impact({ style: mapped });
+			return;
+		} catch {
+			// plugin unavailable
+		}
+	}
+	webVibrate(style === 'heavy' ? 20 : style === 'medium' ? 12 : 8);
+}
+
+// A notification-class haptic for a completed/failed action. success = save/
+// load done, warning = caution, error = invalid action / transport limit.
+export async function hapticNotify(type: HapticNotifyType = 'success'): Promise<void> {
+	if (!hapticsEnabled()) return;
+	if (isNative()) {
+		try {
+			const { Haptics, NotificationType } = await import('@capacitor/haptics');
+			const mapped =
+				type === 'error'
+					? NotificationType.Error
+					: type === 'warning'
+						? NotificationType.Warning
+						: NotificationType.Success;
+			await Haptics.notification({ type: mapped });
+			return;
+		} catch {
+			// plugin unavailable
+		}
+	}
+	webVibrate(type === 'error' ? [12, 40, 12] : type === 'warning' ? [10, 30, 10] : 10);
+}
+
+// Selection haptics wrap a continuous gesture (a scrub, a stepped slider):
+// call Start once, Changed on each detent/tick, End when the gesture ends.
+export async function hapticSelectionStart(): Promise<void> {
+	if (!hapticsEnabled()) return;
+	if (isNative()) {
+		try {
+			const { Haptics } = await import('@capacitor/haptics');
+			await Haptics.selectionStart();
+		} catch {
+			// plugin unavailable
+		}
+	}
+}
+
+export async function hapticSelectionChanged(): Promise<void> {
+	if (!hapticsEnabled()) return;
+	if (isNative()) {
+		try {
+			const { Haptics } = await import('@capacitor/haptics');
+			await Haptics.selectionChanged();
+			return;
+		} catch {
+			// plugin unavailable
+		}
+	}
+	webVibrate(4);
+}
+
+export async function hapticSelectionEnd(): Promise<void> {
+	if (!hapticsEnabled()) return;
+	if (isNative()) {
+		try {
+			const { Haptics } = await import('@capacitor/haptics');
+			await Haptics.selectionEnd();
+		} catch {
+			// plugin unavailable
+		}
+	}
+}
+
+// Backwards-compatible alias kept for existing call sites (TabViewer). A short
+// light tap. Prefer calling hapticImpact() directly in new code.
+export async function hapticTap(): Promise<void> {
+	return hapticImpact('light');
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+
+// Register a handler for foreground/background transitions (native only). The
+// callback receives whether the app is now active. Returns an unsubscribe fn.
+// No-op on the web (use the Page Visibility API there).
+export async function onAppStateChange(
+	handler: (isActive: boolean) => void
+): Promise<() => void> {
+	if (!isNative()) return () => {};
+	try {
+		const { App } = await import('@capacitor/app');
+		const sub = await App.addListener('appStateChange', ({ isActive }) =>
+			handler(!!isActive)
+		);
+		return () => sub.remove();
+	} catch {
+		return () => {};
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Screen orientation
+// ---------------------------------------------------------------------------
+
+export type OrientationLockMode =
+	| 'any'
+	| 'natural'
+	| 'portrait'
+	| 'portrait-primary'
+	| 'portrait-secondary'
+	| 'landscape'
+	| 'landscape-primary'
+	| 'landscape-secondary';
+
+// Lock the screen to an orientation. Native uses @capacitor/screen-orientation;
+// on the web it falls back to the Screen Orientation API (only works in
+// fullscreen / installed PWAs, silently no-ops otherwise).
+export async function lockOrientation(mode: OrientationLockMode = 'portrait'): Promise<void> {
+	if (isNative()) {
+		try {
+			const { ScreenOrientation } = await import('@capacitor/screen-orientation');
+			await ScreenOrientation.lock({ orientation: mode });
 			return;
 		} catch {
 			// plugin unavailable
 		}
 	}
 	try {
-		navigator.vibrate?.(12);
+		await (screen.orientation as unknown as { lock?: (m: string) => Promise<void> })?.lock?.(
+			mode
+		);
+	} catch {
+		// unsupported outside fullscreen
+	}
+}
+
+export async function unlockOrientation(): Promise<void> {
+	if (isNative()) {
+		try {
+			const { ScreenOrientation } = await import('@capacitor/screen-orientation');
+			await ScreenOrientation.unlock();
+			return;
+		} catch {
+			// plugin unavailable
+		}
+	}
+	try {
+		(screen.orientation as unknown as { unlock?: () => void })?.unlock?.();
 	} catch {
 		// unsupported
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard
+// ---------------------------------------------------------------------------
+
+export type KeyboardResizeMode = 'body' | 'ionic' | 'native' | 'none';
+
+// Fires when the soft keyboard is about to show; the callback gets its height
+// in px so a focused field can be scrolled into view. Native only; returns an
+// unsubscribe fn.
+export async function onKeyboardShow(
+	handler: (height: number) => void
+): Promise<() => void> {
+	if (!isNative()) return () => {};
+	try {
+		const { Keyboard } = await import('@capacitor/keyboard');
+		const sub = await Keyboard.addListener('keyboardWillShow', (info) =>
+			handler(info?.keyboardHeight ?? 0)
+		);
+		return () => sub.remove();
+	} catch {
+		return () => {};
+	}
+}
+
+export async function onKeyboardHide(handler: () => void): Promise<() => void> {
+	if (!isNative()) return () => {};
+	try {
+		const { Keyboard } = await import('@capacitor/keyboard');
+		const sub = await Keyboard.addListener('keyboardWillHide', () => handler());
+		return () => sub.remove();
+	} catch {
+		return () => {};
+	}
+}
+
+// Dismiss the soft keyboard (e.g. on search submit). No-op on web.
+export async function hideKeyboard(): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { Keyboard } = await import('@capacitor/keyboard');
+		await Keyboard.hide();
+	} catch {
+		// plugin unavailable
+	}
+}
+
+// Control how the WebView resizes when the keyboard appears. 'native' keeps the
+// layout viewport stable and is the least jarring default for this app.
+export async function setKeyboardResizeMode(mode: KeyboardResizeMode = 'native'): Promise<void> {
+	if (!isNative()) return;
+	try {
+		const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
+		const mapped =
+			mode === 'body'
+				? KeyboardResize.Body
+				: mode === 'ionic'
+					? KeyboardResize.Ionic
+					: mode === 'none'
+						? KeyboardResize.None
+						: KeyboardResize.Native;
+		await Keyboard.setResizeMode({ mode: mapped });
+	} catch {
+		// plugin unavailable
 	}
 }

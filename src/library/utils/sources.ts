@@ -30,9 +30,11 @@ export interface SourceDisplay {
 	badgeClass: string;
 }
 
-/** Normalize any API source string to a consistent display.
- *  "local" means the app's own cached/indexed tabs (from our scraper) — labeled "Local".
- *  "GuitarProTabOrg" / "guitarprotab" → "GP Tabs". Songsterr / UG / fallback.
+/** Normalize any API source string to a consistent display descriptor.
+ *  Maps the raw source identifiers returned by the Search API to a stable
+ *  label, dot color and badge style: "local" (the catalog's own indexed
+ *  tabs) → "Local", "GuitarProTabOrg" / "guitarprotab" → "GP Tabs",
+ *  Songsterr, Ultimate Guitar, and a neutral fallback for anything else.
  */
 export function getSourceDisplay(source: string): SourceDisplay {
 	const s = (source || '').toLowerCase().trim();

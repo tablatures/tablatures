@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, queueStore, stepQueue, type SourceVariant } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
@@ -230,7 +231,7 @@
 			aria-label="Open full player"
 		>
 			{#if artworkUrl}
-				<img src={artworkUrl} alt="" class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
 				<div class="w-8 h-8 sm:w-10 sm:h-10 rounded bg-neutral-700 flex items-center justify-center">
 					<i class="material-icons !text-lg text-neutral-500">music_note</i>

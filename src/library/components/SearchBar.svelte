@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { browser } from '$app/environment';
+	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { historyStore } from '../utils/history';
 	import type { HistoryItem } from '../utils/history';
 	import { getArtwork } from '../utils/artwork';
+	import { getSourceDisplay } from '../utils/sources';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let value: string = '';
@@ -21,6 +23,8 @@
 		value: string;
 		info?: string;
 		image?: string;
+		/** Optional source id (e.g. "songsterr") — rendered as a small hint when present. */
+		source?: string;
 	}
 
 	let focused = false;
@@ -31,6 +35,7 @@
 	let highlightedIndex = -1;
 	let autocompleteTimer: NodeJS.Timeout;
 	let inputEl: HTMLInputElement;
+	let dropdownEl: HTMLDivElement;
 	let recentArtwork: Record<string, string> = {};
 	let openingResult = false;
 
@@ -97,6 +102,14 @@
 			focused = false;
 			inputEl?.blur();
 		}
+	}
+
+	/** Keep the arrow-key-highlighted row inside the scrollable dropdown viewport
+	 *  so keyboard navigation across the grouped list never runs off-screen. */
+	$: if (browser && showDropdown && highlightedIndex >= 0) {
+		requestAnimationFrame(() => {
+			dropdownEl?.querySelector(`#item-${highlightedIndex}`)?.scrollIntoView({ block: 'nearest' });
+		});
 	}
 
 	function applySuggestion(s: Suggestion) {
@@ -201,7 +214,7 @@
 
 	function debounceAutocomplete() {
 		clearTimeout(autocompleteTimer);
-		autocompleteTimer = setTimeout(fetchAutocomplete, 450);
+		autocompleteTimer = setTimeout(fetchAutocomplete, 250);
 	}
 
 	export function focus() {
@@ -269,7 +282,7 @@
 
 	<!-- Dropdown -->
 	{#if showDropdown}
-		<div id="search-dropdown" role="listbox" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl z-[90] overflow-hidden max-h-[70dvh] overflow-y-auto">
+		<div bind:this={dropdownEl} id="search-dropdown" role="listbox" class="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl z-[90] overflow-hidden max-h-[70dvh] overflow-y-auto">
 
 			<!-- Recent items (when input is empty) -->
 			{#if showRecent}
@@ -290,7 +303,7 @@
 					>
 						<div class="flex-shrink-0 w-9 h-9 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center">
 							{#if recentArtwork[item.id]}
-								<img src={recentArtwork[item.id]} alt="" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+								<img src={recentArtwork[item.id]} alt="" use:fadeInImage={recentArtwork[item.id]} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 							{:else}
 								<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">history</i>
 							{/if}
@@ -349,17 +362,25 @@
 						on:pointerdown|preventDefault={() => applySuggestion(s)}
 					>
 						<div class="flex-shrink-0 w-9 h-9 {s.type === 'artist' ? 'rounded-full' : 'rounded-lg'} overflow-hidden {s.type === 'artist' ? 'bg-violet-100 dark:bg-violet-900/30' : 'bg-neutral-100 dark:bg-neutral-800'} flex items-center justify-center">
-							{#if s.type === 'artist' && s.image}
-								<img src={s.image} alt="" loading="lazy" class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
+							{#if s.image}
+								<img src={s.image} alt="" loading="lazy" use:fadeInImage={s.image} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
 								<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
 							{/if}
 						</div>
 						<div class="flex-1 min-w-0">
-							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200">{s.value}</div>
-							{#if s.info}
-								<div class="text-xs text-neutral-500 dark:text-neutral-400">{s.info}</div>
-							{/if}
+							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{s.value}</div>
+							<div class="flex items-center gap-1.5 min-w-0">
+								{#if s.info}
+									<span class="text-xs text-neutral-500 dark:text-neutral-400 truncate">{s.info}</span>
+								{/if}
+								{#if s.source}
+									{@const sd = getSourceDisplay(s.source)}
+									<span class="inline-flex items-center gap-1 flex-shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+										<span class="w-1.5 h-1.5 rounded-full {sd.dotColor}"></span>{sd.label}
+									</span>
+								{/if}
+							</div>
 						</div>
 						{#if s.type}
 							<span class="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 flex-shrink-0">{s.type}</span>

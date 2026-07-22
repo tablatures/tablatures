@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
+	import { fadeInImage } from '$utils/fadeInImage';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import Header from '../../library/components/Header.svelte';
@@ -772,6 +773,7 @@
 									<img
 										src={normalizeImageUrl(hero.image)}
 										alt={hero.name}
+										use:fadeInImage={hero.image}
 										class="absolute inset-0 w-full h-full object-cover"
 										on:error={() => handleHeroImageError(hero.name)}
 									/>
