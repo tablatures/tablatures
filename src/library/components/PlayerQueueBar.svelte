@@ -6,6 +6,7 @@
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import { cachedFetch, TTL_SEARCH } from '../data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -49,8 +50,9 @@
 	async function fetchVersions(artist: string, title: string) {
 		if (!SEARCH_API_BASE_URL) return;
 		try {
-			const resp = await fetch(
-				`${SEARCH_API_BASE_URL}/api/versions?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`
+			const resp = await cachedFetch(
+				`${SEARCH_API_BASE_URL}/api/versions?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
+				{ ttl: TTL_SEARCH }
 			);
 			if (!resp.ok) return;
 			const data = await resp.json();

@@ -16,6 +16,7 @@
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import { cachedFetch, TTL_HOME_FEED } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
 	import { debugEmptyContinue } from '../utils/debug';
 
@@ -227,7 +228,8 @@
 		}
 		let res: Response;
 		try {
-			res = await fetch(`${SEARCH_API_BASE_URL}${ep}`);
+			// Network-first with a short TTL so the last feed is available offline.
+			res = await cachedFetch(`${SEARCH_API_BASE_URL}${ep}`, { ttl: TTL_HOME_FEED });
 		} catch {
 			return 0;
 		}

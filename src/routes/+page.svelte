@@ -9,6 +9,7 @@
 	import { tabStore } from '../library/utils/store';
 	import { openTabById } from '../library/utils/openTab';
 	import { arrayBufferToBase64 } from '../library/utils/utils';
+	import { loadStoredTabBytes, persistTabBytes } from '../library/data/tabBytes';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -29,12 +30,20 @@
 		// If ?tab= in URL, load tab for mini player
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(sharedTabId);
+			if (stored && stored.byteLength > 0) {
+				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
+				return;
+			}
+			if (!SEARCH_API_BASE_URL) return;
 			try {
 				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`, { signal: AbortSignal.timeout(10000) });
 				if (resp.ok) {
 					const buf = await resp.arrayBuffer();
 					if (buf.byteLength > 0) {
 						tabStore.setTab({ fileAsB64: arrayBufferToBase64(buf), tabId: sharedTabId });
+						void persistTabBytes({ id: sharedTabId }, new Uint8Array(buf), 'history');
 					}
 				}
 			} catch {}

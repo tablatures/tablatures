@@ -1,5 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { dataReady } from '../data/init';
+import { favoritesRepo, type FavoriteRow } from '../data/repositories';
+import { setTabPinned } from '../data/tabBytes';
 
 export interface FavoriteItem {
 	id: string;
@@ -13,7 +16,8 @@ export interface FavoriteItem {
 
 const STORAGE_KEY = 'favorites';
 
-function loadFavorites(): FavoriteItem[] {
+/** Instant seed from the legacy localStorage backup for first paint. */
+function seedFromLegacy(): FavoriteItem[] {
 	if (!browser) return [];
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
@@ -23,38 +27,62 @@ function loadFavorites(): FavoriteItem[] {
 	}
 }
 
-function saveFavorites(items: FavoriteItem[]): void {
-	if (!browser) return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+function rowToItem(row: FavoriteRow): FavoriteItem {
+	return {
+		id: row.id,
+		title: row.title ?? '',
+		artist: row.artist ?? '',
+		source: row.source ?? '',
+		type: row.type ?? undefined,
+		album: row.album ?? undefined,
+		addedAt: row.added_at
+	};
 }
 
 function createFavoritesStore() {
-	const store = writable<FavoriteItem[]>(loadFavorites());
+	const store = writable<FavoriteItem[]>(seedFromLegacy());
 	const { subscribe, set, update } = store;
 
 	if (browser) {
-		window.addEventListener('storage', () => {
-			const items = loadFavorites();
-			set(items);
-		});
+		dataReady
+			.then(async () => {
+				const rows = await favoritesRepo.list();
+				set(rows.map(rowToItem));
+			})
+			.catch(() => {});
 	}
 
 	return {
 		subscribe,
 		addFavorite: (item: Omit<FavoriteItem, 'addedAt'>) => {
+			const addedAt = Date.now();
 			update((items) => {
 				if (items.some((f) => f.id === item.id)) return items;
-				const updated = [...items, { ...item, addedAt: Date.now() }];
-				saveFavorites(updated);
-				return updated;
+				return [...items, { ...item, addedAt }];
 			});
+			if (browser) {
+				favoritesRepo
+					.add({
+						id: item.id,
+						title: item.title,
+						artist: item.artist,
+						album: item.album,
+						source: item.source,
+						type: item.type,
+						addedAt
+					})
+					.catch(() => {});
+				// Pin the on-device tab row (if any) so the LRU never evicts a
+				// favorited tab's cached bytes.
+				void setTabPinned(item.id, true);
+			}
 		},
 		removeFavorite: (id: string) => {
-			update((items) => {
-				const updated = items.filter((f) => f.id !== id);
-				saveFavorites(updated);
-				return updated;
-			});
+			update((items) => items.filter((f) => f.id !== id));
+			if (browser) {
+				favoritesRepo.remove(id).catch(() => {});
+				void setTabPinned(id, false);
+			}
 		},
 		isFavorite: (id: string): boolean => {
 			return get(store).some((f) => f.id === id);

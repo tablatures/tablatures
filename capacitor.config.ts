@@ -31,6 +31,11 @@ const config: CapacitorConfig = {
 		Keyboard: {
 			resize: 'native',
 			resizeOnFullScreen: true
+		},
+		// On-device SQLite (P1 persistence). No encryption: the data is a local
+		// cache of public tab metadata, so a passphrase would only add friction.
+		CapacitorSQLite: {
+			androidIsEncryption: false
 		}
 		// @capacitor/screen-orientation needs no static config; it is driven at
 		// runtime through native.ts (lockOrientation/unlockOrientation).
