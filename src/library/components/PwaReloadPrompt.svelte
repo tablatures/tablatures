@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	const DISMISS_KEY = 'pwa-update-dismissed';
+
 	let needRefresh = false;
 	let update: (() => Promise<void>) | null = null;
+	let dismiss: () => void = () => (needRefresh = false);
 
 	onMount(async () => {
 		// Only meaningful once a service worker is registered (build/preview or
@@ -11,7 +14,17 @@
 			const { useRegisterSW } = await import('virtual:pwa-register/svelte');
 			const sw = useRegisterSW({ immediate: true });
 			update = () => sw.updateServiceWorker(true);
-			sw.needRefresh.subscribe((v) => (needRefresh = v));
+			sw.needRefresh.subscribe((v) => {
+				needRefresh = v && sessionStorage.getItem(DISMISS_KEY) !== '1';
+			});
+			dismiss = () => {
+				// Reset the store itself, not just the local flag, so a later
+				// re-emission can't resurrect the prompt; remember the choice
+				// for the rest of the session.
+				sessionStorage.setItem(DISMISS_KEY, '1');
+				sw.needRefresh.set(false);
+				needRefresh = false;
+			};
 		} catch {
 			// PWA plugin not active
 		}
@@ -32,7 +45,7 @@
 		</button>
 		<button
 			class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-neutral-400 transition-colors hover:text-white dark:text-neutral-500 dark:hover:text-black"
-			on:click={() => (needRefresh = false)}
+			on:click={dismiss}
 			aria-label="Dismiss update"
 		>
 			<i class="material-icons !text-xl">close</i>
