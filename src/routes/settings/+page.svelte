@@ -8,7 +8,7 @@
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
-	import { saveFile, isNative } from '../../library/utils/native';
+	import { saveFile, isNative, hapticImpact } from '../../library/utils/native';
 
 	// Flip once the first Android release is published and listed on the stores.
 	const APP_RELEASED = false;
@@ -47,6 +47,14 @@
 
 	$: if (isCustomSf && prefs.soundFontUrl !== 'custom') {
 		customSfUrl = prefs.soundFontUrl;
+	}
+
+	function toggleHaptics() {
+		const next = !$preferencesStore.haptics;
+		preferencesStore.update((p) => ({ ...p, haptics: next }));
+		// Fire a preview buzz when enabling so the user feels the effect
+		// immediately (the helper is already gated by the new value).
+		if (next) hapticImpact('medium');
 	}
 
 	function handleSoundFontChange(url: string) {
@@ -408,6 +416,23 @@
 					on:click={() => $preferencesStore.showMiniPlayerPreview = !$preferencesStore.showMiniPlayerPreview}
 				>
 					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.showMiniPlayerPreview ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
+			</div>
+		</div>
+
+		<!-- Haptic Feedback -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Haptic Feedback</label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Vibrate on taps, toggles and player actions (needs a device with a vibrator)</p>
+			<div>
+				<button
+					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.haptics ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={toggleHaptics}
+					role="switch"
+					aria-checked={$preferencesStore.haptics}
+					aria-label="Haptic feedback"
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.haptics ? 'translate-x-6' : 'translate-x-1'}" />
 				</button>
 			</div>
 		</div>

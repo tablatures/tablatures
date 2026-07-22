@@ -23,7 +23,17 @@ const config: CapacitorConfig = {
 		// so the two do not fight.
 		SystemBars: {
 			insetsHandling: 'disable'
+		},
+		// Keep the layout viewport stable when the soft keyboard opens (least
+		// jarring for the search field); native.ts can override at runtime via
+		// setKeyboardResizeMode(). resizeOnFullScreen fixes the Android
+		// fullscreen-WebView keyboard-overlap quirk.
+		Keyboard: {
+			resize: 'native',
+			resizeOnFullScreen: true
 		}
+		// @capacitor/screen-orientation needs no static config; it is driven at
+		// runtime through native.ts (lockOrientation/unlockOrientation).
 	}
 	// The search API is optional (the app works offline without it). If the real
 	// API blocks the https://localhost WebView origin via CORS, either allow that
