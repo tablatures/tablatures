@@ -4335,33 +4335,39 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
 							<a
 								href="{base}/search?q={encodeURIComponent(songTitle)}"
-								class="hover:text-violet-500 hover:underline transition-colors"
+								class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
 						<!-- Subtitle + tuning chip share one horizontal line so the chip
 						     stays compact and does not add a row to the bottom bar -->
 						<div class="flex items-center gap-2 min-w-0">
-							<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0">
+							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
-									<span class="relative inline-block">
-										<ArtistTooltip artistName={currentArtistName} position="bottom">
+									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
+										<ArtistTooltip
+											artistName={currentArtistName}
+											position="bottom"
+											className="block min-w-0 max-w-full"
+										>
 											<a
 												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-												class="hover:text-violet-500 hover:underline transition-colors"
+												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 												title="View artist page">{currentArtistName}</a
 											>
 										</ArtistTooltip>
 									</span>
-									&middot;
+									<span class="flex-shrink-0 opacity-60">&middot;</span>
 								{/if}
-								{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-									? ` \u00B7 ${totalBars} bars`
-									: ''}
-							</p>
+								<span class="truncate min-w-0 flex-1">
+									{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+										? ` \u00B7 ${totalBars} bars`
+										: ''}
+								</span>
+							</div>
 							<div class="flex-shrink-0">
 								<TuningChip
 									api={$playerApi}
