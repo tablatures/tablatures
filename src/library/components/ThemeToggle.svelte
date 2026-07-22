@@ -22,7 +22,7 @@
 
 <button
 	on:click={toggle}
-	class="inline-flex items-center justify-center p-1.5 rounded-lg transition-colors text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+	class="tap-target inline-flex items-center justify-center p-1.5 rounded-lg transition-colors text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 	title={theme ? 'Switch to light mode' : 'Switch to dark mode'}
 	aria-label="Toggle theme"
 >

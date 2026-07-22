@@ -21,10 +21,10 @@
 	$: isFavorite = id ? $favoritesStore.some((f) => f.id === id) : false;
 
 	const shells = {
-		overlay: 'w-10 h-10 rounded-lg bg-black/70 backdrop-blur-sm transition-colors',
-		pill: 'w-10 h-10 rounded-full transition-all duration-150 active:scale-90',
-		plain: 'p-1.5 sm:p-2 rounded-full transition-all duration-150 active:scale-90 hover:bg-neutral-100 dark:hover:bg-neutral-800',
-		row: 'w-9 h-9 rounded-lg transition-colors active:scale-90'
+		overlay: 'tap-target w-10 h-10 rounded-lg bg-black/70 backdrop-blur-sm transition-colors',
+		pill: 'tap-target w-10 h-10 rounded-full transition-transform duration-150 active:scale-90',
+		plain: 'tap-target p-1.5 sm:p-2 rounded-full transition-transform duration-150 active:scale-90 hover:bg-neutral-100 dark:hover:bg-neutral-800',
+		row: 'tap-target w-9 h-9 rounded-lg transition-colors active:scale-90'
 	};
 
 	$: colors = {
