@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { freshTestDb } from './testDb';
-import { isFtsAvailable, setFtsAvailable } from './schema';
+import { isFtsAvailable, setFtsAvailable, TARGET_VERSION } from './schema';
 import type { Database } from './types';
 
 const MB = 1024 * 1024;
@@ -159,6 +159,6 @@ describe('schema restructure', () => {
 	it('keeps PRAGMA user_version at the migration count', async () => {
 		const { db } = await freshTestDb();
 		const rows = await db.query<{ user_version: number }>('PRAGMA user_version');
-		expect(Number(rows[0].user_version)).toBe(1);
+		expect(Number(rows[0].user_version)).toBe(TARGET_VERSION);
 	});
 });

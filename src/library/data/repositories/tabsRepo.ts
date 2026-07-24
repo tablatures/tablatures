@@ -177,6 +177,49 @@ export function createTabsRepo(getDb: () => Database) {
 		);
 	}
 
+	/**
+	 * Remove a single entry from the History view (UX round 5, 5a).
+	 *
+	 * Chosen semantics — "remove from history deletes the stored bytes unless the
+	 * tab is favorited":
+	 *   • keepBytes=false (not favorited): drop the row + its blob entirely, so
+	 *     the app storage is freed and it leaves every list.
+	 *   • keepBytes=true  (favorited): the favorite still wants offline bytes, so
+	 *     PROMOTE the row to kind 'saved' (pinned, byte-preserving) instead of
+	 *     deleting it. That takes it out of the History view — which lists only
+	 *     'history'/'imported' — while its bytes survive for the favorite.
+	 */
+	async function removeFromHistory(id: string, keepBytes = false): Promise<void> {
+		const row = await get(id);
+		if (!row) return;
+		if (keepBytes && row.blob_path) {
+			await getDb().run(`UPDATE tabs SET kind = 'saved', pinned = 1 WHERE id = ?`, [id]);
+		} else {
+			await remove(id);
+		}
+	}
+
+	/**
+	 * Release a favorite's on-device hold (UX round 5, 5a).
+	 *
+	 * Chosen semantics — "removing from favorites unpins and deletes bytes unless
+	 * it's still in recent history":
+	 *   • Always unpin so the LRU can reclaim the space.
+	 *   • If the row exists ONLY because it was favorited (kind 'saved' — the
+	 *     favorite background-download path), delete its bytes + row now.
+	 *   • If it's a 'history'/'imported' row (the user opened it too), keep the
+	 *     bytes and let the LRU evict them naturally later.
+	 */
+	async function releaseFavorite(id: string): Promise<void> {
+		const row = await get(id);
+		if (!row) {
+			await setPinned(id, false);
+			return;
+		}
+		await setPinned(id, false);
+		if (row.kind === 'saved') await remove(id);
+	}
+
 	/** Clear the History view (both history + imported rows and their blobs). */
 	async function clearHistory(): Promise<void> {
 		const rows = await getDb().query<{ blob_path: string | null }>(
@@ -305,6 +348,8 @@ export function createTabsRepo(getDb: () => Database) {
 		listByKind,
 		listHistory,
 		clearHistory,
+		removeFromHistory,
+		releaseFavorite,
 		remove,
 		clearKind,
 		enforceBudget,

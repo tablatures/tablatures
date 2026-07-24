@@ -2,6 +2,8 @@ import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { dataReady } from '../data/init';
 import { tabsRepo, type TabRow } from '../data/repositories';
+import { removeHistoryBytes } from '../data/tabBytes';
+import { favoritesStore } from './favorites';
 
 export interface HistoryItem {
 	id: string;
@@ -93,7 +95,14 @@ function createHistoryStore() {
 		},
 		removeFromHistory: (id: string) => {
 			update((items) => items.filter((h) => h.id !== id));
-			if (browser) tabsRepo.remove(id).catch(() => {});
+			if (browser) {
+				// Remove-from-history also clears the local bytes (5a) — unless the
+				// tab is favorited, in which case the favorite keeps them offline
+				// (the row is promoted to a pinned 'saved' entry). See
+				// tabsRepo.removeFromHistory for the full semantics.
+				const keepBytes = favoritesStore.isFavorite(id);
+				void removeHistoryBytes(id, keepBytes);
+			}
 		},
 		clearHistory: () => {
 			set([]);

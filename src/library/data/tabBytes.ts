@@ -9,6 +9,8 @@ import { dataReady } from './init';
 import { tabsRepo, type TabKind, type TabMeta } from './repositories';
 import { getBlobBudgetBytes } from './storagePrefs';
 
+const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
+
 function isBrowser(): boolean {
 	return typeof window !== 'undefined';
 }
@@ -58,6 +60,69 @@ export async function setTabPinned(id: string, pinned: boolean): Promise<void> {
 	try {
 		await dataReady;
 		await tabsRepo.setPinned(id, pinned);
+	} catch {
+		/* best-effort */
+	}
+}
+
+/**
+ * Ensure a tab's bytes are stored on-device (UX round 5, 5a: favorite = keep
+ * offline). If the bytes are already present, no-op. Otherwise background-
+ * download them via `/api/download/<id>` (the same path `openTabById` uses) and
+ * save them as `kind` (default 'saved', pinned). Fully best-effort and non-
+ * blocking: any failure is swallowed so favoriting still succeeds offline, and
+ * a later successful open will store the bytes instead. Returns whether bytes
+ * are present afterwards.
+ */
+export async function ensureTabBytesStored(
+	meta: TabMeta,
+	kind: TabKind = 'saved'
+): Promise<boolean> {
+	if (!isBrowser() || !meta.id) return false;
+	// Imported tabs carry their bytes in the share-hash payload, not the catalog.
+	if (meta.hashPayload) return false;
+	try {
+		await dataReady;
+		const existing = await tabsRepo.getBytes(meta.id);
+		if (existing && existing.byteLength > 0) return true;
+		if (!SEARCH_API_BASE_URL) return false;
+
+		// Live UG results may not be persisted; pass the page URL when we have it
+		// so the server can resolve the file without a catalog row (mirrors openTab).
+		const srcHint =
+			meta.id.startsWith('ug:') && meta.sourceUrl
+				? `?src=${encodeURIComponent(meta.sourceUrl)}`
+				: '';
+		const resp = await fetch(`${SEARCH_API_BASE_URL}/api/download/${meta.id}${srcHint}`);
+		if (!resp.ok) return false;
+		const buf = await resp.arrayBuffer();
+		if (!buf || buf.byteLength === 0) return false;
+
+		await tabsRepo.saveBytes(meta, new Uint8Array(buf), kind);
+		await tabsRepo.enforceBudget(await getBlobBudgetBytes());
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Unfavorite: unpin and delete favorite-only bytes (see tabsRepo.releaseFavorite). */
+export async function releaseFavoriteBytes(id: string): Promise<void> {
+	if (!isBrowser() || !id) return;
+	try {
+		await dataReady;
+		await tabsRepo.releaseFavorite(id);
+	} catch {
+		/* best-effort */
+	}
+}
+
+/** Remove a history entry's row + bytes, preserving bytes iff favorited (keepBytes). */
+export async function removeHistoryBytes(id: string, keepBytes: boolean): Promise<void> {
+	if (!isBrowser() || !id) return;
+	try {
+		await dataReady;
+		await tabsRepo.removeFromHistory(id, keepBytes);
 	} catch {
 		/* best-effort */
 	}

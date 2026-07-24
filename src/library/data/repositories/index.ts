@@ -10,6 +10,7 @@ import { createFavoritesRepo } from './favoritesRepo';
 import { createPlaylistsRepo } from './playlistsRepo';
 import { createPrefsRepo, createKvRepo } from './prefsRepo';
 import { createHttpCacheRepo } from './httpCacheRepo';
+import { createImagesRepo } from './imagesRepo';
 
 export const tabsRepo = createTabsRepo(getDatabase);
 export const favoritesRepo = createFavoritesRepo(getDatabase);
@@ -17,9 +18,11 @@ export const playlistsRepo = createPlaylistsRepo(getDatabase);
 export const prefsRepo = createPrefsRepo(getDatabase);
 export const kvRepo = createKvRepo(getDatabase);
 export const httpCacheRepo = createHttpCacheRepo(getDatabase);
+export const imagesRepo = createImagesRepo(getDatabase);
 
 export * from './tabsRepo';
 export * from './favoritesRepo';
 export * from './playlistsRepo';
 export * from './prefsRepo';
 export * from './httpCacheRepo';
+export * from './imagesRepo';

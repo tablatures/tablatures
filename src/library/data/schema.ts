@@ -97,6 +97,25 @@ export const MIGRATIONS: Migration[] = [
 			)`,
 			`CREATE INDEX IF NOT EXISTS idx_http_cache_expires ON http_cache(expires_at)`
 		]
+	},
+	{
+		// UX round 5 (5b): durable byte cache for artist/artwork images so covers
+		// render OFFLINE (the http_cache artwork map stores URLs, not bytes). Small
+		// payloads (~10-40 KB each), so they live in the DB like http_cache rather
+		// than the external blob store. Keyed by a normalized artist name; LRU-
+		// evicted under a small budget (see imagesRepo) with a long TTL.
+		name: 'image byte cache',
+		up: [
+			`CREATE TABLE IF NOT EXISTS images (
+				key TEXT PRIMARY KEY,
+				body BLOB,
+				content_type TEXT,
+				byte_size INTEGER NOT NULL DEFAULT 0,
+				fetched_at INTEGER NOT NULL DEFAULT 0,
+				last_used_at INTEGER NOT NULL DEFAULT 0
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_images_lru ON images(last_used_at)`
+		]
 	}
 ];
 
