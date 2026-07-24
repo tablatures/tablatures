@@ -35,7 +35,7 @@
 		ghost:
 			'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500 disabled:opacity-40',
 		danger:
-			'border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40'
+			'border border-danger-200 dark:border-danger-900 text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 disabled:opacity-40'
 	};
 
 	$: base = `tap-press inline-flex items-center justify-center rounded-lg font-medium cursor-pointer select-none transition-colors ${

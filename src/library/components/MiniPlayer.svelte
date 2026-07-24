@@ -332,7 +332,7 @@
 			<!-- Close the player -->
 			<button
 				on:click|stopPropagation={stopPlayer}
-				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-red-500/80 transition-colors"
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-danger-500/80 transition-colors"
 				title="Close player"
 				aria-label="Close player"
 			>

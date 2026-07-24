@@ -796,7 +796,7 @@
 									artistHeroes = artistHeroes;
 								}}
 								class="tap-target flex-shrink-0 p-1.5 rounded-full transition-transform active:scale-90
-									{favoriteArtistsStore.isArtist(hero.name) ? 'text-red-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-red-400'}"
+									{favoriteArtistsStore.isArtist(hero.name) ? 'text-love-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-love-400'}"
 								title="{favoriteArtistsStore.isArtist(hero.name) ? 'Unfollow' : 'Follow'} {hero.name}"
 							>
 								<i class="material-icons !text-lg">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>

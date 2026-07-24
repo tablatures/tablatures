@@ -118,7 +118,7 @@
 
 		<!-- Always-visible favorite (subtle) when favorited, shown even without hover -->
 		{#if id && isFavorite}
-			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-red-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
+			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-love-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
 				<i class="material-icons !text-xl">favorite</i>
 			</div>
 		{/if}

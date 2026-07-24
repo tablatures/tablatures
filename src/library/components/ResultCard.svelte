@@ -85,7 +85,7 @@
 	{#if id}
 		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture) -->
 		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-red-500"
+			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-love-500"
 			aria-hidden="true"
 		>
 			<i class="material-icons !text-xl">{isFav ? 'heart_broken' : 'favorite'}</i>

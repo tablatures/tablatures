@@ -585,8 +585,8 @@
 			<!-- Clear -->
 			{#if showClearConfirm}
 				<div class="flex flex-col sm:flex-row gap-2 items-center">
-					<span class="text-sm text-red-500">Are you sure?</span>
-					<Button on:click={clearAllData} class="w-full sm:w-auto !bg-red-500 hover:!bg-red-600">
+					<span class="text-sm text-danger-500">Are you sure?</span>
+					<Button on:click={clearAllData} class="w-full sm:w-auto !bg-danger-500 hover:!bg-danger-600">
 						Yes, clear all
 					</Button>
 					<Button variant="ghost" on:click={() => showClearConfirm = false} class="w-full sm:w-auto">
@@ -695,10 +695,10 @@
 
 			{#if showDeleteTabsConfirm}
 				<div class="flex flex-col sm:flex-row gap-2 items-center">
-					<span class="text-sm text-red-500">Delete cached tab files?</span>
+					<span class="text-sm text-danger-500">Delete cached tab files?</span>
 					<button
 						on:click={deleteCachedTabs}
-						class="px-4 py-2.5 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors w-full sm:w-auto"
+						class="px-4 py-2.5 text-sm font-medium rounded-lg bg-danger-500 text-white hover:bg-danger-600 transition-colors w-full sm:w-auto"
 					>
 						Yes, delete
 					</button>
@@ -712,7 +712,7 @@
 			{:else}
 				<button
 					on:click={() => (showDeleteTabsConfirm = true)}
-					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors w-full sm:w-auto"
+					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-danger-200 dark:border-danger-900 text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors w-full sm:w-auto"
 				>
 					<i class="material-icons !text-lg">delete_sweep</i>
 					Delete cached tabs

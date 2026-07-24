@@ -3821,7 +3821,7 @@
 
 				<!-- Clear selection -->
 				<button
-					class="p-1 rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+					class="p-1 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 					on:click={clearSheetSelection}
 					title="Remove selection [Esc]"
 				>
@@ -4022,7 +4022,7 @@
 
 					<!-- Remove -->
 					<button
-						class="p-0.5 rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 						on:click|stopPropagation={clearLoopPoints}
 						title="Remove loop [Esc]"
 					>
@@ -4276,7 +4276,7 @@
 									>Play with video</span
 								>
 								{#if hasActiveVideo}
-									<button on:click={closeVideo} class="text-xs text-red-400 hover:text-red-500"
+									<button on:click={closeVideo} class="text-xs text-danger-400 hover:text-danger-500"
 										>Stop video</button
 									>
 								{/if}
@@ -4440,7 +4440,7 @@
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
-										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										? 'bg-violet-700 text-white hover:bg-violet-800'
 										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
@@ -4480,7 +4480,7 @@
 						</div>
 						<button
 							on:click={closeVideo}
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
 							aria-label="Close video"
 						>
@@ -4896,7 +4896,7 @@
 							<div class="bg-neutral-50 dark:bg-neutral-800/40">
 								{#if hasActiveVideo}
 									<button
-										class="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+										class="w-full text-left px-4 py-2 text-xs text-danger-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 										on:click={closeVideo}
 									>
 										Stop video

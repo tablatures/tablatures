@@ -53,7 +53,7 @@
 	{#if swipeAction}
 		<div
 			class="absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white {swipeAction.colorClass ||
-				'bg-red-500'}"
+				'bg-danger-500'}"
 			aria-hidden="true"
 		>
 			<i class="material-icons !text-lg">{swipeAction.icon}</i>

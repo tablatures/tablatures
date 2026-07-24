@@ -38,7 +38,7 @@
 		</div>
 		<button
 			on:click={() => dispatch('clearloop')}
-			class="tap-target w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+			class="tap-target w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors"
 			title="Clear loop"
 			aria-label="Clear loop"
 		>

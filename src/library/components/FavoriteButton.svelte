@@ -28,14 +28,14 @@
 	};
 
 	$: colors = {
-		overlay: isFavorite ? 'text-red-400' : 'text-white hover:text-red-400',
+		overlay: isFavorite ? 'text-love-400' : 'text-white hover:text-love-400',
 		pill: isFavorite
-			? 'bg-red-500 text-white hover:bg-red-600'
-			: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-red-500 hover:text-white',
-		plain: isFavorite ? 'text-red-500' : 'text-neutral-500 dark:text-neutral-400 hover:text-red-400',
+			? 'bg-love-500 text-white hover:bg-love-600'
+			: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-love-500 hover:text-white',
+		plain: isFavorite ? 'text-love-500' : 'text-neutral-500 dark:text-neutral-400 hover:text-love-400',
 		row: isFavorite
-			? 'text-red-500 dark:text-red-400'
-			: 'text-neutral-400 dark:text-neutral-500 hover:bg-red-500 hover:text-white'
+			? 'text-love-500 dark:text-love-400'
+			: 'text-neutral-400 dark:text-neutral-500 hover:bg-love-500 hover:text-white'
 	}[variant];
 
 	$: iconSize = variant === 'plain' ? '!text-lg sm:!text-xl' : variant === 'row' ? '!text-lg' : '!text-xl';

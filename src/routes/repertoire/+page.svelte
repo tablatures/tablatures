@@ -480,11 +480,11 @@
 										</button>
 										<button
 											on:click={() => favoriteArtistsStore.removeArtist(artist.name)}
-											class="tap-target absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 dark:hover:bg-red-900/30"
+											class="tap-target absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-love-50 dark:hover:bg-love-900/30"
 											title="Unfollow {artist.name}"
 											aria-label="Unfollow {artist.name}"
 										>
-											<i class="material-icons !text-sm text-red-500" aria-hidden="true">favorite</i>
+											<i class="material-icons !text-sm text-love-500" aria-hidden="true">favorite</i>
 										</button>
 									</div>
 									<button
@@ -589,7 +589,7 @@
 				{#if historyItems.length > 0}
 					<button
 						on:click={() => historyStore.clearHistory()}
-						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-red-500 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-danger-500 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-danger-50 dark:hover:bg-danger-900/20"
 					>
 						<i class="material-icons !text-base">delete_outline</i>
 						Clear all history
@@ -626,7 +626,7 @@
 										>
 											<button
 												on:click|stopPropagation={() => removeHistoryItem(item.id)}
-												class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
+												class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-danger-500 dark:text-danger-400 hover:bg-danger-500 hover:text-white dark:hover:bg-danger-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
 												title="Remove from history"
 											>
 												<i class="material-icons !text-lg">close</i>
@@ -735,7 +735,7 @@
 								</button>
 								<button
 									on:click|stopPropagation={() => deletePlaylist(pIndex)}
-									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-red-500 shadow transition-colors opacity-0 group-hover:opacity-100"
+									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-danger-500 shadow transition-colors opacity-0 group-hover:opacity-100"
 									title="Delete playlist"
 								>
 									<i class="material-icons !text-lg">delete_outline</i>

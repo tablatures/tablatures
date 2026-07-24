@@ -579,8 +579,8 @@
 				<button
 					on:click={toggleFollow}
 					class="tap-target flex items-center justify-center w-11 h-11 rounded-full transition-colors active:scale-90 {isFollowed
-						? 'bg-red-500 text-white hover:bg-red-600'
-						: 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-red-500 hover:text-white'}"
+						? 'bg-love-500 text-white hover:bg-love-600'
+						: 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-love-500 hover:text-white'}"
 					title={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists (repertoire)'}
 					aria-label={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists'}
 					aria-pressed={isFollowed}
