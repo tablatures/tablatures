@@ -47,7 +47,10 @@
 		const els = menuItems();
 		if (els.length === 0) return;
 		const idx = ((i % els.length) + els.length) % els.length;
-		els[idx]?.focus();
+		// preventScroll: focusing the item must not scroll the page/container —
+		// that scroll would be caught by onWindowScroll and immediately close the
+		// menu we just opened.
+		els[idx]?.focus({ preventScroll: true });
 	}
 
 	async function show() {
@@ -106,13 +109,16 @@
 		close();
 	}
 
-	// Close when the page scrolls (the fixed menu would otherwise drift away from
-	// its trigger) — but not when the scroll happens inside the menu's own list.
+	// Keep the fixed menu anchored to its trigger while the page scrolls, rather
+	// than closing it. Closing on scroll was fragile on pages that scroll on
+	// their own (the player auto-follows the playback cursor), which would snap
+	// the menu shut the instant it opened. Scrolls inside the menu's own list are
+	// ignored — they don't move the trigger.
 	function onWindowScroll(e: Event) {
 		if (!open) return;
 		const t = e.target as Node;
 		if (menuEl && (menuEl === t || menuEl.contains(t))) return;
-		close();
+		position();
 	}
 </script>
 

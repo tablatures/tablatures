@@ -64,13 +64,14 @@ test.describe('Settings & Controls', () => {
 	test('speed setting persists after seek', async ({ page }) => {
 		await setupPlayPage(page);
 
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (await speedSelect.isVisible()) {
-			await speedSelect.selectOption('0.5');
-			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
-				timeout: 2000
-			});
-		}
+		// The speed control is a popover menu: open the trigger, then pick 0.5x.
+		const speedTrigger = page.locator('button[title="Playback speed [+/-]"]').first();
+		await expect(speedTrigger).toBeVisible();
+		await speedTrigger.click();
+		await page.getByRole('menuitem', { name: '0.5x' }).click();
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
+			timeout: 2000
+		});
 
 		await seekToPercent(page, 50);
 		await waitForSeekSettled(page, 50);
@@ -174,13 +175,13 @@ test.describe('Settings & Controls', () => {
 	test('settings persist in localStorage after reload', async ({ page }) => {
 		await setupPlayPage(page);
 
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (await speedSelect.isVisible()) {
-			await speedSelect.selectOption('0.75');
-			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, {
-				timeout: 2000
-			});
-		}
+		const speedTrigger = page.locator('button[title="Playback speed [+/-]"]').first();
+		await expect(speedTrigger).toBeVisible();
+		await speedTrigger.click();
+		await page.getByRole('menuitem', { name: '0.75x' }).click();
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, {
+			timeout: 2000
+		});
 
 		// Reload the page with the same tab
 		await setupMockApi(page);

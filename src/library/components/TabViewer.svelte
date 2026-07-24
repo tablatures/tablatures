@@ -162,6 +162,9 @@
 	const COUNTDOWN_INTERVAL_MS = 100;
 	const DEBOUNCE_DELAY_MS = 300;
 	const SETTINGS_STORAGE_KEY = 'tabviewer-settings';
+	// Gate the settings-save reactive until loadSettings() has restored persisted
+	// values, so a save can't fire with the component defaults first.
+	let settingsLoaded = false;
 
 	export let data: { fileAsB64?: string };
 	export let tabId: string | undefined = undefined;
@@ -683,11 +686,20 @@
 			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
+		} finally {
+			// Mark loaded even on early return / parse failure so the save reactive
+			// can start persisting. Until this flips true the reactive below is
+			// gated, so it can't clobber stored settings with the default values
+			// before loadSettings() (which runs in onMount) has restored them —
+			// scoreLoaded can otherwise flip true first and trigger a premature save.
+			settingsLoaded = true;
 		}
 	}
 
-	// Save settings whenever they change
-	$: if (browser && scoreLoaded) {
+	// Save settings whenever they change — but only after loadSettings() has run,
+	// so a save triggered by scoreLoaded flipping true during mount cannot
+	// overwrite persisted settings with the component defaults.
+	$: if (browser && scoreLoaded && settingsLoaded) {
 		(volume, speed, metronome, delaying, tabScale, activeTrackIndex);
 		saveSettings();
 	}
@@ -963,6 +975,40 @@
 			console.warn('msToBar error:', e);
 		}
 		return 0;
+	}
+
+	/** Span of masterBar indices played on the timeline between two ms
+	 *  positions. A repeated bar plays at several timeline positions, so sizing a
+	 *  loop by the bar index *at the finger* (msToBar) makes the loop end snap
+	 *  backwards when the drag crosses into a repeat's later pass (bar 9 → bar 4).
+	 *  Taking the min/max index of every bar touched keeps the loop growing
+	 *  monotonically with the drag. For scores without repeats the expanded order
+	 *  equals bar-index order, so this returns exactly anchorBar..fingerBar —
+	 *  identical to the previous behaviour. */
+	function barSpanBetweenMs(msA: number, msB: number): { minBar: number; maxBar: number } | null {
+		if (!api || !duration || duration <= 0) return null;
+		try {
+			const entries = api.tickCache?.masterBars;
+			if (!entries?.length) return null;
+			const total = entries[entries.length - 1].end;
+			if (total <= 0) return null;
+			const lo = (Math.min(msA, msB) / duration) * total;
+			const hi = (Math.max(msA, msB) / duration) * total;
+			let minBar = Infinity;
+			let maxBar = -Infinity;
+			for (const e of entries) {
+				// Entry overlaps [lo, hi] (inclusive of the bar containing lo).
+				if (e.end > lo && e.start <= hi) {
+					const idx = e.masterBar.index;
+					if (idx < minBar) minBar = idx;
+					if (idx > maxBar) maxBar = idx;
+				}
+			}
+			if (minBar === Infinity) return null;
+			return { minBar, maxBar };
+		} catch {
+			return null;
+		}
 	}
 
 	/** Sync api.playbackRange from our bar-based loop state. */
@@ -1578,9 +1624,10 @@
 	let pbStartPct = 0;
 	// The long-press fired → subsequent movement grows/shrinks the loop region.
 	let pbLoopCreating = false;
-	// Anchor bar for the hold-and-drag loop — dragging past it in either
-	// direction swaps start/end correctly.
-	let pbLoopAnchorBar = 0;
+	// Anchor timeline position (ms) for the hold-and-drag loop. Used to size the
+	// loop by the span of bars touched between the anchor and the finger, so the
+	// loop grows monotonically even across repeat boundaries.
+	let pbLoopAnchorMs = 0;
 	// Movement before the hold fired → scrubbing the playhead, not looping.
 	let pbScrubbing = false;
 	// Movement threshold (px) before the long-press timer is cancelled. Small
@@ -1608,8 +1655,8 @@
 		longPressTimer = setTimeout(() => {
 			// Hold fired without a scrub — seed a 1-bar loop at the cursor/finger
 			// and flip into loop-sizing mode.
-			const barIdx = msToBar(percentToTime(pbStartPct));
-			pbLoopAnchorBar = barIdx;
+			pbLoopAnchorMs = percentToTime(pbStartPct);
+			const barIdx = msToBar(pbLoopAnchorMs);
 			loopStartBar = barIdx;
 			loopEndBar = barIdx;
 			loopEnabled = true;
@@ -1622,16 +1669,16 @@
 	}
 
 	function pbMoveGesture(clientX: number) {
-		// Post-hold: grow the loop around the anchor bar.
+		// Post-hold: grow the loop across the span of bars touched between the
+		// anchor and the finger. Using the touched-bar span (not the bar index at
+		// the finger) keeps the loop monotonic across repeat boundaries.
 		if (pbLoopCreating) {
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const bar = Math.min(msToBar(percentToTime(getProgressPercent(clientX))), maxBar);
-			if (bar >= pbLoopAnchorBar) {
-				setLoopBars(pbLoopAnchorBar, bar);
-			} else {
-				setLoopBars(bar, pbLoopAnchorBar);
+			const fingerMs = percentToTime(getProgressPercent(clientX));
+			const span = barSpanBetweenMs(pbLoopAnchorMs, fingerMs);
+			if (span) {
+				setLoopBars(span.minBar, span.maxBar);
+				updateScoreSelection();
 			}
-			updateScoreSelection();
 			return;
 		}
 

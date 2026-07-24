@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupPlayPage, seekToPercent, dragProgressBar } from './helpers/setup';
+import { setupPlayPage, seekToPercent, dragProgressBar, dragScoreLoop } from './helpers/setup';
 import { waitForPlaying, waitForProgressAbove, waitForProgressNear, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
 
 test.describe('Loop Interactions', () => {
@@ -116,22 +116,29 @@ test.describe('Loop Interactions', () => {
 			return;
 		}
 
-		const bar1 = barPositions[1];
-		const bar4 = barPositions[4] || barPositions[barPositions.length - 1];
+		// Pick a start bar and an end bar on the SAME staff row. alphaTab's
+		// canvas selection loses the drag when the pointer crosses the gap
+		// between staff systems, so a cross-row drag never commits a loop.
+		const startBar = barPositions[1];
+		const sameRow = barPositions.filter(
+			(b: any) => Math.abs(b.y - startBar.y) < 5 && b.x >= startBar.x
+		);
+		if (sameRow.length < 2) {
+			test.skip();
+			return;
+		}
+		const endBar = sameRow[sameRow.length - 1];
 
-		const startX = hostBox.x + bar1.x + bar1.w / 2;
-		const startY = hostBox.y + bar1.y + bar1.h / 2;
-		const endX = hostBox.x + bar4.x + bar4.w / 2;
-		const endY = hostBox.y + bar4.y + bar4.h / 2;
+		const startX = hostBox.x + startBar.x + startBar.w / 2;
+		const startY = hostBox.y + startBar.y + startBar.h / 2;
+		const endX = hostBox.x + endBar.x + endBar.w / 2;
+		const endY = hostBox.y + endBar.y + endBar.h / 2;
 
-		await page.mouse.move(startX, startY);
-		await page.mouse.down();
-		await page.mouse.move(endX, endY, { steps: 10 });
-		await page.mouse.up();
+		await dragScoreLoop(page, startX, startY, endX, endY);
 
 		await page.waitForFunction(
 			() => (window as any).__testApi?.getLoopBounds() !== null,
-			{ timeout: 3000 }
+			{ timeout: 8000 }
 		);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();

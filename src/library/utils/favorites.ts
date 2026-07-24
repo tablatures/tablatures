@@ -43,10 +43,20 @@ function createFavoritesStore() {
 	const store = writable<FavoriteItem[]>(seedFromLegacy());
 	const { subscribe, set, update } = store;
 
+	// The user may star/unstar during app boot, before the DB is ready. Those
+	// mutations update the store optimistically and persist via dataReady. The
+	// one-shot DB hydration below also waits on dataReady and, being registered
+	// first, resolves first — so without this guard it would overwrite the
+	// optimistic state with the (still empty / stale) DB snapshot, dropping the
+	// user's just-made change. Once the user has mutated, the store is
+	// authoritative and hydration must not clobber it.
+	let userMutated = false;
+
 	if (browser) {
 		dataReady
 			.then(async () => {
 				const rows = await favoritesRepo.list();
+				if (userMutated) return;
 				set(rows.map(rowToItem));
 			})
 			.catch(() => {});
@@ -55,22 +65,29 @@ function createFavoritesStore() {
 	return {
 		subscribe,
 		addFavorite: (item: Omit<FavoriteItem, 'addedAt'>) => {
+			userMutated = true;
 			const addedAt = Date.now();
 			update((items) => {
 				if (items.some((f) => f.id === item.id)) return items;
 				return [...items, { ...item, addedAt }];
 			});
 			if (browser) {
-				favoritesRepo
-					.add({
-						id: item.id,
-						title: item.title,
-						artist: item.artist,
-						album: item.album,
-						source: item.source,
-						type: item.type,
-						addedAt
-					})
+				// Await dataReady before the write: the DB accessor throws until
+				// initData() has run, so a star fired during app boot would
+				// otherwise silently drop the persisted row (the optimistic store
+				// update above would be the only trace, lost on reload).
+				dataReady
+					.then(() =>
+						favoritesRepo.add({
+							id: item.id,
+							title: item.title,
+							artist: item.artist,
+							album: item.album,
+							source: item.source,
+							type: item.type,
+							addedAt
+						})
+					)
 					.catch(() => {});
 				// Pin the on-device tab row (if any) so the LRU never evicts a
 				// favorited tab's cached bytes.
@@ -78,9 +95,10 @@ function createFavoritesStore() {
 			}
 		},
 		removeFavorite: (id: string) => {
+			userMutated = true;
 			update((items) => items.filter((f) => f.id !== id));
 			if (browser) {
-				favoritesRepo.remove(id).catch(() => {});
+				dataReady.then(() => favoritesRepo.remove(id)).catch(() => {});
 				void setTabPinned(id, false);
 			}
 		},

@@ -275,9 +275,12 @@ test.describe('Timeline drag across repeat boundary', () => {
 		const startX = box.x + 0.10 * box.width; // ~10% = before repeat
 		const endX = box.x + 0.80 * box.width;   // ~80% = past both repeat passes
 
-		// Drag slowly in many steps to cross the boundary
+		// Press and hold to enter loop-select mode (the progress bar seeds a loop
+		// at the anchor bar after LONG_PRESS_MS), then drag slowly to grow the
+		// loop across the boundary.
 		await page.mouse.move(startX, y);
 		await page.mouse.down();
+		await page.waitForTimeout(500);
 
 		// Track the endBar at each step — it should never decrease
 		const endBars: number[] = [];

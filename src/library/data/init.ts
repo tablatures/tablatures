@@ -73,6 +73,12 @@ export async function initData(): Promise<void> {
 		} else {
 			console.info(`[data] ready (engine: ${activeEngine}) — durable/persistent`);
 		}
+		// Dev/test-only seam: expose the favorites DAO so e2e tests can assert the
+		// tab was actually persisted to the on-device DB (the store updates
+		// optimistically; this confirms the async repo write landed).
+		if (import.meta.env.DEV && typeof window !== 'undefined') {
+			(window as any).__testFavorites = () => favoritesRepo.list();
+		}
 		resolveReady();
 	} catch (err) {
 		console.error('[data] initialisation failed', err);
