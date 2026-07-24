@@ -36,6 +36,7 @@
 	import { preferencesStore } from '../library/utils/preferences';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
+	import { sliderFill } from '../library/utils/sliderFill';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import { configureImporterEncoding } from '../library/utils/lyrics';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
@@ -916,7 +917,9 @@
 									value={$videoSyncOffset}
 									on:input|stopPropagation={(e) =>
 										setMiniVideoOffset(parseFloat(e.currentTarget.value))}
-									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+									use:sliderFill={$videoSyncOffset}
+									style="--range-track: rgba(255,255,255,0.2)"
+									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
 										[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 										[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>

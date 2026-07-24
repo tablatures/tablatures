@@ -27,7 +27,7 @@
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
 	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
-	import ArtistTooltip from '$components/ArtistTooltip.svelte';
+	import { sliderFill } from '../utils/sliderFill';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
@@ -4503,7 +4503,9 @@
 									step="0.1"
 									value={videoOffset}
 									on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
-									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+									use:sliderFill={videoOffset}
+									style="--range-track: rgba(255,255,255,0.2)"
+									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
 									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>
@@ -4599,17 +4601,11 @@
 							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
 									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
-										<ArtistTooltip
-											artistName={currentArtistName}
-											position="bottom"
-											className="block min-w-0 max-w-full"
+										<a
+											href="{base}/artist/{encodeURIComponent(currentArtistName)}"
+											class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+											title="View artist page">{currentArtistName}</a
 										>
-											<a
-												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-												title="View artist page">{currentArtistName}</a
-											>
-										</ArtistTooltip>
 									</span>
 									<span class="flex-shrink-0 opacity-60">&middot;</span>
 								{/if}

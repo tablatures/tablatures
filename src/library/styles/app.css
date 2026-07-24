@@ -389,6 +389,38 @@
 	background: #8c52ff;
 }
 
+/* ---------------------------------------------------------------------------
+ * .range-fill — deep-purple filled track LEFT of the thumb, for any
+ * <input type="range">. Drive the fill with the `sliderFill` Svelte action,
+ * which keeps `--slider-pct` in sync with the value. Cross-browser:
+ *   - webkit/blink: the element background IS the track (appearance:none), so
+ *     a gradient stopping at --slider-pct paints the fill.
+ *   - firefox: ::-moz-range-progress natively fills to the thumb.
+ * Override --range-track inline for sliders on dark surfaces (e.g. the video
+ * overlay: style="--range-track: rgba(255,255,255,0.25)").
+ * ------------------------------------------------------------------------- */
+.range-fill {
+	--slider-pct: 0%;
+	--range-fill-color: #8c52ff;
+	--range-track: #d4d4d4;
+	background: linear-gradient(
+		to right,
+		var(--range-fill-color) var(--slider-pct),
+		var(--range-track) var(--slider-pct)
+	);
+}
+.dark .range-fill {
+	--range-track: #404040;
+}
+.range-fill::-moz-range-track {
+	background: var(--range-track);
+	border-radius: 9999px;
+}
+.range-fill::-moz-range-progress {
+	background: var(--range-fill-color);
+	border-radius: 9999px;
+}
+
 /* Persistent player host states */
 .player-host-full #player-host {
 	position: relative;

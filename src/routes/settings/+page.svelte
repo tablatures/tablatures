@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
 	import Header from '../../library/components/Header.svelte';
 	import Button from '../../library/components/Button.svelte';
 	import { favoritesStore } from '../../library/utils/favorites';
@@ -11,6 +10,7 @@
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
 	import { saveFile, isNative, hapticImpact } from '../../library/utils/native';
+	import { sliderFill } from '../../library/utils/sliderFill';
 	import { onMount } from 'svelte';
 	import { tabsRepo, httpCacheRepo } from '../../library/data/repositories';
 	import { usage as blobUsage } from '../../library/data/blobStore';
@@ -227,11 +227,6 @@
 
 	onMount(refreshStorage);
 
-	function closeSettings() {
-		if (browser && window.history.length > 1) window.history.back();
-		else goto(`${base}/`);
-	}
-
 	function clearAllData() {
 		if (!browser) return;
 		historyStore.clearHistory();
@@ -255,22 +250,14 @@
 	id="main-content"
 	class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] min-h-[calc(100dvh-3.5rem)]"
 >
-	<!-- Page title -->
-	<div class="flex items-center justify-between mb-6">
+	<!-- Page title. Settings is a PAGE (reached from the top bar), not an
+	     overlay, so it has no close cross — the header nav and the Android
+	     back button are the exits. -->
+	<div class="flex items-center mb-6">
 		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
 			<i class="material-icons-outlined !text-2xl text-violet-500">settings</i>
 			Settings
 		</h1>
-		<!-- Close: comfortably wide and kept clear of the right screen edge so it
-		     is easy to tap on mobile (>=48dp hit area via .tap-target). -->
-		<button
-			on:click={closeSettings}
-			class="tap-target mr-1 flex items-center justify-center h-11 px-4 rounded-lg text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-			title="Close settings"
-			aria-label="Close settings"
-		>
-			<i class="material-icons !text-2xl">close</i>
-		</button>
 	</div>
 
 	<!-- ===== SUPPORT / FEEDBACK BANNER ===== -->
@@ -446,7 +433,8 @@
 				<input
 					type="range" min="0" max="1" step="0.1"
 					bind:value={$preferencesStore.defaultMetronomeVolume}
-					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+					use:sliderFill={$preferencesStore.defaultMetronomeVolume}
+					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -499,7 +487,8 @@
 				<input
 					type="range" min="0.3" max="1.5" step="0.1"
 					bind:value={$preferencesStore.tabScaleDesktop}
-					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+					use:sliderFill={$preferencesStore.tabScaleDesktop}
+					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -514,7 +503,8 @@
 				<input
 					type="range" min="0.3" max="1.0" step="0.1"
 					bind:value={$preferencesStore.tabScaleMobile}
-					class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
+					use:sliderFill={$preferencesStore.tabScaleMobile}
+					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -650,31 +640,39 @@
 			</div>
 		</div>
 
-		<!-- LRU budget -->
-		<div>
-			<div class="flex items-center justify-between mb-1">
-				<label for="storage-budget" class="text-sm font-medium text-neutral-700 dark:text-neutral-200"
-					>Cache budget</label
-				>
-				<span class="text-xs text-neutral-500 dark:text-neutral-400">{budgetMB} MB</span>
+		<!-- LRU budget: an advanced knob most people never touch, so it is tucked
+		     into a collapsed disclosure with smaller, technical styling. -->
+		<details class="group rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-800/30">
+			<summary class="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none text-[11px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 list-none">
+				<i class="material-icons !text-base transition-transform group-open:rotate-90">chevron_right</i>
+				Advanced
+			</summary>
+			<div class="px-3 pb-3 pt-1">
+				<div class="flex items-center justify-between mb-1">
+					<label for="storage-budget" class="text-xs font-medium text-neutral-600 dark:text-neutral-300"
+						>Cache budget</label
+					>
+					<span class="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">{budgetMB} MB</span>
+				</div>
+				<input
+					id="storage-budget"
+					type="range"
+					min="50"
+					max="2000"
+					step="50"
+					bind:value={budgetMB}
+					on:change={applyBudget}
+					use:sliderFill={budgetMB}
+					class="range-fill w-full h-1.5 cursor-pointer appearance-none rounded-full
+						[&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
+						[&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
+				/>
+				<p class="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1">
+					Maximum on-device space for cached tab files. Lowering it evicts the
+					oldest unpinned tabs immediately.
+				</p>
 			</div>
-			<input
-				id="storage-budget"
-				type="range"
-				min="50"
-				max="2000"
-				step="50"
-				bind:value={budgetMB}
-				on:change={applyBudget}
-				class="w-full h-2 cursor-pointer appearance-none rounded-full bg-neutral-200 dark:bg-neutral-700
-					[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
-					[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
-			/>
-			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1">
-				Maximum on-device space for cached tab files. Lowering it evicts the
-				oldest unpinned tabs immediately.
-			</p>
-		</div>
+		</details>
 
 		<!-- Actions -->
 		<div class="flex flex-col sm:flex-row gap-2">
