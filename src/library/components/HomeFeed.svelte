@@ -184,9 +184,51 @@
 		await primeFirstPaint(true);
 	}
 
-	/** Append a freshly-fetched, already-deduped batch to the feed and kick off
-	 *  its background artwork resolution. Shared by the throttled fill loop and
-	 *  the concurrent first-paint primer. */
+	// --- Artwork fetch queue (5c: don't storm the network while scrolling) ---
+	// Each appended batch enqueues its un-embedded tabs; a single idle-scheduled
+	// flush drains the queue. requestIdleCallback naturally defers while the main
+	// thread is busy (e.g. an active scroll/paint), so artwork requests pause
+	// during flings and resume when the user settles — no scroll listener needed.
+	let artworkQueue: any[] = [];
+	let artworkIdleHandle: number | null = null;
+
+	function scheduleArtworkFlush() {
+		if (artworkIdleHandle !== null || typeof window === 'undefined') return;
+		const run = () => {
+			artworkIdleHandle = null;
+			void flushArtworkQueue();
+		};
+		if (typeof (window as any).requestIdleCallback === 'function') {
+			artworkIdleHandle = (window as any).requestIdleCallback(run, { timeout: 1200 });
+		} else {
+			artworkIdleHandle = window.setTimeout(run, 200);
+		}
+	}
+
+	async function flushArtworkQueue() {
+		if (artworkQueue.length === 0) return;
+		const batch = artworkQueue;
+		artworkQueue = [];
+		try {
+			const m = await fetchArtworkBatch(batch, {});
+			const additions: Record<string, string> = {};
+			for (const t of batch) if (m[t.id]) additions[t.id] = m[t.id];
+			if (Object.keys(additions).length > 0) {
+				feedArtwork = { ...feedArtwork, ...additions };
+			}
+		} catch {
+			/* leave pulse-cleared below */
+		} finally {
+			for (const t of batch) artworkLoadingIds.delete(t.id);
+			artworkLoadingIds = artworkLoadingIds;
+			// More may have queued while we were resolving.
+			if (artworkQueue.length > 0) scheduleArtworkFlush();
+		}
+	}
+
+	/** Append a freshly-fetched, already-deduped batch to the feed and enqueue
+	 *  its background artwork resolution (idle-flushed). Shared by the throttled
+	 *  fill loop and the concurrent first-paint primer. */
 	function appendTabs(newTabs: any[]) {
 		feedTabs = [...feedTabs, ...newTabs];
 
@@ -196,33 +238,15 @@
 		for (const t of newTabs) if (t.artworkUrl) embedded[t.id] = t.artworkUrl;
 		if (Object.keys(embedded).length > 0) feedArtwork = { ...feedArtwork, ...embedded };
 		const needsArtwork = newTabs.filter((t) => !t.artworkUrl);
+		if (needsArtwork.length === 0) return;
 
 		// Mark these as "artwork loading" so cards show a pulse
 		for (const t of needsArtwork) artworkLoadingIds.add(t.id);
 		artworkLoadingIds = artworkLoadingIds;
 
-		// Fetch artwork for new tabs in background.
-		// IMPORTANT: merge only this batch's own fetched entries into the live map.
-		// Using `feedArtwork = m` would overwrite other in-flight batches' updates
-		// because each call to fetchArtworkBatch returns a new map based on its own
-		// starting snapshot.
-		fetchArtworkBatch(needsArtwork, {})
-			.then((m) => {
-				const additions: Record<string, string> = {};
-				for (const t of needsArtwork) {
-					if (m[t.id]) additions[t.id] = m[t.id];
-				}
-				if (Object.keys(additions).length > 0) {
-					feedArtwork = { ...feedArtwork, ...additions };
-				}
-			})
-			.catch(() => {})
-			.finally(() => {
-				// ALWAYS clear the pulse, even when the batch fails - a card
-				// stuck on artworkLoading shimmers forever otherwise
-				for (const t of needsArtwork) artworkLoadingIds.delete(t.id);
-				artworkLoadingIds = artworkLoadingIds;
-			});
+		// Queue + idle-flush instead of firing a fetch per batch immediately.
+		artworkQueue.push(...needsArtwork);
+		scheduleArtworkFlush();
 	}
 
 	/** Fetch a single endpoint, dedupe, and append. Returns the count of new
@@ -652,15 +676,6 @@
 		return Math.min(3 * gridCols, Math.max(gridCols, completePartial + gridCols));
 	})();
 
-	/** Scroll handler: if user scrolls within ~800px of the sentinel, fetch more. */
-	function handleScroll() {
-		if (loadingFeed || exhausted || !sentinelEl || typeof window === 'undefined') return;
-		const rect = sentinelEl.getBoundingClientRect();
-		if (rect.top < window.innerHeight + 800) {
-			fetchMore();
-		}
-	}
-
 	onMount(() => {
 		mounted = true;
 		// Measure the grid before the first fetch so firstBatch is sized to the
@@ -683,8 +698,10 @@
 			if (sentinelEl) observer.observe(sentinelEl);
 		}
 
-		// Backup: scroll listener, in case IntersectionObserver misses edge cases
-		window.addEventListener('scroll', handleScroll, { passive: true });
+		// NB: the redundant window scroll listener that also triggered fetchMore
+		// was removed (5c) — the IntersectionObserver (rootMargin 800px) plus the
+		// self-rearming fill loop cover infinite scroll without a per-scroll
+		// getBoundingClientRect on the main thread.
 
 		// Measure grid columns (for dynamic Continue card count) + watch for resize
 		measureLayout();
@@ -700,9 +717,15 @@
 		if (gridResizeObserver) gridResizeObserver.disconnect();
 		if (coldStartTimer) clearTimeout(coldStartTimer);
 		if (throttleRetryTimer) clearTimeout(throttleRetryTimer);
+		if (artworkIdleHandle !== null && typeof window !== 'undefined') {
+			if (typeof (window as any).cancelIdleCallback === 'function') {
+				(window as any).cancelIdleCallback(artworkIdleHandle);
+			} else {
+				clearTimeout(artworkIdleHandle);
+			}
+		}
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('resize', measureLayout);
-			window.removeEventListener('scroll', handleScroll);
 		}
 	});
 
@@ -1090,19 +1113,25 @@
 				class="grid gap-3 sm:gap-4 responsive-tab-grid"
 			>
 				{#each visibleFeedTabs as tab (tab.id)}
-					<TabCard
-						id={tab.id}
-						title={tab.title}
-						artist={tab.artist}
-						album={tab.album}
-						source={tab.source}
-						type={tab.type}
-						artworkUrl={feedArtwork[tab.id] || ''}
-						artistImage={tab.artistImage || ''}
-						artworkLoading={artworkLoadingIds.has(tab.id)}
-						onClick={() => openTab(tab)}
-						onAddToPlaylist={() => openPlaylistPicker(tab)}
-					/>
+					<!-- feed-cell: content-visibility:auto skips layout/paint for
+					     off-screen cards (cheap virtualization, 5c); the intrinsic
+					     size reserves each cell's height so nothing reflows and
+					     scrollbars stay stable. -->
+					<div class="feed-cell">
+						<TabCard
+							id={tab.id}
+							title={tab.title}
+							artist={tab.artist}
+							album={tab.album}
+							source={tab.source}
+							type={tab.type}
+							artworkUrl={feedArtwork[tab.id] || ''}
+							artistImage={tab.artistImage || ''}
+							artworkLoading={artworkLoadingIds.has(tab.id)}
+							onClick={() => openTab(tab)}
+							onAddToPlaylist={() => openPlaylistPicker(tab)}
+						/>
+					</div>
 				{/each}
 
 				<!-- Skeleton placeholders: shown while fetching or while any
@@ -1238,6 +1267,21 @@
 	   heading, and feed grids all share this class so they stay aligned. */
 	.responsive-tab-grid {
 		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+	}
+
+	/* Cheap virtualization for the recommendation feed (5c): the browser skips
+	   layout + paint for cards outside the viewport (plus a buffer) while the
+	   intrinsic size keeps each cell's box reserved, so scrolling a long feed
+	   stays smooth and the scroll position never jumps. ~130px thumbnail + title
+	   ≈ 190px; the height auto-corrects once a card is rendered. */
+	.feed-cell {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 190px;
+	}
+	@media (min-width: 1024px) {
+		.feed-cell {
+			contain-intrinsic-size: auto 210px;
+		}
 	}
 
 	/* Cold-start "tuning up" hint: the peg icon rocks back and forth like a
