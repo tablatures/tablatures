@@ -54,7 +54,8 @@
 		syncStatusBar,
 		onBackButton,
 		exitApp,
-		onAppStateChange
+		onAppStateChange,
+		onAppUrlOpen
 	} from '../library/utils/native';
 	import {
 		hydrateFromUrl,
@@ -621,7 +622,25 @@
 			}
 			exitApp();
 		}).then((r) => (removeBack = r));
-		return () => removeBack();
+
+		// Android App Links: an https://tablatures.org/... link opened while the
+		// app is installed lands here. Route its path+query+hash into the SPA
+		// router so the shared tab/artist/playlist opens in-app.
+		let removeUrlOpen = () => {};
+		onAppUrlOpen((url) => {
+			try {
+				const u = new URL(url);
+				const path = u.pathname.startsWith(base) ? u.pathname.slice(base.length) : u.pathname;
+				goto(base + (path || '/') + u.search + u.hash);
+			} catch {
+				// malformed URL — ignore
+			}
+		}).then((r) => (removeUrlOpen = r));
+
+		return () => {
+			removeBack();
+			removeUrlOpen();
+		};
 	});
 
 	onMount(() => {
@@ -967,7 +986,7 @@
 			<!-- Hide-preview button, above the scrim. -->
 			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-9 h-9 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-red-500 hover:ring-red-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-red-500 hover:ring-red-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
 						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
 					on:click|stopPropagation={() => {
 						miniPreviewVisible = false;
@@ -991,7 +1010,7 @@
 		id="main-content"
 		class="animate-fade-in min-h-dvh {showMiniPlayer
 			? miniPreviewVisible
-				? 'pb-[272px] sm:pb-14'
+				? 'pb-[460px] sm:pb-14'
 				: 'pb-14'
 			: ''}"
 	>
@@ -1087,8 +1106,11 @@
 			left: 0;
 			right: 0;
 			width: 100%;
-			height: 220px;
-			bottom: 50px;
+			/* Taller than before (was 220px) so the preview is actually readable,
+			   and lifted clear of the ~80px MiniPlayer bar (+ safe area) so it no
+			   longer hides behind it. Capped at 60dvh on short screens. */
+			height: min(60dvh, 370px);
+			bottom: calc(88px + env(safe-area-inset-bottom));
 			border-radius: 0;
 		}
 		.mini-player-overlay {

@@ -16,6 +16,8 @@
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
 	import { playlistStore } from '$utils/playlists';
 	import { toastStore } from '$utils/toast';
+	import { shareLink } from '$utils/native';
+	import { shareUrl } from '$utils/shareUrl';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { getSourceDisplay } from '$utils/sources';
 	import { inViewport } from '$utils/inViewport';
@@ -107,6 +109,21 @@
 		if (!info) return;
 		if (isFollowed) favoriteArtistsStore.removeArtist(info.name);
 		else favoriteArtistsStore.addArtist({ name: info.name, image: info.image || undefined });
+	}
+
+	async function shareArtist() {
+		const name = info?.name || artistName;
+		if (!name) return;
+		const url = new URL(shareUrl(`/artist/${encodeURIComponent(name)}`));
+		try {
+			const how = await shareLink(url.toString(), {
+				title: name,
+				dialogTitle: 'Share artist'
+			});
+			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
+		} catch {
+			toastStore.error('Failed to copy link');
+		}
 	}
 
 	function fmtDuration(seconds?: number | null): string {
@@ -537,7 +554,7 @@
 				</div>
 			</div>
 
-			<div class="sm:pb-2 flex-shrink-0">
+			<div class="sm:pb-2 flex-shrink-0 flex items-center gap-2">
 				<button
 					on:click={toggleFollow}
 					class="flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-medium transition-colors {isFollowed
@@ -547,6 +564,14 @@
 				>
 					<i class="material-icons !text-lg">{isFollowed ? 'favorite' : 'favorite_border'}</i>
 					{isFollowed ? 'Favorited' : 'Favorite'}
+				</button>
+				<button
+					on:click={shareArtist}
+					class="tap-target flex items-center justify-center w-11 h-11 rounded-full bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors"
+					title="Share artist"
+					aria-label="Share artist"
+				>
+					<i class="material-icons !text-lg">share</i>
 				</button>
 			</div>
 		</div>

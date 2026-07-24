@@ -7,6 +7,7 @@
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { shareLink, hapticTap } from '../utils/native';
+	import { shareUrl } from '../utils/shareUrl';
 	import { horizontalSwipe } from '../utils/gestures';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
@@ -45,7 +46,7 @@
 		const tabId = currentTab?.tabId;
 		if (!tabId) return;
 		try {
-			const url = new URL(window.location.origin + base + '/play');
+			const url = new URL(shareUrl('/play'));
 			url.searchParams.set('tab', tabId);
 			if ($activeVideoId) url.searchParams.set('video', $activeVideoId);
 			if (state.duration > 0 && state.progress > 0) {
@@ -298,46 +299,50 @@
 
 		<!-- Video audio / sync controls live in the YouTube overlay, not here -->
 
-		<!-- Share link -->
-		{#if currentTab?.tabId}
+		<!-- Right-side controls: each a ≥44px squircle tap target with a clear
+		     press affordance and spacing (gap on the parent row). -->
+		<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+			<!-- Share link (desktop only; mobile shares from the full player) -->
+			{#if currentTab?.tabId}
+				<button
+					on:click|stopPropagation={copyShareLink}
+					class="tap-press hidden sm:flex items-center justify-center w-11 h-11 rounded-xl transition-colors hover:bg-white/10 {shareJustCopied ? 'text-green-400' : 'text-neutral-400 hover:text-white'}"
+					title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
+					aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
+				>
+					<i class="material-icons !text-xl">{shareJustCopied ? 'check' : 'share'}</i>
+				</button>
+			{/if}
+
+			<!-- Toggle picture-in-picture preview -->
 			<button
-				on:click={copyShareLink}
-				class="tap-target flex-shrink-0 transition-colors hidden sm:block {shareJustCopied ? 'text-green-400' : 'text-neutral-500 hover:text-white'}"
-				title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
-				aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
+				on:click|stopPropagation={() => dispatch('togglePreview')}
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+				title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
+				aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			>
-				<i class="material-icons !text-lg">{shareJustCopied ? 'check' : 'share'}</i>
+				<i class="material-icons !text-xl">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
 			</button>
-		{/if}
 
-		<!-- Open full player: primary way back on mobile, so always visible -->
-		<a
-			href="{base}/play"
-			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title="Back to full player"
-			aria-label="Open full player"
-		>
-			<i class="material-icons !text-lg">keyboard_arrow_up</i>
-		</a>
+			<!-- Expand to the full player -->
+			<a
+				href="{base}/play"
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+				title="Open full player"
+				aria-label="Open full player"
+			>
+				<i class="material-icons !text-2xl">expand_less</i>
+			</a>
 
-		<!-- Toggle preview -->
-		<button
-			on:click={() => dispatch('togglePreview')}
-			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
-			aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
-		>
-			<i class="material-icons !text-lg">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
-		</button>
-
-		<!-- Close -->
-		<button
-			on:click={stopPlayer}
-			class="tap-target flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title="Close player"
-			aria-label="Close player"
-		>
-			<i class="material-icons !text-lg">close</i>
-		</button>
+			<!-- Close the player -->
+			<button
+				on:click|stopPropagation={stopPlayer}
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-red-500/80 transition-colors"
+				title="Close player"
+				aria-label="Close player"
+			>
+				<i class="material-icons !text-xl">close</i>
+			</button>
+		</div>
 	</div>
 </div>

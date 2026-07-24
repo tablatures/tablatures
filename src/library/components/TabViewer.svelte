@@ -24,7 +24,8 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
-	import { isNative, saveFile, shareLink, hapticTap } from '../utils/native';
+	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
+	import { shareUrl } from '../utils/shareUrl';
 	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
 	import ArtistTooltip from '$components/ArtistTooltip.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
@@ -3297,7 +3298,12 @@
 		const exporter = new window.alphaTab.exporter.Gp7Exporter();
 		const data = exporter.export(api.score, api.settings);
 		const fileName = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
-		await saveFile(fileName, data);
+		try {
+			const { location } = await downloadFile(fileName, data, 'application/octet-stream');
+			toastStore.success(location ? `Saved to ${location}/${fileName}` : 'Downloaded');
+		} catch {
+			toastStore.error('Download failed');
+		}
 	}
 
 	async function toggleFullscreen() {
@@ -3435,9 +3441,8 @@
 	// --- Share link ---
 	async function clickShare() {
 		if (!browser) return;
-		const url = new URL(window.location.href);
-		url.search = '';
-		url.hash = '';
+		// Canonical origin — never window.location (localhost in the WebView / dev).
+		const url = new URL(shareUrl('/play'));
 
 		if (tabId) {
 			// Catalog tabs: short, durable ID-based link
@@ -4923,6 +4928,15 @@
 							</div>
 						{/if}
 					{/if}
+
+					<button
+						class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40"
+						on:click={clickShare}
+						disabled={!scoreLoaded}
+					>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">share</i>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Share tab link</span>
+					</button>
 
 					<button
 						class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40"

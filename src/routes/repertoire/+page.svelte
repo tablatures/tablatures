@@ -19,6 +19,7 @@
 	import { openTabById } from '../../library/utils/openTab';
 	import { setQueue } from '../../library/utils/playerStore';
 	import { shareLink } from '../../library/utils/native';
+	import { shareUrl } from '../../library/utils/shareUrl';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
@@ -274,7 +275,7 @@
 		const pl = playlists[index];
 		if (!pl) return;
 		const encoded = encodePlaylist(pl);
-		const url = new URL(window.location.origin + base + '/repertoire');
+		const url = new URL(shareUrl('/repertoire'));
 		url.searchParams.set('playlist', encoded);
 		url.searchParams.set('view', 'playlists');
 		try {

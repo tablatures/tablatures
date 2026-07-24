@@ -431,13 +431,15 @@
 		left: 0 !important;
 		right: 0 !important;
 		width: 100% !important;
-		height: 220px !important;
+		/* Match .mini-player-wrapper: taller preview lifted clear of the
+		   MiniPlayer bar (~80px + safe area). */
+		height: min(60dvh, 370px) !important;
 		overflow: auto !important;
 		scrollbar-width: none !important;
 		border-radius: 0 !important;
 		border-left: none !important;
 		border-right: none !important;
-		bottom: 50px !important;
+		bottom: calc(88px + env(safe-area-inset-bottom)) !important;
 		box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
 	}
 
@@ -446,7 +448,7 @@
 		transform-origin: top left;
 		transform: scale(var(--mini-player-scale-mobile, 0.7));
 		width: calc(100% / var(--mini-player-scale-mobile, 0.7));
-		height: calc(220px / var(--mini-player-scale-mobile, 0.7));
+		height: calc(min(60dvh, 370px) / var(--mini-player-scale-mobile, 0.7));
 	}
 }
 

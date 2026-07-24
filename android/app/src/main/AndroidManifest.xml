@@ -22,6 +22,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Android App Links: verified https deep links for tablatures.org
+                 (all paths). autoVerify requires .well-known/assetlinks.json with
+                 this app's signing fingerprint to be served on the domain — see
+                 docs/app-links.md. Capacitor surfaces the opened URL via the App
+                 plugin's `appUrlOpen` event, routed into the SPA router. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="tablatures.org" />
+            </intent-filter>
+
         </activity>
 
         <provider
