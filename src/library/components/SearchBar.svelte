@@ -120,6 +120,7 @@
 		if (s.type === 'artist') {
 			value = s.value;
 			focused = false;
+			inputEl?.blur();
 			goto(`${base}/artist/${encodeURIComponent(s.value)}`);
 			return;
 		}
@@ -137,6 +138,7 @@
 			// configured or we're already resolving one.
 			value = query;
 			focused = false;
+			inputEl?.blur();
 			dispatch('search', query);
 			return;
 		}
@@ -161,9 +163,21 @@
 		}
 	}
 
+	// Guards a single navigation per submit: the on-screen keyboard's
+	// enter/search key and the submit button can both fire in quick succession
+	// on some Android IMEs. Reset on the next tick so genuine re-searches work.
+	let submitting = false;
+
 	function runSearch() {
+		const q = value.trim();
+		if (!q || submitting) return;
+		submitting = true;
 		focused = false;
-		dispatch('search', value);
+		// Dismiss the on-screen keyboard on mobile so results are visible
+		// immediately instead of being covered by the IME.
+		inputEl?.blur();
+		dispatch('search', q);
+		setTimeout(() => (submitting = false), 300);
 	}
 
 	function clearQuery() {
@@ -329,22 +343,6 @@
 
 			<!-- Autocomplete suggestions (when typing) -->
 			{#if showSuggestions}
-				<!-- Always-first: full search escape hatch -->
-				<button
-					role="option"
-					aria-selected={highlightedIndex === -1}
-					class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-violet-50 dark:hover:bg-violet-900/20 border-b border-neutral-100 dark:border-neutral-800 transition-colors"
-					on:mousedown|preventDefault={() => {
-						focused = false;
-						dispatch('search', value.trim());
-					}}
-				>
-					<i class="material-icons !text-lg text-violet-500 flex-shrink-0">search</i>
-					<span class="text-sm text-neutral-700 dark:text-neutral-200 truncate">
-						See all results for "<span class="font-medium">{value.trim()}</span>"
-					</span>
-					<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0 ml-auto">arrow_forward</i>
-				</button>
 				{#each suggestions as s, i}
 					{#if i === 0 || s.type !== suggestions[i - 1]?.type}
 						<div class="px-3 pt-2 pb-1">
@@ -390,6 +388,23 @@
 						{/if}
 					</button>
 				{/each}
+
+				<!-- Explicit "see everything" row at the bottom of the list. It is the
+				     default Enter target (highlightedIndex === -1) and goes through the
+				     same guarded submit as the keyboard, so it dismisses the IME and
+				     navigates exactly once. -->
+				<button
+					role="option"
+					aria-selected={highlightedIndex === -1}
+					class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-violet-50 dark:hover:bg-violet-900/20 border-t border-neutral-100 dark:border-neutral-800 transition-colors"
+					on:pointerdown|preventDefault={runSearch}
+				>
+					<i class="material-icons !text-lg text-violet-500 flex-shrink-0">search</i>
+					<span class="text-sm text-neutral-700 dark:text-neutral-200 truncate">
+						See all results for "<span class="font-medium">{value.trim()}</span>"
+					</span>
+					<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0 ml-auto">arrow_forward</i>
+				</button>
 			{/if}
 
 			<!-- Hint -->

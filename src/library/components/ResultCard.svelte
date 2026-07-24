@@ -64,12 +64,12 @@
 
 	$: placeholder = placeholderArtwork(artist, title);
 	$: hasVersions = variants && variants.length > 1;
-	// "7 versions - GP Tabs, Songsterr, UG"
-	$: versionsSummary = (() => {
-		if (!variants || variants.length < 2) return '';
-		const sources = [...new Set(variants.map((v) => getSourceDisplay(v.source).label))];
-		return `${variants.length} versions - ${sources.slice(0, 3).join(', ')}${sources.length > 3 ? '...' : ''}`;
-	})();
+	// One compact control merges the source pill + the version count:
+	// "GP Tabs · 3 versions" when there are alternates, just the source label
+	// otherwise. Tapping it (when there are versions) expands the sub-list.
+	$: mergedSourceLabel = hasVersions
+		? `${sourceDisplay.label} · ${variants!.length} versions`
+		: sourceDisplay.label;
 
 	/** A meaningful label per version: descriptive title parts, tracks, instruments */
 	function versionDetail(v: { title?: string; trackCount?: number; instruments?: string[] }): string {
@@ -81,12 +81,39 @@
 </script>
 
 <div class="group w-full">
-	<div class="relative">
-	<button
-		class="flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
+	<div class="relative {id ? 'overflow-hidden' : ''}">
+	{#if id}
+		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture) -->
+		<div
+			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-red-500"
+			aria-hidden="true"
+		>
+			<i class="material-icons !text-xl">{isFav ? 'heart_broken' : 'favorite'}</i>
+		</div>
+	{/if}
+	<!-- Row is a div (not a button) so the nested action buttons — merged
+	     source/versions control, add-to-playlist, favorite — are valid HTML;
+	     a nested <button> would make the HTML parser split the row. -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div
+		use:swipeActionGesture={{
+			onCommit: toggleFavorite,
+			directions: ['left'],
+			haptic: hapticTap,
+			enabled: !!id
+		}}
+		role="button"
+		tabindex="0"
+		class="relative flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
 			? 'bg-white dark:bg-neutral-900'
 			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
 		on:click={onClick}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				onClick();
+			}
+		}}
 	>
 		<!-- Artwork preview -->
 		<div
@@ -145,12 +172,29 @@
 				>{album ? ` — ${album}` : ''}
 			</div>
 			<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-				{#if source}
+				<!-- Merged source + versions control: expands the sub-list on tap when
+				     there are alternates, otherwise a plain source pill. Lives in the
+				     wrapping info column so it never crowds the right-aligned actions. -->
+				{#if source && hasVersions}
+					<button
+						class="tap-target-sm inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
+							{versionsExpanded
+								? 'bg-violet-500 text-white border-violet-500'
+								: 'text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
+						on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
+						aria-expanded={versionsExpanded}
+						title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
+					>
+						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
+						{mergedSourceLabel}
+						<i class="material-icons !text-sm -mr-0.5">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
+					</button>
+				{:else if source}
 					<span
 						class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
 					>
 						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
-						{sourceDisplay.label}
+						{mergedSourceLabel}
 					</span>
 				{/if}
 				{#if type}
@@ -167,19 +211,6 @@
 
 		<!-- Right actions -->
 		<div class="flex items-center gap-1 flex-shrink-0">
-			{#if hasVersions}
-				<button
-					class="tap-target inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors mr-1
-						{versionsExpanded
-							? 'bg-violet-500 text-white border-violet-500'
-							: 'text-violet-600 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
-					on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
-					title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
-				>
-					{versionsSummary}
-					<i class="material-icons !text-base">{versionsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-				</button>
-			{/if}
 			{#if onAddToPlaylist && id}
 				<button
 					class="tap-target w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition-transform duration-150 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-violet-500 hover:text-white"
@@ -196,12 +227,12 @@
 				>play_arrow</i
 			>
 		</div>
-	</button>
+	</div>
 	</div>
 
 	<!-- Expanded versions: full-width playlist-like list with real differentiators -->
 	{#if hasVersions && versionsExpanded && variants}
-		<div class="mx-3 sm:mx-4 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden bg-neutral-50/60 dark:bg-neutral-900/40">
+		<div class="mx-3 sm:mx-4 mb-3 pt-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden bg-neutral-50/60 dark:bg-neutral-900/40">
 			{#each variants as v, i}
 				{@const vd = getSourceDisplay(v.source)}
 				{@const detail = versionDetail(v)}

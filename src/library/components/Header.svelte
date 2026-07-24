@@ -75,7 +75,9 @@
 		? 'shadow-sm'
 		: ''}"
 >
-	<div class="flex items-center h-14 px-4 gap-2 sm:gap-3">
+	<!-- Slightly taller on small screens so header controls clear the 44px
+	     touch floor comfortably; back to 56px from sm up. -->
+	<div class="flex items-center h-16 sm:h-14 px-4 gap-2 sm:gap-3">
 		<!-- Left: logo. Equal-weight flex-1 with the right actions so the search
 		     bar between them lands in the true horizontal center of the header. -->
 		<div class="flex items-center flex-1 min-w-0">
