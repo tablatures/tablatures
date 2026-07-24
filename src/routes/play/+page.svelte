@@ -54,6 +54,18 @@
 	//     tab download + player seek.
 	let initialTrackIndex: number | undefined = undefined;
 
+	// Below-the-fold reveal: the shell is the page-level scroller; the sheet
+	// scrolls internally first, then chaining scrolls the shell to the details.
+	let shellEl: HTMLElement | null = null;
+	let shellScrollTop = 0;
+	let relatedCount = 0;
+	$: hasDetails = $queueStore.items.length > 1 || relatedCount > 0;
+
+	function revealDetails() {
+		if (!shellEl) return;
+		shellEl.scrollTo({ top: shellEl.scrollHeight, behavior: 'smooth' });
+	}
+
 	// Compress-and-embed the tab bytes in the URL hash whenever the current
 	// tab is file-imported (has bytes but no catalog ID). Runs once per unique
 	// payload so we don't re-compress on every reactive tick.
@@ -457,22 +469,72 @@
 		</div>
 	</div>
 {:else if hasTab}
-	<PlayerQueueBar />
-	{#if $queueStore.items.length <= 1}
-		<RelatedStrip
-			artist={$playerState.artist || currentTab?.artist || ''}
-			title={$playerState.title || currentTab?.title || ''}
-			currentTabId={currentTabId}
-		/>
+	<!-- YouTube-style layout: the sheet + player bar fill the first screen; the
+	     playlist strip and recommendations live below the fold, revealed by
+	     scrolling past the sheet (the sheet scrolls internally first, then the
+	     page scroll takes over at its boundary). -->
+	<div
+		class="play-shell"
+		bind:this={shellEl}
+		on:scroll={() => (shellScrollTop = shellEl?.scrollTop ?? 0)}
+	>
+		<section class="play-sheet-section">
+			<TabViewer
+				{data}
+				tabId={currentTabId}
+				{initialTrackIndex}
+				{playerSettings}
+				on:settingsChanged={handleSettingsChanged}
+				on:sheetChanged={handleSheetChanged}
+			/>
+		</section>
+
+		<section class="play-details">
+			<!-- Tab info -->
+			<div class="px-4 pt-4">
+				<h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+					{$playerState.title || currentTab?.title || 'Tab'}
+				</h2>
+				{#if $playerState.artist || currentTab?.artist}
+					<a
+						href="{base}/artist/{encodeURIComponent($playerState.artist || currentTab?.artist || '')}"
+						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:underline transition-colors"
+					>
+						{$playerState.artist || currentTab?.artist}
+					</a>
+				{/if}
+			</div>
+
+			<!-- Playlist strip (only when this tab is part of a queue) -->
+			{#if $queueStore.items.length > 1}
+				<PlayerQueueBar belowFold />
+			{/if}
+
+			<!-- Recommendations -->
+			<RelatedStrip
+				variant="list"
+				artist={$playerState.artist || currentTab?.artist || ''}
+				title={$playerState.title || currentTab?.title || ''}
+				currentTabId={currentTabId}
+				on:loaded={(e) => (relatedCount = e.detail)}
+			/>
+
+			<div class="h-8"></div>
+		</section>
+	</div>
+
+	<!-- "Swipe up for more" affordance: shown while the sheet fills the screen
+	     and there is below-the-fold content to reveal. -->
+	{#if hasDetails && shellScrollTop < 40}
+		<button
+			class="play-more-chevron"
+			on:click={revealDetails}
+			aria-label="Show playlist and recommendations"
+			title="More below"
+		>
+			<i class="material-icons !text-xl">keyboard_arrow_down</i>
+		</button>
 	{/if}
-	<TabViewer
-		{data}
-		tabId={currentTabId}
-		{initialTrackIndex}
-		{playerSettings}
-		on:settingsChanged={handleSettingsChanged}
-		on:sheetChanged={handleSheetChanged}
-	/>
 {:else}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
@@ -485,3 +547,53 @@
 		</a>
 	</div>
 {/if}
+
+<style>
+	/* Page-level scroller for /play. The first section fills the viewport (minus
+	   the 56px header); the details section sits below the fold. scroll-snap gives
+	   a native feel without trapping the user (proximity, not mandatory). */
+	.play-shell {
+		height: calc(100dvh - 3.5rem);
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+		scroll-snap-type: y proximity;
+	}
+	.play-sheet-section {
+		height: 100%;
+		scroll-snap-align: start;
+		scroll-snap-stop: always;
+	}
+	.play-details {
+		scroll-snap-align: start;
+		background: white;
+	}
+	:global(.dark) .play-details {
+		background: #0a0a0a;
+	}
+	.play-more-chevron {
+		position: fixed;
+		left: 50%;
+		transform: translateX(-50%);
+		bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+		z-index: 45;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 9999px;
+		color: white;
+		background: rgba(140, 82, 255, 0.9);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+		animation: play-more-bob 1.6s ease-in-out infinite;
+	}
+	@keyframes play-more-bob {
+		0%, 100% { transform: translate(-50%, 0); }
+		50% { transform: translate(-50%, 4px); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.play-more-chevron {
+			animation: none;
+		}
+	}
+</style>

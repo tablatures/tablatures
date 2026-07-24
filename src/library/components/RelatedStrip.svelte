@@ -1,15 +1,21 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
+	import { createEventDispatcher } from 'svelte';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import ResultCard from './ResultCard.svelte';
 
-	// Fills the (otherwise empty) top space of /play when there is no queue with
-	// a quiet "what to play next" strip built from existing recommender/search
-	// endpoints. Non-sticky by design: it scrolls away as you read into the sheet.
+	// Recommendations built from existing recommender/search endpoints. Rendered
+	// below the fold on /play (the "what to play next" area).
 	export let artist = '';
 	export let title = '';
 	export let currentTabId: string | undefined = undefined;
+	// 'strip' = compact horizontal cards (legacy); 'list' = full-size ResultCard
+	// rows for the below-the-fold details area (vertical room available there).
+	export let variant: 'strip' | 'list' = 'strip';
+
+	const dispatch = createEventDispatcher<{ loaded: number }>();
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -127,6 +133,10 @@
 		}
 	}
 
+	// Let the host know how many recommendations resolved (drives the
+	// "swipe up for more" affordance and whether the details area has content).
+	$: dispatch('loaded', items.length);
+
 	async function open(t: RelatedTab) {
 		if (opening) return;
 		opening = t.id;
@@ -141,7 +151,29 @@
 	}
 </script>
 
-{#if items.length > 0}
+{#if items.length > 0 && variant === 'list'}
+	<!-- Below-the-fold recommendations: full-size ResultCard rows -->
+	<div>
+		<div class="flex items-center gap-1.5 px-4 pt-4 pb-2">
+			<i class="material-icons !text-base text-violet-500">recommend</i>
+			<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-200 truncate">{heading}</span>
+		</div>
+		<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+			{#each items as t (t.id)}
+				<ResultCard
+					id={t.id}
+					title={t.title}
+					artist={t.artist}
+					album={t.album}
+					source={t.source}
+					type={t.type}
+					artworkUrl={t.artworkUrl || art[t.id] || ''}
+					onClick={() => open(t)}
+				/>
+			{/each}
+		</div>
+	</div>
+{:else if items.length > 0}
 	<div
 		transition:slide|local={{ duration: 200 }}
 		class="border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm"

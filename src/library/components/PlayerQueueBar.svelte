@@ -12,6 +12,11 @@
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
+	// When true, render as a below-the-fold playlist strip (bigger cards, shown
+	// on every screen size) instead of the sticky top bar. Used on /play's
+	// details area under the tab sheet.
+	export let belowFold = false;
+
 	// The per-version list still travels with the tab so the canonical version
 	// switcher (TabViewer's metadata-bar popover) can show it. We fetch it here
 	// lazily but no longer render a second switcher — only queue navigation.
@@ -255,7 +260,61 @@
 	});
 </script>
 
-{#if hasQueue}
+{#if hasQueue && belowFold}
+	<!-- Below-the-fold playlist strip: horizontally scrolling, bigger cards. -->
+	<div>
+		<div class="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
+			<div class="flex items-center gap-1.5 min-w-0">
+				<i class="material-icons !text-base text-violet-500">queue_music</i>
+				<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-200 truncate">{queue.label || 'Playlist'}</span>
+				<span class="text-xs text-neutral-400 shrink-0">· {queue.items.length}</span>
+			</div>
+			<a
+				href={queue.href || `${base}/playlist`}
+				class="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-600 shrink-0"
+				title="Open {queue.label || 'playlist'}"
+			>
+				Open <i class="material-icons !text-sm">open_in_new</i>
+			</a>
+		</div>
+		<div bind:this={stripEl} class="flex items-stretch gap-2 px-4 pb-2 overflow-x-auto scrollbar-thin">
+			{#each queue.items as item, i}
+				{@const isCurrent = i === queue.index}
+				{@const sd = getSourceDisplay(item.source || '')}
+				<button
+					use:registerPill={isCurrent}
+					class="flex-shrink-0 flex items-center text-left w-64 rounded-xl overflow-hidden transition-colors
+						{isCurrent
+						? 'bg-violet-50 dark:bg-violet-900/25 ring-1 ring-inset ring-violet-400/60'
+						: 'bg-neutral-50 dark:bg-neutral-900/60 hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
+					on:click={() => goJump(i)}
+					disabled={navigating && !isCurrent}
+					title={`${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
+				>
+					<span class="w-14 h-14 shrink-0 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
+						{#if navigating && isCurrent}
+							<span class="w-5 h-5 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
+						{:else if item.artworkUrl || queueArt[item.id]}
+							<img src={item.artworkUrl || queueArt[item.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
+						{:else}
+							<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600">music_note</i>
+						{/if}
+					</span>
+					<span class="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-0.5">
+						<span class="truncate text-sm font-medium {isCurrent ? 'text-violet-700 dark:text-violet-300' : 'text-neutral-800 dark:text-neutral-200'}">{item.title}</span>
+						<span class="flex items-center gap-1.5 min-w-0 text-xs text-neutral-400 dark:text-neutral-500">
+							<span class="w-1.5 h-1.5 rounded-full shrink-0 {sd.dotColor}"></span>
+							<span class="truncate">{item.artist || sd.label}</span>
+						</span>
+					</span>
+					{#if isCurrent}
+						<i class="material-icons !text-lg text-violet-500 shrink-0 mr-2">volume_up</i>
+					{/if}
+				</button>
+			{/each}
+		</div>
+	</div>
+{:else if hasQueue}
 	<div
 		class="flex items-stretch h-12 border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm text-sm"
 	>

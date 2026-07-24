@@ -262,6 +262,12 @@
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
 	$: metadataHidden = isFullscreen || isMobileLandscape;
+	// Phone-sized bar: the transport row drops the lyrics/video buttons (moved into
+	// the settings panel) and the metadata row collapses to just the source pill.
+	// Excludes the large docked-console layout (landscape tablets/desktops).
+	$: mobileBar = (isSmallScreen || isMobileLandscape) && !isLargeScreen;
+	/** Inline video picker inside the settings panel (mobile only) */
+	let showSettingsVideo = false;
 	// At lg+ the settings panel becomes a docked split-view console instead of a
 	// bottom sheet, and the score reflows into the remaining width.
 	let isLargeScreen = false;
@@ -444,7 +450,7 @@
 			target.scrollTop +
 			(elRect.top - containerRect.top) -
 			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = isFullscreen ? page : window;
+		const scrollElement = page ?? window;
 		if (!scrollElement) return;
 		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
 	}
@@ -1299,9 +1305,9 @@
 			if (!firstDiv) return;
 			// Get its position on screen and scroll so it's centered
 			const rect = firstDiv.getBoundingClientRect();
-			const scrollTarget = isFullscreen && page ? page : window;
-			const viewportH = isFullscreen && page ? page.clientHeight : window.innerHeight;
-			const currentScroll = isFullscreen && page ? page.scrollTop : window.scrollY;
+			const scrollTarget = page ?? window;
+			const viewportH = page ? page.clientHeight : window.innerHeight;
+			const currentScroll = page ? page.scrollTop : window.scrollY;
 			// rect.top is relative to viewport, add current scroll for absolute position
 			const targetScroll = currentScroll + rect.top - viewportH / 3;
 			scrollTarget.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' });
@@ -1850,7 +1856,7 @@
 		const el = get(beatCursorEl);
 		if (!el) return;
 		const elRect = el.getBoundingClientRect();
-		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
+		const viewportHeight = page ? page.clientHeight : window.innerHeight;
 		const grabBottom = viewportHeight * 0.15;
 
 		if (elRect.top >= 0 && elRect.top <= grabBottom) {
@@ -1864,7 +1870,7 @@
 		// exposed by the vendored build.
 		const el = get(beatCursorEl);
 		if (!el) return;
-		const scrollElement = isFullscreen && page ? page : window;
+		const scrollElement = page ?? window;
 		// Land the cursor a clear gap below the sticky header so it is never
 		// hidden behind it. Compute the delta from the cursor's current viewport
 		// position; this works whether the scroller is the window or the
@@ -1873,7 +1879,7 @@
 		const settingsH =
 			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
 		const desiredTop = headerBottom + settingsH + 24;
-		const currentTop = isFullscreen && page ? page.scrollTop : window.scrollY;
+		const currentTop = page ? page.scrollTop : window.scrollY;
 		const delta = el.getBoundingClientRect().top - desiredTop;
 		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
 		autoFollow = true;
@@ -2077,9 +2083,9 @@
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
 				autoFollow = true;
 				autoFollowDisengagedAt = 0;
-				// Scroll to top when a new tab is loaded
-				window.scrollTo({ top: 0, behavior: 'smooth' });
-				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
+				// Scroll to top when a new tab is loaded (the sheet is always its
+				// own scroller now — window/page fallback covers SSR edge cases).
+				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
@@ -2142,7 +2148,7 @@
 				target.scrollTop +
 				(elRect.top - containerRect.top) -
 				(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-			const scrollElement = isFullscreen ? page : window;
+			const scrollElement = page ?? window;
 			if (!scrollElement) return;
 			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
 		};
@@ -2680,8 +2686,9 @@
 			page.addEventListener('mouseenter', handleMouseEnter);
 		}
 
-		// Smart cursor follow: detect user scrolling
-		mountScrollTarget = isFullscreen && page ? page : window;
+		// Smart cursor follow: detect user scrolling. The sheet (#page) is always
+		// its own internal scroller now, so listen there (not the window).
+		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
@@ -3294,6 +3301,13 @@
 	}
 
 	async function toggleFullscreen() {
+		// Native WebView (Capacitor) has no Fullscreen API — use the CSS
+		// fullscreen mode (a fixed inset-0 overlay driven by `isFullscreen`)
+		// instead of requesting real browser fullscreen.
+		if (native) {
+			isFullscreen = !isFullscreen;
+			return;
+		}
 		if (!isFullscreen) {
 			if (page && page.requestFullscreen) {
 				await page.requestFullscreen();
@@ -3330,7 +3344,7 @@
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('scroll', handleScroll);
-		mountScrollTarget = isFullscreen && page ? page : window;
+		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
@@ -3462,12 +3476,30 @@
 		}
 	}
 
-	// --- Touch swipe for track switching ---
+	// --- Horizontal drag on the score = seek ±10s (was: track switching) ---
 	let touchStartX = 0;
 	let touchStartY = 0;
-	let swipeIndicator: 'left' | 'right' | null = null;
+	// The flash overlay reports the applied seek ('+10s' / '-10s') rather than a
+	// raw direction so the label reads naturally regardless of gesture direction.
+	let swipeIndicator: '+10s' | '-10s' | null = null;
 	let swipeIndicatorTimeout: NodeJS.Timeout;
 	const SWIPE_THRESHOLD = 50;
+	const SEEK_STEP_SECONDS = 10;
+	// True once a second finger joins the gesture (pinch-zoom) — suppresses the
+	// seek so zooming never scrubs the playhead.
+	let gestureMultiTouch = false;
+
+	/** Seek forward/back by a number of seconds, clamped to [0, duration]. */
+	function seekBySeconds(deltaSec: number) {
+		if (!api || !duration) return;
+		const curMs = (progress / 100) * duration;
+		const newMs = Math.max(0, Math.min(duration, curMs + deltaSec * 1000));
+		progress = (newMs / duration) * 100;
+		api.player.timePosition = newMs;
+		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+	}
 
 	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
 	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
@@ -3498,6 +3530,7 @@
 
 	function handleTouchStart(e: TouchEvent) {
 		if (!e.touches[0]) return;
+		gestureMultiTouch = e.touches.length > 1;
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		scoreLongPressActive = false;
@@ -3513,6 +3546,7 @@
 
 	function handleScoreTouchMove(e: TouchEvent) {
 		if (!e.touches[0]) return;
+		if (e.touches.length > 1) gestureMultiTouch = true;
 		const x = e.touches[0].clientX;
 		const y = e.touches[0].clientY;
 		if (scoreLongPressActive) {
@@ -3541,23 +3575,33 @@
 			// doesn't also trigger from the same gesture.
 			return;
 		}
-		if (!e.changedTouches[0] || tracks.length <= 1) return;
+		// Suppress seek during a pinch-zoom (two fingers) so zooming never scrubs.
+		if (gestureMultiTouch) {
+			gestureMultiTouch = false;
+			return;
+		}
+		if (!e.changedTouches[0]) return;
 		const dx = e.changedTouches[0].clientX - touchStartX;
 		const dy = e.changedTouches[0].clientY - touchStartY;
 
+		// Only a clearly-horizontal swipe seeks; a mostly-vertical drag scrolls
+		// the sheet and must be left alone.
 		if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
 
-		if (dx < 0 && activeTrackIndex < tracks.length - 1) {
-			setActiveTrack(activeTrackIndex + 1);
-			showSwipeIndicator('left');
-		} else if (dx > 0 && activeTrackIndex > 0) {
-			setActiveTrack(activeTrackIndex - 1);
-			showSwipeIndicator('right');
+		// Swipe left → forward, swipe right → back (matches natural "drag the
+		// timeline" feel: pulling content left advances playback).
+		if (dx < 0) {
+			seekBySeconds(SEEK_STEP_SECONDS);
+			showSeekFlash('+10s');
+		} else {
+			seekBySeconds(-SEEK_STEP_SECONDS);
+			showSeekFlash('-10s');
 		}
+		hapticTap();
 	}
 
-	function showSwipeIndicator(direction: 'left' | 'right') {
-		swipeIndicator = direction;
+	function showSeekFlash(label: '+10s' | '-10s') {
+		swipeIndicator = label;
 		clearTimeout(swipeIndicatorTimeout);
 		swipeIndicatorTimeout = setTimeout(() => {
 			swipeIndicator = null;
@@ -3620,7 +3664,10 @@
 
 <div
 	id="page"
-	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
+	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
+		{isFullscreen && native
+			? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black'
+			: 'h-full'}"
 	bind:this={page}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
@@ -3778,17 +3825,18 @@
 			</div>
 		{/if}
 
-		<!-- Swipe indicator -->
+		<!-- Seek flash: brief "+10s"/"-10s" overlay when a horizontal drag seeks -->
 		{#if swipeIndicator}
 			<div
-				class="fixed top-1/2 {swipeIndicator === 'left'
+				class="fixed top-1/2 {swipeIndicator === '+10s'
 					? 'right-4'
 					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
 			>
-				<div class="bg-violet-500 bg-opacity-80 text-white rounded-full p-3 shadow-lg">
+				<div class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg">
 					<i class="material-icons !text-2xl"
-						>{swipeIndicator === 'left' ? 'skip_next' : 'skip_previous'}</i
+						>{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
 					>
+					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
 				</div>
 			</div>
 		{/if}
@@ -4189,8 +4237,9 @@
 				{/each}
 			</PopoverMenu>
 
-			<!-- Video picker button -->
-			{#if youtubeResults.length > 0}
+			<!-- Video picker button (desktop/tablet bar only; on phones it moves
+			     into the settings panel) -->
+			{#if youtubeResults.length > 0 && !mobileBar}
 				<div class="relative">
 					<button
 						on:click={() => (showVideoDropdown = !showVideoDropdown)}
@@ -4292,9 +4341,10 @@
 				</button>
 			{/if}
 
-			<!-- Compact transposed pill: only when the metadata row (and its chip)
-			     is hidden, otherwise the chip would appear twice -->
-			{#if metadataHidden}
+			<!-- Compact transposed pill: only in fullscreen (where the metadata row
+			     is hidden). Removed from the phone bar per the mobile redesign —
+			     tuning lives in the settings panel there. -->
+			{#if metadataHidden && !isMobileLandscape}
 				<TuningChip
 					compact
 					api={$playerApi}
@@ -4304,7 +4354,7 @@
 				/>
 			{/if}
 
-			{#if scoreLoaded}
+			{#if scoreLoaded && !mobileBar}
 				<button
 					on:click={onLyricsButton}
 					class="{compactBar
@@ -4511,8 +4561,8 @@
 		{#if scoreLoaded && !isFullscreen && !isMobileLandscape}
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
-					<!-- Album artwork or artist image -->
-					{#if songArtwork || artistImage}
+					<!-- Album artwork or artist image (hidden on the phone bar) -->
+					{#if (songArtwork || artistImage) && !mobileBar}
 						<div
 							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
@@ -4527,6 +4577,9 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
+						<!-- Title / artist / tuning: hidden on the phone bar, which shows
+						     only the compact source pill below (mobile redesign 1b). -->
+						{#if !mobileBar}
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
 							<a
 								href="{base}/search?q={encodeURIComponent(songTitle)}"
@@ -4588,11 +4641,12 @@
 								{/each}
 							</div>
 						{/if}
+						{/if}
 						{#if hasVariants}
 							<!-- Version selector: browse and pick ANY version (grouped by
 							     source), not just one representative per source. Mirrors the
 							     search results' expanded-versions list. -->
-							<div class="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+							<div class="flex items-center gap-1.5 {mobileBar ? '' : 'mt-1 sm:mt-1.5'}">
 								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
 									>Source:</span
 								>
@@ -4675,6 +4729,17 @@
 										{/each}
 									{/each}
 								</PopoverMenu>
+							</div>
+						{:else if mobileBar && currentSourceDisplay}
+							<!-- Single-source phone bar: a static source pill so the compact
+							     bar always carries a source indicator. -->
+							<div class="flex items-center">
+								<span
+									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
+								>
+									<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
+									<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
+								</span>
 							</div>
 						{/if}
 					</div>
@@ -4796,6 +4861,80 @@
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
+
+			<!-- Mobile-only entries: the lyrics, video and download controls have
+			     no room on the phone transport bar, so they live here (1b). The
+			     desktop bar is unchanged and hides this block. -->
+			{#if mobileBar}
+				<div class="flex-shrink-0 border-b border-neutral-200 dark:border-neutral-700">
+					{#if scoreLoaded}
+						<button
+							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+							on:click={onLyricsButton}
+						>
+							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">lyrics</i>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">
+								{lyricsAvailable ? 'Lyrics / subtitles' : 'Find lyrics online'}
+							</span>
+							{#if lyricsAvailable && $lyricsStore.mode === 'auto'}
+								<i class="material-icons !text-base text-violet-500">check</i>
+							{/if}
+						</button>
+					{/if}
+
+					{#if youtubeResults.length > 0}
+						<button
+							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+							on:click={() => (showSettingsVideo = !showSettingsVideo)}
+						>
+							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Play along with video</span>
+							<i class="material-icons !text-base text-neutral-400">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
+						</button>
+						{#if showSettingsVideo}
+							<div class="bg-neutral-50 dark:bg-neutral-800/40">
+								{#if hasActiveVideo}
+									<button
+										class="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+										on:click={closeVideo}
+									>
+										Stop video
+									</button>
+								{/if}
+								{#each youtubeResults as yt}
+									<button
+										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId === yt.videoId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
+										on:click={() => selectVideo(yt.videoId)}
+									>
+										<div class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700">
+											{#if yt.thumbnail}
+												<img src={yt.thumbnail} alt="" class="w-full h-full object-cover" />
+											{/if}
+										</div>
+										<div class="flex-1 min-w-0">
+											<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">{yt.title}</p>
+											<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
+										</div>
+										{#if $activeVideoId === yt.videoId}
+											<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+										{/if}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					{/if}
+
+					<button
+						class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40"
+						on:click={clickDownload}
+						disabled={!scoreLoaded}
+					>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">download</i>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Download tab file</span>
+					</button>
+				</div>
+			{/if}
+
 			<!-- Fill the remaining height so the console (and its track list) is
 			     bounded and scrolls internally instead of pushing the footer
 			     controls off-screen on the full-screen mobile sheet. -->
