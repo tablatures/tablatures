@@ -94,7 +94,6 @@
 	let organicLoading = false;
 	let organicDone = false;
 
-	let bioExpanded = false;
 	let bannerFailed = false;
 	let avatarFailed = false;
 
@@ -555,15 +554,18 @@
 			</div>
 
 			<div class="sm:pb-2 flex-shrink-0 flex items-center gap-2">
+				<!-- Heart-only favorite toggle: neutral when off, pink-red fill when
+				     favorited (matches FavoriteButton on cards). 44px tap target. -->
 				<button
 					on:click={toggleFollow}
-					class="flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-medium transition-colors {isFollowed
-						? 'bg-neutral-200 dark:bg-neutral-800 text-red-500 hover:bg-neutral-300 dark:hover:bg-neutral-700'
-						: 'bg-violet-500 text-white hover:bg-violet-600'}"
+					class="tap-target flex items-center justify-center w-11 h-11 rounded-full transition-colors active:scale-90 {isFollowed
+						? 'bg-red-500 text-white hover:bg-red-600'
+						: 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-red-500 hover:text-white'}"
 					title={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists (repertoire)'}
+					aria-label={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists'}
+					aria-pressed={isFollowed}
 				>
-					<i class="material-icons !text-lg">{isFollowed ? 'favorite' : 'favorite_border'}</i>
-					{isFollowed ? 'Favorited' : 'Favorite'}
+					<i class="material-icons !text-xl">{isFollowed ? 'favorite' : 'favorite_border'}</i>
 				</button>
 				<button
 					on:click={shareArtist}
@@ -575,15 +577,6 @@
 				</button>
 			</div>
 		</div>
-
-		{#if info.bio}
-			<div class="mt-4 max-w-3xl">
-				<p class="text-sm text-neutral-600 dark:text-neutral-400 {bioExpanded ? '' : 'line-clamp-2'}">{info.bio}</p>
-				<button class="text-xs text-violet-500 hover:underline mt-1" on:click={() => (bioExpanded = !bioExpanded)}>
-					{bioExpanded ? 'Show less' : 'Read more'}
-				</button>
-			</div>
-		{/if}
 
 		<!-- ================= Top tabs ================= -->
 		{#if topTabs.length > 0}

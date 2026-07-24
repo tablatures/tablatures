@@ -12,7 +12,6 @@
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import ProgressBar from './ProgressBar.svelte';
-	import ArtistTooltip from './ArtistTooltip.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let showPreview = true;
@@ -259,18 +258,14 @@
 				{state.title || currentTab?.title || 'Now playing'}
 			</p>
 			<p class="text-xs text-neutral-400 truncate">
-				<span class="relative inline-block">
-					<ArtistTooltip artistName={state.artist || currentTab?.artist || ''} position="top">
-						<!-- svelte-ignore a11y-invalid-attribute -->
-						<span
-							role="link"
-							tabindex="0"
-							class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
-							on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
-							on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
-						>{state.artist || currentTab?.artist || ''}</span>
-					</ArtistTooltip>
-				</span>
+				<!-- svelte-ignore a11y-invalid-attribute -->
+				<span
+					role="link"
+					tabindex="0"
+					class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
+					on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
+					on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
+				>{state.artist || currentTab?.artist || ''}</span>
 				{#if state.duration > 0}
 					<span class="text-neutral-500"> &middot; {currentTime} / {totalTime}</span>
 				{/if}
