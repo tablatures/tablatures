@@ -9,6 +9,8 @@
 	import SkeletonTabCard from './SkeletonTabCard.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 	import PullToRefresh from './PullToRefresh.svelte';
+	import OfflineNotice from './OfflineNotice.svelte';
+	import EmptyState from './EmptyState.svelte';
 	import { historyStore } from '../utils/history';
 	import { favoritesStore } from '../utils/favorites';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
@@ -16,7 +18,7 @@
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
 	import { fetchArtworkBatch } from '../utils/artwork';
-	import { cachedFetch, TTL_HOME_FEED } from '../data/cachedFetch';
+	import { cachedFetch, TTL_HOME_FEED, isFromCache, isOfflineErrorLike } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
 	import { debugEmptyContinue } from '../utils/debug';
 
@@ -40,6 +42,8 @@
 	let observer: IntersectionObserver | undefined;
 	let loadingFeed = false;
 	let exhausted = false;
+	/** True when the last fetch fell back to cache or failed with no network. */
+	let offline = false;
 	/** Consecutive empty fetches — if too many, stop trying */
 	let emptyFetchesInARow = 0;
 
@@ -174,7 +178,9 @@
 		emptyFetchesInARow = 0;
 		lastFetchAt = 0;
 		nextPoolIndex = 0;
-		await primeFirstPaint();
+		offline = false;
+		// Pull-to-refresh is an explicit refresh: force the network (bypass cache).
+		await primeFirstPaint(true);
 	}
 
 	/** Append a freshly-fetched, already-deduped batch to the feed and kick off
@@ -221,7 +227,11 @@
 	/** Fetch a single endpoint, dedupe, and append. Returns the count of new
 	 *  tabs (0 on network error / empty / all-duplicate). No throttle/pool
 	 *  bookkeeping — callers own that. */
-	async function runFetch(endpoint: string, firstBatch: number | null): Promise<number> {
+	async function runFetch(
+		endpoint: string,
+		firstBatch: number | null,
+		force = false
+	): Promise<number> {
 		let ep = endpoint;
 		if (firstBatch) {
 			ep = ep.replace(/limit=\d+/, `limit=${firstBatch}`).replace(/count=\d+/, `count=${firstBatch}`);
@@ -229,11 +239,18 @@
 		let res: Response;
 		try {
 			// Network-first with a short TTL so the last feed is available offline.
-			res = await cachedFetch(`${SEARCH_API_BASE_URL}${ep}`, { ttl: TTL_HOME_FEED });
-		} catch {
+			// An explicit refresh forces the network (bypass cache).
+			res = await cachedFetch(`${SEARCH_API_BASE_URL}${ep}`, {
+				ttl: TTL_HOME_FEED,
+				forceRefresh: force
+			});
+		} catch (err) {
+			if (isOfflineErrorLike(err)) offline = true;
 			return 0;
 		}
 		if (!res.ok) return 0;
+		// Fresh network response clears the flag; a stale cache hit keeps it set.
+		offline = isFromCache(res);
 		const data = await res.json();
 
 		let incoming: any[];
@@ -262,7 +279,7 @@
 	 *  the slower of two parallel round-trips instead of a sequential
 	 *  400ms-throttled chain. Each batch renders independently as it resolves.
 	 *  The throttled fill loop takes over afterwards for infinite scroll. */
-	async function primeFirstPaint() {
+	async function primeFirstPaint(force = false) {
 		if (exhausted) return;
 		const firstBatch = Math.max(8, (gridCols || 4) * 2);
 		loadingFeed = true;
@@ -294,7 +311,7 @@
 		}
 
 		try {
-			const counts = await Promise.all(endpoints.map((ep) => runFetch(ep, firstBatch)));
+			const counts = await Promise.all(endpoints.map((ep) => runFetch(ep, firstBatch, force)));
 			const total = counts.reduce((a, b) => a + b, 0);
 			if (total === 0) {
 				emptyFetchesInARow++;
@@ -1022,7 +1039,17 @@
 			</div>
 		{/if}
 
-		{#if feedTabs.length === 0 && !loadingFeed && exhausted}
+		{#if feedTabs.length === 0 && !loadingFeed && offline}
+			<!-- Offline with nothing cached: offline state with a working retry. -->
+			<EmptyState
+				icon="cloud_off"
+				tone="offline"
+				title="You're offline"
+				description="Reconnect to load your recommendations."
+				onRetry={refreshFeed}
+				size="compact"
+			/>
+		{:else if feedTabs.length === 0 && !loadingFeed && exhausted}
 			<!-- Truly empty + exhausted: show nothing-to-show state -->
 			<div
 				class="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-neutral-50 dark:bg-neutral-900/50"
@@ -1074,6 +1101,14 @@
 					>Loading more tabs…</span
 				>
 			</div>
+		{/if}
+
+		<!-- Offline but we have cached recommendations: keep them, note it below. -->
+		{#if offline && feedTabs.length > 0}
+			<OfflineNotice
+				onRetry={refreshFeed}
+				message="You're offline — showing your last recommendations. Reconnect for fresh picks."
+			/>
 		{/if}
 
 		<!-- Infinite-scroll sentinel -->

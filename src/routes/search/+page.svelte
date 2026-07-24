@@ -19,8 +19,10 @@
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
-	import { cachedFetch, TTL_SEARCH, TTL_METADATA } from '../../library/data/cachedFetch';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isOfflineErrorLike } from '../../library/data/cachedFetch';
 	import { searchLocalTabs } from '../../library/data/localSearch';
+	import EmptyState from '../../library/components/EmptyState.svelte';
+	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
 	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import { playlistStore } from '../../library/utils/playlists';
 	import type { PlaylistEntry } from '../../library/utils/playlists';
@@ -111,6 +113,7 @@
 	}
 	let loading = false;
 	let error = '';
+	let offline = false;
 	let apiAvailable = true;
 	let totalResults = 0;
 	let hasMorePages = false;
@@ -153,7 +156,7 @@
 			}));
 	}
 
-	async function performLocalSearch(): Promise<TabResult[]> {
+	async function performLocalSearch(force = false): Promise<TabResult[]> {
 		if (!browser || !apiAvailable) return [];
 
 		const urlParams = new URLSearchParams({
@@ -161,9 +164,11 @@
 			limit: '20'
 		});
 
-		// Network-first with a TTL cache so a repeat query works offline.
+		// Network-first with a TTL cache so a repeat query works offline. An
+		// explicit refresh forces the network (bypass cache) so it really re-tries.
 		const response = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${urlParams}`, {
 			ttl: TTL_SEARCH,
+			forceRefresh: force,
 			init: { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(SEARCH_API_TIMEOUT) }
 		});
 
@@ -427,7 +432,15 @@
 	}
 
 	async function performSearch(force: boolean = false): Promise<void> {
-		if (!browser || !apiAvailable) return;
+		if (!browser) return;
+		// An explicit refresh/retry ALWAYS resets the circuit-breaker so a manual
+		// action within the 30s cooldown really re-attempts the network instead of
+		// short-circuiting (the offline-retry bug).
+		if (force) {
+			apiAvailable = true;
+			offline = false;
+		}
+		if (!apiAvailable) return;
 
 		if (!force && query.length < 2) {
 			tabs = [];
@@ -451,6 +464,7 @@
 		}
 		searchLoading = true;
 		error = '';
+		offline = false;
 
 		// On-device matches from the local FTS index — available even fully
 		// offline, and the only live source when the network is down.
@@ -470,7 +484,7 @@
 				}
 
 				try {
-					const localResults = await performLocalSearch();
+					const localResults = await performLocalSearch(force);
 					if (localResults.length > 0) {
 						// Merge catalog rows on top of any on-device matches.
 						tabs = tabs.length > 0 ? mergeResults(tabs, localResults) : localResults;
@@ -511,8 +525,11 @@
 		} catch (err: any) {
 			if (err?.name === 'AbortError') {
 				error = 'Search timed out.';
-			} else if (err instanceof TypeError && err?.message?.includes('fetch')) {
-				error = 'Search service is currently unavailable.';
+			} else if (isOfflineErrorLike(err)) {
+				// Network down: flag offline (not a hard error) so we can show any
+				// local results with a non-blocking offline notice, and arm the
+				// 30s circuit-breaker (an explicit refresh resets it — see above).
+				offline = true;
 				apiAvailable = false;
 				setTimeout(() => { apiAvailable = true; }, 30000);
 			} else {
@@ -526,7 +543,6 @@
 			if (currentPage === 1) {
 				tabs = onDeviceResults;
 				totalResults = onDeviceResults.length;
-				if (onDeviceResults.length > 0) error = '';
 			}
 			hasMorePages = false;
 		} finally {
@@ -619,10 +635,11 @@
 		if (query.trim().length >= 2) return performSearch(true);
 	}
 
+	// Explicit retry (offline/error state button). performSearch(true) resets the
+	// circuit-breaker and forces a real network re-attempt.
 	function retrySearch() {
 		error = '';
-		apiAvailable = true;
-		performSearch(true);
+		return performSearch(true);
 	}
 
 	onMount(async () => {
@@ -859,14 +876,27 @@
 				     hits the very bottom. -->
 				<ScrollObserver onIntersect={loadMore} rootMargin="800px" />
 			{/if}
+
+			<!-- Offline + we have (local/cached) results: keep showing them and add
+			     a small non-blocking notice below so the user knows to reconnect. -->
+			{#if offline}
+				<OfflineNotice onRetry={retrySearch} />
+			{/if}
 		</div>
 
+	{:else if offline}
+		<!-- Offline with nothing to show: working retry re-attempts the network. -->
+		<EmptyState
+			icon="cloud_off"
+			tone="offline"
+			title="You're offline"
+			description="Reconnect to search the catalog, or retry."
+			onRetry={retrySearch}
+		/>
+
 	{:else if query.length >= 2}
-		<!-- No results -->
-		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
-			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search_off</i>
-			<p class="text-neutral-600 dark:text-neutral-400">No results for "{query}"</p>
-		</div>
+		<!-- No results (online, empty) — distinct from the offline state above. -->
+		<EmptyState icon="search_off" title={`No results for "${query}"`} />
 
 	{:else if query.length > 0 && query.length < 2}
 		<!-- Too short -->

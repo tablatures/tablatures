@@ -11,6 +11,8 @@
 	import TagPill from '$components/TagPill.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PullToRefresh from '$components/PullToRefresh.svelte';
+	import EmptyState from '$components/EmptyState.svelte';
+	import OfflineNotice from '$components/OfflineNotice.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
@@ -22,7 +24,7 @@
 	import { getSourceDisplay } from '$utils/sources';
 	import { inViewport } from '$utils/inViewport';
 	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
-	import { cachedFetch, TTL_SEARCH, TTL_METADATA } from '../../../library/data/cachedFetch';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isFromCache, isOfflineErrorLike } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -66,6 +68,7 @@
 	let artistName = '';
 	let loading = true;
 	let notFound = false;
+	let offline = false;
 	let info: ArtistInfo | null = null;
 	let topTabs: TabItem[] = [];
 	let similarArtists: Array<{ name: string; image: string | null; genre: string | null; tabCount: number }> = [];
@@ -154,9 +157,10 @@
 	// or live-augmented past it, show the larger, truer figure.
 	$: headerTabCount = Math.max(info?.tabCount ?? 0, allTabsTotal);
 
-	async function load(name: string) {
+	async function load(name: string, force = false) {
 		loading = true;
 		notFound = false;
+		offline = false;
 		info = null;
 		topTabs = [];
 		similarArtists = [];
@@ -169,12 +173,16 @@
 
 		try {
 			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(name)}`, {
-				ttl: TTL_METADATA
+				ttl: TTL_METADATA,
+				forceRefresh: force
 			});
 			if (!resp.ok) {
 				notFound = true;
 				return;
 			}
+			// A cached fallback means we couldn't reach the network — still show
+			// the artist but flag offline so the notice appears below.
+			offline = isFromCache(resp);
 			const data = await resp.json();
 			info = data.artist;
 			topTabs = data.topTabs || [];
@@ -191,8 +199,11 @@
 				const target = albums.find((a) => a.deezerId === Number(albumParam));
 				if (target) openAlbumView(target);
 			}
-		} catch {
-			notFound = true;
+		} catch (err) {
+			// Offline with no cached copy: show the offline state (with retry),
+			// not the "artist not found" state.
+			if (isOfflineErrorLike(err)) offline = true;
+			else notFound = true;
 		} finally {
 			loading = false;
 		}
@@ -468,9 +479,9 @@
 		return unsub;
 	});
 
-	// Pull-to-refresh: re-run the artist fetch.
+	// Pull-to-refresh / retry: force a network re-fetch (bypass cache).
 	function handlePullRefresh() {
-		if (artistName) return load(artistName);
+		if (artistName) return load(artistName, true);
 	}
 </script>
 
@@ -487,6 +498,15 @@
 	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 -mt-12">
 		<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-neutral-200 dark:bg-neutral-800 animate-pulse border-4 border-white dark:border-black"></div>
 	</div>
+{:else if offline && !info}
+	<!-- Offline with no cached artist: offline state with a working retry. -->
+	<EmptyState
+		icon="cloud_off"
+		tone="offline"
+		title="You're offline"
+		description={`Reconnect to load ${artistName}.`}
+		onRetry={handlePullRefresh}
+	/>
 {:else if notFound}
 	<div class="flex flex-col items-center justify-center py-24">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">person_off</i>
@@ -800,6 +820,11 @@
 			</div>
 		{:else}
 			<div class="mb-10"></div>
+		{/if}
+
+		<!-- Offline but the artist was served from cache: non-blocking notice. -->
+		{#if offline}
+			<OfflineNotice onRetry={handlePullRefresh} />
 		{/if}
 	</div>
 {/if}

@@ -27,11 +27,15 @@
 	import type { Playlist, PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
+	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
 	let loading = false;
 	let error = '';
+	// Repertoire lists are local-first (localStorage) so they always render; the
+	// offline flag only drives a non-blocking notice (artwork/avatars need net).
+	let offline = browser ? !navigator.onLine : false;
 	let activeTab: 'favorites' | 'history' | 'playlists' = 'favorites';
 
 	// Shared playlist from URL
@@ -59,6 +63,15 @@
 				activeTab = 'playlists';
 			}
 		}
+
+		const onOnline = () => (offline = false);
+		const onOffline = () => (offline = true);
+		window.addEventListener('online', onOnline);
+		window.addEventListener('offline', onOffline);
+		return () => {
+			window.removeEventListener('online', onOnline);
+			window.removeEventListener('offline', onOffline);
+		};
 	});
 
 	$: if (browser) {
@@ -734,6 +747,15 @@
 				</div>
 			{/if}
 		</div>
+	{/if}
+
+	<!-- Offline: lists are local so they still show; note that images/updates
+	     need a connection. Retry re-checks connectivity and refetches artwork. -->
+	{#if offline}
+		<OfflineNotice
+			message="You're offline — your saved tabs are shown, but artwork and updates need a connection."
+			onRetry={() => { offline = !navigator.onLine; return handlePullRefresh(); }}
+		/>
 	{/if}
 	</PullToRefresh>
 </main>

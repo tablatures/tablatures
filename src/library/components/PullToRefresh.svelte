@@ -1,14 +1,21 @@
 <script lang="ts">
-	// Pull-to-refresh slot wrapper. Renders a rubber-band header with a spinner
-	// that follows the pull, fires a Medium haptic at the trigger threshold, and
-	// calls `on:refresh`. Respects prefers-reduced-motion (no rubber-band, just a
-	// spinner) and falls back to mouse-drag on the web.
+	// Pull-to-refresh wrapper, YouTube/Material "SwipeRefresh" pattern.
+	//
+	// The sticky app header does NOT move. As you pull down at the top of the
+	// scroll area, a circular indicator (theme-aware disc, violet arc, subtle
+	// shadow) slides in from off-screen top-CENTER, floats OVER the content and
+	// settles ~100px below the top exactly at the trigger threshold. While
+	// pulling, the arc fills with pull-progress; on release past the threshold it
+	// becomes an indeterminate spinner, runs the refresh, then fades out. Below
+	// threshold it retracts. The page content translates down slightly to
+	// acknowledge the gesture. Respects prefers-reduced-motion (fade only) and
+	// falls back to mouse-drag on the web. Haptic fires at the trigger threshold.
 	import { createEventDispatcher } from 'svelte';
 	import { pullToRefresh, prefersReducedMotion, type PullState } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
 
 	export let disabled = false;
-	/** Extra top offset (px) so the header clears a sticky app header. */
+	/** Extra top offset (px) so the indicator clears a sticky app header. */
 	export let topOffset = 0;
 
 	const dispatch = createEventDispatcher<{ refresh: void }>();
@@ -20,26 +27,43 @@
 
 	async function handleRefresh() {
 		dispatch('refresh');
-		// Give the dispatched async handler a beat to run. Consumers that return
-		// a promise via the action get awaited; the event path resolves on the
-		// next macrotask so the spinner shows at least briefly.
+		// Give the dispatched async handler a beat so the spinner shows briefly.
 		await new Promise((r) => setTimeout(r, 400));
 	}
 
-	$: headerHeight = reduced ? (state === 'refreshing' ? 48 : 0) : distance;
-	$: refreshing = state === 'refreshing';
+	// Disc travel: hidden above the content, settling `DISC_SETTLE_PX` below the
+	// top offset right as progress reaches 1 (== trigger). Combined with the
+	// header offset this lands the disc ~100px from the viewport top.
+	const DISC_HIDDEN_PX = -44;
+	const DISC_SETTLE_PX = 52;
+	/** How far the content slips down while pulling (subtle, capped). */
+	const CONTENT_MAX_PX = 56;
 
-	// Circular "spring" loader. While pulling, the ring winds up: the arc grows
-	// with progress and the whole ring rotates counter-clockwise (reverse), like
-	// winding a spring. On release (refreshing) it releases into an indeterminate
-	// spinner spinning forward (clockwise) — mirrors YouTube/Material SwipeRefresh.
+	$: clampedProgress = Math.min(1, Math.max(0, progress));
+	$: refreshing = state === 'refreshing';
+	$: ready = state === 'ready';
+	$: active = refreshing || distance > 0;
+
+	// Disc vertical position (relative to the overlay top = topOffset).
+	$: discTranslate = refreshing
+		? DISC_SETTLE_PX
+		: DISC_HIDDEN_PX + (DISC_SETTLE_PX - DISC_HIDDEN_PX) * clampedProgress;
+	$: discOpacity = refreshing ? 1 : Math.min(1, clampedProgress * 1.2);
+
+	// Content follows the pull a little; snaps back once refreshing/idle.
+	$: contentTranslate =
+		reduced || refreshing ? 0 : Math.min(distance * 0.42, CONTENT_MAX_PX);
+
+	// While pulling the arc winds up with progress; the whole ring counter-rotates
+	// like a wound spring. On release it releases into a clockwise spinner.
 	const RING_R = 9;
 	const RING_C = 2 * Math.PI * RING_R;
-	$: clampedProgress = Math.min(1, Math.max(0, progress));
-	// Arc grows as you pull (offset shrinks from full circumference to 0).
 	$: windOffset = RING_C * (1 - clampedProgress);
-	// Counter-clockwise wind-up while pulling.
 	$: windRotation = -clampedProgress * 270;
+
+	// Transition timing: follow the finger live while pulling; ease on settle/retract.
+	$: settleTransition = state === 'idle' || refreshing ? 'transform 0.25s ease, opacity 0.25s ease' : 'none';
+	$: contentTransition = state === 'idle' || refreshing ? 'transform 0.25s ease' : 'none';
 </script>
 
 <div
@@ -55,28 +79,31 @@
 		enabled: !disabled
 	}}
 >
-	<!-- Rubber-band header -->
+	<!-- Floating circular indicator. Sits UNDER the sticky header (z-[90] <
+	     header's z-[100]) and OVER the content. Enters from top-center. -->
 	<div
-		class="pointer-events-none absolute inset-x-0 z-10 flex items-end justify-center overflow-hidden"
-		style="top: {topOffset}px; height: {headerHeight}px; transition: {state === 'idle'
-			? 'height 0.2s ease'
-			: 'none'};"
-		aria-hidden={state === 'idle'}
+		class="pointer-events-none absolute inset-x-0 z-[90] flex justify-center"
+		style="top: {topOffset}px;"
+		aria-hidden={!active}
 	>
-		<div class="mb-2 flex items-center justify-center">
-			<!-- Circular progress ring: winds counter-clockwise as you pull, then
-			     releases into a clockwise indeterminate spinner while refreshing. -->
+		<div
+			class="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-black/5 dark:bg-neutral-800 dark:ring-white/10"
+			style="transform: translateY({reduced ? DISC_SETTLE_PX : discTranslate}px); opacity: {reduced &&
+			!active
+				? 0
+				: discOpacity}; transition: {settleTransition};"
+		>
 			<svg
-				width="24"
-				height="24"
+				width="22"
+				height="22"
 				viewBox="0 0 24 24"
 				aria-hidden="true"
-				class="{refreshing && !reduced ? 'animate-spin' : ''} {state === 'ready' || refreshing
+				class="{refreshing && !reduced ? 'animate-spin' : ''} {ready || refreshing
 					? 'text-violet-500'
-					: 'text-neutral-400 dark:text-neutral-500'}"
-				style="opacity: {refreshing ? 1 : Math.min(1, clampedProgress + 0.15)}; {refreshing
+					: 'text-violet-400 dark:text-violet-400'}"
+				style={refreshing || reduced
 					? ''
-					: `transform: rotate(${windRotation}deg); transition: transform 0.08s linear;`}"
+					: `transform: rotate(${windRotation}deg); transition: transform 0.08s linear;`}
 			>
 				<circle
 					cx="12"
@@ -93,13 +120,11 @@
 		</div>
 	</div>
 
-	<!-- Content follows the pull -->
+	<!-- Content slips down slightly to acknowledge the pull. -->
 	<div
-		style="transform: {reduced || headerHeight === 0
+		style="transform: {contentTranslate === 0
 			? 'none'
-			: `translateY(${headerHeight}px)`}; transition: {state === 'idle'
-			? 'transform 0.2s ease'
-			: 'none'}; overscroll-behavior: contain;"
+			: `translateY(${contentTranslate}px)`}; transition: {contentTransition}; overscroll-behavior: contain;"
 	>
 		<slot />
 	</div>
