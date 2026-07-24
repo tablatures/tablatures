@@ -6,6 +6,8 @@
 	import { hapticTap } from '../utils/native';
 	import { favoritesStore } from '../utils/favorites';
 	import { placeholderArtwork } from '../utils/placeholder';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { cacheArtistImage } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -24,9 +26,22 @@
 
 	let imageFailed = false;
 
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	// Fast path from the caller-resolved props; the unified resolver supplies a
+	// cached-bytes / artist / related-tab fallback only when nothing renders or
+	// the URL failed offline, and warms the offline byte cache (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) void cacheArtistImage(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
 	export let onClick: () => void = () => {};
 	export let variants:
@@ -124,6 +139,7 @@
 					src={displayImage}
 					alt=""
 					loading="lazy"
+					decoding="async"
 					use:fadeInImage={displayImage}
 					class="w-full h-full object-cover"
 					on:error={() => (imageFailed = true)}

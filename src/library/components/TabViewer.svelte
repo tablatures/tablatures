@@ -43,6 +43,7 @@
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { getArtwork } from '../utils/artwork';
+	import { cacheArtistImage, getCachedArtistObjectUrl } from '../utils/artworkCache';
 	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
@@ -373,6 +374,8 @@
 	// Artist metadata
 	let artistImage: string | null = null;
 	let songArtwork: string | null = null;
+	/** Offline fallback for the metadata thumbnail, from the durable byte cache. */
+	let cachedThumbArtwork: string | null = null;
 	let artistInfo: { name?: string; bio?: string; country?: string; tags?: string[] } | null = null;
 	let youtubeResults: {
 		videoId: string;
@@ -420,6 +423,11 @@
 			if (artworkUrl.status === 'fulfilled') {
 				songArtwork = artworkUrl.value;
 			}
+			// Warm the durable byte cache so the thumb renders offline next time,
+			// and fall back to cached bytes when nothing resolved (5b).
+			const thumbUrl = songArtwork || artistImage;
+			if (thumbUrl) void cacheArtistImage(artistName, thumbUrl);
+			else cachedThumbArtwork = await getCachedArtistObjectUrl(artistName);
 			if (ytResp.status === 'fulfilled' && ytResp.value.ok) {
 				const data = await ytResp.value.json();
 				youtubeResults = data.results || [];
@@ -4569,13 +4577,14 @@
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
 					<!-- Album artwork or artist image (hidden on the phone bar) -->
-					{#if (songArtwork || artistImage) && !mobileBar}
+					{#if (songArtwork || artistImage || cachedThumbArtwork) && !mobileBar}
 						<div
 							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
 							<img
-								src={songArtwork || artistImage}
+								src={songArtwork || artistImage || cachedThumbArtwork}
 								alt=""
+								decoding="async"
 								class="w-full h-full object-cover"
 								on:error={(e) => {
 									if (e.target instanceof HTMLElement) e.target.style.display = 'none';

@@ -4,6 +4,8 @@
 	import { favoritesStore } from '../utils/favorites';
 	import { getSourceDisplay } from '../utils/sources';
 	import { placeholderArtwork } from '../utils/placeholder';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { cacheArtistImage } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -20,9 +22,23 @@
 
 	let imageFailed = false;
 
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	// Primary image from the props the list already resolved (fast path). The
+	// unified resolver only kicks in when there's nothing to show — or the URL
+	// failed to load (offline) — supplying a cached-bytes/artist/related-tab
+	// fallback and warming the offline byte cache. See artworkResolver.ts (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) void cacheArtistImage(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
@@ -57,6 +73,7 @@
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				decoding="async"
 				use:fadeInImage={displayImage}
 				class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
 				on:error={() => (imageFailed = true)}

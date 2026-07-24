@@ -24,6 +24,7 @@
 	import { getSourceDisplay } from '$utils/sources';
 	import { inViewport } from '$utils/inViewport';
 	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
+	import { cacheArtistImage, getCachedArtistObjectUrl } from '$utils/artworkCache';
 	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isFromCache, isOfflineErrorLike } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -102,8 +103,23 @@
 
 	/** TheAudioDB sometimes returns http URLs that browsers block on https pages */
 	const httpsUrl = (u: string | null) => (u ? u.replace(/^http:\/\//, 'https://') : null);
-	$: avatarUrl = avatarFailed ? null : httpsUrl(info?.image ?? null);
+	/** Offline fallback for the avatar, resolved from the durable byte cache (5b). */
+	let cachedAvatarUrl: string | null = null;
+	$: networkAvatarUrl = avatarFailed ? null : httpsUrl(info?.image ?? null);
+	$: avatarUrl = networkAvatarUrl || cachedAvatarUrl;
 	$: bannerUrl = bannerFailed ? null : httpsUrl(info?.banner ?? null);
+	// Warm the byte cache when we have a network avatar; fall back to cached
+	// bytes (object URL) when the network image is missing or fails offline.
+	$: void resolveAvatar(info?.name, networkAvatarUrl);
+	async function resolveAvatar(name: string | undefined, url: string | null) {
+		if (!name) return;
+		if (url) {
+			void cacheArtistImage(name, url);
+			cachedAvatarUrl = null;
+			return;
+		}
+		cachedAvatarUrl = await getCachedArtistObjectUrl(name);
+	}
 
 	$: isFollowed = info && $favoriteArtistsStore ? favoriteArtistsStore.isArtist(info.name) : false;
 

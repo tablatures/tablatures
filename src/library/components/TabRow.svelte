@@ -10,6 +10,8 @@
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { cacheArtistImage } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -23,12 +25,25 @@
 	export let artistImage: string = '';
 
 	let imageFailed = false;
-
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
-	$: artworkUrl, artistImage, (imageFailed = false);
 	export let artworkLoading: boolean = false;
+
+	// Fast path from the caller-resolved props; the unified resolver supplies a
+	// cached-bytes / artist / related-tab fallback only when nothing renders or
+	// the URL failed offline, and warms the offline byte cache (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) void cacheArtistImage(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
+	$: artworkUrl, artistImage, (imageFailed = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 	/** Optional left-swipe action (e.g. remove). Reveals a colored background
@@ -85,11 +100,10 @@
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				decoding="async"
 				use:fadeInImage={displayImage}
 				class="w-full h-full object-cover"
-				on:error={(e) => {
-					if (e.target instanceof HTMLElement) e.target.style.display = 'none';
-				}}
+				on:error={() => (imageFailed = true)}
 			/>
 		{:else if artworkLoading}
 			<div class="w-full h-full animate-pulse bg-neutral-200 dark:bg-neutral-700"></div>
