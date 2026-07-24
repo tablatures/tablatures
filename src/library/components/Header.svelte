@@ -7,6 +7,7 @@
 	import IconButton from './IconButton.svelte';
 	import SearchBar from './SearchBar.svelte';
 	import { tunerOpen } from '../utils/tuner';
+	import { metronomeOpen } from '../utils/metronome';
 
 	export let showSearch: boolean = true;
 	export let searchValue: string = '';
@@ -59,6 +60,9 @@
 		} else if (e.key === 'g' || e.key === 'G') {
 			e.preventDefault();
 			tunerOpen.update(v => !v);
+		} else if (e.key === 'm' || e.key === 'M') {
+			e.preventDefault();
+			metronomeOpen.update(v => !v);
 		}
 	}
 </script>
@@ -138,6 +142,19 @@
 			>
 				<i class="material-icons-outlined !text-xl">compass_calibration</i>
 				<span class="hidden lg:inline">Tuner</span>
+			</button>
+
+			<button
+				on:click={() => metronomeOpen.update(v => !v)}
+				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+					{$metronomeOpen
+					? 'text-tool-600 bg-tool-50 dark:bg-tool-900/30 dark:text-tool-400'
+					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-tool-600 dark:hover:text-tool-400'}"
+				title="Metronome [M]"
+				aria-label="Metronome"
+			>
+				<i class="material-icons-outlined !text-xl">graphic_eq</i>
+				<span class="hidden lg:inline">Metronome</span>
 			</button>
 
 			<a

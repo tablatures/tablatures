@@ -20,6 +20,7 @@
 	import { fetchArtworkBatch } from '../utils/artwork';
 	import { cachedFetch, TTL_HOME_FEED, isFromCache, isOfflineErrorLike } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
+	import { metronomeOpen } from '../utils/metronome';
 	import { debugEmptyContinue } from '../utils/debug';
 
 	/** Effective history — respects the Header's debug toggle so we can preview
@@ -785,7 +786,8 @@
 			>
 				{#if importLayout === 'full'}
 					<!-- Mobile: touch has no drag-drop and the full-width square card
-					     wasted vertical space, so use one compact full-width button. -->
+					     wasted vertical space, so use one compact full-width button,
+					     with the practice-tool overlays as secondary buttons below. -->
 					<button
 						on:click={() => fileInput.click()}
 						class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold shadow-sm transition-colors hover:bg-violet-600 active:scale-[0.99]"
@@ -794,6 +796,28 @@
 						<i class="material-icons !text-xl" aria-hidden="true">upload_file</i>
 						<span>Import a tab</span>
 					</button>
+					<div class="mt-2 grid grid-cols-2 gap-2">
+						<button
+							on:click={() => tunerOpen.set(true)}
+							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
+							aria-label="Open tuner"
+						>
+							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+								>compass_calibration</i
+							>
+							<span>Tuner</span>
+						</button>
+						<button
+							on:click={() => metronomeOpen.set(true)}
+							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
+							aria-label="Open metronome"
+						>
+							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+								>graphic_eq</i
+							>
+							<span>Metronome</span>
+						</button>
+					</div>
 				{:else}
 					<div
 						class="flex flex-col flex-1 min-h-0 w-full cursor-pointer
