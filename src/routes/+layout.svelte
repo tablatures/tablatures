@@ -42,8 +42,10 @@
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import Metronome from '../library/components/Metronome.svelte';
 	import PwaReloadPrompt from '../library/components/PwaReloadPrompt.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
+	import { metronomeOpen } from '../library/utils/metronome';
 	import {
 		setAudioSessionType,
 		requestWakeLock,
@@ -587,7 +589,11 @@
 	// silent switch), otherwise auto. Feature-guarded.
 	$: if (browser) {
 		setAudioSessionType(
-			$tunerOpen ? 'play-and-record' : $playerState.playing ? 'playback' : 'auto'
+			$tunerOpen
+				? 'play-and-record'
+				: $playerState.playing || $metronomeOpen
+					? 'playback'
+					: 'auto'
 		);
 	}
 
@@ -613,6 +619,10 @@
 		hideSplash();
 		let removeBack = () => {};
 		onBackButton((canGoBack) => {
+			if (get(metronomeOpen)) {
+				metronomeOpen.set(false);
+				return;
+			}
 			if (get(tunerOpen)) {
 				tunerOpen.set(false);
 				return;
@@ -856,7 +866,7 @@
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
-										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										? 'bg-violet-700 text-white hover:bg-violet-800'
 										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
@@ -894,7 +904,7 @@
 							</button>
 						</div>
 						<button
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							on:click|stopPropagation={closeMiniVideo}
 							title="Close video"
 							aria-label="Close video"
@@ -989,7 +999,7 @@
 			<!-- Hide-preview button, above the scrim. -->
 			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-red-500 hover:ring-red-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-danger-500 hover:ring-danger-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
 						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
 					on:click|stopPropagation={() => {
 						miniPreviewVisible = false;
@@ -1005,6 +1015,9 @@
 
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
+
+	<!-- Metronome panel (global overlay tool, floats over the app) -->
+	<Metronome open={$metronomeOpen} on:close={() => metronomeOpen.set(false)} />
 
 	<!-- Service worker update prompt (PWA) -->
 	<PwaReloadPrompt />
