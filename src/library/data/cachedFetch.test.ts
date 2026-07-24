@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cachedFetchWith, type CachedFetchCache } from './cachedFetch';
+import { cachedFetchWith, isFromCache, OfflineError, type CachedFetchCache } from './cachedFetch';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -86,19 +86,74 @@ describe('cachedFetch', () => {
 		).rejects.toThrow('offline');
 	});
 
-	it('rethrows the network error when nothing is cached', async () => {
+	it('throws a typed OfflineError (with the cause) when nothing is cached', async () => {
 		const { cache } = makeCache();
+		const down = new Error('down');
 		await expect(
 			cachedFetchWith(
 				{
 					fetchFn: async () => {
-						throw new Error('down');
+						throw down;
 					},
 					cache
 				},
 				'/api/y'
 			)
-		).rejects.toThrow('down');
+		).rejects.toBeInstanceOf(OfflineError);
+	});
+
+	it('forceRefresh bypasses the cache read: offline throws instead of serving stale', async () => {
+		const { cache } = makeCache();
+		// Prime the cache with a good copy.
+		await cachedFetchWith({ fetchFn: async () => jsonResponse('cached'), cache }, '/api/f', {
+			ttl: 60_000
+		});
+
+		// A normal offline fetch would serve the cached copy…
+		const stale = await cachedFetchWith(
+			{ fetchFn: async () => { throw new Error('offline'); }, cache },
+			'/api/f',
+			{ ttl: 60_000 }
+		);
+		expect(isFromCache(stale)).toBe(true);
+
+		// …but a forced refresh bypasses it and surfaces OfflineError.
+		await expect(
+			cachedFetchWith(
+				{ fetchFn: async () => { throw new Error('offline'); }, cache },
+				'/api/f',
+				{ ttl: 60_000, forceRefresh: true }
+			)
+		).rejects.toBeInstanceOf(OfflineError);
+	});
+
+	it('forceRefresh still writes a fresh response through to the cache', async () => {
+		const { cache, map } = makeCache();
+		const res = await cachedFetchWith(
+			{ fetchFn: async () => jsonResponse('fresh'), cache },
+			'/api/g',
+			{ ttl: 60_000, forceRefresh: true }
+		);
+		expect(isFromCache(res)).toBe(false);
+		expect(await res.text()).toBe('fresh');
+		// Written through so a later offline (non-forced) read can serve it.
+		expect(map.has('/api/g')).toBe(true);
+	});
+
+	it('exposes cache provenance via isFromCache / x-from-cache', async () => {
+		const { cache } = makeCache();
+		const fresh = await cachedFetchWith(
+			{ fetchFn: async () => jsonResponse('live'), cache },
+			'/api/h',
+			{ ttl: 60_000 }
+		);
+		expect(isFromCache(fresh)).toBe(false);
+		const offline = await cachedFetchWith(
+			{ fetchFn: async () => { throw new Error('x'); }, cache },
+			'/api/h',
+			{ ttl: 60_000 }
+		);
+		expect(isFromCache(offline)).toBe(true);
 	});
 
 	it('falls back to a good cached copy on a non-ok response', async () => {

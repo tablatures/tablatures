@@ -24,11 +24,54 @@ export const TTL_HOME_FEED = TTL_HOUR;
 
 const DEFAULT_TTL = TTL_HOUR;
 
+/**
+ * Thrown when a request could not reach the network AND no usable cached copy
+ * was available (or the caller asked to bypass the cache via `forceRefresh`).
+ * Lets callers distinguish a genuine offline/hard failure from a stale-but-
+ * served response (which comes back as an ok Response carrying `x-from-cache`).
+ */
+export class OfflineError extends Error {
+	readonly url: string;
+	constructor(url: string, cause?: unknown) {
+		super('offline: no network and no cached copy available');
+		this.name = 'OfflineError';
+		this.url = url;
+		if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+	}
+}
+
+/** True when a Response was served from the on-device cache (see `x-from-cache`). */
+export function isFromCache(res: Response): boolean {
+	return res.headers.get('x-from-cache') === '1';
+}
+
+/**
+ * True for any error that means "the network was unreachable": our own
+ * OfflineError, or the raw `TypeError: Failed to fetch` the platform throws
+ * (e.g. plain `fetch` paths that don't go through cachedFetch). Lets pages
+ * classify offline consistently regardless of which fetch path failed.
+ */
+export function isOfflineErrorLike(err: unknown): boolean {
+	if (err instanceof OfflineError) return true;
+	const e = err as { name?: string; message?: string } | null;
+	if (!e) return false;
+	if (e.name === 'OfflineError') return true;
+	return e instanceof TypeError && typeof e.message === 'string' && /fetch/i.test(e.message);
+}
+
 export interface CachedFetchOptions {
 	/** Time-to-live for the cached copy, in ms. 0 = never expires. */
 	ttl?: number;
 	/** Passed straight to `fetch`. Only GET requests are cached. */
 	init?: RequestInit;
+	/**
+	 * Explicit refresh: bypass the on-device cache entirely (no read/fallback)
+	 * while still writing a fresh response through to it. On a network failure
+	 * this throws `OfflineError` instead of silently serving a stale copy, so an
+	 * explicit user "refresh"/"retry" always re-attempts the network and its
+	 * outcome is visible to the caller.
+	 */
+	forceRefresh?: boolean;
 }
 
 /** Minimal slice of `httpCacheRepo` that the core depends on. */
@@ -70,9 +113,10 @@ export async function cachedFetchWith(
 ): Promise<Response> {
 	const ttl = opts.ttl ?? DEFAULT_TTL;
 	const cacheable = isGet(opts.init);
+	const force = opts.forceRefresh === true;
 
 	async function serveFromCache(): Promise<Response | null> {
-		if (!cacheable) return null;
+		if (!cacheable || force) return null;
 		try {
 			const hit = await deps.cache.get(url);
 			if (hit) return toResponse(hit.body, hit.contentType, true);
@@ -97,12 +141,14 @@ export async function cachedFetchWith(
 			return toResponse(body, contentType, false, res.status);
 		}
 		// Non-ok (5xx/4xx): prefer a good cached copy, else surface the real one.
+		// A forced refresh skips the cache and returns the real response.
 		return (await serveFromCache()) ?? res;
 	} catch (err) {
-		// Network failure (offline): the cache is our only hope.
+		// Network failure (offline): the cache is our only hope — unless the
+		// caller forced a refresh (bypass cache), in which case surface offline.
 		const cached = await serveFromCache();
 		if (cached) return cached;
-		throw err;
+		throw new OfflineError(url, err);
 	}
 }
 
