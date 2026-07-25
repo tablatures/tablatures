@@ -7,7 +7,11 @@ import { waitForScoreLoaded } from './helpers/wait';
 // previous playlist/album into the player as a phantom queue. The contract:
 //   - a single-track open CLEARS any active queue (never inherits/populates);
 //   - "Play all" from a playlist DOES populate the queue;
-//   - on /play, when the queue holds >1 item, the below-fold playlist strip shows.
+//   - on /play (phone), when the queue holds >1 item, the playlist shows in the
+//     bottom sheet opened via the "Up next" affordance (item 23).
+
+// Phone viewport → the below-fold playlist lives in the YouTube-style sheet.
+test.use({ viewport: { width: 390, height: 844 } });
 
 /** The queue is persisted to sessionStorage under this key (playerStore.ts). */
 const QUEUE_KEY = 'play-queue-v1';
@@ -88,6 +92,12 @@ test('Play all populates the queue and reveals the below-fold playlist strip', a
 
 	// The whole playlist is now the queue.
 	expect(await queueLength(page)).toBe(2);
+
+	// On the phone the playlist lives in the bottom sheet: a multi-item queue
+	// surfaces the "Up next" affordance; opening it reveals the list.
+	const peek = page.getByRole('button', { name: 'Show playlist and recommendations' });
+	await expect(peek).toBeVisible();
+	await peek.click();
 
 	// The below-fold playlist (PlayerQueueBar belowFold) renders the queue label
 	// in a header row that is itself a link to the full playlist view (item 16).
