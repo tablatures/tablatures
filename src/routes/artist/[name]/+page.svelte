@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
 	import { fadeInImage } from '$utils/fadeInImage';
+	import { placeholderArtwork } from '$utils/placeholder';
 	import { goto } from '$app/navigation';
 	import Header from '$components/Header.svelte';
 	import TabCard from '$components/TabCard.svelte';
@@ -555,11 +556,14 @@
 	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
 		<div class="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12 sm:-mt-16 relative z-10">
 			<!-- Avatar -->
-			<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center">
+			<div
+				class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center"
+				style={avatarUrl ? '' : `background: ${placeholderArtwork(info.name, '').gradient};`}
+			>
 				{#if avatarUrl}
 					<img src={avatarUrl} alt={info.name} use:fadeInImage={avatarUrl} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
 				{:else}
-					<i class="material-icons !text-5xl text-neutral-400">person</i>
+					<span class="text-2xl sm:text-3xl font-black text-white/90 tracking-tight select-none">{placeholderArtwork(info.name, '').initials}</span>
 				{/if}
 			</div>
 

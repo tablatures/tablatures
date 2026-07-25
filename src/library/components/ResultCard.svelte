@@ -145,7 +145,10 @@
 					on:error={() => (imageFailed = true)}
 				/>
 			{:else if artworkLoading}
-				<div class="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse"></div>
+				<!-- Loading: neutral gradient + subtle loader ring, never a white flash. -->
+				<div class="relative w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse">
+					<span class="absolute inset-0 m-auto h-4 w-4 rounded-full border-2 border-violet-400/50 border-t-transparent animate-spin"></span>
+				</div>
 			{:else}
 				<!-- No artwork found: deterministic generated tile (gradient + initials) -->
 				<div

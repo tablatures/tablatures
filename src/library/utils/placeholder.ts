@@ -20,18 +20,29 @@ function hashString(s: string): number {
 }
 
 /**
- * Gradient stop pairs, all anchored in the app's violet / indigo / magenta
- * family so generated tiles sit next to the #8C52FF accent without clashing.
+ * Gradient stop pairs. Anchored around the app's violet accent but deliberately
+ * spread across a wider hue family — violet, indigo, blue, cyan, teal, emerald,
+ * rose, pink, fuchsia, amber — so different songs get visibly different tints
+ * instead of an all-purple wall. Every pair is deep enough for white text/glyphs
+ * to stay legible, in light and dark mode alike.
  */
 const GRADIENTS: Array<[string, string]> = [
-	['#8C52FF', '#5B21B6'],
-	['#A855F7', '#6D28D9'],
-	['#7C3AED', '#4C1D95'],
-	['#9D5CFF', '#5B2A9E'],
-	['#B14CFF', '#7C3AED'],
-	['#6366F1', '#7C3AED'],
-	['#8B5CF6', '#4338CA'],
-	['#C026D3', '#6D28D9']
+	['#8C52FF', '#5B21B6'], // violet (brand)
+	['#7C3AED', '#4C1D95'], // deep violet
+	['#A855F7', '#6D28D9'], // purple
+	['#6366F1', '#4338CA'], // indigo
+	['#8B5CF6', '#4338CA'], // violet-indigo
+	['#3B82F6', '#1D4ED8'], // blue
+	['#0EA5E9', '#0369A1'], // sky
+	['#06B6D4', '#0E7490'], // cyan
+	['#14B8A6', '#0F766E'], // teal
+	['#10B981', '#047857'], // emerald
+	['#F43F5E', '#9F1239'], // rose
+	['#EC4899', '#9D174D'], // pink
+	['#C026D3', '#701A75'], // fuchsia
+	['#F97316', '#9A3412'], // orange
+	['#F59E0B', '#B45309'], // amber
+	['#EF4444', '#991B1B'] // red
 ];
 
 /** First letters of up to two meaningful words, uppercased. */

@@ -245,14 +245,14 @@
 			<button
 				type="button"
 				on:click={() => setShowInScore(!$lyricsStore.showInScore)}
-				class="pointer-events-auto absolute top-0 right-2 rounded-full bg-black/60 p-1 {$lyricsStore.showInScore
+				class="tap-target pointer-events-auto absolute top-0 right-1 flex items-center justify-center rounded-full bg-black/60 p-2 {$lyricsStore.showInScore
 					? 'text-violet-300'
 					: 'text-white/80'} hover:text-white"
 				title="{$lyricsStore.showInScore ? 'Hide' : 'Show'} lyrics in the score"
 				aria-label="Toggle lyrics in score"
 				aria-pressed={$lyricsStore.showInScore}
 			>
-				<i class="material-icons !text-base">lyrics</i>
+				<i class="material-icons !text-lg">lyrics</i>
 			</button>
 		{/if}
 
@@ -308,14 +308,14 @@
 				<button
 					type="button"
 					on:click={() => (settingsOpen = !settingsOpen)}
-					class="rounded-full bg-black/60 p-1 {settingsOpen
+					class="tap-target flex items-center justify-center rounded-full bg-black/60 p-2 {settingsOpen
 						? 'text-violet-300'
 						: 'text-white/80'} hover:text-white"
 					title="Lyrics sync &amp; source"
 					aria-label="Lyrics settings"
 					aria-pressed={settingsOpen}
 				>
-					<i class="material-icons !text-base">tune</i>
+					<i class="material-icons !text-lg">tune</i>
 				</button>
 			</div>
 		{/if}

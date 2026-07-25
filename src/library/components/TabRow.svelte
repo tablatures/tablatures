@@ -12,6 +12,7 @@
 	import { hapticTap } from '../utils/native';
 	import { resolveArtwork } from '../utils/artworkResolver';
 	import { queueArtistImageForCache } from '../utils/artworkCache';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -55,6 +56,9 @@
 	$: enableSwipe = !!swipeAction;
 
 	$: sourceDisplay = source ? getSourceDisplay(source) : null;
+	// Deterministic gradient + initials so a missing thumbnail never renders as a
+	// blank/white cell (varied hue per song, matching TabCard/ResultCard).
+	$: placeholder = placeholderArtwork(artist, title);
 
 	function openArtistSearch(e: Event) {
 		e.stopPropagation();
@@ -106,12 +110,14 @@
 				on:error={() => (imageFailed = true)}
 			/>
 		{:else if artworkLoading}
-			<div class="w-full h-full animate-pulse bg-neutral-200 dark:bg-neutral-700"></div>
+			<!-- Loading: neutral gradient + subtle loader dot, never a white flash. -->
+			<div class="relative w-full h-full bg-gradient-to-br from-neutral-200 to-neutral-300 dark:from-neutral-700 dark:to-neutral-800 animate-pulse">
+				<span class="absolute inset-0 m-auto h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-transparent animate-spin"></span>
+			</div>
 		{:else}
-			<div class="w-full h-full flex items-center justify-center">
-				<i class="material-icons-outlined !text-base text-neutral-400 dark:text-neutral-500" aria-hidden="true">
-					music_note
-				</i>
+			<!-- No artwork: deterministic gradient + initials -->
+			<div class="w-full h-full flex items-center justify-center" style="background: {placeholder.gradient};">
+				<span class="text-xs font-black text-white/90 tracking-tight select-none">{placeholder.initials}</span>
 			</div>
 		{/if}
 	</button>
