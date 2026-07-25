@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { fetchArtworkBatch } from '../utils/artwork';
@@ -29,13 +29,25 @@
 		artworkUrl?: string;
 	}
 
-	// Session cache: one resolved list per tab so re-opening a tab never re-fetches.
+	// Session cache: one resolved (initial) list per tab so re-opening a tab never
+	// re-fetches the first page.
 	const cache = new Map<string, RelatedTab[]>();
 
 	let items: RelatedTab[] = [];
 	let art: Record<string, string> = {};
 	let loadedKey = '';
 	let opening = '';
+
+	// --- Infinite loading (list variant, item 6) ---
+	// Scrolling further pulls more of the artist's catalog (like the home feed):
+	// an IntersectionObserver sentinel drives loadMore(), deduping against
+	// everything already shown and the current tab.
+	const seenIds = new Set<string>();
+	let morePage = 1; // catalog page already covered by the initial load
+	let loadingMore = false;
+	let exhausted = false;
+	let sentinelEl: HTMLDivElement | undefined;
+	let observer: IntersectionObserver | undefined;
 
 	$: cacheKey = currentTabId || artist;
 	$: hasArtist = !!artist && artist.toLowerCase() !== 'unknown';
@@ -65,9 +77,20 @@
 		return [];
 	}
 
+	function seedSeen(list: RelatedTab[], excludeId: string | undefined) {
+		seenIds.clear();
+		if (excludeId) seenIds.add(normId(excludeId));
+		for (const t of list) seenIds.add(normId(t.id));
+	}
+
 	async function load(key: string, a: string, excludeId: string | undefined, curTitle: string) {
+		// New tab/artist: reset the infinite-scroll accumulator.
+		morePage = 1;
+		exhausted = false;
+		loadingMore = false;
 		if (cache.has(key)) {
 			items = cache.get(key)!;
+			seedSeen(items, excludeId);
 			resolveArt();
 			return;
 		}
@@ -111,11 +134,84 @@
 
 			// Only publish (and cache) once we're confident — never a broken shell.
 			items = mapped;
+			seedSeen(mapped, excludeId);
 			cache.set(key, mapped);
 			resolveArt();
 		} catch {
 			items = [];
 		}
+	}
+
+	// Pull the next page of the artist's catalog and append the not-yet-seen
+	// tabs. Only meaningful for the below-fold list variant.
+	async function loadMore() {
+		if (loadingMore || exhausted || !SEARCH_API_BASE_URL || !hasArtist || items.length === 0)
+			return;
+		loadingMore = true;
+		try {
+			morePage += 1;
+			const sp = new URLSearchParams({
+				artist,
+				page: String(morePage),
+				limit: '20'
+			});
+			const res = await fetch(`${SEARCH_API_BASE_URL}/api/search?${sp}`);
+			if (!res.ok) {
+				exhausted = true;
+				return;
+			}
+			const data = await res.json();
+			const raw = toList(data);
+			const fresh: RelatedTab[] = [];
+			for (const t of raw) {
+				if (!t || !t.id || typeof t.title !== 'string') continue;
+				const nid = normId(t.id);
+				if (seenIds.has(nid)) continue;
+				// Skip the current song itself (any other-source version).
+				if (normId(t.title) === normId(title) && normId(t.artist) === normId(artist)) continue;
+				seenIds.add(nid);
+				fresh.push({
+					id: t.id,
+					title: t.title,
+					artist: t.artist || artist,
+					source: t.source || '',
+					type: t.tabType || t.type || '',
+					album: t.album || '',
+					artworkUrl: t.artworkUrl || ''
+				});
+			}
+			// A page that adds nothing new (or a backend without deep pagination)
+			// ends the infinite scroll rather than looping forever.
+			const totalPages = Number(data?.totalPages) || 0;
+			if (fresh.length === 0 || (totalPages > 0 && morePage >= totalPages)) {
+				exhausted = true;
+			}
+			if (fresh.length > 0) {
+				items = [...items, ...fresh];
+				resolveArt();
+			}
+		} catch {
+			exhausted = true;
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	onMount(() => {
+		if (typeof IntersectionObserver === 'undefined') return;
+		observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) loadMore();
+			},
+			{ rootMargin: '600px' }
+		);
+		return () => observer?.disconnect();
+	});
+
+	// (Re)observe the sentinel whenever it mounts (list variant only).
+	$: if (observer && sentinelEl) {
+		observer.disconnect();
+		observer.observe(sentinelEl);
 	}
 
 	async function resolveArt() {
@@ -172,6 +268,15 @@
 				/>
 			{/each}
 		</div>
+		<!-- Infinite-scroll sentinel + spinner (item 6) -->
+		{#if !exhausted}
+			<div bind:this={sentinelEl} class="h-8" aria-hidden="true"></div>
+			{#if loadingMore}
+				<div class="flex justify-center py-3">
+					<span class="w-5 h-5 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
+				</div>
+			{/if}
+		{/if}
 	</div>
 {:else if items.length > 0}
 	<div

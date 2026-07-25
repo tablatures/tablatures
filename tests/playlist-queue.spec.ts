@@ -89,6 +89,13 @@ test('Play all populates the queue and reveals the below-fold playlist strip', a
 	// The whole playlist is now the queue.
 	expect(await queueLength(page)).toBe(2);
 
-	// The below-fold strip (PlayerQueueBar belowFold) renders the queue label.
-	await expect(page.getByText('My Test Playlist')).toBeVisible();
+	// The below-fold playlist (PlayerQueueBar belowFold) renders the queue label
+	// in a header row that is itself a link to the full playlist view (item 16).
+	const header = page.getByRole('link', { name: /My Test Playlist/ });
+	await expect(header).toBeVisible();
+
+	// It is a VERTICAL list of the entries, not a horizontal strip (item 15):
+	// every queue entry is rendered as its own row.
+	await expect(page.getByRole('button', { name: /Song One/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Song Two/ })).toBeVisible();
 });

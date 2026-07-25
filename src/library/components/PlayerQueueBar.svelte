@@ -137,9 +137,26 @@
 		}
 	}
 
-	// Keep the current pill visible as the queue advances
+	// Keep the current entry visible as the queue advances. IMPORTANT: scroll the
+	// strip/list container ITSELF (via scrollTop/scrollLeft) rather than
+	// element.scrollIntoView() — scrollIntoView bubbles to scrollable ancestors and
+	// would drag the whole /play shell down to the below-fold list on load (the
+	// auto-jump bug, item 13). Adjusting the container's own scroll never touches
+	// any ancestor.
+	function centerCurrent() {
+		if (!stripEl || !currentPillEl) return;
+		const pr = currentPillEl.getBoundingClientRect();
+		const sr = stripEl.getBoundingClientRect();
+		if (belowFold) {
+			const delta = pr.top - sr.top - (stripEl.clientHeight - pr.height) / 2;
+			stripEl.scrollTo({ top: Math.max(0, stripEl.scrollTop + delta), behavior: 'smooth' });
+		} else {
+			const delta = pr.left - sr.left - (stripEl.clientWidth - pr.width) / 2;
+			stripEl.scrollTo({ left: Math.max(0, stripEl.scrollLeft + delta), behavior: 'smooth' });
+		}
+	}
 	$: if (queue.index >= 0 && stripEl) {
-		tick().then(() => currentPillEl?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }));
+		tick().then(centerCurrent);
 	}
 
 	/** Registers whichever strip block is current as the dropdown anchor */
@@ -261,37 +278,43 @@
 </script>
 
 {#if hasQueue && belowFold}
-	<!-- Below-the-fold playlist strip: horizontally scrolling, bigger cards. -->
+	<!-- Below-the-fold playlist: a VERTICAL list (item 15). Bounded height with an
+	     internal scroll, result-row-sized rows, current entry highlighted and
+	     auto-centered on song change. -->
 	<div>
-		<div class="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
+		<!-- Whole header row opens the full playlist view (item 16); the arrow is
+		     just the affordance. -->
+		<a
+			href={queue.href || `${base}/playlist`}
+			on:click={hapticTap}
+			class="tap-press flex items-center justify-between gap-2 px-4 pt-4 pb-2 hover:bg-neutral-100/70 dark:hover:bg-neutral-800/50 active:bg-neutral-200/60 dark:active:bg-neutral-800/80 transition-colors rounded-lg"
+			title="Open {queue.label || 'playlist'}"
+		>
 			<div class="flex items-center gap-1.5 min-w-0">
-				<i class="material-icons !text-base text-violet-500">queue_music</i>
+				<i class="material-icons !text-base text-violet-500 shrink-0">queue_music</i>
 				<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-200 truncate">{queue.label || 'Playlist'}</span>
 				<span class="text-xs text-neutral-400 shrink-0">· {queue.items.length}</span>
 			</div>
-			<a
-				href={queue.href || `${base}/playlist`}
-				class="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-600 shrink-0"
-				title="Open {queue.label || 'playlist'}"
-			>
-				Open <i class="material-icons !text-sm">open_in_new</i>
-			</a>
-		</div>
-		<div bind:this={stripEl} class="flex items-stretch gap-2 px-4 pb-2 overflow-x-auto scrollbar-thin">
+			<span class="flex items-center gap-1 text-xs text-violet-500 shrink-0">
+				Open <i class="material-icons !text-base">chevron_right</i>
+			</span>
+		</a>
+		<div bind:this={stripEl} class="max-h-[19rem] overflow-y-auto scrollbar-thin px-2 pb-2 divide-y divide-neutral-100 dark:divide-neutral-800/60">
 			{#each queue.items as item, i}
 				{@const isCurrent = i === queue.index}
 				{@const sd = getSourceDisplay(item.source || '')}
 				<button
 					use:registerPill={isCurrent}
-					class="flex-shrink-0 flex items-center text-left w-64 rounded-xl overflow-hidden transition-colors
+					class="w-full flex items-center gap-3 text-left px-2 py-2 rounded-lg transition-colors
 						{isCurrent
-						? 'bg-violet-50 dark:bg-violet-900/25 ring-1 ring-inset ring-violet-400/60'
-						: 'bg-neutral-50 dark:bg-neutral-900/60 hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
+						? 'bg-violet-50 dark:bg-violet-900/25'
+						: 'hover:bg-neutral-100 dark:hover:bg-neutral-800/80'}"
 					on:click={() => goJump(i)}
 					disabled={navigating && !isCurrent}
 					title={`${item.title}${item.artist ? ` - ${item.artist}` : ''}`}
 				>
-					<span class="w-14 h-14 shrink-0 bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
+					<span class="w-5 text-right text-xs shrink-0 {isCurrent ? 'text-violet-500' : 'text-neutral-400'}">{i + 1}</span>
+					<span class="w-12 h-12 shrink-0 rounded-lg bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden">
 						{#if navigating && isCurrent}
 							<span class="w-5 h-5 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
 						{:else if item.artworkUrl || queueArt[item.id]}
@@ -300,7 +323,7 @@
 							<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600">music_note</i>
 						{/if}
 					</span>
-					<span class="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-0.5">
+					<span class="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
 						<span class="truncate text-sm font-medium {isCurrent ? 'text-violet-700 dark:text-violet-300' : 'text-neutral-800 dark:text-neutral-200'}">{item.title}</span>
 						<span class="flex items-center gap-1.5 min-w-0 text-xs text-neutral-400 dark:text-neutral-500">
 							<span class="w-1.5 h-1.5 rounded-full shrink-0 {sd.dotColor}"></span>
@@ -308,7 +331,9 @@
 						</span>
 					</span>
 					{#if isCurrent}
-						<i class="material-icons !text-lg text-violet-500 shrink-0 mr-2">volume_up</i>
+						<i class="material-icons !text-lg text-violet-500 shrink-0">volume_up</i>
+					{:else}
+						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0">play_arrow</i>
 					{/if}
 				</button>
 			{/each}
