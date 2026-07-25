@@ -69,13 +69,20 @@ test('recommendations sit below the fold and reveal on scroll, then hide again',
 	// At load the details are past the first full-height screen.
 	await expect(rec).not.toBeInViewport();
 
+	// The jump-to-top arrow is hidden while the sheet owns the view (item 7).
+	await expect(page.getByRole('button', { name: 'Back to top' })).toHaveCount(0);
+
 	// Scrolling the shell to the bottom reveals the details section.
 	await page.locator('.play-shell').evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
 	await expect(rec).toBeInViewport();
 
-	// Scrolling back up restores the full-height sheet (details hidden again).
-	await page.locator('.play-shell').evaluate((el) => el.scrollTo({ top: 0 }));
+	// Now in the details area, the jump-to-top arrow appears (item 7).
+	await expect(page.getByRole('button', { name: 'Back to top' })).toBeVisible();
+
+	// Tapping it scrolls back up and restores the full-height sheet (details hidden).
+	await page.getByRole('button', { name: 'Back to top' }).click();
 	await expect(rec).not.toBeInViewport();
+	await expect(page.getByRole('button', { name: 'Back to top' })).toHaveCount(0);
 });
 
 test('the phone bar shows fullscreen + settings + source pill, no tab name or tuning chip', async ({
@@ -95,4 +102,8 @@ test('the phone bar shows fullscreen + settings + source pill, no tab name or tu
 	// the tuning chip.
 	await expect(page.locator('h1 a')).toHaveCount(0);
 	await expect(page.getByTitle('Open tuning')).toHaveCount(0);
+
+	// The loop toggle is removed from the phone bar (item 10) — it lives in the
+	// settings panel there; loops are made by long-press drag anyway.
+	await expect(page.getByRole('button', { name: 'Toggle loop' })).toHaveCount(0);
 });

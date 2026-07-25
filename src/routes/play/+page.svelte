@@ -14,7 +14,7 @@
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState, updatePlayerState, queueStore } from '../../library/utils/playerStore';
+	import { activeVideoId, playerState, updatePlayerState, queueStore, playShellEl, playSheetInView } from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
@@ -57,13 +57,45 @@
 	// Below-the-fold reveal: the shell is the page-level scroller; the sheet
 	// scrolls internally first, then chaining scrolls the shell to the details.
 	let shellEl: HTMLElement | null = null;
-	let shellScrollTop = 0;
-	let relatedCount = 0;
-	$: hasDetails = $queueStore.items.length > 1 || relatedCount > 0;
+	// True once the user has scrolled far enough that the below-fold details are
+	// the focus. Drives the "jump to top" arrow here and (via playSheetInView)
+	// hides the sheet's "back to cursor" button. Complementary: only one shows.
+	let detailsVisible = false;
 
-	function revealDetails() {
+	function onShellScroll() {
 		if (!shellEl) return;
-		shellEl.scrollTo({ top: shellEl.scrollHeight, behavior: 'smooth' });
+		// The sheet section is one shell-height tall and the score scrolls
+		// internally first, so ANY shell scroll means the user has chained past the
+		// sheet into the details. A small threshold (not a fraction of the viewport)
+		// keeps this correct even when the details area is shorter than one screen
+		// — otherwise scrolling fully to the bottom could never cross the line.
+		const past = shellEl.scrollTop > 80;
+		if (past !== detailsVisible) {
+			detailsVisible = past;
+			playSheetInView.set(!past);
+		}
+	}
+
+	function scrollShellToTop() {
+		shellEl?.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+
+	// Register the shell so TabViewer's transport bar can scroll it (item 8) and
+	// keep the shared in-view flag in sync with this route's lifecycle.
+	$: if (browser) playShellEl.set(shellEl);
+
+	// On any new tab/playlist load, keep (or reset) the shell at the top so the
+	// full-height sheet is what the user sees — never auto-jump to the below-fold
+	// playlist/recommendations. Watches the loaded tab id.
+	let lastResetKey = '';
+	$: if (browser && shellEl && hasTab) {
+		const key = currentTabId || currentTab?.fileAsB64?.slice(0, 24) || '';
+		if (key && key !== lastResetKey) {
+			lastResetKey = key;
+			shellEl.scrollTo({ top: 0 });
+			detailsVisible = false;
+			playSheetInView.set(true);
+		}
 	}
 
 	// Compress-and-embed the tab bytes in the URL hash whenever the current
@@ -435,6 +467,8 @@
 
 		return () => {
 			if (tabUnsubscribe) tabUnsubscribe();
+			playShellEl.set(null);
+			playSheetInView.set(true);
 		};
 	});
 </script>
@@ -476,7 +510,7 @@
 	<div
 		class="play-shell"
 		bind:this={shellEl}
-		on:scroll={() => (shellScrollTop = shellEl?.scrollTop ?? 0)}
+		on:scroll={onShellScroll}
 	>
 		<section class="play-sheet-section">
 			<TabViewer
@@ -516,23 +550,23 @@
 				artist={$playerState.artist || currentTab?.artist || ''}
 				title={$playerState.title || currentTab?.title || ''}
 				currentTabId={currentTabId}
-				on:loaded={(e) => (relatedCount = e.detail)}
 			/>
 
 			<div class="h-8"></div>
 		</section>
 	</div>
 
-	<!-- "Swipe up for more" affordance: shown while the sheet fills the screen
-	     and there is below-the-fold content to reveal. -->
-	{#if hasDetails && shellScrollTop < 40}
+	<!-- Jump-to-top: small circular arrow anchored bottom-right, shown only while
+	     the below-fold details own the view (complementary to the sheet's "back to
+	     cursor" button). Scrolls the shell back to the full-height sheet. -->
+	{#if detailsVisible}
 		<button
-			class="play-more-chevron"
-			on:click={revealDetails}
-			aria-label="Show playlist and recommendations"
-			title="More below"
+			class="play-jump-top"
+			on:click={scrollShellToTop}
+			aria-label="Back to top"
+			title="Back to top"
 		>
-			<i class="material-icons !text-xl">keyboard_arrow_down</i>
+			<i class="material-icons !text-xl">keyboard_arrow_up</i>
 		</button>
 	{/if}
 {:else}
@@ -550,50 +584,42 @@
 
 <style>
 	/* Page-level scroller for /play. The first section fills the viewport (minus
-	   the 56px header); the details section sits below the fold. scroll-snap gives
-	   a native feel without trapping the user (proximity, not mandatory). */
+	   the 56px header); the details section sits below the fold. Free scrolling —
+	   no scroll-snap (the user asked for plain, non-magnetic scrolling). */
 	.play-shell {
 		height: calc(100dvh - 3.5rem);
 		overflow-y: auto;
 		overscroll-behavior-y: contain;
-		scroll-snap-type: y proximity;
 	}
 	.play-sheet-section {
 		height: 100%;
-		scroll-snap-align: start;
-		scroll-snap-stop: always;
 	}
 	.play-details {
-		scroll-snap-align: start;
 		background: white;
 	}
 	:global(.dark) .play-details {
 		background: #0a0a0a;
 	}
-	.play-more-chevron {
+	.play-jump-top {
 		position: fixed;
-		left: 50%;
-		transform: translateX(-50%);
-		bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
-		z-index: 45;
+		right: calc(env(safe-area-inset-right) + 1rem);
+		bottom: calc(env(safe-area-inset-bottom) + 1rem);
+		z-index: 55;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 2.75rem;
+		height: 2.75rem;
 		border-radius: 9999px;
 		color: white;
-		background: rgba(140, 82, 255, 0.9);
+		background: rgba(140, 82, 255, 0.95);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-		animation: play-more-bob 1.6s ease-in-out infinite;
+		transition: background-color 0.15s, transform 0.1s;
 	}
-	@keyframes play-more-bob {
-		0%, 100% { transform: translate(-50%, 0); }
-		50% { transform: translate(-50%, 4px); }
+	.play-jump-top:hover {
+		background: rgb(94, 23, 235);
 	}
-	@media (prefers-reduced-motion: reduce) {
-		.play-more-chevron {
-			animation: none;
-		}
+	.play-jump-top:active {
+		transform: scale(0.94);
 	}
 </style>

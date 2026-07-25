@@ -43,6 +43,17 @@ export const playerTarget = writable<HTMLElement | null>(null);
 // Cached beat cursor element (set via querySelector after render, avoids per-frame DOM queries)
 export const beatCursorEl = writable<HTMLElement | null>(null);
 
+// The /play page-level scroll shell element. Published by the play route so the
+// TabViewer's transport bar can drive the outer shell scroll (reach the
+// below-fold recommendations from anywhere) without importing the route.
+export const playShellEl = writable<HTMLElement | null>(null);
+
+// True while the full-height sheet section owns the /play viewport; false once
+// the user has scrolled into the below-fold details area. Shared so the sheet's
+// floating "back to cursor" button and the shell's "jump to top" button stay
+// complementary (only one is ever relevant at a time).
+export const playSheetInView = writable(true);
+
 // Reactive player state for UI binding
 export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });
 

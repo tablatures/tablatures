@@ -20,7 +20,9 @@
 		isTransitioning,
 		setMasterVolumeDebounced,
 		beatCursorEl,
-		videoHandlers
+		videoHandlers,
+		playShellEl,
+		playSheetInView
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
@@ -1837,6 +1839,54 @@
 	// Legacy mouse touch handler (kept for backward compat)
 	function handleProgressBarTouch(event: TouchEvent) {
 		// Now handled by touchstart/move/end handlers above
+	}
+
+	// --- Transport bar → outer shell scroll (item 8) ---
+	// A drag/wheel that starts on the bar's blank/non-interactive zones scrolls
+	// the /play shell (revealing the below-fold recommendations) instead of the
+	// sheet's internals. Interactive controls (buttons, sliders, the progress bar
+	// role="slider", links, inputs) are left untouched so loop drag / buttons /
+	// sliders keep working.
+	let barTouchStartY = 0;
+	let barTouchScrolling = false;
+
+	function isBarInteractive(target: EventTarget | null): boolean {
+		const el = target as HTMLElement | null;
+		return !!el?.closest?.('button, a, input, [role="slider"], [role="menu"], select');
+	}
+
+	function onBarWheel(e: WheelEvent) {
+		// Leave interactive controls (open popover menus, sliders) to their own
+		// scroll behaviour; only the bar's blank/metadata zones drive the shell.
+		if (isBarInteractive(e.target)) return;
+		const shell = get(playShellEl);
+		if (!shell) return;
+		shell.scrollBy({ top: e.deltaY });
+		e.preventDefault();
+	}
+
+	function onBarTouchStart(e: TouchEvent) {
+		if (isBarInteractive(e.target) || e.touches.length !== 1) {
+			barTouchScrolling = false;
+			return;
+		}
+		barTouchStartY = e.touches[0].clientY;
+		barTouchScrolling = true;
+	}
+
+	function onBarTouchMove(e: TouchEvent) {
+		if (!barTouchScrolling) return;
+		const shell = get(playShellEl);
+		if (!shell) return;
+		const y = e.touches[0].clientY;
+		const dy = barTouchStartY - y;
+		barTouchStartY = y;
+		shell.scrollBy({ top: dy });
+		e.preventDefault();
+	}
+
+	function onBarTouchEnd() {
+		barTouchScrolling = false;
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -3706,7 +3756,7 @@
 	     the long-press selection becomes active. -->
 	<div
 		class="relative"
-		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y;"
+		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
@@ -3856,8 +3906,10 @@
 
 		<!-- Floating "scroll to cursor" button — visible when scrolled away
 		     from cursor. Lifted higher on narrow portrait phones so it clears
-		     the metadata row that sits above the transport bar. -->
-		{#if scoreLoaded && !autoFollow}
+		     the metadata row that sits above the transport bar. Only shown while
+		     the sheet section owns the /play view (item 14): once the user scrolls
+		     into the below-fold details, the shell's "back to top" arrow takes over. -->
+		{#if scoreLoaded && !autoFollow && $playSheetInView}
 			<div
 				class="fixed -translate-x-1/2 z-[55]"
 				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
@@ -3883,11 +3935,16 @@
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
+		on:wheel|nonpassive={onBarWheel}
+		on:touchstart={onBarTouchStart}
+		on:touchmove|nonpassive={onBarTouchMove}
+		on:touchend={onBarTouchEnd}
+		on:touchcancel={onBarTouchEnd}
 		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
-		style="padding-bottom: calc(env(safe-area-inset-bottom) + 5px)"
+		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
@@ -4324,7 +4381,11 @@
 				</div>
 			{/if}
 
-			<!-- Loop indicator (shows when loop region exists) -->
+			<!-- Loop indicator (shows when loop region exists). Hidden on the phone
+			     bar (item 10): loops are made by long-press drag and the loop
+			     toggle lives in the settings panel there; the freed slot keeps the
+			     phone bar to the essentials (settings + fullscreen). -->
+			{#if !mobileBar}
 			{#if loopStartBar !== null && loopEndBar !== null}
 				<button
 					on:click={toggleLoopEnabled}
@@ -4352,6 +4413,7 @@
 				>
 					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">repeat</i>
 				</button>
+			{/if}
 			{/if}
 
 			<!-- Compact transposed pill: only in fullscreen (where the metadata row
@@ -4396,21 +4458,23 @@
 				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">tune</i>
 			</button>
 
-			{#if !native}
-				<button
-					on:click={toggleFullscreen}
-					class="{compactBar
-						? 'p-1.5'
-						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-					title="Fullscreen [F]"
-					aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+			<!-- Fullscreen: shown on every platform (item 10). On native the button
+			     drives a CSS fixed-overlay fullscreen (the WebView has no Fullscreen
+			     API) — previously the button was hidden on native so it never
+			     appeared on the user's phone. -->
+			<button
+				on:click={toggleFullscreen}
+				class="{compactBar
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				title="Fullscreen [F]"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+			>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
+					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
-					>
-				</button>
-			{/if}
+			</button>
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
