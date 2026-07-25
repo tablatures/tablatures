@@ -1026,7 +1026,7 @@
 		id="main-content"
 		class="animate-fade-in min-h-dvh {showMiniPlayer
 			? miniPreviewVisible
-				? 'pb-[460px] sm:pb-14'
+				? 'pb-[360px] sm:pb-14'
 				: 'pb-14'
 			: ''}"
 	>
@@ -1038,6 +1038,7 @@
 		<MiniPlayer
 			showPreview={miniPreviewVisible}
 			on:togglePreview={() => (miniPreviewVisible = !miniPreviewVisible)}
+			on:minimize={() => (miniPreviewVisible = false)}
 		/>
 	{/if}
 
@@ -1122,11 +1123,12 @@
 			left: 0;
 			right: 0;
 			width: 100%;
-			/* Taller than before (was 220px) so the preview is actually readable,
-			   and lifted clear of the ~80px MiniPlayer bar (+ safe area) so it no
-			   longer hides behind it. Capped at 60dvh on short screens. */
-			height: min(60dvh, 370px);
-			bottom: calc(88px + env(safe-area-inset-bottom));
+			/* Readable preview, ~100px shorter than the previous 370px so it no
+			   longer dominates the screen. Sits flush on the bar: bottom is the
+			   bar's REAL measured height (published as --mini-bar-height, which
+			   already includes the safe-area padding) — no magic 88px + gap. */
+			height: min(50dvh, 270px);
+			bottom: var(--mini-bar-height, 76px);
 			border-radius: 0;
 		}
 		.mini-player-overlay {

@@ -47,21 +47,63 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 	const previewBox = await preview.boundingBox();
 	expect(previewBox, 'preview box').not.toBeNull();
 
-	// Taller than the old 220px.
-	expect(previewBox!.height).toBeGreaterThanOrEqual(300);
+	// Readable but ~100px shorter than the earlier 370px (now min(50dvh,270px)).
+	expect(previewBox!.height).toBeGreaterThanOrEqual(250);
+	expect(previewBox!.height).toBeLessThanOrEqual(320);
 
-	// The mini player bar sits at the bottom; the preview must not overlap it.
+	// The mini player bar sits at the bottom; the preview sits FLUSH on top of
+	// it (bottom edge == bar top, no gap, no overlap).
 	const bar = page.locator('.fixed.bottom-0.z-\\[80\\]').first();
 	const barBox = await bar.boundingBox();
 	expect(barBox, 'bar box').not.toBeNull();
-	expect(previewBox!.y + previewBox!.height).toBeLessThanOrEqual(barBox!.y + 1);
+	const previewBottom = previewBox!.y + previewBox!.height;
+	expect(previewBottom).toBeLessThanOrEqual(barBox!.y + 1);
+	// Flush: within ~4px of the bar top (derived from the bar's measured height).
+	expect(previewBottom).toBeGreaterThanOrEqual(barBox!.y - 4);
 
-	// The three bar controls are ≥44px.
-	for (const name of [/Hide tab preview|Show tab preview/, /Open full player/, /Close player/]) {
+	// PiP toggle + expand-to-full are ≥44px directly.
+	for (const name of [/Hide tab preview|Show tab preview/, /Open full player/]) {
 		const btn = page.getByRole(name.source.includes('Open full') ? 'link' : 'button', { name }).last();
 		const box = await btn.boundingBox();
 		expect(box, `box for ${name}`).not.toBeNull();
 		expect(box!.height).toBeGreaterThanOrEqual(44);
 		expect(box!.width).toBeGreaterThanOrEqual(44);
 	}
+
+	// The minimize (X) is intentionally smaller visually, but keeps a ≥44px
+	// EFFECTIVE hit area via its .tap-target halo (invisible ::after, inset -12px).
+	const minimize = page.getByRole('button', { name: 'Minimize preview' }).last();
+	const eff = await minimize.evaluate((el) => {
+		const box = el.getBoundingClientRect();
+		const after = getComputedStyle(el, '::after');
+		const inset = (v: string) => Math.abs(parseFloat(v) || 0);
+		return {
+			w: box.width + inset(after.left) + inset(after.right),
+			h: box.height + inset(after.top) + inset(after.bottom)
+		};
+	});
+	expect(eff.h).toBeGreaterThanOrEqual(44);
+	expect(eff.w).toBeGreaterThanOrEqual(44);
+});
+
+// Item 12: a tap on the X minimizes the preview (keeps the track loaded + bar
+// visible) rather than stopping the player.
+test('mini player X minimizes the preview but keeps the track loaded', async ({ page }) => {
+	await setupPlayPage(page);
+	await waitForScoreLoaded(page);
+	await page.waitForTimeout(800);
+
+	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.waitForTimeout(600);
+
+	// Preview visible.
+	await expect(page.locator('.player-host-mini')).toBeVisible();
+
+	// Tap the X → preview minimizes, the bar (and its play control) stay.
+	await page.getByRole('button', { name: 'Minimize preview' }).last().click();
+	await page.waitForTimeout(400);
+
+	await expect(page.locator('.player-host-mini')).toHaveCount(0);
+	// The mini player bar itself is still present (track not unloaded).
+	await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
 });

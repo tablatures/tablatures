@@ -11,6 +11,7 @@
 	import { horizontalSwipe } from '../utils/gestures';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import ProgressBar from './ProgressBar.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 
@@ -21,6 +22,14 @@
 	$: api = $playerApi;
 	$: currentTab = $tabStore;
 	$: soundFontLoading = !state.soundFontLoaded;
+
+	// Publish the bar's real measured height so the preview sheet can sit flush
+	// on top of it (no magic numbers). Includes the safe-area padding since it's
+	// measured from the rendered element.
+	let barHeight = 0;
+	$: if (typeof document !== 'undefined' && barHeight > 0) {
+		document.documentElement.style.setProperty('--mini-bar-height', `${barHeight}px`);
+	}
 
 	function togglePlayPause() {
 		if (!api) return;
@@ -39,6 +48,36 @@
 			updatePlayerState({ playing: false });
 		}
 		tabStore.clearTab();
+	}
+
+	// Close (X) behaviour (item 12): a TAP minimizes the preview sheet (keeps the
+	// track loaded + the bar playing); a deliberate LONG-PRESS fully stops and
+	// unloads the track. This prevents an accidental tap from nuking playback.
+	// The PiP/toggle-preview button remains the way to bring the preview back.
+	let closeHoldTimer: ReturnType<typeof setTimeout> | undefined;
+	let didLongPressClose = false;
+	const CLOSE_HOLD_MS = 500;
+
+	function closePointerDown() {
+		didLongPressClose = false;
+		clearTimeout(closeHoldTimer);
+		closeHoldTimer = setTimeout(() => {
+			didLongPressClose = true;
+			hapticTap();
+			stopPlayer();
+		}, CLOSE_HOLD_MS);
+	}
+	function closePointerEnd() {
+		clearTimeout(closeHoldTimer);
+	}
+	function closeClick() {
+		// If the long-press already fired the full stop, swallow the click.
+		if (didLongPressClose) {
+			didLongPressClose = false;
+			return;
+		}
+		hapticTap();
+		dispatch('minimize');
 	}
 
 	async function copyShareLink() {
@@ -82,6 +121,13 @@
 			artworkUrl = url;
 		}
 	}
+
+	// Deterministic gradient behind the note glyph when no artwork resolves —
+	// never a flat neutral box (varied hue per song, matching the cards).
+	$: thumbPlaceholder = placeholderArtwork(
+		state.artist || currentTab?.artist || '',
+		state.title || currentTab?.title || ''
+	);
 
 	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
@@ -161,7 +207,10 @@
 
 </script>
 
-<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe">
+<div
+	class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe"
+	bind:clientHeight={barHeight}
+>
 	<!-- Bleed the bar background a few pixels below its edge so a subpixel seam
 	     at the viewport bottom (fractional device-pixel rounding) does not show
 	     the page through. Off-screen and harmless when there is no seam. -->
@@ -236,8 +285,11 @@
 			{#if artworkUrl}
 				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
-				<div class="w-8 h-8 sm:w-10 sm:h-10 rounded bg-neutral-700 flex items-center justify-center">
-					<i class="material-icons !text-lg text-neutral-500">music_note</i>
+				<div
+					class="w-8 h-8 sm:w-10 sm:h-10 rounded flex items-center justify-center"
+					style="background: {thumbPlaceholder.gradient};"
+				>
+					<i class="material-icons !text-lg text-white/70">music_note</i>
 				</div>
 			{/if}
 			<span
@@ -329,14 +381,20 @@
 				<i class="material-icons !text-2xl">expand_less</i>
 			</a>
 
-			<!-- Close the player -->
+			<!-- Minimize (X): smaller, less imposing. Tap = minimize the preview
+			     (keeps playing); hold = fully stop/unload. tap-target keeps a
+			     ≥44px effective hit area despite the smaller visual box. -->
 			<button
-				on:click|stopPropagation={stopPlayer}
-				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-danger-500/80 transition-colors"
-				title="Close player"
-				aria-label="Close player"
+				on:click|stopPropagation={closeClick}
+				on:pointerdown={closePointerDown}
+				on:pointerup={closePointerEnd}
+				on:pointercancel={closePointerEnd}
+				on:pointerleave={closePointerEnd}
+				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-400 hover:text-white hover:bg-danger-500/80 transition-colors"
+				title="Minimize preview (hold to close)"
+				aria-label="Minimize preview"
 			>
-				<i class="material-icons !text-xl">close</i>
+				<i class="material-icons !text-lg">close</i>
 			</button>
 		</div>
 	</div>
