@@ -15,7 +15,12 @@ permissions:
   actions: write
 
 jobs:
+  # Only tag/release once the regression suite is green for this commit.
+  test:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

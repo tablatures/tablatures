@@ -9,7 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the signed build on the full regression suite so a broken commit can
+  # never be released, even when the tag is pushed directly.
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
