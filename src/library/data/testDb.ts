@@ -12,6 +12,7 @@ import { createPlaylistsRepo } from './repositories/playlistsRepo';
 import { createPrefsRepo } from './repositories/prefsRepo';
 import { createHttpCacheRepo } from './repositories/httpCacheRepo';
 import { createImagesRepo } from './repositories/imagesRepo';
+import { createMemoryImageByteStore } from './imageBlobStore';
 
 export async function freshTestDb() {
 	const db: Database = await createMemoryDatabase();
@@ -24,6 +25,6 @@ export async function freshTestDb() {
 		playlistsRepo: createPlaylistsRepo(getDb),
 		prefsRepo: createPrefsRepo(getDb),
 		httpCacheRepo: createHttpCacheRepo(getDb),
-		imagesRepo: createImagesRepo(getDb)
+		imagesRepo: createImagesRepo(getDb, createMemoryImageByteStore())
 	};
 }

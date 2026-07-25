@@ -21,6 +21,7 @@ import { browser } from '$app/environment';
 import { dataReady } from '../data/init';
 import { imagesRepo } from '../data/repositories';
 import { safeImageUrl } from './artistImage';
+import { favoriteArtistsStore } from './favoriteArtists';
 
 function stripDiacritics(s: string): string {
 	return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -90,6 +91,91 @@ export function cacheArtistImage(artist: string, url: string): Promise<boolean> 
 	return task;
 }
 
+/* --------------------- Idle, serial byte-cache queue ---------------------- *
+ * PERF: byte-caching MUST stay off the critical path. Display always uses the
+ * plain network URL (the browser handles decoding/caching); we only warm the
+ * durable byte cache in the background. Favorited artists are cached eagerly
+ * (few of them, and their offline covers are the whole point). Every other
+ * browsed artist is queued and drained ONE-AT-A-TIME during idle windows, so a
+ * feed fling never triggers a fetch+encode+store storm. requestIdleCallback
+ * naturally defers while the main thread is busy (active scroll/paint), so the
+ * queue pauses during flings and resumes when the user settles.
+ * ------------------------------------------------------------------------- */
+
+/** Milliseconds to wait between background byte-cache fetches (rate limit). */
+const CACHE_RATE_LIMIT_MS = 250;
+
+const cacheQueue: Array<{ artist: string; url: string }> = [];
+const queuedKeys = new Set<string>();
+let idleHandle: number | null = null;
+let draining = false;
+
+function alreadyKnown(key: string): boolean {
+	return objectUrls.has(key) || fetchTasks.has(key) || queuedKeys.has(key);
+}
+
+/**
+ * Warm the offline byte cache for `artist`'s image at `url`, OFF the critical
+ * path. Favorited artists are fetched immediately; everyone else is enqueued and
+ * processed serially during idle. Cheap + synchronous to call from a render/
+ * scroll path — the actual work is deferred. Best-effort; never throws.
+ */
+export function queueArtistImageForCache(artist: string, url: string): void {
+	if (!browser || !artist || !url) return;
+	if (!safeImageUrl(url)) return;
+	const key = artistKey(artist);
+	if (alreadyKnown(key)) return;
+
+	// Favorited artists: cache now (bounded set, offline-critical). Not awaited.
+	let favorited = false;
+	try {
+		favorited = favoriteArtistsStore.isArtist(artist);
+	} catch {
+		/* store unavailable → treat as not favorited */
+	}
+	if (favorited) {
+		void cacheArtistImage(artist, url);
+		return;
+	}
+
+	queuedKeys.add(key);
+	cacheQueue.push({ artist, url });
+	scheduleDrain();
+}
+
+function scheduleDrain(): void {
+	if (idleHandle !== null || draining || typeof window === 'undefined') return;
+	const run = () => {
+		idleHandle = null;
+		void drainOne();
+	};
+	if (typeof (window as { requestIdleCallback?: unknown }).requestIdleCallback === 'function') {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		idleHandle = (window as any).requestIdleCallback(run, { timeout: 2000 });
+	} else {
+		idleHandle = window.setTimeout(run, CACHE_RATE_LIMIT_MS);
+	}
+}
+
+/** Process a SINGLE queued artist per idle window, then reschedule (concurrency 1). */
+async function drainOne(): Promise<void> {
+	if (draining) return;
+	const item = cacheQueue.shift();
+	if (!item) return;
+	draining = true;
+	queuedKeys.delete(artistKey(item.artist));
+	try {
+		await cacheArtistImage(item.artist, item.url);
+	} finally {
+		draining = false;
+		// Rate-limit, then schedule the next item in a fresh idle window (which
+		// naturally waits out any active scroll before running).
+		if (cacheQueue.length > 0) {
+			window.setTimeout(scheduleDrain, CACHE_RATE_LIMIT_MS);
+		}
+	}
+}
+
 /**
  * Return an object URL for an artist's cached image bytes, or null when nothing
  * is stored. Works fully offline. The object URL is memoized per artist so
@@ -124,4 +210,14 @@ export function __resetArtworkCacheForTests(): void {
 	}
 	fetchTasks.clear();
 	objectUrls.clear();
+	cacheQueue.length = 0;
+	queuedKeys.clear();
+	if (idleHandle !== null && typeof window !== 'undefined') {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const cancel = (window as any).cancelIdleCallback;
+		if (typeof cancel === 'function') cancel(idleHandle);
+		else clearTimeout(idleHandle);
+	}
+	idleHandle = null;
+	draining = false;
 }

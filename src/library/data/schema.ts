@@ -116,6 +116,17 @@ export const MIGRATIONS: Migration[] = [
 			)`,
 			`CREATE INDEX IF NOT EXISTS idx_images_lru ON images(last_used_at)`
 		]
+	},
+	{
+		// UX round 5 perf fix: image BYTES move OUT of the SQLite `images.body`
+		// blob column into an external file store (OPFS/Filesystem) — the DB now
+		// keeps only a `path`. Storing image blobs in the DB forced every read/
+		// write across the @capacitor-community/sqlite bridge on the WebView main
+		// thread on native, freezing the UI while the feed loaded covers. The old
+		// `body` column is left in place (harmless, unused); legacy rows lacking a
+		// `path` are pruned lazily on read (imagesRepo.get).
+		name: 'image bytes to external file store',
+		up: [`ALTER TABLE images ADD COLUMN path TEXT`]
 	}
 ];
 

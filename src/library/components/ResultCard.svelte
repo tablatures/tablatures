@@ -7,7 +7,7 @@
 	import { favoritesStore } from '../utils/favorites';
 	import { placeholderArtwork } from '../utils/placeholder';
 	import { resolveArtwork } from '../utils/artworkResolver';
-	import { cacheArtistImage } from '../utils/artworkCache';
+	import { queueArtistImageForCache } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -35,7 +35,7 @@
 	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
 		if (primary) {
 			resolvedSrc = primary;
-			if (a) void cacheArtistImage(a, primary);
+			if (a) queueArtistImageForCache(a, primary);
 			return;
 		}
 		if (loading) return;

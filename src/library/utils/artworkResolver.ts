@@ -24,7 +24,7 @@
 import { browser } from '$app/environment';
 import { getArtwork, normalizeArtworkKey } from './artwork';
 import { enrichArtistImage, safeImageUrl } from './artistImage';
-import { cacheArtistImage, getCachedArtistObjectUrl } from './artworkCache';
+import { queueArtistImageForCache, getCachedArtistObjectUrl } from './artworkCache';
 import { attributeAlbum, artistMatches, type AlbumCandidate } from './metadataMatch';
 import { resolveArtworkWith, type ArtworkQuery, type ResolveDeps } from './artworkChain';
 
@@ -83,7 +83,8 @@ function realDeps(): ResolveDeps {
 		getCachedArtistUrl: (artist) => getCachedArtistObjectUrl(artist),
 		getNetworkArtistUrl: async (artist) => {
 			const url = await enrichArtistImage(artist);
-			if (url) void cacheArtistImage(artist, url); // warm the offline byte cache
+			// Warm the offline byte cache OFF the critical path (idle/favorites only).
+			if (url) queueArtistImageForCache(artist, url);
 			return url;
 		},
 		getAttributedArtworkUrl: (artist, title) => fetchAttributedArtwork(artist, title),
@@ -100,8 +101,8 @@ function realDeps(): ResolveDeps {
 export async function resolveArtwork(q: ArtworkQuery): Promise<string | null> {
 	if (!browser) return null;
 	const url = await resolveArtworkWith(realDeps(), q);
-	// Warm the byte cache from any allowlisted network URL we resolved (blob:
-	// URLs are already cached; that's where they came from).
-	if (url && q.artist && !url.startsWith('blob:')) void cacheArtistImage(q.artist, url);
+	// Warm the byte cache from any allowlisted network URL we resolved, OFF the
+	// critical path (idle drain / favorites only). blob: URLs are already cached.
+	if (url && q.artist && !url.startsWith('blob:')) queueArtistImageForCache(q.artist, url);
 	return url;
 }
