@@ -22,7 +22,10 @@
 		beatCursorEl,
 		videoHandlers,
 		playShellEl,
-		playSheetInView
+		playSheetInView,
+		playSheetEnabled,
+		playSheetOpen,
+		playerBarHeight
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
@@ -338,6 +341,10 @@
 	// Live height of the sticky control bar, exposed as a CSS var so floating
 	// layers and the settings sheet can anchor above it without hardcoded offsets
 	let barHeight = 0;
+	let barEl: HTMLElement | undefined;
+	// Publish the measured bar height so the mobile bottom sheet can sit flush on
+	// top of it (keeping the transport controls visible/tappable behind the sheet).
+	$: if (browser) playerBarHeight.set(barHeight);
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -1841,52 +1848,105 @@
 		// Now handled by touchstart/move/end handlers above
 	}
 
-	// --- Transport bar → outer shell scroll (item 8) ---
-	// A drag/wheel that starts on the bar's blank/non-interactive zones scrolls
-	// the /play shell (revealing the below-fold recommendations) instead of the
-	// sheet's internals. Interactive controls (buttons, sliders, the progress bar
-	// role="slider", links, inputs) are left untouched so loop drag / buttons /
-	// sliders keep working.
+	// --- Transport bar → outer shell scroll / bottom sheet (items 8, 21) ---
+	// A DRAG that starts anywhere on the bar — the blank/metadata zones AND the
+	// play/pause button row — scrolls the outer view: on desktop it drives the
+	// /play shell (revealing the below-fold recommendations); on phones it opens
+	// the YouTube-style bottom sheet (item 23). TAPS still activate the buttons —
+	// we only claim the gesture once the finger moves past a ~10px threshold, and
+	// suppress the click that would otherwise follow a claimed drag.
+	//
+	// Zones that own their own gesture are left untouched: the progress-bar
+	// scrub / long-press loop (role="slider"), range sliders, and open popover
+	// menus keep working exactly as before.
+	const BAR_DRAG_THRESHOLD = 10; // px before a touch is treated as a drag, not a tap
+	const BAR_SHEET_OPEN_TRAVEL = 24; // px of upward drag that opens the sheet
+	let barTouchStartX = 0;
 	let barTouchStartY = 0;
-	let barTouchScrolling = false;
+	let barTouchLastY = 0;
+	let barTouchTravel = 0; // signed cumulative upward travel while claimed
+	let barGesturePending = false; // touch started on a draggable zone, not yet claimed
+	let barGestureClaimed = false; // moved past the threshold → it's a drag
 
-	function isBarInteractive(target: EventTarget | null): boolean {
+	function isBarOwnGesture(target: EventTarget | null): boolean {
+		// Buttons and links are intentionally NOT here: a drag on them scrolls the
+		// view while a tap still clicks (item 21). Only the scrub/slider/menu zones
+		// keep their own drag/scroll behaviour.
 		const el = target as HTMLElement | null;
-		return !!el?.closest?.('button, a, input, [role="slider"], [role="menu"], select');
+		return !!el?.closest?.('input, [role="slider"], [role="menu"], select');
+	}
+
+	/** Drive the outer view by a vertical delta: open the sheet on phones,
+	 *  otherwise scroll the /play shell. */
+	function barDriveScroll(dyUp: number) {
+		if (get(playSheetEnabled)) {
+			barTouchTravel += dyUp;
+			if (barTouchTravel >= BAR_SHEET_OPEN_TRAVEL) playSheetOpen.set(true);
+		} else {
+			const shell = get(playShellEl);
+			if (shell) shell.scrollBy({ top: -dyUp });
+		}
 	}
 
 	function onBarWheel(e: WheelEvent) {
 		// Leave interactive controls (open popover menus, sliders) to their own
-		// scroll behaviour; only the bar's blank/metadata zones drive the shell.
-		if (isBarInteractive(e.target)) return;
-		const shell = get(playShellEl);
-		if (!shell) return;
-		shell.scrollBy({ top: e.deltaY });
+		// scroll behaviour; only the bar's blank/metadata/button zones drive the view.
+		if (isBarOwnGesture(e.target)) return;
+		if (get(playSheetEnabled)) {
+			if (e.deltaY < 0) playSheetOpen.set(true); // scroll up on the bar opens the sheet
+		} else {
+			const shell = get(playShellEl);
+			if (!shell) return;
+			shell.scrollBy({ top: e.deltaY });
+		}
 		e.preventDefault();
 	}
 
+	function suppressNextBarClick() {
+		if (!barEl) return;
+		const handler = (ev: Event) => {
+			ev.stopPropagation();
+			ev.preventDefault();
+		};
+		barEl.addEventListener('click', handler, { capture: true, once: true });
+		// Safety: if no click follows the drag, drop the one-shot listener.
+		setTimeout(() => barEl?.removeEventListener('click', handler, true), 400);
+	}
+
 	function onBarTouchStart(e: TouchEvent) {
-		if (isBarInteractive(e.target) || e.touches.length !== 1) {
-			barTouchScrolling = false;
+		if (isBarOwnGesture(e.target) || e.touches.length !== 1) {
+			barGesturePending = false;
 			return;
 		}
+		barTouchStartX = e.touches[0].clientX;
 		barTouchStartY = e.touches[0].clientY;
-		barTouchScrolling = true;
+		barTouchLastY = barTouchStartY;
+		barTouchTravel = 0;
+		barGesturePending = true;
+		barGestureClaimed = false;
 	}
 
 	function onBarTouchMove(e: TouchEvent) {
-		if (!barTouchScrolling) return;
-		const shell = get(playShellEl);
-		if (!shell) return;
-		const y = e.touches[0].clientY;
-		const dy = barTouchStartY - y;
-		barTouchStartY = y;
-		shell.scrollBy({ top: dy });
+		if (!barGesturePending) return;
+		const t = e.touches[0];
+		if (!t) return;
+		if (!barGestureClaimed) {
+			const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
+			if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
+			barGestureClaimed = true;
+			barTouchLastY = t.clientY;
+		}
+		const dyUp = barTouchLastY - t.clientY; // + when the finger moves up
+		barTouchLastY = t.clientY;
+		barDriveScroll(dyUp);
 		e.preventDefault();
 	}
 
 	function onBarTouchEnd() {
-		barTouchScrolling = false;
+		// A claimed drag must not also fire the button's click.
+		if (barGestureClaimed) suppressNextBarClick();
+		barGesturePending = false;
+		barGestureClaimed = false;
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -3940,6 +4000,7 @@
 		on:touchmove|nonpassive={onBarTouchMove}
 		on:touchend={onBarTouchEnd}
 		on:touchcancel={onBarTouchEnd}
+		bind:this={barEl}
 		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
