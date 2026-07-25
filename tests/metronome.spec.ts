@@ -6,20 +6,23 @@ test.describe('Metronome', () => {
 	// Use the mobile home layout so the compact tool buttons are present.
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test('opens via header button and keyboard, toggles start/stop, closes with cross and Escape', async ({
+	test('opens via home button and keyboard, toggles start/stop, closes with cross and Escape', async ({
 		page
 	}) => {
 		await setupMockApi(page);
 		await page.goto('/');
 
 		const dialog = page.getByRole('dialog', { name: 'Metronome' });
-		const headerBtn = page.locator('header button[aria-label="Metronome"]');
-		await expect(headerBtn).toBeVisible();
+		// The tuner/metronome header buttons are hidden on small screens (item 4)
+		// to declutter the top bar; the home-page button is the mobile affordance.
+		await expect(page.locator('header button[aria-label="Metronome"]')).toBeHidden();
+		const homeBtn = page.getByRole('button', { name: 'Open metronome' });
+		await expect(homeBtn).toBeVisible();
 
-		// Open via the header button. Retry the click until it lands: the header
+		// Open via the home button. Retry the click until it lands: the view
 		// hydrates a beat after first paint, so an early click can be a no-op.
 		await expect(async () => {
-			if (!(await dialog.isVisible())) await headerBtn.click();
+			if (!(await dialog.isVisible())) await homeBtn.click();
 			await expect(dialog).toBeVisible({ timeout: 500 });
 		}).toPass({ timeout: 15000 });
 

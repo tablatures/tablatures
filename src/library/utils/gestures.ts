@@ -382,6 +382,11 @@ export interface PullToRefreshParams {
 	enabled?: boolean;
 }
 
+/** After any scroll (including fling momentum) the scroller must be at rest for
+ *  this long before a pull may ARM — so catching a fling right as it lands at
+ *  the top can never be mistaken for a deliberate pull-to-refresh. */
+export const PULL_MOMENTUM_SETTLE_MS = 250;
+
 export function pullToRefresh(
 	node: HTMLElement,
 	params: PullToRefreshParams
@@ -393,7 +398,12 @@ export function pullToRefresh(
 	let pulling = false;
 	let refreshing = false;
 	let readyFired = false;
+	/** Timestamp of the last observed scroll anywhere on the page. */
+	let lastScrollTs = 0;
 
+	function nowMs(): number {
+		return typeof performance !== 'undefined' ? performance.now() : Date.now();
+	}
 	function scrollTop(): number {
 		if (p.getScrollTop) return p.getScrollTop();
 		return typeof window !== 'undefined' ? window.scrollY : 0;
@@ -406,9 +416,19 @@ export function pullToRefresh(
 		p.onPull?.(shown, pullProgress(distance, trigger()));
 	}
 
+	// A pull ARMS only when, at the instant the touch STARTS, the scroller is
+	// genuinely at rest at the very top. Two independent guards:
+	//   1. `scrollTop() === 0` — evaluated once here at touchstart, never
+	//      re-armed mid-gesture (begin() is only ever called from
+	//      touchstart/pointerdown), so a fling that reaches the top DURING a
+	//      touch can't arm it.
+	//   2. no scroll (incl. momentum) in the last PULL_MOMENTUM_SETTLE_MS — this
+	//      rejects the "catch the fling as it lands at the top" case that was
+	//      accidentally triggering refreshes.
 	function begin(y: number) {
 		if (p.enabled === false || refreshing) return;
 		if (scrollTop() > 0) return;
+		if (nowMs() - lastScrollTs < PULL_MOMENTUM_SETTLE_MS) return;
 		startY = y;
 		pulling = true;
 		readyFired = false;
@@ -497,6 +517,13 @@ export function pullToRefresh(
 		end();
 	}
 
+	// Momentum guard: a capturing scroll listener on window sees scroll events
+	// from ANY element (scroll doesn't bubble, but capture-phase delivery does),
+	// so it tracks the last time the page — window or a nested container — moved.
+	function onScroll() {
+		lastScrollTs = nowMs();
+	}
+
 	node.addEventListener('touchstart', onTouchStart, { passive: true });
 	node.addEventListener('touchmove', onTouchMove, { passive: false });
 	node.addEventListener('touchend', onTouchEnd);
@@ -504,6 +531,7 @@ export function pullToRefresh(
 	node.addEventListener('pointerdown', onPointerDown);
 	window.addEventListener('pointermove', onPointerMove);
 	window.addEventListener('pointerup', onPointerUp);
+	window.addEventListener('scroll', onScroll, { passive: true, capture: true });
 
 	return {
 		update(next: PullToRefreshParams) {
@@ -517,6 +545,7 @@ export function pullToRefresh(
 			node.removeEventListener('pointerdown', onPointerDown);
 			window.removeEventListener('pointermove', onPointerMove);
 			window.removeEventListener('pointerup', onPointerUp);
+			window.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions);
 		}
 	};
 }

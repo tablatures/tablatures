@@ -79,9 +79,9 @@
 		? 'shadow-sm'
 		: ''}"
 >
-	<!-- Slightly taller on small screens so header controls clear the 44px
-	     touch floor comfortably; back to 56px from sm up. -->
-	<div class="flex items-center h-16 sm:h-14 px-4 gap-2 sm:gap-3">
+	<!-- Taller on small screens (72px) with larger targets so fingers don't
+	     misclick the top bar; back to 56px from sm up. -->
+	<div class="flex items-center h-[4.5rem] sm:h-14 px-4 gap-1 sm:gap-3">
 		<!-- Left: logo. Equal-weight flex-1 with the right actions so the search
 		     bar between them lands in the true horizontal center of the header. -->
 		<div class="flex items-center flex-1 min-w-0">
@@ -126,14 +126,18 @@
 					<IconButton
 						icon="search"
 						label="Search"
+						size="lg"
 						on:click={() => (mobileSearchOpen = !mobileSearchOpen)}
 					/>
 				</div>
 			{/if}
 
+			<!-- Tuner & Metronome: md+ only. On phones they declutter the top bar
+			     and remain reachable from the home-page buttons (g/m shortcuts on
+			     desktop unaffected). -->
 			<button
 				on:click={() => tunerOpen.update(v => !v)}
-				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$tunerOpen
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"
@@ -146,7 +150,7 @@
 
 			<button
 				on:click={() => metronomeOpen.update(v => !v)}
-				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$metronomeOpen
 					? 'text-tool-600 bg-tool-50 dark:bg-tool-900/30 dark:text-tool-400'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-tool-600 dark:hover:text-tool-400'}"
@@ -159,26 +163,26 @@
 
 			<a
 				href="{base}/repertoire"
-				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target flex items-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-sm font-medium transition-colors
 					{isOnCollection
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"
 				title="Repertoire"
 				aria-label="Repertoire"
 			>
-				<i class="material-icons-outlined !text-xl">library_music</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl">library_music</i>
 				<span class="hidden lg:inline">Repertoire</span>
 			</a>
 			<a
 				href="{base}/settings"
-				class="tap-target flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+				class="tap-target flex items-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-sm font-medium transition-colors
 					{isOnSettings
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
 					: 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-violet-500'}"
 				title="Settings"
 				aria-label="Settings"
 			>
-				<i class="material-icons-outlined !text-xl">settings</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl">settings</i>
 				<span class="hidden lg:inline">Settings</span>
 			</a>
 			<ThemeToggle />

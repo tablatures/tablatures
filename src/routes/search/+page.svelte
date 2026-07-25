@@ -112,6 +112,7 @@
 		return url;
 	}
 	let loading = false;
+	let loadStartTs = 0;
 	let error = '';
 	let offline = false;
 	let apiAvailable = true;
@@ -451,6 +452,8 @@
 
 		if (currentPage === 1) {
 			loading = true;
+			loadStartTs =
+				typeof performance !== 'undefined' ? performance.now() : Date.now();
 			// Clear previous results up-front so a new search doesn't leak
 			// stale tabs into the merge path when local-search returns an
 			// empty list (in which case `tabs` would otherwise still hold
@@ -523,6 +526,16 @@
 				fetchArtworkForTabs(liveData.tabs);
 			}
 		} catch (err: any) {
+			// Keep the loader visible a beat before flipping to offline/error so a
+			// fast-failing retry doesn't stutter (loader → 1-frame offline flash).
+			if (currentPage === 1 && loading) {
+				const MIN_LOADING_MS = 500;
+				const nowTs =
+					typeof performance !== 'undefined' ? performance.now() : Date.now();
+				const elapsed = nowTs - loadStartTs;
+				if (elapsed < MIN_LOADING_MS)
+					await new Promise((r) => setTimeout(r, MIN_LOADING_MS - elapsed));
+			}
 			if (err?.name === 'AbortError') {
 				error = 'Search timed out.';
 			} else if (isOfflineErrorLike(err)) {

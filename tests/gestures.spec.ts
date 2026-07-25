@@ -82,6 +82,62 @@ test('pull-to-refresh fires a refetch at the threshold and shows its indicator',
 	await expect.poll(() => searchCalls, { timeout: 5000 }).toBeGreaterThan(before);
 });
 
+test('a partial pull released below the threshold cancels — no refetch', async ({ page }) => {
+	await setupMockApi(page);
+
+	let searchCalls = 0;
+	await page.route('**/api/search?*', (route) => {
+		searchCalls++;
+		return route.fulfill({
+			json: {
+				results: [{ id: 'test-tab', title: 'Test Song', artist: 'Test Artist', source: 'test' }],
+				total: 1,
+				page: 1,
+				totalPages: 1
+			}
+		});
+	});
+
+	await page.goto('/search?q=test');
+	await expect(page.getByText('Test Song').first()).toBeVisible();
+	const before = searchCalls;
+
+	// A short pull (well under the trigger) then release: refresh must NOT fire.
+	await page.evaluate(async () => {
+		const disc = [...document.querySelectorAll('div')].find(
+			(d) =>
+				typeof d.className === 'string' &&
+				d.className.includes('z-[90]') &&
+				d.className.includes('pointer-events-none')
+		);
+		const node = disc?.parentElement;
+		if (!node) return;
+		const mkTouch = (y: number) => new Touch({ identifier: 1, target: node, clientX: 100, clientY: y });
+		const fire = (type: string, y: number, ended = false) =>
+			node.dispatchEvent(
+				new TouchEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					touches: ended ? [] : [mkTouch(y)],
+					targetTouches: ended ? [] : [mkTouch(y)],
+					changedTouches: [mkTouch(y)]
+				})
+			);
+		window.scrollTo(0, 0);
+		fire('touchstart', 80);
+		// Only a tiny drag (raw ~30px → resisted distance stays under the 48px trigger).
+		for (const y of [90, 100, 108, 110]) {
+			fire('touchmove', y);
+			await new Promise((r) => setTimeout(r, 12));
+		}
+		fire('touchend', 110, true);
+	});
+
+	// Give any (erroneous) refetch a chance to land, then assert none happened.
+	await page.waitForTimeout(1200);
+	expect(searchCalls).toBe(before);
+});
+
 /**
  * Synthesize a horizontal swipe on the score surface. dx < 0 (swipe left) seeks
  * +10s; dx > 0 (swipe right) seeks −10s. Fired synchronously so the 400ms

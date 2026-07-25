@@ -10,9 +10,10 @@
 	// threshold it retracts. The page content translates down slightly to
 	// acknowledge the gesture. Respects prefers-reduced-motion (fade only) and
 	// falls back to mouse-drag on the web. Haptic fires at the trigger threshold.
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { pullToRefresh, prefersReducedMotion, type PullState } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
+	import LoadingScore from './LoadingScore.svelte';
 
 	export let disabled = false;
 	/** Extra top offset (px) so the indicator clears a sticky app header. */
@@ -24,12 +25,51 @@
 	let distance = 0;
 	let progress = 0;
 	let state: PullState = 'idle';
+	/** True while the loader fades out in place after a refresh settles. */
+	let fading = false;
+	let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// Once released past the threshold the loader must read as a continuous,
+	// deliberate beat — pull → release → spinner → fade — never a frozen instant
+	// snap even when the refresh resolves immediately from cache.
+	const MIN_REFRESH_MS = 600;
+	const FADE_MS = 300;
+
+	function nowMs() {
+		return typeof performance !== 'undefined' ? performance.now() : Date.now();
+	}
 
 	async function handleRefresh() {
+		const t0 = nowMs();
 		dispatch('refresh');
-		// Give the dispatched async handler a beat so the spinner shows briefly.
-		await new Promise((r) => setTimeout(r, 400));
+		// createEventDispatcher doesn't await the (async) handler, so hold the
+		// loader for a guaranteed minimum: an instant cache hit still shows the
+		// app's standard two-circle loader long enough to feel continuous.
+		const elapsed = nowMs() - t0;
+		if (elapsed < MIN_REFRESH_MS) await new Promise((r) => setTimeout(r, MIN_REFRESH_MS - elapsed));
 	}
+
+	// Intercept the gesture's state stream so we can fade the loader out in place
+	// (opacity 1→0 at the settle position) rather than retracting/snapping it up
+	// the instant the refresh ends.
+	function handleState(next: PullState) {
+		const prev = state;
+		state = next;
+		if (prev === 'refreshing' && next === 'idle') {
+			fading = true;
+			clearTimeout(fadeTimer);
+			fadeTimer = setTimeout(() => {
+				fading = false;
+				distance = 0;
+				progress = 0;
+			}, FADE_MS);
+		} else if (next !== 'idle') {
+			fading = false;
+			clearTimeout(fadeTimer);
+		}
+	}
+
+	onDestroy(() => clearTimeout(fadeTimer));
 
 	// Disc travel: hidden above the content, settling `DISC_SETTLE_PX` below the
 	// top offset right as progress reaches 1 (== trigger). Combined with the
@@ -42,17 +82,21 @@
 	$: clampedProgress = Math.min(1, Math.max(0, progress));
 	$: refreshing = state === 'refreshing';
 	$: ready = state === 'ready';
-	$: active = refreshing || distance > 0;
+	// The two-circle app loader is shown once released past the threshold and
+	// stays through the fade-out.
+	$: showLoader = refreshing || fading;
+	$: active = refreshing || fading || distance > 0;
 
-	// Disc vertical position (relative to the overlay top = topOffset).
-	$: discTranslate = refreshing
+	// Disc vertical position (relative to the overlay top = topOffset). Held at
+	// the settle point while loading AND fading so the fade happens in place.
+	$: discTranslate = showLoader
 		? DISC_SETTLE_PX
 		: DISC_HIDDEN_PX + (DISC_SETTLE_PX - DISC_HIDDEN_PX) * clampedProgress;
-	$: discOpacity = refreshing ? 1 : Math.min(1, clampedProgress * 1.2);
+	$: discOpacity = fading ? 0 : refreshing ? 1 : Math.min(1, clampedProgress * 1.2);
 
 	// Content follows the pull a little; snaps back once refreshing/idle.
 	$: contentTranslate =
-		reduced || refreshing ? 0 : Math.min(distance * 0.42, CONTENT_MAX_PX);
+		reduced || showLoader ? 0 : Math.min(distance * 0.42, CONTENT_MAX_PX);
 
 	// While pulling the arc winds up with progress; the whole ring counter-rotates
 	// like a wound spring. On release it releases into a clockwise spinner.
@@ -61,9 +105,14 @@
 	$: windOffset = RING_C * (1 - clampedProgress);
 	$: windRotation = -clampedProgress * 270;
 
-	// Transition timing: follow the finger live while pulling; ease on settle/retract.
-	$: settleTransition = state === 'idle' || refreshing ? 'transform 0.25s ease, opacity 0.25s ease' : 'none';
-	$: contentTransition = state === 'idle' || refreshing ? 'transform 0.25s ease' : 'none';
+	// Transition timing: follow the finger live while pulling; ease on settle;
+	// fade opacity out in place when the refresh ends.
+	$: settleTransition = fading
+		? `opacity ${FADE_MS}ms ease`
+		: state === 'idle' || refreshing
+			? 'transform 0.25s ease, opacity 0.25s ease'
+			: 'none';
+	$: contentTransition = state === 'idle' || showLoader ? 'transform 0.25s ease' : 'none';
 </script>
 
 <div
@@ -74,7 +123,7 @@
 			distance = d;
 			progress = pr;
 		},
-		onState: (s) => (state = s),
+		onState: handleState,
 		haptic: hapticTap,
 		enabled: !disabled
 	}}
@@ -87,36 +136,39 @@
 		aria-hidden={!active}
 	>
 		<div
-			class="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-black/5 dark:bg-neutral-800 dark:ring-white/10"
+			class="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-black/5 dark:bg-neutral-800 dark:ring-white/10"
 			style="transform: translateY({reduced ? DISC_SETTLE_PX : discTranslate}px); opacity: {reduced &&
 			!active
 				? 0
 				: discOpacity}; transition: {settleTransition};"
 		>
-			<svg
-				width="22"
-				height="22"
-				viewBox="0 0 24 24"
-				aria-hidden="true"
-				class="{refreshing && !reduced ? 'animate-spin' : ''} {ready || refreshing
-					? 'text-violet-500'
-					: 'text-violet-400 dark:text-violet-400'}"
-				style={refreshing || reduced
-					? ''
-					: `transform: rotate(${windRotation}deg); transition: transform 0.08s linear;`}
-			>
-				<circle
-					cx="12"
-					cy="12"
-					r={RING_R}
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.5"
-					stroke-linecap="round"
-					stroke-dasharray={RING_C}
-					stroke-dashoffset={refreshing ? RING_C * 0.25 : windOffset}
-				/>
-			</svg>
+			{#if showLoader}
+				<!-- Released past the threshold: the app's standard two-circle
+				     loader (same visual as page loads) spins during the refresh. -->
+				<LoadingScore size="sm" message="" />
+			{:else}
+				<!-- While pulling: a single arc that winds up with pull progress. -->
+				<svg
+					width="22"
+					height="22"
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class={ready ? 'text-violet-500' : 'text-violet-400 dark:text-violet-400'}
+					style={reduced ? '' : `transform: rotate(${windRotation}deg); transition: transform 0.08s linear;`}
+				>
+					<circle
+						cx="12"
+						cy="12"
+						r={RING_R}
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-dasharray={RING_C}
+						stroke-dashoffset={windOffset}
+					/>
+				</svg>
+			{/if}
 		</div>
 	</div>
 
