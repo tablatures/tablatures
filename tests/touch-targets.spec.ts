@@ -20,4 +20,32 @@ test.describe('touch targets', () => {
 			expect(box!.height).toBeGreaterThanOrEqual(FLOOR);
 		}
 	});
+
+	// P3 — header controls (tuner/metronome/repertoire/settings) use the
+	// `.tap-target` halo: an invisible ::after (inset -12px) that forwards taps,
+	// so the *effective* hit area is the visible box grown by the halo on each
+	// side. We assert the effective size clears the 44px floor.
+	test('header controls meet the 44px touch floor via their tap-target halo', async ({ page }) => {
+		await setupMockApi(page);
+		await page.goto('/');
+		await page.waitForTimeout(300);
+
+		for (const name of ['Tuner', 'Metronome', 'Repertoire', 'Settings']) {
+			const ctrl = page.locator('header [aria-label="' + name + '"]').first();
+			await expect(ctrl).toBeVisible();
+			const eff = await ctrl.evaluate((el) => {
+				const box = el.getBoundingClientRect();
+				const after = getComputedStyle(el, '::after');
+				const inset = (v: string) => Math.abs(parseFloat(v) || 0);
+				// inset:-12px sets top/right/bottom/left; the halo extends each edge.
+				const top = inset(after.top);
+				const bottom = inset(after.bottom);
+				const left = inset(after.left);
+				const right = inset(after.right);
+				return { w: box.width + left + right, h: box.height + top + bottom };
+			});
+			expect(eff.h, `effective height for ${name}`).toBeGreaterThanOrEqual(FLOOR);
+			expect(eff.w, `effective width for ${name}`).toBeGreaterThanOrEqual(FLOOR);
+		}
+	});
 });

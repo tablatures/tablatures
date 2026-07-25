@@ -78,6 +78,9 @@ export async function initData(): Promise<void> {
 		// optimistically; this confirms the async repo write landed).
 		if (import.meta.env.DEV && typeof window !== 'undefined') {
 			(window as any).__testFavorites = () => favoritesRepo.list();
+			// Expose the tabs DAO too so e2e can drive the LRU/budget path
+			// (pinned favorites survive eviction) against the real worker DB.
+			(window as any).__testTabs = () => tabsRepo;
 		}
 		resolveReady();
 	} catch (err) {
