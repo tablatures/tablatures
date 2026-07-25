@@ -31,7 +31,8 @@
 		audioSource,
 		beatCursorEl,
 		videoHandlers,
-		videoSyncOffset
+		videoSyncOffset,
+		playSheetOpen
 	} from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
@@ -619,6 +620,11 @@
 		hideSplash();
 		let removeBack = () => {};
 		onBackButton((canGoBack) => {
+			// The /play bottom sheet takes back-button priority: close it first.
+			if (get(playSheetOpen)) {
+				playSheetOpen.set(false);
+				return;
+			}
 			if (get(metronomeOpen)) {
 				metronomeOpen.set(false);
 				return;

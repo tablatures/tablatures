@@ -14,6 +14,11 @@
 	// 'strip' = compact horizontal cards (legacy); 'list' = full-size ResultCard
 	// rows for the below-the-fold details area (vertical room available there).
 	export let variant: 'strip' | 'list' = 'strip';
+	// Scroll container the infinite-load sentinel is watched against (item 24).
+	// Desktop passes the /play shell scroller; the mobile bottom sheet passes its
+	// own body scroller so "scroll to the bottom → load more" fires inside it. When
+	// null the observer falls back to the viewport (legacy behaviour).
+	export let root: HTMLElement | null = null;
 
 	const dispatch = createEventDispatcher<{ loaded: number }>();
 
@@ -197,21 +202,32 @@
 		}
 	}
 
-	onMount(() => {
+	function setupObserver() {
 		if (typeof IntersectionObserver === 'undefined') return;
+		observer?.disconnect();
 		observer = new IntersectionObserver(
 			(entries) => {
 				if (entries.some((e) => e.isIntersecting)) loadMore();
 			},
-			{ rootMargin: '600px' }
+			// `root: null` watches the viewport (legacy). When the recos live inside a
+			// clipping scroller (the /play shell on desktop, the bottom sheet on
+			// mobile) the sentinel is clipped out of the viewport, so the root MUST be
+			// that scroller or loadMore never fires (item 24).
+			{ root: root ?? null, rootMargin: '600px' }
 		);
+		if (sentinelEl) observer.observe(sentinelEl);
+	}
+
+	onMount(() => {
+		setupObserver();
 		return () => observer?.disconnect();
 	});
 
-	// (Re)observe the sentinel whenever it mounts (list variant only).
-	$: if (observer && sentinelEl) {
-		observer.disconnect();
-		observer.observe(sentinelEl);
+	// (Re)build the observer whenever the sentinel mounts or the scroll root
+	// changes (the mobile sheet's scroller mounts after this component).
+	$: if (typeof IntersectionObserver !== 'undefined') {
+		root;
+		if (sentinelEl) setupObserver();
 	}
 
 	async function resolveArt() {

@@ -54,6 +54,25 @@ export const playShellEl = writable<HTMLElement | null>(null);
 // complementary (only one is ever relevant at a time).
 export const playSheetInView = writable(true);
 
+// --- Mobile bottom sheet (YouTube-style) ---
+// On phones the below-fold details (playlist + recommendations) live in a bottom
+// sheet that slides up OVER the player instead of a free-scroll section. These
+// stores coordinate the sheet across the route (+page), the transport bar
+// (TabViewer, so a bar drag opens it — item 21) and the Android back handler
+// (+layout closes it first).
+//
+// True only while the phone-sized /play route is mounted (gates the bar-drag →
+// open behaviour so desktop keeps its shell scroll).
+export const playSheetEnabled = writable(false);
+// Open/closed state of the bottom sheet (open/closed only — no half state).
+export const playSheetOpen = writable(false);
+// The sheet's internal scroll container, used as the IntersectionObserver root
+// for the recommendations infinite-load once they live inside the sheet (item 24).
+export const playSheetEl = writable<HTMLElement | null>(null);
+// Live height (px) of the transport bar, published by TabViewer so the sheet can
+// sit flush on top of it (keeping the player controls visible/tappable behind).
+export const playerBarHeight = writable(0);
+
 // Reactive player state for UI binding
 export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });
 
