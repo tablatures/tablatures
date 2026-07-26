@@ -273,6 +273,13 @@
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
 	$: metadataHidden = isFullscreen || isMobileLandscape;
+	// Is the bar's bottom (metadata) row on screen? It carries the sheet's grab
+	// handle; when it isn't there (landscape phones) the handle floats in the
+	// bar's bottom padding instead.
+	$: metadataRowVisible = scoreLoaded && !isFullscreen && !isMobileLandscape;
+	// Landscape phones sit right against the display edges (and the notch), so the
+	// bar gets a little gutter on top of the safe-area insets.
+	$: barSideGutter = isMobileLandscape ? 10 : 0;
 	// Phone-sized bar: the transport row drops the lyrics/video buttons (moved into
 	// the settings panel) and the metadata row collapses to just the source pill.
 	// Excludes the large docked-console layout (landscape tablets/desktops).
@@ -363,6 +370,9 @@
 	// normally overflows 48px upward) collapses so it cannot steal the touches
 	// that belong to the sheet's list rows.
 	$: sheetCoversScore = $playSheetEnabled && !$playSheetInView;
+	// The bar advertises the sheet drag only where the sheet exists, only while it
+	// holds something worth pulling up, and never while it is already open.
+	$: showSheetHint = $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -1764,7 +1774,15 @@
 
 	// Touch entry points — thin wrappers over the shared gesture engine. Edge
 	// resize / inside-move of an existing loop keep their dedicated handlers.
+	//
+	// `pbSuppressed` is set when a clearly VERTICAL swipe that started on the
+	// scrub zone has been handed to the bottom sheet (see onBarTouchMove): from
+	// that point the progress bar ignores the rest of the gesture so the finger
+	// can't scrub or seed a loop on its way up.
+	let pbSuppressed = false;
+
 	function handleProgressBarTouchStart(event: TouchEvent) {
+		pbSuppressed = false;
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.touches[0].clientX - rect.left;
@@ -1792,11 +1810,24 @@
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
-		if (!range || !duration || !event.touches[0]) return;
-		pbMoveGesture(event.touches[0].clientX);
+		if (pbSuppressed) return;
+		const t = event.touches[0];
+		if (!range || !duration || !t) return;
+		// A vertical swipe from the scrub zone is a sheet gesture, not a scrub:
+		// swallow it here BEFORE the (already-armed) hold or scrub can react. The
+		// bar-level handler below is what actually claims it. Once the hold HAS
+		// fired (loop-sizing) or a horizontal scrub is underway, the progress bar
+		// keeps the gesture for good — the loop long-press never regresses.
+		if (!pbLoopCreating && !pbScrubbing && !isDraggingLoop && isVerticalSheetSwipe(t)) return;
+		pbMoveGesture(t.clientX);
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
+		if (pbSuppressed) {
+			pbSuppressed = false;
+			clearTimeout(longPressTimer);
+			return;
+		}
 		if (!event.changedTouches[0]) {
 			clearTimeout(longPressTimer);
 			return;
@@ -1867,30 +1898,52 @@
 	}
 
 	// --- Transport bar → outer shell scroll / bottom sheet (items 8, 21) ---
-	// A DRAG that starts anywhere on the bar — the blank/metadata zones AND the
-	// play/pause button row — scrolls the outer view: on desktop it drives the
-	// /play shell (revealing the below-fold recommendations); on phones it opens
-	// the YouTube-style bottom sheet (item 23). TAPS still activate the buttons —
-	// we only claim the gesture once the finger moves past a ~10px threshold, and
+	// A DRAG that starts anywhere on the bar — the progress-bar strip, the
+	// play/pause button row AND the metadata row (source pill, favourite, share,
+	// download) — scrolls the outer view: on desktop it drives the /play shell
+	// (revealing the below-fold recommendations); on phones it opens the
+	// YouTube-style bottom sheet (item 23). TAPS still activate the buttons — we
+	// only claim the gesture once the finger moves past a ~10px threshold, and
 	// suppress the click that would otherwise follow a claimed drag.
 	//
-	// Zones that own their own gesture are left untouched: the progress-bar
-	// scrub / long-press loop (role="slider"), range sliders, and open popover
-	// menus keep working exactly as before.
+	// The progress bar owns its own gesture (scrub + long-press loop) and KEEPS
+	// priority: it only yields when the swipe is unmistakably vertical (see
+	// isVerticalSheetSwipe) and neither the hold nor a scrub has engaged.
+	// Range sliders and open popover menus are never claimed.
 	const BAR_DRAG_THRESHOLD = 10; // px before a touch is treated as a drag, not a tap
+	// Stricter, vertical-only threshold for swipes that begin on the scrub zone —
+	// the loop long-press must never lose a gesture to a sloppy finger.
+	const BAR_VERTICAL_CLAIM_PX = 14;
+	const BAR_VERTICAL_RATIO = 1.6; // |dy| must beat |dx| by this much
 	let barTouchStartX = 0;
 	let barTouchStartY = 0;
 	let barTouchLastY = 0;
 	let barGesturePending = false; // touch started on a draggable zone, not yet claimed
 	let barGestureClaimed = false; // moved past the threshold → it's a drag
 	let barDrivesSheet = false; // this drag is feeding the mobile bottom sheet
+	let barFromScrubZone = false; // gesture began on the progress bar
 
 	function isBarOwnGesture(target: EventTarget | null): boolean {
 		// Buttons and links are intentionally NOT here: a drag on them scrolls the
-		// view while a tap still clicks (item 21). Only the scrub/slider/menu zones
-		// keep their own drag/scroll behaviour.
+		// view while a tap still clicks (item 21). Only the slider/menu zones keep
+		// their own drag/scroll behaviour outright; the progress bar is handled
+		// separately (it yields to a clearly vertical swipe).
 		const el = target as HTMLElement | null;
+		if (el?.closest?.('[data-scrub-zone]')) return false;
 		return !!el?.closest?.('input, [role="slider"], [role="menu"], select');
+	}
+
+	function isScrubZone(target: EventTarget | null): boolean {
+		return !!(target as HTMLElement | null)?.closest?.('[data-scrub-zone]');
+	}
+
+	/** True when a touch that started on the scrub zone has moved far enough, and
+	 *  vertically enough, that the user clearly means "open the sheet". */
+	function isVerticalSheetSwipe(t: Touch): boolean {
+		if (!barGesturePending || !barFromScrubZone) return false;
+		const dy = t.clientY - barTouchStartY;
+		const dx = t.clientX - barTouchStartX;
+		return Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO;
 	}
 
 	/** Drive the outer view by a vertical delta: on phones the finger moves the
@@ -1933,8 +1986,10 @@
 	function onBarTouchStart(e: TouchEvent) {
 		if (isBarOwnGesture(e.target) || e.touches.length !== 1) {
 			barGesturePending = false;
+			barFromScrubZone = false;
 			return;
 		}
+		barFromScrubZone = isScrubZone(e.target);
 		barTouchStartX = e.touches[0].clientX;
 		barTouchStartY = e.touches[0].clientY;
 		barTouchLastY = barTouchStartY;
@@ -1947,14 +2002,28 @@
 		const t = e.touches[0];
 		if (!t) return;
 		if (!barGestureClaimed) {
-			const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
-			if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
+			let claimFrom: number;
+			if (barFromScrubZone) {
+				// The scrub / long-press-loop gesture owns the progress bar. Give it up
+				// only for an unmistakably vertical swipe, and only while it hasn't
+				// engaged yet — and only where the sheet exists (phones), so the
+				// desktop scrub is bit-for-bit unchanged.
+				if (pbLoopCreating || pbScrubbing || isDraggingLoop) return;
+				if (!get(playSheetEnabled) || !isVerticalSheetSwipe(t)) return;
+				pbSuppressed = true; // the progress bar drops the rest of this gesture
+				clearTimeout(longPressTimer);
+				claimFrom = BAR_VERTICAL_CLAIM_PX;
+			} else {
+				const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
+				if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
+				claimFrom = BAR_DRAG_THRESHOLD;
+			}
 			barGestureClaimed = true;
 			// Count travel from the edge of the tap slop, NOT from this event: touch
 			// moves get coalesced, so a fast flick can deliver its whole distance in
 			// one event — resetting to it would throw the entire gesture away.
 			const dy = t.clientY - barTouchStartY;
-			barTouchLastY = barTouchStartY + Math.sign(dy) * BAR_DRAG_THRESHOLD;
+			barTouchLastY = barTouchStartY + Math.sign(dy) * claimFrom;
 			// Hand the gesture to the bottom sheet: from here every finger delta
 			// moves it continuously (item 21), and its release decides where it lands.
 			barDrivesSheet = get(playSheetEnabled);
@@ -1973,6 +2042,7 @@
 		barDrivesSheet = false;
 		barGesturePending = false;
 		barGestureClaimed = false;
+		barFromScrubZone = false;
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -4027,7 +4097,7 @@
 	     (z-52) slides up OVER it and covers it while the below-fold content is
 	     open — the bar stays mounted underneath and comes back untouched when the
 	     sheet closes. The bar carries the sheet's only discovery affordance: the
-	     drag gesture, plus the subtle "Up next" hint on its top edge. -->
+	     drag gesture, plus the grab-handle hint centered in its bottom row. -->
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
@@ -4041,35 +4111,19 @@
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
-		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right)"
+		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: calc(env(safe-area-inset-left) + {barSideGutter}px); padding-right: calc(env(safe-area-inset-right) + {barSideGutter}px)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
 	>
-		<!-- "Drag up for more" hint (phones only). It lives INSIDE the bar, on its
-		     top edge, so nothing floats over the score: a hairline grip + a
-		     very-low-contrast micro label. Deliberately quiet — the gesture is the
-		     real affordance — but tapping it opens the sheet as a bonus. Hidden
-		     when the sheet is already up, when there is nothing below the fold, and
-		     in fullscreen. `z-20` keeps it above the progress bar's invisible
-		     upward hit expander, which would otherwise swallow the tap. -->
-		{#if $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen}
-			<button
-				class="sheet-hint relative z-20 flex w-full items-center justify-center gap-0.5 pt-1 pb-0.5 text-neutral-400 dark:text-neutral-500 active:text-neutral-500 dark:active:text-neutral-400"
-				on:click={() => playSheetOpen.set(true)}
-				aria-label="Show what's up next"
-			>
-				<i class="material-icons !text-base leading-none" aria-hidden="true"
-					>keyboard_arrow_up</i
-				>
-				<span class="text-[10px] font-medium tracking-wide">Up next</span>
-			</button>
-		{/if}
-
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
-		     desktop keeps the thin-with-hover-grow behavior. -->
+		     desktop keeps the thin-with-hover-grow behavior.
+		     `data-scrub-zone` marks it as the one part of the bar that owns its own
+		     gesture: the bar-level drag-to-open-the-sheet claim only takes it over
+		     for an unmistakably vertical swipe (see isVerticalSheetSwipe). -->
 		<div
+			data-scrub-zone
 			class="relative h-3 sm:h-1 sm:hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
 			style="touch-action: none;"
 			role="slider"
@@ -4757,7 +4811,7 @@
 		     ~414px tall). Narrow-portrait phones still show it, because the
 		     vertical space is there and the tags/country have already been
 		     pruned via the sm:-gated classes below. -->
-		{#if scoreLoaded && !isFullscreen && !isMobileLandscape}
+		{#if metadataRowVisible}
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
 					<!-- Album artwork or artist image (hidden on the phone bar) -->
@@ -4937,7 +4991,30 @@
 							</div>
 						{/if}
 					</div>
-					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+
+					<!-- Sheet grab handle: the bar's drag affordance, centered in this
+					     bottom row between the source pill and the action icons. Same
+					     visual language as the sheet's own top grip so it reads as "drag
+					     here"; tapping it opens the sheet too. Both flanking blocks are
+					     `flex-1 basis-0`, which is what keeps the handle in the middle
+					     regardless of how wide the source label is. -->
+					{#if showSheetHint}
+						<button
+							class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+							on:click={() => playSheetOpen.set(true)}
+							aria-label="Show what's up next"
+							title="Up next"
+						>
+							<span class="sheet-hint-grip" aria-hidden="true"></span>
+							<span class="sheet-hint-label">Up next</span>
+						</button>
+					{/if}
+
+					<div
+						class="flex items-center gap-0.5 sm:gap-1 {showSheetHint
+							? 'flex-1 basis-0 justify-end'
+							: 'flex-shrink-0'}"
+					>
 						{#if tabId}
 							<FavoriteButton
 								id={tabId}
@@ -4991,6 +5068,21 @@
 					</div>
 				</div>
 			</div>
+		{/if}
+
+		<!-- Landscape phones hide the metadata row entirely, so the grab handle gets
+		     its own centered spot in the bar's bottom padding — it costs no layout
+		     height there and still reads as the same "drag here" affordance. -->
+		{#if showSheetHint && !metadataRowVisible}
+			<button
+				class="sheet-hint sheet-hint-float flex items-center justify-center gap-1.5 px-5 py-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+				on:click={() => playSheetOpen.set(true)}
+				aria-label="Show what's up next"
+				title="Up next"
+			>
+				<span class="sheet-hint-grip" aria-hidden="true"></span>
+				<span class="sheet-hint-label">Up next</span>
+			</button>
 		{/if}
 	</div>
 	<!-- end sticky controls wrapper -->
@@ -5436,5 +5528,40 @@
 		content: '';
 		position: absolute;
 		inset: -8px;
+	}
+
+	/* --- Sheet grab handle (the bar's drag affordance) ----------------------
+	   Deliberately the SAME pill as the bottom sheet's own top grip, so the two
+	   ends of the gesture look like one object: pull this pill up, the sheet's
+	   pill is what you push back down. The micro label is a whisper — the grip
+	   plus the drag is the real affordance. */
+	.sheet-hint {
+		z-index: 20; /* above the progress bar's invisible upward hit expander */
+	}
+	.sheet-hint-grip {
+		display: block;
+		width: 36px;
+		height: 4px;
+		border-radius: 999px;
+		background: rgb(163 163 163 / 0.55);
+		transition: background-color 150ms ease;
+	}
+	.sheet-hint:active .sheet-hint-grip {
+		background: rgb(115 115 115 / 0.85);
+	}
+	.sheet-hint-label {
+		font-size: 9px;
+		line-height: 1;
+		font-weight: 500;
+		letter-spacing: 0.03em;
+		opacity: 0.75;
+	}
+	/* Landscape phones have no metadata row: the handle sits in the bar's bottom
+	   padding, centered, costing zero layout height. */
+	.sheet-hint-float {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		bottom: calc(env(safe-area-inset-bottom) + 3px);
 	}
 </style>

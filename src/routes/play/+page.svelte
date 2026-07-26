@@ -56,9 +56,20 @@
 	let initialTrackIndex: number | undefined = undefined;
 
 	// Phone vs desktop: on phones the below-fold details live in a YouTube-style
-	// bottom sheet (item 23) instead of the desktop free-scroll section. Gated by a
-	// small-screen media query so the two tested viewports (390 → sheet, 1280 →
-	// free scroll) resolve deterministically.
+	// bottom sheet (item 23) instead of the desktop free-scroll section.
+	//
+	// Gated by DEVICE SHAPE, not width alone, so a phone gets the sheet in EITHER
+	// orientation — free-scrolling a 390px-tall landscape viewport is practically
+	// impossible to trigger, which is exactly the complaint. The clauses:
+	//   1. narrow viewport            → phone portrait (390x844)
+	//   2. short landscape viewport   → phone on its side (844x390), matching
+	//      TabViewer's own isMobileLandscape rule
+	//   3. coarse pointer + a short-ish landscape viewport → bigger phones held
+	//      sideways, where the width alone says nothing
+	// A real desktop (1280x800, fine pointer) matches none of them and keeps the
+	// free-scroll below-fold the user is happy with.
+	const SHEET_MEDIA_QUERY =
+		'(max-width: 767px), (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px)';
 	let useSheet = false;
 	let sheetMql: MediaQueryList | null = null;
 	function syncUseSheet() {
@@ -405,7 +416,7 @@
 
 	onMount(() => {
 		if (browser) {
-			sheetMql = window.matchMedia('(max-width: 767px)');
+			sheetMql = window.matchMedia(SHEET_MEDIA_QUERY);
 			syncUseSheet();
 			sheetMql.addEventListener('change', syncUseSheet);
 		}

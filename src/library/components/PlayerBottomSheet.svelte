@@ -73,12 +73,6 @@
 	// (item 24) so infinite-load fires when the user scrolls the sheet to its
 	// bottom.
 	$: playSheetEl.set(bodyEl ?? null);
-	// Chrome that floats just above the transport bar (the "back to cursor"
-	// button, the karaoke lyrics strip) sits ABOVE the sheet in the stack, so it
-	// has to step aside as soon as the sheet starts rising over the bar — not a
-	// third of the way up, or it would be painted on top of the playlist.
-	$: playSheetInView.set(pos < 0.03);
-
 	function clamp01(v: number) {
 		return v < 0 ? 0 : v > 1 ? 1 : v;
 	}
@@ -86,6 +80,19 @@
 	function setPos(v: number) {
 		posRaw = v;
 		pos = clamp01(v);
+		// Chrome that floats just above the transport bar (the "back to cursor"
+		// button, the karaoke lyrics strip) sits ABOVE the sheet in the stack, so it
+		// has to step aside as soon as the sheet starts rising over the bar — not a
+		// third of the way up, or it would be painted on top of the playlist.
+		//
+		// Published from HERE, imperatively, rather than as `$: playSheetInView.set(
+		// pos < 0.03)`: `pos` is also written from inside the external-open reactive
+		// block further down (playSheetOpen → settle → setPos), and Svelte folds
+		// that invalidation into the pass already running, so a pos-ONLY reactive
+		// statement is skipped for that change and never re-runs. The symptom was
+		// the karaoke strip staying painted over the open sheet whenever it was
+		// opened by a tap or by Android back instead of by a drag.
+		playSheetInView.set(pos < 0.03);
 	}
 
 	/** Settle the remaining distance to `open`, with direction-dependent physics. */
@@ -182,30 +189,19 @@
 	}
 
 	// --- Touches that land on the sheet itself ---
-	// The grab handle always drags. The body only takes over while it is scrolled
-	// to the very top and the finger goes DOWN (otherwise it is a normal internal
-	// scroll). Content can only scroll internally once the sheet is fully settled.
+	// ONLY the top grab-handle strip drags the sheet. The card content is a plain
+	// scroller: a drag inside it never closes the sheet, in either direction, at
+	// any scroll offset (the user found "pull down from the top closes" hostile —
+	// it hijacked ordinary list scrolling). The three ways out are the handle, the
+	// scrim and the Android back button.
 	let touchLastY = 0;
 	let touchArmed = false;
-	let touchFromBody = false;
-	let touchClaimed = false;
 
 	function onHandleTouchStart(e: TouchEvent) {
 		if (e.touches.length !== 1) return;
 		touchArmed = true;
-		touchFromBody = false;
-		touchClaimed = true;
 		touchLastY = e.touches[0].clientY;
 		begin();
-	}
-
-	function onBodyTouchStart(e: TouchEvent) {
-		if (e.touches.length !== 1) return;
-		touchArmed = true;
-		touchFromBody = true;
-		// At scrollTop 0 a downward drag closes; anywhere else it is a scroll.
-		touchClaimed = false;
-		touchLastY = e.touches[0].clientY;
 	}
 
 	function onSheetTouchMove(e: TouchEvent) {
@@ -213,26 +209,15 @@
 		const t = e.touches[0];
 		if (!t) return;
 		const dyUp = touchLastY - t.clientY;
-		if (!touchClaimed) {
-			// Body-initiated: only a downward pull from the top becomes a drag.
-			if (dyUp >= 0 || (bodyEl?.scrollTop ?? 0) > 0) {
-				if (Math.abs(dyUp) > 2) touchArmed = false; // hand it back to the scroller
-				return;
-			}
-			touchClaimed = true;
-			touchLastY = t.clientY;
-			begin();
-			return;
-		}
 		touchLastY = t.clientY;
 		move(dyUp);
-		if (!touchFromBody || pos < 0.999) e.preventDefault();
+		e.preventDefault();
 	}
 
 	function onSheetTouchEnd() {
 		if (!touchArmed) return;
 		touchArmed = false;
-		if (touchClaimed) end();
+		end();
 	}
 
 	onMount(() => {
@@ -242,8 +227,7 @@
 		mql?.addEventListener?.('change', onPref);
 
 		committedOpen = get(playSheetOpen);
-		pos = committedOpen ? 1 : 0;
-		posRaw = pos;
+		setPos(committedOpen ? 1 : 0);
 
 		// Let the transport bar feed this sheet its finger deltas (item 21).
 		registerSheetDrag({ begin, move, end });
@@ -290,7 +274,9 @@
 	on:touchend={onSheetTouchEnd}
 	on:touchcancel={onSheetTouchEnd}
 >
-	<!-- Grab handle: drag down to return to the score. -->
+	<!-- Grab handle: the ONLY drag that closes the sheet. A comfortable 44px strip
+	     across the whole top of the card, so it can be grabbed without aiming at
+	     the 5px pill. -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div class="sheet-handle" on:touchstart={onHandleTouchStart}>
 		<span class="sheet-grip" aria-hidden="true"></span>
@@ -299,15 +285,9 @@
 		</button>
 	</div>
 
-	<!-- Scrolling body. Only scrolls internally once the sheet is fully settled;
-	     a pull-down from scrollTop 0 starts closing instead. -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		class="sheet-body"
-		class:sheet-body-live={settled}
-		bind:this={bodyEl}
-		on:touchstart={onBodyTouchStart}
-	>
+	<!-- Scrolling body. Scrolls freely once the sheet is fully settled, and never
+	     drags the sheet: content gestures belong to the content. -->
+	<div class="sheet-body" class:sheet-body-live={settled} bind:this={bodyEl}>
 		<!-- Tab info -->
 		<div class="px-4 pt-1">
 			<h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
@@ -382,17 +362,31 @@
 	:global(.dark) .sheet {
 		background: #0a0a0a;
 	}
+	/* Landscape phones (e.g. 844x390): 16dvh of a 390px-tall viewport leaves a card
+	   too short to be worth opening, so take a much smaller top inset — but a
+	   FIXED one, parked just under the 3.5rem app header (which paints above the
+	   sheet, z-100): a percentage inset here would slide the 44px grab handle
+	   behind the header and leave nothing to grab. */
+	@media (orientation: landscape) and (max-height: 500px) {
+		.sheet {
+			top: calc(3.5rem + 20px);
+			border-radius: 12px 12px 0 0;
+		}
+	}
 	/* Mid-drag the position is written every frame — never interpolate. */
 	.sheet-dragging {
 		transition: none !important;
 	}
 
+	/* A full-width 44px strip: the whole header is the grab zone (the pill is just
+	   the visual), so closing the sheet never needs a precise aim. */
 	.sheet-handle {
 		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		height: 34px;
+		height: 44px;
+		min-height: 44px;
 		flex-shrink: 0;
 		cursor: grab;
 		touch-action: none;
