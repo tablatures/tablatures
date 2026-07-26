@@ -6,8 +6,9 @@ import { waitForScoreLoaded } from './helpers/wait';
 // Batch 3B pre-release polish (FOLLOWUPS items 25-28):
 //  - 25: the DESKTOP mini bar scales its content up and the preview panel is
 //        taller (mobile geometry from 2B is asserted separately and untouched).
-//  - 26: the mini player's minimize control is a collapse glyph paired with the
-//        PiP/restore toggle, with a neutral (non-danger) hover.
+//  - 26/29: the mini bar has ONE modest X that quits the tab (no redundant
+//        minimize button); the PiP toggle owns show/hide of the preview and the
+//        preview sheet hides itself with a subtle minus.
 //  - 27: generated artwork placeholders are PASTEL and nothing is ever an empty
 //        white box.
 //  - 28: an app-standard loading row shows below the bottom-most row of every
@@ -77,10 +78,10 @@ test.describe('desktop mini player sizing', () => {
 
 // ---------------------------------------------------------------- item 26 ----
 
-test.describe('mini player minimize control', () => {
+test.describe('mini player close / hide controls', () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test('minimize reads as the pair of the preview/PiP toggle, neutral hover', async ({ page }) => {
+	test('bar has one modest X that quits; the PiP toggle owns show/hide', async ({ page }) => {
 		await setupPlayPage(page);
 		await waitForScoreLoaded(page);
 		await page.waitForTimeout(800);
@@ -88,31 +89,65 @@ test.describe('mini player minimize control', () => {
 		await page.getByRole('link', { name: 'Settings' }).first().click();
 		await page.waitForTimeout(700);
 
-		const minimize = page.getByRole('button', { name: 'Minimize preview' }).last();
-		await expect(minimize).toBeVisible();
+		// The redundant collapse/minimize button is gone from the bar entirely.
+		await expect(page.getByRole('button', { name: 'Minimize preview' })).toHaveCount(0);
+		expect(await page.locator('.fixed.bottom-0.z-\\[80\\] i', { hasText: 'close_fullscreen' }).count()).toBe(0);
 
-		// A collapse/minimize glyph, not a hard X.
-		const glyph = await minimize.locator('i').innerText();
-		expect(glyph.trim()).toBe('close_fullscreen');
+		const close = page.getByRole('button', { name: 'Close player' }).last();
+		await expect(close).toBeVisible();
 
-		// Subtler: muted resting color, and NO danger-red hover class.
-		const cls = (await minimize.getAttribute('class')) || '';
+		// A plain cross glyph, modest weight: muted resting color, no danger-red.
+		const glyph = await close.locator('i').innerText();
+		expect(glyph.trim()).toBe('close');
+		const cls = (await close.getAttribute('class')) || '';
 		expect(cls).not.toContain('danger');
 		expect(cls).toContain('text-neutral-500');
 
-		// Its pair — the PiP/restore toggle — sits right beside it, so a minimized
-		// preview is always clearly restorable.
+		// The PiP toggle is the show/hide control, and its ON state is explicit.
 		const pip = page.getByRole('button', { name: /Hide tab preview|Show tab preview/ }).last();
 		await expect(pip).toBeVisible();
+		await expect(pip).toHaveAttribute('aria-pressed', 'true');
 
-		// Tapping minimize hides the preview; the pair toggle brings it back.
-		await minimize.click();
+		// Toggling it off hides the preview and keeps the bar; toggling on restores.
+		await pip.click();
 		await page.waitForTimeout(400);
 		await expect(page.locator('.player-host-mini')).toHaveCount(0);
+		const restore = page.getByRole('button', { name: 'Show tab preview' }).last();
+		await expect(restore).toBeVisible();
+		await expect(restore).toHaveAttribute('aria-pressed', 'false');
 
-		await page.getByRole('button', { name: 'Show tab preview' }).last().click();
+		await restore.click();
 		await page.waitForTimeout(500);
 		await expect(page.locator('.player-host-mini')).toBeVisible();
+	});
+
+	test('the preview sheet hides itself with a subtle minus, keeping playback', async ({ page }) => {
+		await setupPlayPage(page);
+		await waitForScoreLoaded(page);
+		await page.waitForTimeout(800);
+
+		await page.getByRole('link', { name: 'Settings' }).first().click();
+		await page.waitForTimeout(700);
+
+		await expect(page.locator('.player-host-mini')).toBeVisible();
+
+		// One hide control on the preview overlay, and it is a MINUS (the old
+		// two-arrow collapse glyph is gone, so there is no duplicate affordance).
+		const overlay = page.locator('.mini-player-wrapper');
+		const hide = overlay.getByRole('button', { name: 'Hide preview' }).last();
+		await expect(hide).toBeVisible();
+		expect((await hide.locator('i').innerText()).trim()).toBe('remove');
+		expect(await overlay.locator('i', { hasText: 'close_fullscreen' }).count()).toBe(0);
+		const cls = (await hide.getAttribute('class')) || '';
+		expect(cls).not.toContain('danger');
+
+		await hide.click();
+		await page.waitForTimeout(400);
+
+		// Preview gone, but the track is still loaded (bar present, restorable).
+		await expect(page.locator('.player-host-mini')).toHaveCount(0);
+		await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Show tab preview' }).last()).toBeVisible();
 	});
 });
 

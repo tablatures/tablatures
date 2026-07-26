@@ -70,10 +70,10 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 		expect(box!.width).toBeGreaterThanOrEqual(44);
 	}
 
-	// The minimize (X) is intentionally smaller visually, but keeps a ≥44px
+	// The close (X) is intentionally smaller visually, but keeps a ≥44px
 	// EFFECTIVE hit area via its .tap-target halo (invisible ::after, inset -12px).
-	const minimize = page.getByRole('button', { name: 'Minimize preview' }).last();
-	const eff = await minimize.evaluate((el) => {
+	const close = page.getByRole('button', { name: 'Close player' }).last();
+	const eff = await close.evaluate((el) => {
 		const box = el.getBoundingClientRect();
 		const after = getComputedStyle(el, '::after');
 		const inset = (v: string) => Math.abs(parseFloat(v) || 0);
@@ -86,9 +86,9 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 	expect(eff.w).toBeGreaterThanOrEqual(44);
 });
 
-// Item 12: a tap on the X minimizes the preview (keeps the track loaded + bar
-// visible) rather than stopping the player.
-test('mini player X minimizes the preview but keeps the track loaded', async ({ page }) => {
+// Item 29: the bar's PiP toggle hides the preview but keeps the track loaded and
+// the bar visible; the X is the definitive quit (stop + unload → bar gone).
+test('mini player PiP toggle hides the preview but keeps the track loaded', async ({ page }) => {
 	await setupPlayPage(page);
 	await waitForScoreLoaded(page);
 	await page.waitForTimeout(800);
@@ -99,11 +99,31 @@ test('mini player X minimizes the preview but keeps the track loaded', async ({ 
 	// Preview visible.
 	await expect(page.locator('.player-host-mini')).toBeVisible();
 
-	// Tap the X → preview minimizes, the bar (and its play control) stay.
-	await page.getByRole('button', { name: 'Minimize preview' }).last().click();
+	// Toggle the preview off → preview hides, the bar (and its play control) stay.
+	await page.getByRole('button', { name: 'Hide tab preview' }).last().click();
 	await page.waitForTimeout(400);
 
 	await expect(page.locator('.player-host-mini')).toHaveCount(0);
 	// The mini player bar itself is still present (track not unloaded).
 	await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Show tab preview' }).last()).toBeVisible();
+});
+
+test('mini player X quits the tab: the bar unloads', async ({ page }) => {
+	await setupPlayPage(page);
+	await waitForScoreLoaded(page);
+	await page.waitForTimeout(800);
+
+	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.waitForTimeout(600);
+
+	const bar = page.locator('.fixed.bottom-0.z-\\[80\\]').first();
+	await expect(bar).toBeVisible();
+
+	// A plain tap on the X — no long-press — fully closes the player.
+	await page.getByRole('button', { name: 'Close player' }).last().click();
+	await page.waitForTimeout(500);
+
+	await expect(bar).toHaveCount(0);
+	await expect(page.locator('.player-host-mini')).toHaveCount(0);
 });

@@ -1002,19 +1002,21 @@
 				<i class="material-icons !text-4xl text-white drop-shadow">fullscreen</i>
 			</div>
 
-			<!-- Minimize-preview button, above the scrim. A collapse glyph (pairs with
-			     the bar's PiP/restore toggle) with a neutral hover — subtle, not a red X. -->
+			<!-- The preview's own hide control (item 29): a subtle MINUS — never an X,
+			     which now means "quit the tab" on the bar. It does exactly what the
+			     bar's PiP toggle off does: hide the preview, keep playing. One
+			     obvious way to hide the preview from the preview itself. -->
 			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm hover:bg-black/80 hover:text-white hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
-						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/50 text-white/80 backdrop-blur-sm hover:bg-black/70 hover:text-white active:scale-95 transition-all duration-150 pointer-events-auto
+						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-90"
 					on:click|stopPropagation={() => {
 						miniPreviewVisible = false;
 					}}
-					title="Minimize preview"
-					aria-label="Minimize preview"
+					title="Hide preview"
+					aria-label="Hide preview"
 				>
-					<i class="material-icons !text-lg">close_fullscreen</i>
+					<i class="material-icons !text-lg">remove</i>
 				</button>
 			</div>
 		{/if}
@@ -1045,7 +1047,6 @@
 		<MiniPlayer
 			showPreview={miniPreviewVisible}
 			on:togglePreview={() => (miniPreviewVisible = !miniPreviewVisible)}
-			on:minimize={() => (miniPreviewVisible = false)}
 		/>
 	{/if}
 

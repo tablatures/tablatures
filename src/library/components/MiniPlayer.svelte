@@ -50,34 +50,13 @@
 		tabStore.clearTab();
 	}
 
-	// Close (X) behaviour (item 12): a TAP minimizes the preview sheet (keeps the
-	// track loaded + the bar playing); a deliberate LONG-PRESS fully stops and
-	// unloads the track. This prevents an accidental tap from nuking playback.
-	// The PiP/toggle-preview button remains the way to bring the preview back.
-	let closeHoldTimer: ReturnType<typeof setTimeout> | undefined;
-	let didLongPressClose = false;
-	const CLOSE_HOLD_MS = 500;
-
-	function closePointerDown() {
-		didLongPressClose = false;
-		clearTimeout(closeHoldTimer);
-		closeHoldTimer = setTimeout(() => {
-			didLongPressClose = true;
-			hapticTap();
-			stopPlayer();
-		}, CLOSE_HOLD_MS);
-	}
-	function closePointerEnd() {
-		clearTimeout(closeHoldTimer);
-	}
+	// Close (X) behaviour (item 29): a plain TAP quits the tab — stop playback and
+	// unload the track, which removes the bar entirely. Hiding the preview while
+	// keeping the track playing is the PiP toggle's job (and the preview's own
+	// minus button), so the bar needs no separate minimize control.
 	function closeClick() {
-		// If the long-press already fired the full stop, swallow the click.
-		if (didLongPressClose) {
-			didLongPressClose = false;
-			return;
-		}
 		hapticTap();
-		dispatch('minimize');
+		stopPlayer();
 	}
 
 	async function copyShareLink() {
@@ -362,10 +341,16 @@
 				</button>
 			{/if}
 
-			<!-- Toggle picture-in-picture preview -->
+			<!-- Toggle picture-in-picture preview. This is the single show/hide control
+			     for the preview sheet, so its ON state is explicit (violet tint +
+			     aria-pressed) — a hidden preview always reads as restorable here. -->
 			<button
 				on:click|stopPropagation={() => dispatch('togglePreview')}
-				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl transition-colors
+					{showPreview
+						? 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 hover:text-violet-200'
+						: 'text-neutral-400 hover:text-white hover:bg-white/10'}"
+				aria-pressed={showPreview}
 				title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 				aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			>
@@ -382,21 +367,16 @@
 				<i class="material-icons !text-2xl">expand_less</i>
 			</a>
 
-			<!-- Minimize: a collapse glyph (not a hard X) reading as the pair of the
-			     PiP/restore toggle beside it — subtle, neutral hover (no danger red).
-			     Tap = minimize the preview (keeps playing); hold = fully stop/unload.
-			     tap-target keeps a ≥44px effective hit area despite the smaller box. -->
+			<!-- Close the player: a plain tap quits the tab (stop + unload). Modest
+			     visual weight — muted resting color, neutral hover, no danger red —
+			     and tap-target keeps a ≥44px effective hit area despite the small box. -->
 			<button
 				on:click|stopPropagation={closeClick}
-				on:pointerdown={closePointerDown}
-				on:pointerup={closePointerEnd}
-				on:pointercancel={closePointerEnd}
-				on:pointerleave={closePointerEnd}
 				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
-				title="Minimize preview (hold to stop)"
-				aria-label="Minimize preview"
+				title="Close player"
+				aria-label="Close player"
 			>
-				<i class="material-icons !text-lg">close_fullscreen</i>
+				<i class="material-icons !text-lg">close</i>
 			</button>
 		</div>
 	</div>
