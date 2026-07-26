@@ -29,8 +29,10 @@
 
 	$: colors = {
 		overlay: isFavorite ? 'text-love-400' : 'text-white hover:text-love-400',
+		// Favorited keeps the same neutral shell and just fills the heart rose —
+		// a solid rose disc read as a stray pink block on list rows.
 		pill: isFavorite
-			? 'bg-love-500 text-white hover:bg-love-600'
+			? 'bg-neutral-100 dark:bg-neutral-800 text-love-500 dark:text-love-400 hover:bg-love-50 dark:hover:bg-love-900/30'
 			: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-love-500 hover:text-white',
 		plain: isFavorite ? 'text-love-500' : 'text-neutral-500 dark:text-neutral-400 hover:text-love-400',
 		row: isFavorite

@@ -45,11 +45,21 @@
 	let opening = '';
 
 	// --- Infinite loading (list variant, item 6) ---
-	// Scrolling further pulls more of the artist's catalog (like the home feed):
-	// an IntersectionObserver sentinel drives loadMore(), deduping against
-	// everything already shown and the current tab.
+	// Scrolling further pulls more content, deduped against everything already
+	// shown and the current tab, driven by an IntersectionObserver sentinel.
+	//
+	// The source is a POOL of stages, mirroring the home feed: the artist's own
+	// catalog first (most relevant), then the recommender seeded with the artist,
+	// then random batches — which never dry up. A narrow artist catalog (or a
+	// backend that ignores `page`) therefore no longer ends the list after one
+	// fetch; "You've reached the end" only appears once several fetches in a row
+	// bring back nothing new anywhere in the pool.
+	type PoolStage = 'artist' | 'recommender' | 'random';
+	const EMPTY_STREAK_LIMIT = 3;
 	const seenIds = new Set<string>();
 	let morePage = 1; // catalog page already covered by the initial load
+	let stage: PoolStage = 'artist';
+	let emptyStreak = 0;
 	let loadingMore = false;
 	let exhausted = false;
 	let sentinelEl: HTMLDivElement | undefined;
@@ -92,6 +102,8 @@
 	async function load(key: string, a: string, excludeId: string | undefined, curTitle: string) {
 		// New tab/artist: reset the infinite-scroll accumulator.
 		morePage = 1;
+		stage = hasArtist ? 'artist' : 'recommender';
+		emptyStreak = 0;
 		exhausted = false;
 		loadingMore = false;
 		if (cache.has(key)) {
@@ -148,56 +160,83 @@
 		}
 	}
 
-	// Pull the next page of the artist's catalog and append the not-yet-seen
-	// tabs. Only meaningful for the below-fold list variant.
+	/** URL for the next batch, per the current pool stage. */
+	function nextBatchUrl(): string {
+		if (stage === 'artist') {
+			morePage += 1;
+			const sp = new URLSearchParams({ artist, page: String(morePage), limit: '20' });
+			return `${SEARCH_API_BASE_URL}/api/search?${sp}`;
+		}
+		if (stage === 'recommender') {
+			const sp = new URLSearchParams({ limit: '20' });
+			if (hasArtist) sp.append('artists', artist);
+			if (currentTabId) sp.append('exclude', currentTabId);
+			return `${SEARCH_API_BASE_URL}/api/recommendations?${sp}`;
+		}
+		return `${SEARCH_API_BASE_URL}/api/random?count=24`;
+	}
+
+	/** Map a raw payload to the not-yet-seen tabs, registering them as seen. */
+	function takeFresh(raw: any[]): RelatedTab[] {
+		const fresh: RelatedTab[] = [];
+		for (const t of raw) {
+			if (!t || !t.id || typeof t.title !== 'string') continue;
+			const nid = normId(t.id);
+			if (seenIds.has(nid)) continue;
+			// Skip the current song itself (any other-source version).
+			if (normId(t.title) === normId(title) && normId(t.artist) === normId(artist)) continue;
+			seenIds.add(nid);
+			fresh.push({
+				id: t.id,
+				title: t.title,
+				artist: t.artist || artist,
+				source: t.source || '',
+				type: t.tabType || t.type || '',
+				album: t.album || '',
+				artworkUrl: t.artworkUrl || ''
+			});
+		}
+		return fresh;
+	}
+
+	/** A batch brought nothing new: move down the pool, and only give up once
+	 *  even the random batches have come back empty several times running. */
+	function noteEmptyBatch() {
+		emptyStreak += 1;
+		if (stage === 'artist') stage = 'recommender';
+		else if (stage === 'recommender') stage = 'random';
+		if (emptyStreak >= EMPTY_STREAK_LIMIT) exhausted = true;
+	}
+
+	// Pull the next batch from the pool and append the not-yet-seen tabs. Only
+	// meaningful for the below-fold list variant.
 	async function loadMore() {
-		if (loadingMore || exhausted || !SEARCH_API_BASE_URL || !hasArtist || items.length === 0)
-			return;
+		if (loadingMore || exhausted || !SEARCH_API_BASE_URL || items.length === 0) return;
 		loadingMore = true;
 		try {
-			morePage += 1;
-			const sp = new URLSearchParams({
-				artist,
-				page: String(morePage),
-				limit: '20'
-			});
-			const res = await fetch(`${SEARCH_API_BASE_URL}/api/search?${sp}`);
+			const url = nextBatchUrl();
+			const res = await fetch(url);
 			if (!res.ok) {
-				exhausted = true;
+				noteEmptyBatch();
 				return;
 			}
 			const data = await res.json();
-			const raw = toList(data);
-			const fresh: RelatedTab[] = [];
-			for (const t of raw) {
-				if (!t || !t.id || typeof t.title !== 'string') continue;
-				const nid = normId(t.id);
-				if (seenIds.has(nid)) continue;
-				// Skip the current song itself (any other-source version).
-				if (normId(t.title) === normId(title) && normId(t.artist) === normId(artist)) continue;
-				seenIds.add(nid);
-				fresh.push({
-					id: t.id,
-					title: t.title,
-					artist: t.artist || artist,
-					source: t.source || '',
-					type: t.tabType || t.type || '',
-					album: t.album || '',
-					artworkUrl: t.artworkUrl || ''
-				});
-			}
-			// A page that adds nothing new (or a backend without deep pagination)
-			// ends the infinite scroll rather than looping forever.
-			const totalPages = Number(data?.totalPages) || 0;
-			if (fresh.length === 0 || (totalPages > 0 && morePage >= totalPages)) {
-				exhausted = true;
-			}
+			const fresh = takeFresh(toList(data));
 			if (fresh.length > 0) {
+				emptyStreak = 0;
 				items = [...items, ...fresh];
 				resolveArt();
+				// The catalog stops where the backend says it ends; the recommender is
+				// a one-shot (same params return the same picks), so both hand over to
+				// the endless random batches once they are spent.
+				const totalPages = Number(data?.totalPages) || 0;
+				if (stage === 'artist' && totalPages > 0 && morePage >= totalPages) stage = 'recommender';
+				else if (stage === 'recommender') stage = 'random';
+			} else {
+				noteEmptyBatch();
 			}
 		} catch {
-			exhausted = true;
+			noteEmptyBatch();
 		} finally {
 			loadingMore = false;
 			// Self-rearm (item 28): an IntersectionObserver only fires on a visibility

@@ -6,7 +6,7 @@
 		playSheetOpen,
 		playSheetEl,
 		playSheetInView,
-		playerBarHeight,
+		playSheetHasContent,
 		queueStore,
 		registerSheetDrag
 	} from '../utils/playerStore';
@@ -35,9 +35,11 @@
 	// The sheet spans `top: 16dvh` → `bottom: 0`, so translating it down by 100%
 	// of its own height parks it exactly off-screen. That makes the transform a
 	// pure percentage of the travel — no px measuring for the visual, and no
-	// possible see-through band above the transport bar (the sheet's opaque
-	// background runs all the way to the bottom edge, safe area included, with
-	// the bar painted on top of it).
+	// possible see-through band above the transport bar: at every point in the
+	// travel the sheet's own bottom edge is at or below the screen bottom, and
+	// its opaque background runs all the way there (safe area included). The
+	// sheet slides OVER the bar (z 52 vs 50), so the controls are simply covered
+	// while it is up and come back untouched when it closes.
 	let pos = 0;
 	let posRaw = 0; // unclamped, so over-drags resume correctly
 	let dragging = false;
@@ -61,16 +63,21 @@
 	let animTimer: ReturnType<typeof setTimeout> | undefined;
 
 	$: queueCount = $queueStore.items.length;
+	// How much below-fold content the sheet actually holds. Published so the
+	// transport bar only advertises the drag when there IS something down there.
+	let recoCount = 0;
+	$: playSheetHasContent.set(queueCount > 1 || recoCount > 0);
 	// Fully settled open — only then does the content scroll internally.
 	$: settled = !dragging && !animating && pos >= 0.999;
 	// Publish the sheet scroller as the recommendations' IntersectionObserver root
 	// (item 24) so infinite-load fires when the user scrolls the sheet to its
 	// bottom.
 	$: playSheetEl.set(bodyEl ?? null);
-	// Hide the player's "back to cursor" button once the sheet is more than a
-	// third of the way up (it would sit behind the sheet anyway).
-	$: playSheetInView.set(pos < 0.35);
-	$: barInset = $playerBarHeight;
+	// Chrome that floats just above the transport bar (the "back to cursor"
+	// button, the karaoke lyrics strip) sits ABOVE the sheet in the stack, so it
+	// has to step aside as soon as the sheet starts rising over the bar — not a
+	// third of the way up, or it would be painted on top of the playlist.
+	$: playSheetInView.set(pos < 0.03);
 
 	function clamp01(v: number) {
 		return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -247,11 +254,13 @@
 			registerSheetDrag(null);
 			playSheetEl.set(null);
 			playSheetInView.set(true);
+			playSheetHasContent.set(false);
 		};
 	});
 
 	onDestroy(() => {
 		playSheetOpen.set(false);
+		playSheetHasContent.set(false);
 	});
 </script>
 
@@ -275,7 +284,7 @@
 	class:sheet-dragging={dragging}
 	bind:this={sheetEl}
 	style="transform: translate3d(0, {(1 - pos) * 100}%, 0); transition: {transitionCss};
-		--sheet-bar-inset: {barInset}px; pointer-events: {pos > 0.005 ? 'auto' : 'none'}"
+		pointer-events: {pos > 0.005 ? 'auto' : 'none'}"
 	aria-hidden={pos < 0.005}
 	on:touchmove|nonpassive={onSheetTouchMove}
 	on:touchend={onSheetTouchEnd}
@@ -320,7 +329,14 @@
 		{/if}
 
 		<!-- Recommendations — infinite-load observed against this sheet body. -->
-		<RelatedStrip variant="list" {artist} {title} {currentTabId} root={bodyEl} />
+		<RelatedStrip
+			variant="list"
+			{artist}
+			{title}
+			{currentTabId}
+			root={bodyEl}
+			on:loaded={(e) => (recoCount = e.detail)}
+		/>
 	</div>
 </div>
 
@@ -329,7 +345,7 @@
 	.sheet-scrim {
 		position: fixed;
 		inset: 0;
-		z-index: 45;
+		z-index: 51;
 		background: rgb(0 0 0 / 0.32);
 		will-change: opacity;
 		/* Follows the settle animation; suppressed mid-drag where the inline
@@ -340,17 +356,21 @@
 		transition: none;
 	}
 
-	/* Sheet. Runs to the very bottom edge of the screen, UNDER the transport bar
-	   (z-50) and the app header (z-100), so its opaque background
-	   covers the bar's safe-area padding too — there is no band where the score
-	   can show through. Content is inset above the bar via --sheet-bar-inset. */
+	/* Sheet. Runs to the very bottom edge of the screen and slides up OVER the
+	   transport bar (z-50), covering it — the user asked for the content to own
+	   the bottom of the screen instead of being squeezed between the score and
+	   the controls. Still below the karaoke lyrics strip / bar popovers (z-55+)
+	   and the app header (z-100), which is what keeps those interactive.
+	   Because the sheet's own box always reaches the screen bottom, its opaque
+	   background covers the bar AND its safe-area padding through the whole
+	   travel: no band where the score can show through. */
 	.sheet {
 		position: fixed;
 		left: 0;
 		right: 0;
 		top: 16dvh;
 		bottom: 0;
-		z-index: 46;
+		z-index: 52;
 		display: flex;
 		flex-direction: column;
 		background: white;
@@ -406,8 +426,9 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		-webkit-overflow-scrolling: touch;
-		/* Keep the last row clear of the transport bar the sheet passes behind. */
-		padding-bottom: calc(var(--sheet-bar-inset, 0px) + 12px);
+		/* The sheet covers the transport bar, so the content only has to clear the
+		   home-bar safe area — no bar-height inset stealing a screenful. */
+		padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
 		/* Locked until the sheet is settled: while it is in flight the finger is
 		   moving the sheet, not the list. */
 		touch-action: none;

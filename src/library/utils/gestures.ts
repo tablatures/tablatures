@@ -184,6 +184,12 @@ export interface SwipeActionParams {
 	maxReveal?: number;
 	haptic?: MaybeHaptic;
 	enabled?: boolean;
+	/** Called when the row actually slides aside (true) and once it is home
+	 *  again (false). Hosts use it to show the action layer ONLY while it is
+	 *  genuinely uncovered — otherwise a translucent hover/active row background
+	 *  (or any stacking quirk) lets that coloured layer bleed through when the
+	 *  user merely taps the row. */
+	onReveal?: (revealed: boolean) => void;
 }
 
 export function swipeAction(
@@ -192,6 +198,8 @@ export function swipeAction(
 ): ActionReturn<SwipeActionParams> {
 	let p = params;
 	let detentFired = false;
+	let revealed = false;
+	let hideTimer: ReturnType<typeof setTimeout> | undefined;
 	const reduced = prefersReducedMotion();
 
 	function dirAllowed(dir: 'left' | 'right'): boolean {
@@ -199,9 +207,25 @@ export function swipeAction(
 		return dirs.includes(dir);
 	}
 
+	/** Publish the reveal state, deduped (this runs inside the drag loop). */
+	function setRevealed(v: boolean) {
+		if (revealed === v) return;
+		revealed = v;
+		p.onReveal?.(v);
+	}
+
 	function setTranslate(x: number, animate: boolean) {
 		node.style.transition = animate ? 'transform 0.2s ease' : 'none';
 		node.style.transform = x === 0 ? '' : `translateX(${x}px)`;
+		clearTimeout(hideTimer);
+		if (x !== 0) {
+			setRevealed(true);
+		} else if (animate) {
+			// Keep the layer up until the row has finished sliding back home.
+			hideTimer = setTimeout(() => setRevealed(false), 220);
+		} else {
+			setRevealed(false);
+		}
 	}
 
 	const gesture = new DragGesture(
@@ -254,6 +278,7 @@ export function swipeAction(
 			p = next;
 		},
 		destroy() {
+			clearTimeout(hideTimer);
 			gesture.destroy();
 		}
 	};

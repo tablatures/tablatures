@@ -57,6 +57,10 @@
 		| undefined = undefined;
 
 	$: enableSwipe = !!swipeAction;
+	// True only while the row is genuinely slid aside — see ResultCard: the
+	// coloured action layer must never bleed through a translucent hover/active
+	// row background on a plain tap.
+	let swipeRevealed = false;
 
 	$: sourceDisplay = source ? getSourceDisplay(source) : null;
 	// Deterministic gradient + initials so a missing thumbnail never renders as a
@@ -74,8 +78,9 @@
 <div class="relative {enableSwipe ? 'overflow-hidden' : ''}" role="listitem">
 	{#if swipeAction}
 		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white {swipeAction.colorClass ||
-				'bg-danger-500'}"
+			class="swipe-reveal absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white pointer-events-none transition-opacity duration-150 {swipeAction.colorClass ||
+				'bg-danger-500'} {swipeRevealed ? 'opacity-100' : 'opacity-0'}"
+			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
 			<i class="material-icons !text-lg">{swipeAction.icon}</i>
@@ -84,13 +89,14 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="relative flex items-stretch w-full text-left {enableSwipe
-			? 'bg-white dark:bg-neutral-900'
-			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors group h-14"
+			? 'bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+			: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'} transition-colors group h-14"
 		use:swipeActionGesture={{
 			onCommit: () => swipeAction?.run(),
 			directions: ['left'],
 			haptic: hapticTap,
-			enabled: enableSwipe
+			enabled: enableSwipe,
+			onReveal: (v) => (swipeRevealed = v)
 		}}
 	>
 	<!-- Leading slot (drag handle, index, etc.) -->

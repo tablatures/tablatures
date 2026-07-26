@@ -25,6 +25,7 @@
 		playSheetInView,
 		playSheetEnabled,
 		playSheetOpen,
+		playSheetHasContent,
 		playerBarHeight,
 		sheetDragBegin,
 		sheetDragMove,
@@ -4022,11 +4023,11 @@
 	<LyricsBar api={$playerApi} suppressed={sheetCoversScore} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- Controls bar (below the rendering, YouTube-style). It stays ABOVE the
-	     mobile bottom sheet (z-46) and its scrim (z-45): the sheet slides up
-	     BEHIND the controls and runs to the very bottom edge of the screen, so no
-	     see-through band can appear between the two and the controls stay
-	     visible/tappable while the below-fold content is open. -->
+	<!-- Controls bar (below the rendering, YouTube-style). The mobile bottom sheet
+	     (z-52) slides up OVER it and covers it while the below-fold content is
+	     open — the bar stays mounted underneath and comes back untouched when the
+	     sheet closes. The bar carries the sheet's only discovery affordance: the
+	     drag gesture, plus the subtle "Up next" hint on its top edge. -->
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
@@ -4045,6 +4046,26 @@
 		tabindex="0"
 		aria-label="Playback controls"
 	>
+		<!-- "Drag up for more" hint (phones only). It lives INSIDE the bar, on its
+		     top edge, so nothing floats over the score: a hairline grip + a
+		     very-low-contrast micro label. Deliberately quiet — the gesture is the
+		     real affordance — but tapping it opens the sheet as a bonus. Hidden
+		     when the sheet is already up, when there is nothing below the fold, and
+		     in fullscreen. `z-20` keeps it above the progress bar's invisible
+		     upward hit expander, which would otherwise swallow the tap. -->
+		{#if $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen}
+			<button
+				class="sheet-hint relative z-20 flex w-full items-center justify-center gap-0.5 pt-1 pb-0.5 text-neutral-400 dark:text-neutral-500 active:text-neutral-500 dark:active:text-neutral-400"
+				on:click={() => playSheetOpen.set(true)}
+				aria-label="Show what's up next"
+			>
+				<i class="material-icons !text-base leading-none" aria-hidden="true"
+					>keyboard_arrow_up</i
+				>
+				<span class="text-[10px] font-medium tracking-wide">Up next</span>
+			</button>
+		{/if}
+
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
 		     desktop keeps the thin-with-hover-grow behavior. -->

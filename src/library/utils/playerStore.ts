@@ -68,6 +68,10 @@ export const playSheetEnabled = writable(false);
 // is continuous (finger-tracked) — this is only the state it last settled into,
 // which is what external actors read/write (Android back, route reset, wheel).
 export const playSheetOpen = writable(false);
+// True while the sheet actually holds something worth pulling up (a real queue
+// or at least one recommendation). The transport bar's "drag up for more" hint
+// is gated on this so it never advertises an empty sheet.
+export const playSheetHasContent = writable(false);
 // The sheet's internal scroll container, used as the IntersectionObserver root
 // for the recommendations infinite-load once they live inside the sheet (item 24).
 export const playSheetEl = writable<HTMLElement | null>(null);

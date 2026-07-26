@@ -254,42 +254,126 @@ test.describe('phone', () => {
 		expect(gap).toBeLessThan(40);
 	});
 
-	test('the sheet is opaque all the way down — no see-through band over the bar', async ({
+	// The sheet slides OVER the transport bar and covers it (the bar stays
+	// mounted underneath and comes back when the sheet closes), and its opaque
+	// surface reaches the bottom edge of the screen at every point in the travel
+	// so the score can never flash through between the bar and the sheet.
+	test('the open sheet covers the play bar and is opaque through the whole travel', async ({
 		page
 	}) => {
 		await openViaSearch(page);
 		await page.waitForTimeout(1200);
-		await openSheet(page);
 
-		const probe = await page.evaluate(() => {
+		// A probe of the whole strip from the sheet's top edge down to the very
+		// bottom of the screen: it must all be sheet (never the bar, never the score).
+		const probeStrip = () =>
+			page.evaluate(() => {
+				const bar = [...document.querySelectorAll('[role="toolbar"]')].find(
+					(b) => b.getAttribute('aria-label') === 'Playback controls'
+				) as HTMLElement;
+				const sheet = document.querySelector('.sheet') as HTMLElement;
+				const sheetRect = sheet.getBoundingClientRect();
+				const barRect = bar.getBoundingClientRect();
+				const h = window.innerHeight;
+				const ys = [
+					sheetRect.top + 4,
+					barRect.top - 12,
+					barRect.top + 2,
+					(barRect.top + h) / 2,
+					h - 2
+				];
+				return {
+					owners: ys.map((y) => {
+						const el = document.elementFromPoint(195, Math.min(h - 1, Math.max(0, y)));
+						if (!el) return 'none';
+						if (el.closest('.sheet')) return 'sheet';
+						if (el.closest('[role="toolbar"]')) return 'bar';
+						return 'other';
+					}),
+					sheetBottom: Math.round(sheetRect.bottom),
+					innerHeight: h,
+					sheetBg: getComputedStyle(sheet).backgroundColor,
+					sheetZ: Number(getComputedStyle(sheet).zIndex),
+					barZ: Number(getComputedStyle(bar).zIndex)
+				};
+			});
+
+		// Mid-drag (finger held half way): already fully opaque down to the edge.
+		await page.evaluate(() =>
+			(window as any).__sheetDrag('bar', 800, 500, 10, 12, /* release */ false)
+		);
+		const mid = await probeStrip();
+		expect(mid.owners).toEqual(['sheet', 'sheet', 'sheet', 'sheet', 'sheet']);
+		expect(mid.sheetBottom).toBeGreaterThanOrEqual(mid.innerHeight);
+		await page.evaluate(() => (window as any).__sheetRelease('bar', 500));
+		await page.waitForTimeout(600);
+
+		// Settled open: same, plus the layering that puts the sheet on top.
+		const open = await probeStrip();
+		expect(open.owners).toEqual(['sheet', 'sheet', 'sheet', 'sheet', 'sheet']);
+		expect(open.sheetBottom).toBeGreaterThanOrEqual(open.innerHeight);
+		expect(open.sheetZ).toBeGreaterThan(open.barZ);
+		// Fully opaque surface (no alpha), matching the theme.
+		expect(open.sheetBg).toBe('rgb(255, 255, 255)');
+		// The bar is covered, not unmounted: closing hands the controls straight back.
+		await page.locator('.sheet-close').click();
+		await page.waitForTimeout(700);
+		await expect(page.getByRole('button', { name: /^(Play|Pause)$/ })).toBeVisible();
+		const closed = await page.evaluate(() => {
 			const bar = [...document.querySelectorAll('[role="toolbar"]')].find(
 				(b) => b.getAttribute('aria-label') === 'Playback controls'
 			) as HTMLElement;
-			const sheet = document.querySelector('.sheet') as HTMLElement;
-			const sheetRect = sheet.getBoundingClientRect();
-			const barTop = bar.getBoundingClientRect().top;
-			// Everything from the sheet's top edge down to the bar must be either the
-			// sheet or the bar — never the score showing through a gap.
-			const strip = [barTop - 24, barTop - 12, barTop - 4, barTop - 1].map((y) => {
-				const el = document.elementFromPoint(195, y) as HTMLElement | null;
-				return !!el && !!(el.closest('.sheet') || el.closest('[role="toolbar"]'));
-			});
+			const r = bar.getBoundingClientRect();
+			const el = document.elementFromPoint(195, r.top + 30);
+			return !!el?.closest('[role="toolbar"]');
+		});
+		expect(closed).toBe(true);
+	});
+
+	// The bar carries the only hint that there is more below: a low-contrast
+	// grip + "Up next" on its top edge. It never floats over the score, it goes
+	// away while the sheet is up, and tapping it opens the sheet.
+	test('the bar shows a subtle "Up next" hint that opens the sheet and hides while it is open', async ({
+		page
+	}) => {
+		await openViaSearch(page);
+		await page.waitForTimeout(1200);
+
+		const hint = page.locator('.sheet-hint');
+		await expect(hint).toBeVisible();
+
+		// It lives INSIDE the bar (not floating over the score).
+		const inside = await page.evaluate(() => {
+			const bar = [...document.querySelectorAll('[role="toolbar"]')].find(
+				(b) => b.getAttribute('aria-label') === 'Playback controls'
+			) as HTMLElement;
+			const h = document.querySelector('.sheet-hint') as HTMLElement;
+			const hr = h.getBoundingClientRect();
+			const br = bar.getBoundingClientRect();
 			return {
-				strip,
-				// The sheet's own box reaches the bottom edge of the screen, so its
-				// opaque background covers the bar's safe-area padding too.
-				sheetBottom: Math.round(sheetRect.bottom),
-				innerHeight: window.innerHeight,
-				sheetBg: getComputedStyle(sheet).backgroundColor,
-				// Content is inset above the controls instead of hidden behind them.
-				bodyPadBottom: parseFloat(getComputedStyle(document.querySelector('.sheet-body')!).paddingBottom)
+				contained: bar.contains(h),
+				withinBar: hr.top >= br.top - 1 && hr.bottom <= br.bottom + 1,
+				hitsHint: document
+					.elementFromPoint(195, (hr.top + hr.bottom) / 2)
+					?.closest('.sheet-hint') !== null
 			};
 		});
-		expect(probe.strip).toEqual([true, true, true, true]);
-		expect(probe.sheetBottom).toBeGreaterThanOrEqual(probe.innerHeight);
-		// Fully opaque surface (no alpha), matching the theme.
-		expect(probe.sheetBg).toBe('rgb(255, 255, 255)');
-		expect(probe.bodyPadBottom).toBeGreaterThan(40);
+		expect(inside.contained).toBe(true);
+		expect(inside.withinBar).toBe(true);
+		// Tappable as a bonus — the progress bar's hit expander must not steal it.
+		expect(inside.hitsHint).toBe(true);
+
+		// Tap opens the sheet, and the hint gets out of the way while it is open.
+		await hint.click();
+		await expect
+			.poll(() => page.evaluate(() => (window as any).__sheetPos()), { timeout: 3000 })
+			.toBeGreaterThan(0.99);
+		await expect(page.getByText('Recommended Song')).toBeInViewport();
+		await expect(page.locator('.sheet-hint')).toHaveCount(0);
+
+		// Closing brings it back.
+		await page.locator('.sheet-close').click();
+		await expect(page.locator('.sheet-hint')).toBeVisible();
 	});
 
 	test('reduced motion: the sheet lands immediately instead of settling', async ({ page }) => {
@@ -310,6 +394,98 @@ test.describe('phone', () => {
 		await page.waitForTimeout(50);
 		expect(await page.evaluate(() => (window as any).__sheetPos())).toBeGreaterThan(0.99);
 		expect(await sheetTransition()).toBe('none');
+	});
+
+	test('the hint stays away when there is nothing below the fold', async ({ page }) => {
+		// No recommendations and no queue → the sheet has nothing to show, so the
+		// bar must not advertise a drag.
+		await page.route('**/api/recommendations*', (route) => route.fulfill({ json: { results: [] } }));
+		await openViaSearch(page);
+		await page.waitForTimeout(1500);
+		await expect(page.getByText('Recommended Song')).toHaveCount(0);
+		await expect(page.locator('.sheet-hint')).toHaveCount(0);
+	});
+
+	// The recos pool must keep producing genuinely new rows while the user drags
+	// down, with the loading row in between — and only claim the end once the
+	// whole pool (artist catalog → recommender → random batches) is spent.
+	test('recommendations keep paging in new content; the end message comes last', async ({
+		page
+	}) => {
+		// A slow, empty random pool: it is the last stage, so the loading row is
+		// observable and the end message is reachable deterministically.
+		await page.route('**/api/random*', async (route) => {
+			await new Promise((r) => setTimeout(r, 1200));
+			route.fulfill({ json: { results: [] } });
+		});
+		await openViaSearch(page);
+		await page.waitForTimeout(1200);
+		await openSheet(page);
+
+		const body = page.locator('.sheet-body');
+		// The catalog is 5 pages deep (mockDetails); every page must actually land.
+		for (const p of [2, 3, 4, 5]) {
+			await body.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+			await expect(page.getByText(`Page ${p} Song A`)).toBeAttached({ timeout: 20000 });
+			await expect(page.getByText(`Page ${p} Song B`)).toBeAttached({ timeout: 20000 });
+		}
+		// Deduped: a page is never appended twice by the self-rearming loop.
+		await expect(page.getByText('Page 2 Song A')).toHaveCount(1);
+
+		// While the (slow) tail of the pool is being fetched the standard loading
+		// row shows, not the end message.
+		await body.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+		await expect(page.getByTestId('recos-loading-row')).toBeVisible({ timeout: 20000 });
+		await expect(page.getByText("You've reached the end.")).toHaveCount(0);
+
+		// Only once every stage has come back empty does the end message appear —
+		// and by then every page of real content is on screen.
+		await expect(page.getByText("You've reached the end.")).toBeAttached({ timeout: 30000 });
+		await expect(page.getByText('Page 5 Song B')).toBeAttached();
+		await expect(page.getByTestId('recos-loading-row')).toHaveCount(0);
+	});
+
+	// Favoriting a recommendation row must not paint the swipe-to-favorite
+	// reveal layer (a rose block with a second heart in it) behind the row.
+	test('favoriting a reco row shows a clean heart, no swipe-reveal block', async ({ page }) => {
+		await openViaSearch(page);
+		await page.waitForTimeout(1200);
+		await openSheet(page);
+
+		const fav = page.locator('.sheet-body button[aria-label*="favorites"]').first();
+		await expect(fav).toBeVisible();
+		await fav.click();
+		await expect(page.locator('.sheet-body button[aria-label*="Remove"]').first()).toBeVisible();
+
+		const probe = await page.evaluate(() => {
+			const btn = document.querySelector(
+				'.sheet-body button[aria-label*="favorites"]'
+			) as HTMLElement;
+			const row = btn.closest('.group') as HTMLElement;
+			const reveal = row.querySelector('.swipe-reveal') as HTMLElement;
+			const surface = row.querySelector('[role="button"]') as HTMLElement;
+			const cs = getComputedStyle(btn);
+			return {
+				revealOpacity: Number(getComputedStyle(reveal).opacity),
+				revealed: reveal.dataset.revealed,
+				// The row's own surface is fully opaque, so even a stacking accident
+				// could not let the layer behind it bleed through.
+				rowBg: getComputedStyle(surface).backgroundColor,
+				// The favorited control stays the neutral pill with a rose heart —
+				// not a solid rose disc/rectangle.
+				btnBg: cs.backgroundColor,
+				btnRadius: cs.borderRadius,
+				heartColor: getComputedStyle(btn.querySelector('i')!).color,
+				heartGlyph: btn.querySelector('i')!.textContent
+			};
+		});
+		expect(probe.revealOpacity).toBe(0);
+		expect(probe.revealed).toBe('false');
+		expect(probe.rowBg).not.toMatch(/rgba/);
+		expect(probe.btnBg).not.toBe('rgb(244, 63, 94)'); // never the solid rose fill
+		expect(probe.btnRadius).toBe('9999px');
+		expect(probe.heartColor).toBe('rgb(244, 63, 94)'); // rose heart, in place
+		expect(probe.heartGlyph).toBe('favorite');
 	});
 
 	test('recommendations infinitely load inside the sheet (item 24)', async ({ page }) => {

@@ -74,6 +74,11 @@
 	$: sourceDisplay = getSourceDisplay(source);
 
 	// Swipe-left toggles favorite, reusing the favorites store mutators.
+	// `swipeRevealed` is true only while the row is actually slid aside, so the
+	// rose action layer behind it can never bleed through a translucent
+	// hover/active row background on a plain tap (that read as a stray pink
+	// rectangle with a second heart in it).
+	let swipeRevealed = false;
 	$: isFav = $favoritesStore.some((f) => f.id === id);
 	function toggleFavorite() {
 		if (!id) return;
@@ -102,9 +107,13 @@
 <div class="group w-full">
 	<div class="relative {id ? 'overflow-hidden' : ''}">
 	{#if id}
-		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture) -->
+		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture).
+		     Hidden unless the row is genuinely swiped aside. -->
 		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-love-500"
+			class="swipe-reveal absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-love-500 pointer-events-none transition-opacity duration-150 {swipeRevealed
+				? 'opacity-100'
+				: 'opacity-0'}"
+			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
 			<i class="material-icons !text-xl">{isFav ? 'heart_broken' : 'favorite'}</i>
@@ -119,13 +128,14 @@
 			onCommit: toggleFavorite,
 			directions: ['left'],
 			haptic: hapticTap,
-			enabled: !!id
+			enabled: !!id,
+			onReveal: (v) => (swipeRevealed = v)
 		}}
 		role="button"
 		tabindex="0"
 		class="relative flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
-			? 'bg-white dark:bg-neutral-900'
-			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
+			? 'bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 active:bg-neutral-100 dark:active:bg-neutral-700'
+			: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50'} active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
 		on:click={onClick}
 		on:keydown={(e) => {
 			if (e.key === 'Enter' || e.key === ' ') {
