@@ -28,24 +28,30 @@ test.describe('touch targets', () => {
 	test('header controls meet the 44px touch floor via their tap-target halo', async ({ page }) => {
 		await setupMockApi(page);
 		await page.goto('/');
-		await page.waitForTimeout(300);
 
 		for (const name of ['Tuner', 'Metronome', 'Repertoire', 'Settings']) {
 			const ctrl = page.locator('header [aria-label="' + name + '"]').first();
 			await expect(ctrl).toBeVisible();
-			const eff = await ctrl.evaluate((el) => {
-				const box = el.getBoundingClientRect();
-				const after = getComputedStyle(el, '::after');
-				const inset = (v: string) => Math.abs(parseFloat(v) || 0);
-				// inset:-12px sets top/right/bottom/left; the halo extends each edge.
-				const top = inset(after.top);
-				const bottom = inset(after.bottom);
-				const left = inset(after.left);
-				const right = inset(after.right);
-				return { w: box.width + left + right, h: box.height + top + bottom };
-			});
-			expect(eff.h, `effective height for ${name}`).toBeGreaterThanOrEqual(FLOOR);
-			expect(eff.w, `effective width for ${name}`).toBeGreaterThanOrEqual(FLOOR);
+			// Measure via a poll: right after goto, hydration can swap the SSR node
+			// and the freshly-mounted control briefly measures 0x0 (deterministic on
+			// slow CI runners). Polling re-resolves the locator and re-measures until
+			// layout settles; the 44px floor itself is unchanged — a genuinely
+			// undersized control still fails after the timeout.
+			await expect
+				.poll(
+					() =>
+						ctrl.evaluate((el) => {
+							const box = el.getBoundingClientRect();
+							const after = getComputedStyle(el, '::after');
+							const inset = (v: string) => Math.abs(parseFloat(v) || 0);
+							// inset:-12px sets top/right/bottom/left; the halo extends each edge.
+							const w = box.width + inset(after.left) + inset(after.right);
+							const h = box.height + inset(after.top) + inset(after.bottom);
+							return Math.min(w, h);
+						}),
+					{ message: `effective hit size for ${name}`, timeout: 10_000 }
+				)
+				.toBeGreaterThanOrEqual(FLOOR);
 		}
 	});
 });
