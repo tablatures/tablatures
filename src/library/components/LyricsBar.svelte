@@ -15,6 +15,9 @@
 
 	// The persistent alphaTab instance (untyped: CDN build has no bundled types).
 	export let api: any = null;
+	/** Hide the strip without unmounting it (keeps fetched lyrics + settings).
+	 *  Used while the mobile below-fold sheet covers the score. */
+	export let suppressed = false;
 
 	// Fast beat -> {line, chunk} lookup, rebuilt when the lyrics change.
 	let beatToPos = new Map<unknown, { line: number; chunk: number }>();
@@ -145,7 +148,7 @@
 	const line = 'inline-block max-w-full bg-black/60 px-2 py-0.5 leading-snug lyric-shadow';
 </script>
 
-{#if visible}
+{#if visible && !suppressed}
 	<!-- Caption strip floating over the score (respecting the docked console
 	     width) just above the transport. pointer-events only on the text so the
 	     rest of the score stays interactive. -->

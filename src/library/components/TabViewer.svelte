@@ -25,7 +25,10 @@
 		playSheetInView,
 		playSheetEnabled,
 		playSheetOpen,
-		playerBarHeight
+		playerBarHeight,
+		sheetDragBegin,
+		sheetDragMove,
+		sheetDragEnd
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
@@ -342,9 +345,23 @@
 	// layers and the settings sheet can anchor above it without hardcoded offsets
 	let barHeight = 0;
 	let barEl: HTMLElement | undefined;
-	// Publish the measured bar height so the mobile bottom sheet can sit flush on
-	// top of it (keeping the transport controls visible/tappable behind the sheet).
-	$: if (browser) playerBarHeight.set(barHeight);
+	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
+	// its box height: the /play shell is sized in `dvh`, which can resolve taller
+	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
+	// box below the screen. The mobile bottom sheet insets its content by this so
+	// the last row clears the controls (see playerBarHeight).
+	function publishBarInset() {
+		if (!browser || !barEl) return;
+		const top = barEl.getBoundingClientRect().top;
+		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
+	}
+	$: if (browser && barEl && barHeight) publishBarInset();
+	// True while the mobile below-fold sheet has travelled up over the player. The
+	// chrome that floats just above the bar then has to get out of its way: the
+	// karaoke lyrics strip hides, and the progress bar's touch area (which
+	// normally overflows 48px upward) collapses so it cannot steal the touches
+	// that belong to the sheet's list rows.
+	$: sheetCoversScore = $playSheetEnabled && !$playSheetInView;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -1860,13 +1877,12 @@
 	// scrub / long-press loop (role="slider"), range sliders, and open popover
 	// menus keep working exactly as before.
 	const BAR_DRAG_THRESHOLD = 10; // px before a touch is treated as a drag, not a tap
-	const BAR_SHEET_OPEN_TRAVEL = 24; // px of upward drag that opens the sheet
 	let barTouchStartX = 0;
 	let barTouchStartY = 0;
 	let barTouchLastY = 0;
-	let barTouchTravel = 0; // signed cumulative upward travel while claimed
 	let barGesturePending = false; // touch started on a draggable zone, not yet claimed
 	let barGestureClaimed = false; // moved past the threshold → it's a drag
+	let barDrivesSheet = false; // this drag is feeding the mobile bottom sheet
 
 	function isBarOwnGesture(target: EventTarget | null): boolean {
 		// Buttons and links are intentionally NOT here: a drag on them scrolls the
@@ -1876,12 +1892,12 @@
 		return !!el?.closest?.('input, [role="slider"], [role="menu"], select');
 	}
 
-	/** Drive the outer view by a vertical delta: open the sheet on phones,
-	 *  otherwise scroll the /play shell. */
+	/** Drive the outer view by a vertical delta: on phones the finger moves the
+	 *  bottom sheet 1:1 (the sheet settles it on release); otherwise it scrolls
+	 *  the /play shell. */
 	function barDriveScroll(dyUp: number) {
-		if (get(playSheetEnabled)) {
-			barTouchTravel += dyUp;
-			if (barTouchTravel >= BAR_SHEET_OPEN_TRAVEL) playSheetOpen.set(true);
+		if (barDrivesSheet) {
+			sheetDragMove(dyUp);
 		} else {
 			const shell = get(playShellEl);
 			if (shell) shell.scrollBy({ top: -dyUp });
@@ -1921,7 +1937,6 @@
 		barTouchStartX = e.touches[0].clientX;
 		barTouchStartY = e.touches[0].clientY;
 		barTouchLastY = barTouchStartY;
-		barTouchTravel = 0;
 		barGesturePending = true;
 		barGestureClaimed = false;
 	}
@@ -1934,7 +1949,15 @@
 			const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
 			if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
 			barGestureClaimed = true;
-			barTouchLastY = t.clientY;
+			// Count travel from the edge of the tap slop, NOT from this event: touch
+			// moves get coalesced, so a fast flick can deliver its whole distance in
+			// one event — resetting to it would throw the entire gesture away.
+			const dy = t.clientY - barTouchStartY;
+			barTouchLastY = barTouchStartY + Math.sign(dy) * BAR_DRAG_THRESHOLD;
+			// Hand the gesture to the bottom sheet: from here every finger delta
+			// moves it continuously (item 21), and its release decides where it lands.
+			barDrivesSheet = get(playSheetEnabled);
+			if (barDrivesSheet) sheetDragBegin();
 		}
 		const dyUp = barTouchLastY - t.clientY; // + when the finger moves up
 		barTouchLastY = t.clientY;
@@ -1945,6 +1968,8 @@
 	function onBarTouchEnd() {
 		// A claimed drag must not also fire the button's click.
 		if (barGestureClaimed) suppressNextBarClick();
+		if (barDrivesSheet) sheetDragEnd();
+		barDrivesSheet = false;
 		barGesturePending = false;
 		barGestureClaimed = false;
 	}
@@ -2790,7 +2815,10 @@
 		// relayout that clears the stale container width, recomputes the responsive
 		// scale from the live viewport and re-renders alphaTab (see FIX F).
 		lastRelayoutWidth = window.innerWidth;
-		mountHandleResize = () => relayoutForViewport(false);
+		mountHandleResize = () => {
+			publishBarInset();
+			relayoutForViewport(false);
+		};
 
 		window.addEventListener('resize', mountHandleResize);
 		// orientationchange forces the relayout even when the scale bucket is
@@ -3987,11 +4015,18 @@
 	</div>
 
 	<!-- Karaoke lyrics — a translucent card floating over the score, just above
-	     the transport. Self-positioned (fixed) so it never eats layout height. -->
-	<LyricsBar api={$playerApi} />
+	     the transport. Self-positioned (fixed) so it never eats layout height.
+	     Suppressed (not unmounted, so its fetched lyrics survive) while the mobile
+	     bottom sheet covers the score: it floats above the sheet and would sit on
+	     top of the playlist. -->
+	<LyricsBar api={$playerApi} suppressed={sheetCoversScore} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- Controls bar (below the rendering, YouTube-style) -->
+	<!-- Controls bar (below the rendering, YouTube-style). It stays ABOVE the
+	     mobile bottom sheet (z-46) and its scrim (z-45): the sheet slides up
+	     BEHIND the controls and runs to the very bottom edge of the screen, so no
+	     see-through band can appear between the two and the controls stay
+	     visible/tappable while the below-fold content is open. -->
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
@@ -4157,8 +4192,11 @@
 				</div>
 			{/if}
 
-			<!-- Expanded hit area for easier interaction (overflow upward only to avoid buttons below) -->
-			<div class="absolute inset-x-0 -top-12 bottom-0" />
+			<!-- Expanded hit area for easier interaction (overflow upward only to avoid
+			     buttons below). Collapsed while the mobile bottom sheet covers the
+			     area above the bar, otherwise the scrub would steal the touches that
+			     belong to the sheet's list rows. -->
+			<div class="absolute inset-x-0 bottom-0 {sheetCoversScore ? 'top-0' : '-top-12'}" />
 
 			<!-- Tooltip -->
 			{#if showProgressTooltip && tooltipTime && !isDraggingLoop}

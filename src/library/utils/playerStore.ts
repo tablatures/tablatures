@@ -64,14 +64,47 @@ export const playSheetInView = writable(true);
 // True only while the phone-sized /play route is mounted (gates the bar-drag →
 // open behaviour so desktop keeps its shell scroll).
 export const playSheetEnabled = writable(false);
-// Open/closed state of the bottom sheet (open/closed only — no half state).
+// Committed (settled) open state of the bottom sheet. The sheet's live position
+// is continuous (finger-tracked) — this is only the state it last settled into,
+// which is what external actors read/write (Android back, route reset, wheel).
 export const playSheetOpen = writable(false);
 // The sheet's internal scroll container, used as the IntersectionObserver root
 // for the recommendations infinite-load once they live inside the sheet (item 24).
 export const playSheetEl = writable<HTMLElement | null>(null);
-// Live height (px) of the transport bar, published by TabViewer so the sheet can
-// sit flush on top of it (keeping the player controls visible/tappable behind).
+// Live VISIBLE height (px) of the transport bar — i.e. how much of the viewport
+// bottom it covers (`innerHeight - barRect.top`), not its box height. Published
+// by TabViewer; the sheet uses it to inset its content above the controls.
+// Measuring the visible part matters because the /play shell is sized in `dvh`,
+// which can resolve taller than the visual viewport (mobile URL bars, safe
+// areas) — the bar's box then extends below the screen and its box height would
+// leave the sheet floating in a see-through band above the controls.
 export const playerBarHeight = writable(0);
+
+// Continuous drag hand-off: the transport bar owns the touch (the gesture starts
+// on it, item 21) but the bottom sheet owns the motion. The sheet registers
+// these handlers on mount so the bar can feed it raw finger deltas without
+// importing the component — one gesture, one continuous position.
+export interface SheetDragHandlers {
+	/** A claimed drag started; capture the sheet's current position. */
+	begin(): void;
+	/** Move the sheet by `dyUp` px of upward finger travel (negative = down). */
+	move(dyUp: number): void;
+	/** The finger left the screen; settle with the asymmetric magnet. */
+	end(): void;
+}
+let sheetDrag: SheetDragHandlers | null = null;
+export function registerSheetDrag(handlers: SheetDragHandlers | null) {
+	sheetDrag = handlers;
+}
+export function sheetDragBegin() {
+	sheetDrag?.begin();
+}
+export function sheetDragMove(dyUp: number) {
+	sheetDrag?.move(dyUp);
+}
+export function sheetDragEnd() {
+	sheetDrag?.end();
+}
 
 // Reactive player state for UI binding
 export const playerState = writable<PlayerState>({ ...DEFAULT_STATE });

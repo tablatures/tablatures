@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { fade } from 'svelte/transition';
-	import { base } from '$app/paths';
+	import { get } from 'svelte/store';
 	import { hapticTap } from '../utils/native';
 	import {
 		playSheetOpen,
 		playSheetEl,
 		playSheetInView,
 		playerBarHeight,
-		queueStore
+		queueStore,
+		registerSheetDrag
 	} from '../utils/playerStore';
 	import PlayerQueueBar from './PlayerQueueBar.svelte';
 	import RelatedStrip from './RelatedStrip.svelte';
@@ -19,172 +19,285 @@
 	export let currentTabId: string | undefined = undefined;
 	export let artistHref = '';
 
+	let sheetEl: HTMLElement | undefined;
 	let bodyEl: HTMLElement | undefined;
-	let recoCount = 0;
 
-	$: open = $playSheetOpen;
+	// ---------------------------------------------------------------------------
+	// Scroll-linked position
+	// ---------------------------------------------------------------------------
+	// `pos` is the single source of truth: 0 = closed (the score owns the screen),
+	// 1 = open (the below-fold content owns it). Every gesture writes it directly
+	// so the sheet tracks the finger 1:1 — there is no "animate on release only"
+	// binary open/close. A release settles the remainder with an ASYMMETRIC magnet
+	// (see settle()): decisive going down into the content, slow and gentle
+	// drifting back up to the score.
+	//
+	// The sheet spans `top: 16dvh` → `bottom: 0`, so translating it down by 100%
+	// of its own height parks it exactly off-screen. That makes the transform a
+	// pure percentage of the travel — no px measuring for the visual, and no
+	// possible see-through band above the transport bar (the sheet's opaque
+	// background runs all the way to the bottom edge, safe area included, with
+	// the bar painted on top of it).
+	let pos = 0;
+	let posRaw = 0; // unclamped, so over-drags resume correctly
+	let dragging = false;
+	let transitionCss = 'none';
+	let travelPx = 1; // px the sheet moves between closed and open
+
+	// Release thresholds. Deliberately ASYMMETRIC — this is the core of the design:
+	//  - toward the content (finger up) the magnet is strong: 12% of the travel, or
+	//    a gentle flick, commits and the sheet snaps in decisively;
+	//  - back up to the score the magnet is weak: it takes a deliberate 30%
+	//    pull-back (or a clear downward flick) to commit, and anything less drifts
+	//    open again. Nothing here ever jumps — every release animates from
+	//    wherever the finger left the sheet.
+	const OPEN_COMMIT = 0.12;
+	const CLOSE_COMMIT = 0.7;
+	const FLING_OPEN = 0.35; // px/ms upward — easy to flick open
+	const FLING_CLOSE = 0.55; // px/ms downward — harder to flick shut
+
+	let reduceMotion = false;
+	let animating = false; // a settle transition is still in flight
+	let animTimer: ReturnType<typeof setTimeout> | undefined;
+
 	$: queueCount = $queueStore.items.length;
-	// Show the collapsed "Up next" affordance only when the sheet actually has
-	// content to reveal (a real queue, or resolved recommendations).
-	$: hasContent = queueCount > 1 || recoCount > 0;
-
+	// Fully settled open — only then does the content scroll internally.
+	$: settled = !dragging && !animating && pos >= 0.999;
 	// Publish the sheet scroller as the recommendations' IntersectionObserver root
 	// (item 24) so infinite-load fires when the user scrolls the sheet to its
-	// bottom. Also hide the player's "back to cursor" button while the sheet is up.
+	// bottom.
 	$: playSheetEl.set(bodyEl ?? null);
-	$: playSheetInView.set(!open);
+	// Hide the player's "back to cursor" button once the sheet is more than a
+	// third of the way up (it would sit behind the sheet anyway).
+	$: playSheetInView.set(pos < 0.35);
+	$: barInset = $playerBarHeight;
 
-	function openSheet() {
-		hapticTap();
-		playSheetOpen.set(true);
-	}
-	function closeSheet() {
-		hapticTap();
-		playSheetOpen.set(false);
+	function clamp01(v: number) {
+		return v < 0 ? 0 : v > 1 ? 1 : v;
 	}
 
-	// --- Drag to close (magnetic spring, open/closed only) ---
-	// Dragging DOWN on the grab handle (always) or on the body when it is scrolled
-	// to the top pulls the sheet down; releasing past a threshold snaps it closed,
-	// otherwise it springs back open.
-	let dragging = false;
-	let dragStartY = 0;
-	let dragY = 0; // px the sheet is pulled down from its open position
-	let dragFromBody = false;
-	const CLOSE_TRAVEL = 96; // px pulled down that commits to closing
-
-	function onHandleTouchStart(e: TouchEvent) {
-		startDrag(e, false);
-	}
-	function onBodyTouchStart(e: TouchEvent) {
-		// Only arm a close-drag when the content is already at the very top,
-		// otherwise the touch is a normal internal scroll.
-		if ((bodyEl?.scrollTop ?? 0) > 0) return;
-		startDrag(e, true);
+	function setPos(v: number) {
+		posRaw = v;
+		pos = clamp01(v);
 	}
 
-	function startDrag(e: TouchEvent, fromBody: boolean) {
-		if (e.touches.length !== 1) return;
-		dragging = true;
-		dragFromBody = fromBody;
-		dragStartY = e.touches[0].clientY;
-		dragY = 0;
-	}
-
-	function onDragMove(e: TouchEvent) {
-		if (!dragging) return;
-		const t = e.touches[0];
-		if (!t) return;
-		const dy = t.clientY - dragStartY;
-		// A body-initiated drag only takes over while pulling DOWN from the top; an
-		// upward move there means the user wants to scroll the list, so release it.
-		if (dragFromBody && dy < 0) {
-			dragging = false;
-			dragY = 0;
+	/** Settle the remaining distance to `open`, with direction-dependent physics. */
+	function settle(open: boolean) {
+		const to = open ? 1 : 0;
+		const dist = Math.abs(to - pos);
+		clearTimeout(animTimer);
+		if (reduceMotion || dist < 0.002) {
+			transitionCss = 'none';
+			animating = false;
+			setPos(to);
 			return;
 		}
-		dragY = Math.max(0, dy);
-		if (dragY > 0) e.preventDefault();
+		// Going DOWN into the content: short, decisive, slight ease-out snap.
+		// Coming back UP to the score: noticeably longer and softer — the user
+		// asked for little or no snap on the way back, never an instant jump.
+		const duration = open
+			? Math.round(240 * (0.45 + 0.55 * dist))
+			: Math.round(440 * (0.55 + 0.45 * dist));
+		const easing = open ? 'cubic-bezier(0.17, 0.89, 0.24, 1)' : 'cubic-bezier(0.25, 0.72, 0.3, 1)';
+		transitionCss = `transform ${duration}ms ${easing}`;
+		animating = true;
+		animTimer = setTimeout(() => (animating = false), duration + 20);
+		setPos(to);
 	}
 
-	function onDragEnd() {
+	// ---------------------------------------------------------------------------
+	// Gesture
+	// ---------------------------------------------------------------------------
+	let velocity = 0; // px/ms, positive = finger moving DOWN
+	let lastMoveAt = 0;
+	let openAtDragStart = false;
+	let committedOpen = false; // mirrors playSheetOpen, without a store read per frame
+
+	function begin() {
+		// One layout read per gesture (never inside the move loop).
+		travelPx = sheetEl?.offsetHeight || window.innerHeight || 1;
+		dragging = true;
+		transitionCss = 'none';
+		velocity = 0;
+		lastMoveAt = performance.now();
+		openAtDragStart = pos > 0.5;
+		posRaw = pos;
+	}
+
+	function move(dyUp: number) {
+		if (!dragging) return;
+		const now = performance.now();
+		const dt = now - lastMoveAt;
+		if (dt > 0) {
+			// EMA so a single jittery sample can't decide a fling.
+			velocity = 0.7 * (-dyUp / dt) + 0.3 * velocity;
+			lastMoveAt = now;
+		}
+		setPos(posRaw + dyUp / travelPx);
+	}
+
+	function end() {
 		if (!dragging) return;
 		dragging = false;
-		if (dragY > CLOSE_TRAVEL) {
-			dragY = 0;
-			playSheetOpen.set(false);
+		let open: boolean;
+		if (velocity < -FLING_OPEN) {
+			open = true; // flicked upward → toward the content
+		} else if (velocity > FLING_CLOSE) {
+			open = false; // flicked downward → back to the score
+		} else if (openAtDragStart) {
+			open = pos > CLOSE_COMMIT;
 		} else {
-			dragY = 0; // spring back open
+			open = pos > OPEN_COMMIT;
 		}
+		commit(open);
 	}
 
-	// Reset the pull whenever the open state flips (e.g. closed via back button).
-	$: if (!open) dragY = 0;
+	/** Land on a state: settle the motion and publish it. */
+	function commit(open: boolean) {
+		if (open !== committedOpen) {
+			committedOpen = open;
+			hapticTap();
+			playSheetOpen.set(open);
+		}
+		settle(open);
+	}
 
-	// The sheet is anchored `bottom: barHeight` so the transport controls stay
-	// visible/tappable behind it when open. A bare translateY(100%) would leave a
-	// sliver peeking above the bar (100% = the sheet's own height only), so the
-	// closed transform also clears the bar height.
-	$: closedTransform = `translateY(calc(100% + ${$playerBarHeight}px + 8px))`;
-	$: openTransform = `translateY(${dragY}px)`;
+	function closeSheet() {
+		commit(false);
+	}
 
-	function onRecosLoaded(e: CustomEvent<number>) {
-		recoCount = e.detail;
+	// External open/close (Android back, route reset, a wheel on the bar) drives
+	// the same settle path. Guarded by `committedOpen` so our own commits don't
+	// re-enter, and ignored mid-drag (the finger wins).
+	$: if ($playSheetOpen !== committedOpen && !dragging) {
+		committedOpen = $playSheetOpen;
+		settle(committedOpen);
+	}
+
+	// --- Touches that land on the sheet itself ---
+	// The grab handle always drags. The body only takes over while it is scrolled
+	// to the very top and the finger goes DOWN (otherwise it is a normal internal
+	// scroll). Content can only scroll internally once the sheet is fully settled.
+	let touchLastY = 0;
+	let touchArmed = false;
+	let touchFromBody = false;
+	let touchClaimed = false;
+
+	function onHandleTouchStart(e: TouchEvent) {
+		if (e.touches.length !== 1) return;
+		touchArmed = true;
+		touchFromBody = false;
+		touchClaimed = true;
+		touchLastY = e.touches[0].clientY;
+		begin();
+	}
+
+	function onBodyTouchStart(e: TouchEvent) {
+		if (e.touches.length !== 1) return;
+		touchArmed = true;
+		touchFromBody = true;
+		// At scrollTop 0 a downward drag closes; anywhere else it is a scroll.
+		touchClaimed = false;
+		touchLastY = e.touches[0].clientY;
+	}
+
+	function onSheetTouchMove(e: TouchEvent) {
+		if (!touchArmed) return;
+		const t = e.touches[0];
+		if (!t) return;
+		const dyUp = touchLastY - t.clientY;
+		if (!touchClaimed) {
+			// Body-initiated: only a downward pull from the top becomes a drag.
+			if (dyUp >= 0 || (bodyEl?.scrollTop ?? 0) > 0) {
+				if (Math.abs(dyUp) > 2) touchArmed = false; // hand it back to the scroller
+				return;
+			}
+			touchClaimed = true;
+			touchLastY = t.clientY;
+			begin();
+			return;
+		}
+		touchLastY = t.clientY;
+		move(dyUp);
+		if (!touchFromBody || pos < 0.999) e.preventDefault();
+	}
+
+	function onSheetTouchEnd() {
+		if (!touchArmed) return;
+		touchArmed = false;
+		if (touchClaimed) end();
 	}
 
 	onMount(() => {
+		reduceMotion = !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+		const mql = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+		const onPref = (ev: MediaQueryListEvent) => (reduceMotion = ev.matches);
+		mql?.addEventListener?.('change', onPref);
+
+		committedOpen = get(playSheetOpen);
+		pos = committedOpen ? 1 : 0;
+		posRaw = pos;
+
+		// Let the transport bar feed this sheet its finger deltas (item 21).
+		registerSheetDrag({ begin, move, end });
+
 		return () => {
+			mql?.removeEventListener?.('change', onPref);
+			clearTimeout(animTimer);
+			registerSheetDrag(null);
 			playSheetEl.set(null);
 			playSheetInView.set(true);
 		};
 	});
+
 	onDestroy(() => {
 		playSheetOpen.set(false);
 	});
 </script>
 
-<!-- Collapsed affordance: a compact "Up next" pill anchored bottom-right, just
-     above the transport controls (clear of the centered lyrics strip). Tap — or
-     drag up on the transport bar, item 21 — opens the sheet. -->
-{#if !open && hasContent}
-	<button
-		class="sheet-peek"
-		style="bottom: calc({$playerBarHeight}px + 10px)"
-		on:click={openSheet}
-		aria-label="Show playlist and recommendations"
-	>
-		<i class="material-icons !text-lg">expand_less</i>
-		<span class="sheet-peek-label">
-			Up next
-			{#if queueCount > 1}
-				<span class="opacity-60">· {queueCount}</span>
-			{/if}
-		</span>
-	</button>
-{/if}
-
-<!-- Dim scrim over the still-visible player. Tap to close. -->
-{#if open}
+<!-- Progress-linked scrim. It is not a modal veil — it deepens exactly as far as
+     the sheet has travelled, which is the only cue that the score behind is
+     parked. Tapping it (only once settled open) returns to the score. -->
+{#if pos > 0.005 || animating}
 	<div
 		class="sheet-scrim"
-		transition:fade={{ duration: 180 }}
+		class:sheet-scrim-dragging={dragging}
+		style="opacity: {pos}; pointer-events: {settled ? 'auto' : 'none'}"
 		on:click={closeSheet}
 		role="presentation"
 	></div>
 {/if}
 
-<!-- The bottom sheet. Always in the DOM (so recommendations resolve in the
-     background and the peek can appear); slid off-screen when closed. -->
+<!-- The sheet. Always in the DOM (recommendations resolve in the background);
+     parked below the screen edge when closed. -->
 <div
 	class="sheet"
-	class:sheet-open={open}
 	class:sheet-dragging={dragging}
-	style="bottom: {$playerBarHeight}px; transform: {open ? openTransform : closedTransform}"
-	aria-hidden={!open}
+	bind:this={sheetEl}
+	style="transform: translate3d(0, {(1 - pos) * 100}%, 0); transition: {transitionCss};
+		--sheet-bar-inset: {barInset}px; pointer-events: {pos > 0.005 ? 'auto' : 'none'}"
+	aria-hidden={pos < 0.005}
+	on:touchmove|nonpassive={onSheetTouchMove}
+	on:touchend={onSheetTouchEnd}
+	on:touchcancel={onSheetTouchEnd}
 >
-	<!-- Grab handle: drag down to close. -->
+	<!-- Grab handle: drag down to return to the score. -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
-		class="sheet-handle"
-		on:touchstart={onHandleTouchStart}
-		on:touchmove|nonpassive={onDragMove}
-		on:touchend={onDragEnd}
-		on:touchcancel={onDragEnd}
-	>
+	<div class="sheet-handle" on:touchstart={onHandleTouchStart}>
 		<span class="sheet-grip" aria-hidden="true"></span>
 		<button class="sheet-close" on:click={closeSheet} aria-label="Close">
 			<i class="material-icons !text-xl">keyboard_arrow_down</i>
 		</button>
 	</div>
 
-	<!-- Scrolling body. A pull-down from scrollTop 0 also closes the sheet. -->
+	<!-- Scrolling body. Only scrolls internally once the sheet is fully settled;
+	     a pull-down from scrollTop 0 starts closing instead. -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="sheet-body"
+		class:sheet-body-live={settled}
 		bind:this={bodyEl}
 		on:touchstart={onBodyTouchStart}
-		on:touchmove|nonpassive={onDragMove}
-		on:touchend={onDragEnd}
-		on:touchcancel={onDragEnd}
 	>
 		<!-- Tab info -->
 		<div class="px-4 pt-1">
@@ -207,77 +320,51 @@
 		{/if}
 
 		<!-- Recommendations — infinite-load observed against this sheet body. -->
-		<RelatedStrip
-			variant="list"
-			{artist}
-			{title}
-			{currentTabId}
-			root={bodyEl}
-			on:loaded={onRecosLoaded}
-		/>
-
-		<div class="h-8"></div>
+		<RelatedStrip variant="list" {artist} {title} {currentTabId} root={bodyEl} />
 	</div>
 </div>
 
 <style>
-	/* Collapsed affordance — sits above the lyrics strip (z-55). */
-	.sheet-peek {
-		position: fixed;
-		right: calc(env(safe-area-inset-right) + 12px);
-		z-index: 56;
-		display: flex;
-		align-items: center;
-		gap: 3px;
-		padding: 6px 12px 6px 10px;
-		border-radius: 999px;
-		color: white;
-		background: rgba(140, 82, 255, 0.95);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-	}
-	.sheet-peek:active {
-		transform: scale(0.96);
-	}
-	.sheet-peek-label {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 0.8rem;
-		font-weight: 600;
-	}
-
-	/* Scrim */
+	/* Scrim — opacity is driven inline by the sheet's travel. */
 	.sheet-scrim {
 		position: fixed;
 		inset: 0;
-		z-index: 60;
-		background: rgba(0, 0, 0, 0.45);
+		z-index: 45;
+		background: rgb(0 0 0 / 0.32);
+		will-change: opacity;
+		/* Follows the settle animation; suppressed mid-drag where the inline
+		   opacity IS the finger position. */
+		transition: opacity 300ms ease;
+	}
+	.sheet-scrim-dragging {
+		transition: none;
 	}
 
-	/* Sheet */
+	/* Sheet. Runs to the very bottom edge of the screen, UNDER the transport bar
+	   (z-50) and the app header (z-100), so its opaque background
+	   covers the bar's safe-area padding too — there is no band where the score
+	   can show through. Content is inset above the bar via --sheet-bar-inset. */
 	.sheet {
 		position: fixed;
 		left: 0;
 		right: 0;
 		top: 16dvh;
-		z-index: 61;
+		bottom: 0;
+		z-index: 46;
 		display: flex;
 		flex-direction: column;
 		background: white;
 		border-radius: 16px 16px 0 0;
-		box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+		box-shadow: 0 -8px 30px rgb(0 0 0 / 0.25);
 		overflow: hidden;
-		/* Magnetic spring snap between open / closed. Suppressed mid-drag so the
-		   sheet tracks the finger 1:1. */
-		transition: transform 0.34s cubic-bezier(0.22, 1.2, 0.36, 1);
 		will-change: transform;
-		touch-action: none;
 	}
 	:global(.dark) .sheet {
 		background: #0a0a0a;
 	}
+	/* Mid-drag the position is written every frame — never interpolate. */
 	.sheet-dragging {
-		transition: none;
+		transition: none !important;
 	}
 
 	.sheet-handle {
@@ -319,5 +406,13 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		-webkit-overflow-scrolling: touch;
+		/* Keep the last row clear of the transport bar the sheet passes behind. */
+		padding-bottom: calc(var(--sheet-bar-inset, 0px) + 12px);
+		/* Locked until the sheet is settled: while it is in flight the finger is
+		   moving the sheet, not the list. */
+		touch-action: none;
+	}
+	.sheet-body-live {
+		touch-action: pan-y;
 	}
 </style>
