@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
 	import { fadeInImage } from '$utils/fadeInImage';
+	import { placeholderArtwork } from '$utils/placeholder';
 	import { goto } from '$app/navigation';
 	import Header from '$components/Header.svelte';
 	import TabCard from '$components/TabCard.svelte';
@@ -11,15 +12,21 @@
 	import TagPill from '$components/TagPill.svelte';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PullToRefresh from '$components/PullToRefresh.svelte';
+	import EmptyState from '$components/EmptyState.svelte';
+	import OfflineNotice from '$components/OfflineNotice.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
 	import { playlistStore } from '$utils/playlists';
 	import { toastStore } from '$utils/toast';
+	import { shareLink } from '$utils/native';
+	import { shareUrl } from '$utils/shareUrl';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { getSourceDisplay } from '$utils/sources';
 	import { inViewport } from '$utils/inViewport';
 	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
+	import { cacheArtistImage, getCachedArtistObjectUrl } from '$utils/artworkCache';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isFromCache, isOfflineErrorLike } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -63,6 +70,7 @@
 	let artistName = '';
 	let loading = true;
 	let notFound = false;
+	let offline = false;
 	let info: ArtistInfo | null = null;
 	let topTabs: TabItem[] = [];
 	let similarArtists: Array<{ name: string; image: string | null; genre: string | null; tabCount: number }> = [];
@@ -91,14 +99,28 @@
 	let organicLoading = false;
 	let organicDone = false;
 
-	let bioExpanded = false;
 	let bannerFailed = false;
 	let avatarFailed = false;
 
 	/** TheAudioDB sometimes returns http URLs that browsers block on https pages */
 	const httpsUrl = (u: string | null) => (u ? u.replace(/^http:\/\//, 'https://') : null);
-	$: avatarUrl = avatarFailed ? null : httpsUrl(info?.image ?? null);
+	/** Offline fallback for the avatar, resolved from the durable byte cache (5b). */
+	let cachedAvatarUrl: string | null = null;
+	$: networkAvatarUrl = avatarFailed ? null : httpsUrl(info?.image ?? null);
+	$: avatarUrl = networkAvatarUrl || cachedAvatarUrl;
 	$: bannerUrl = bannerFailed ? null : httpsUrl(info?.banner ?? null);
+	// Warm the byte cache when we have a network avatar; fall back to cached
+	// bytes (object URL) when the network image is missing or fails offline.
+	$: void resolveAvatar(info?.name, networkAvatarUrl);
+	async function resolveAvatar(name: string | undefined, url: string | null) {
+		if (!name) return;
+		if (url) {
+			void cacheArtistImage(name, url);
+			cachedAvatarUrl = null;
+			return;
+		}
+		cachedAvatarUrl = await getCachedArtistObjectUrl(name);
+	}
 
 	$: isFollowed = info && $favoriteArtistsStore ? favoriteArtistsStore.isArtist(info.name) : false;
 
@@ -106,6 +128,21 @@
 		if (!info) return;
 		if (isFollowed) favoriteArtistsStore.removeArtist(info.name);
 		else favoriteArtistsStore.addArtist({ name: info.name, image: info.image || undefined });
+	}
+
+	async function shareArtist() {
+		const name = info?.name || artistName;
+		if (!name) return;
+		const url = new URL(shareUrl(`/artist/${encodeURIComponent(name)}`));
+		try {
+			const how = await shareLink(url.toString(), {
+				title: name,
+				dialogTitle: 'Share artist'
+			});
+			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
+		} catch {
+			toastStore.error('Failed to copy link');
+		}
 	}
 
 	function fmtDuration(seconds?: number | null): string {
@@ -137,9 +174,10 @@
 	// or live-augmented past it, show the larger, truer figure.
 	$: headerTabCount = Math.max(info?.tabCount ?? 0, allTabsTotal);
 
-	async function load(name: string) {
+	async function load(name: string, force = false) {
 		loading = true;
 		notFound = false;
+		offline = false;
 		info = null;
 		topTabs = [];
 		similarArtists = [];
@@ -151,11 +189,17 @@
 		avatarFailed = false;
 
 		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(name)}`);
+			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(name)}`, {
+				ttl: TTL_METADATA,
+				forceRefresh: force
+			});
 			if (!resp.ok) {
 				notFound = true;
 				return;
 			}
+			// A cached fallback means we couldn't reach the network — still show
+			// the artist but flag offline so the notice appears below.
+			offline = isFromCache(resp);
 			const data = await resp.json();
 			info = data.artist;
 			topTabs = data.topTabs || [];
@@ -172,8 +216,11 @@
 				const target = albums.find((a) => a.deezerId === Number(albumParam));
 				if (target) openAlbumView(target);
 			}
-		} catch {
-			notFound = true;
+		} catch (err) {
+			// Offline with no cached copy: show the offline state (with retry),
+			// not the "artist not found" state.
+			if (isOfflineErrorLike(err)) offline = true;
+			else notFound = true;
 		} finally {
 			loading = false;
 		}
@@ -190,7 +237,7 @@
 				page: String(pageNum),
 				sort: 'alphabetical'
 			});
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/search?${params}`);
+			const resp = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${params}`, { ttl: TTL_SEARCH });
 			if (!resp.ok) return;
 			const data = await resp.json();
 			const incoming: TabItem[] = (data.results || []).filter(
@@ -267,8 +314,9 @@
 		resolvingTracks = new Set();
 		albumLoading = true;
 		try {
-			const resp = await fetch(
-				`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(info!.name)}/album/${album.deezerId}`
+			const resp = await cachedFetch(
+				`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(info!.name)}/album/${album.deezerId}`,
+				{ ttl: TTL_METADATA }
 			);
 			if (!resp.ok) return;
 			const data = await resp.json();
@@ -375,6 +423,8 @@
 		}));
 	}
 
+	/** "Play all" (play-playlist) button: THIS is the only entry point that
+	 *  populates the player queue with the whole album. */
 	async function playAlbum(startTrack?: AlbumTrack) {
 		const items = albumQueueItems();
 		if (items.length === 0 || !openAlbum) return;
@@ -386,7 +436,24 @@
 			`${base}/artist/${encodeURIComponent(info?.name || '')}?album=${openAlbum.deezerId}`
 		);
 		const first = items[startIndex];
-		await openTabById({ ...first, variants: startTrack?.variants }, true);
+		await openTabById({ ...first, variants: startTrack?.variants }, true, { keepQueue: true });
+	}
+
+	/** Tapping a single album track opens ONLY that track — no queue populated.
+	 *  openTabById (default) clears any active queue, so the row tap never leaks
+	 *  the album into the player as a playlist. */
+	async function openAlbumTrack(track: AlbumTrack) {
+		if (!track.tabId) return;
+		await openTabById(
+			{
+				id: track.tabId,
+				title: track.title,
+				artist: info?.name,
+				source: track.variants[0]?.source || '',
+				variants: track.variants
+			},
+			true
+		);
 	}
 
 	function saveAlbumAsPlaylist() {
@@ -429,9 +496,9 @@
 		return unsub;
 	});
 
-	// Pull-to-refresh: re-run the artist fetch.
+	// Pull-to-refresh / retry: force a network re-fetch (bypass cache).
 	function handlePullRefresh() {
-		if (artistName) return load(artistName);
+		if (artistName) return load(artistName, true);
 	}
 </script>
 
@@ -448,6 +515,15 @@
 	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 -mt-12">
 		<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-neutral-200 dark:bg-neutral-800 animate-pulse border-4 border-white dark:border-black"></div>
 	</div>
+{:else if offline && !info}
+	<!-- Offline with no cached artist: offline state with a working retry. -->
+	<EmptyState
+		icon="cloud_off"
+		tone="offline"
+		title="You're offline"
+		description={`Reconnect to load ${artistName}.`}
+		onRetry={handlePullRefresh}
+	/>
 {:else if notFound}
 	<div class="flex flex-col items-center justify-center py-24">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">person_off</i>
@@ -480,11 +556,14 @@
 	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
 		<div class="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12 sm:-mt-16 relative z-10">
 			<!-- Avatar -->
-			<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center">
+			<div
+				class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center {avatarUrl ? '' : 'artwork-ph'}"
+				style={avatarUrl ? '' : placeholderArtwork(info.name, '').style}
+			>
 				{#if avatarUrl}
 					<img src={avatarUrl} alt={info.name} use:fadeInImage={avatarUrl} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
 				{:else}
-					<i class="material-icons !text-5xl text-neutral-400">person</i>
+					<span class="text-2xl sm:text-3xl font-black tracking-tight select-none opacity-95">{placeholderArtwork(info.name, '').initials}</span>
 				{/if}
 			</div>
 
@@ -514,28 +593,30 @@
 				</div>
 			</div>
 
-			<div class="sm:pb-2 flex-shrink-0">
+			<div class="sm:pb-2 flex-shrink-0 flex items-center gap-2">
+				<!-- Heart-only favorite toggle: neutral when off, pink-red fill when
+				     favorited (matches FavoriteButton on cards). 44px tap target. -->
 				<button
 					on:click={toggleFollow}
-					class="flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-medium transition-colors {isFollowed
-						? 'bg-neutral-200 dark:bg-neutral-800 text-red-500 hover:bg-neutral-300 dark:hover:bg-neutral-700'
-						: 'bg-violet-500 text-white hover:bg-violet-600'}"
+					class="tap-target flex items-center justify-center w-11 h-11 rounded-full transition-colors active:scale-90 {isFollowed
+						? 'bg-love-500 text-white hover:bg-love-600'
+						: 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-love-500 hover:text-white'}"
 					title={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists (repertoire)'}
+					aria-label={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists'}
+					aria-pressed={isFollowed}
 				>
-					<i class="material-icons !text-lg">{isFollowed ? 'favorite' : 'favorite_border'}</i>
-					{isFollowed ? 'Favorited' : 'Favorite'}
+					<i class="material-icons !text-xl">{isFollowed ? 'favorite' : 'favorite_border'}</i>
+				</button>
+				<button
+					on:click={shareArtist}
+					class="tap-target flex items-center justify-center w-11 h-11 rounded-full bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors"
+					title="Share artist"
+					aria-label="Share artist"
+				>
+					<i class="material-icons !text-lg">share</i>
 				</button>
 			</div>
 		</div>
-
-		{#if info.bio}
-			<div class="mt-4 max-w-3xl">
-				<p class="text-sm text-neutral-600 dark:text-neutral-400 {bioExpanded ? '' : 'line-clamp-2'}">{info.bio}</p>
-				<button class="text-xs text-violet-500 hover:underline mt-1" on:click={() => (bioExpanded = !bioExpanded)}>
-					{bioExpanded ? 'Show less' : 'Read more'}
-				</button>
-			</div>
-		{/if}
 
 		<!-- ================= Top tabs ================= -->
 		{#if topTabs.length > 0}
@@ -621,7 +702,7 @@
 								{#if track.tabId}
 									<button
 										class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group/track"
-										on:click={() => playAlbum(track)}
+										on:click={() => openAlbumTrack(track)}
 									>
 										<span class="w-6 text-right text-xs text-neutral-400">{track.position}</span>
 										<span class="flex-1 min-w-0">
@@ -748,17 +829,42 @@
 			     the button below stays as an accessible / no-JS fallback. Both
 			     funnel through loadMoreTabs, which guards against double fetches. -->
 			<div use:inViewport={{ onEnter: loadMoreTabs, rootMargin: '600px' }} aria-hidden="true"></div>
-			<div class="text-center mb-10">
-				<button
-					on:click={loadMoreTabs}
-					disabled={allTabsLoading}
-					class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50"
+			<!-- Loading row (item 28): the app-standard loader below the bottom-most
+			     row while a page is in flight, replacing the button so the user always
+			     has a visual for an in-flight fetch. -->
+			{#if allTabsLoading}
+				<div
+					class="flex items-center justify-center gap-3 py-6 mb-4"
+					aria-live="polite"
+					data-testid="artist-loading-row"
 				>
-					{allTabsLoading ? 'Loading' : `Load more (${allTabs.length}/${allTabsTotal})`}
-				</button>
-			</div>
+					<LoadingScore size="sm" message="" />
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+						>Loading more tabs…</span
+					>
+				</div>
+			{:else}
+				<div class="text-center mb-10">
+					<button
+						on:click={loadMoreTabs}
+						class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+					>
+						Load more ({allTabs.length}/{allTabsTotal})
+					</button>
+				</div>
+			{/if}
+		{:else if allTabs.length > 0}
+			<!-- Truly exhausted: distinct end state rather than a silent stop. -->
+			<p class="py-4 mb-10 text-center text-xs text-neutral-400 dark:text-neutral-500">
+				You've reached the end.
+			</p>
 		{:else}
 			<div class="mb-10"></div>
+		{/if}
+
+		<!-- Offline but the artist was served from cache: non-blocking notice. -->
+		{#if offline}
+			<OfflineNotice onRetry={handlePullRefresh} />
 		{/if}
 	</div>
 {/if}

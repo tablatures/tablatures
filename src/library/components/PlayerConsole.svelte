@@ -78,7 +78,7 @@
 							on:confirm={() => mergerRef?.merge()}
 						/>
 						<div class="flex-1 min-w-0 flex flex-col min-h-0">
-							<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+							<div class="track-list-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain">
 								<TrackList
 									{tracks}
 									{activeTrackIndex}
@@ -182,6 +182,19 @@
 </div>
 
 <style>
+	/* Momentum scrolling for the track list, plus a bounded height on the
+	   full-screen mobile sheet so a long track list scrolls within its own area
+	   and never pushes the quick-controls footer off-screen. On the wide desktop
+	   panel (>=976px, matching isLargeScreen) the list fills the flex height. */
+	.track-list-scroll {
+		-webkit-overflow-scrolling: touch;
+	}
+	@media (max-width: 975px) {
+		.track-list-scroll {
+			max-height: 50vh;
+		}
+	}
+
 	/* Stacked by default so track names always have full width; switch to the
 	   flush side-by-side layout only when the panel is wide enough. */
 	.cc-wrap {

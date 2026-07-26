@@ -19,6 +19,7 @@
 	import { openTabById } from '../../library/utils/openTab';
 	import { setQueue } from '../../library/utils/playerStore';
 	import { shareLink } from '../../library/utils/native';
+	import { shareUrl } from '../../library/utils/shareUrl';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
@@ -26,11 +27,15 @@
 	import type { Playlist, PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
+	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
 	let loading = false;
 	let error = '';
+	// Repertoire lists are local-first (localStorage) so they always render; the
+	// offline flag only drives a non-blocking notice (artwork/avatars need net).
+	let offline = browser ? !navigator.onLine : false;
 	let activeTab: 'favorites' | 'history' | 'playlists' = 'favorites';
 
 	// Shared playlist from URL
@@ -58,6 +63,15 @@
 				activeTab = 'playlists';
 			}
 		}
+
+		const onOnline = () => (offline = false);
+		const onOffline = () => (offline = true);
+		window.addEventListener('online', onOnline);
+		window.addEventListener('offline', onOffline);
+		return () => {
+			window.removeEventListener('online', onOnline);
+			window.removeEventListener('offline', onOffline);
+		};
 	});
 
 	$: if (browser) {
@@ -206,14 +220,18 @@
 			playlist.name,
 			`${base}/repertoire?view=playlists`
 		);
-		await openTab(playlist.entries[startIndex]);
+		// play-playlist: keep the queue we just set (single-track opens clear it).
+		await openTab(playlist.entries[startIndex], true);
 	}
 
-	async function openTab(item: FavoriteItem | HistoryItem | PlaylistEntry): Promise<void> {
+	async function openTab(
+		item: FavoriteItem | HistoryItem | PlaylistEntry,
+		keepQueue = false
+	): Promise<void> {
 		loading = true;
 		error = '';
 		try {
-			await openTabById(item);
+			await openTabById(item, true, { keepQueue });
 		} catch (err: any) {
 			error = err?.message || 'Failed to open tab';
 			toastStore.error(error);
@@ -270,7 +288,7 @@
 		const pl = playlists[index];
 		if (!pl) return;
 		const encoded = encodePlaylist(pl);
-		const url = new URL(window.location.origin + base + '/repertoire');
+		const url = new URL(shareUrl('/repertoire'));
 		url.searchParams.set('playlist', encoded);
 		url.searchParams.set('view', 'playlists');
 		try {
@@ -462,11 +480,11 @@
 										</button>
 										<button
 											on:click={() => favoriteArtistsStore.removeArtist(artist.name)}
-											class="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 dark:hover:bg-red-900/30"
+											class="tap-target absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-love-50 dark:hover:bg-love-900/30"
 											title="Unfollow {artist.name}"
 											aria-label="Unfollow {artist.name}"
 										>
-											<i class="material-icons !text-sm text-red-500" aria-hidden="true">favorite</i>
+											<i class="material-icons !text-sm text-love-500" aria-hidden="true">favorite</i>
 										</button>
 									</div>
 									<button
@@ -571,7 +589,7 @@
 				{#if historyItems.length > 0}
 					<button
 						on:click={() => historyStore.clearHistory()}
-						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-red-500 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-danger-500 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-danger-50 dark:hover:bg-danger-900/20"
 					>
 						<i class="material-icons !text-base">delete_outline</i>
 						Clear all history
@@ -608,7 +626,7 @@
 										>
 											<button
 												on:click|stopPropagation={() => removeHistoryItem(item.id)}
-												class="w-9 h-9 flex items-center justify-center rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
+												class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-danger-500 dark:text-danger-400 hover:bg-danger-500 hover:text-white dark:hover:bg-danger-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
 												title="Remove from history"
 											>
 												<i class="material-icons !text-lg">close</i>
@@ -709,7 +727,7 @@
 							<div class="absolute top-2 right-2 flex gap-1">
 								<button
 									on:click|stopPropagation={() => playPlaylist(pIndex, 0)}
-									class="w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
+									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
 									disabled={playlist.entries.length === 0}
 									title="Play all"
 								>
@@ -717,7 +735,7 @@
 								</button>
 								<button
 									on:click|stopPropagation={() => deletePlaylist(pIndex)}
-									class="w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-red-500 shadow transition-colors opacity-0 group-hover:opacity-100"
+									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-danger-500 shadow transition-colors opacity-0 group-hover:opacity-100"
 									title="Delete playlist"
 								>
 									<i class="material-icons !text-lg">delete_outline</i>
@@ -729,6 +747,15 @@
 				</div>
 			{/if}
 		</div>
+	{/if}
+
+	<!-- Offline: lists are local so they still show; note that images/updates
+	     need a connection. Retry re-checks connectivity and refetches artwork. -->
+	{#if offline}
+		<OfflineNotice
+			message="You're offline — your saved tabs are shown, but artwork and updates need a connection."
+			onRetry={() => { offline = !navigator.onLine; return handlePullRefresh(); }}
+		/>
 	{/if}
 	</PullToRefresh>
 </main>

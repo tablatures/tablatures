@@ -8,14 +8,16 @@
 	import TabViewer from '../../library/components/TabViewer.svelte';
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
 	import RelatedStrip from '../../library/components/RelatedStrip.svelte';
-	import { tabStore } from '../../library/utils/store';
+	import PlayerBottomSheet from '../../library/components/PlayerBottomSheet.svelte';
+	import { tabStore, pendingTabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
-	import type { Unsubscriber } from 'svelte/store';
+	import { get, type Unsubscriber } from 'svelte/store';
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState, updatePlayerState, queueStore } from '../../library/utils/playerStore';
+	import { activeVideoId, playerState, updatePlayerState, queueStore, playShellEl, playSheetInView, playSheetEnabled, playSheetOpen } from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
+	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -38,6 +40,10 @@
 
 	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
 	$: hasTab = currentTab?.fileAsB64;
+	// A tab open was requested (from a list item) and its bytes haven't landed
+	// yet — show the loading state instead of the stale/empty tab. Cleared by
+	// openTabById once bytes arrive or on failure.
+	$: opening = !!$pendingTabStore;
 
 	// Stable-param writing (?tab, ?video, ?track) and playback-time syncing
 	// (?t) are handled globally in +layout.svelte via library/utils/urlState.ts
@@ -48,6 +54,74 @@
 	//   - Initial-load reads for ?tab= / ?track= / ?t= / ?video= which drive
 	//     tab download + player seek.
 	let initialTrackIndex: number | undefined = undefined;
+
+	// Phone vs desktop: on phones the below-fold details live in a YouTube-style
+	// bottom sheet (item 23) instead of the desktop free-scroll section.
+	//
+	// Gated by DEVICE SHAPE, not width alone, so a phone gets the sheet in EITHER
+	// orientation — free-scrolling a 390px-tall landscape viewport is practically
+	// impossible to trigger, which is exactly the complaint. The clauses:
+	//   1. narrow viewport            → phone portrait (390x844)
+	//   2. short landscape viewport   → phone on its side (844x390), matching
+	//      TabViewer's own isMobileLandscape rule
+	//   3. coarse pointer + a short-ish landscape viewport → bigger phones held
+	//      sideways, where the width alone says nothing
+	// A real desktop (1280x800, fine pointer) matches none of them and keeps the
+	// free-scroll below-fold the user is happy with.
+	const SHEET_MEDIA_QUERY =
+		'(max-width: 767px), (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px)';
+	let useSheet = false;
+	let sheetMql: MediaQueryList | null = null;
+	function syncUseSheet() {
+		if (sheetMql) useSheet = sheetMql.matches;
+	}
+	$: if (browser) playSheetEnabled.set(useSheet);
+
+	// Below-the-fold reveal: the shell is the page-level scroller; the sheet
+	// scrolls internally first, then chaining scrolls the shell to the details.
+	let shellEl: HTMLElement | null = null;
+	// True once the user has scrolled far enough that the below-fold details are
+	// the focus. Drives the "jump to top" arrow here and (via playSheetInView)
+	// hides the sheet's "back to cursor" button. Complementary: only one shows.
+	let detailsVisible = false;
+
+	function onShellScroll() {
+		if (!shellEl) return;
+		// The sheet section is one shell-height tall and the score scrolls
+		// internally first, so ANY shell scroll means the user has chained past the
+		// sheet into the details. A small threshold (not a fraction of the viewport)
+		// keeps this correct even when the details area is shorter than one screen
+		// — otherwise scrolling fully to the bottom could never cross the line.
+		const past = shellEl.scrollTop > 80;
+		if (past !== detailsVisible) {
+			detailsVisible = past;
+			playSheetInView.set(!past);
+		}
+	}
+
+	function scrollShellToTop() {
+		shellEl?.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+
+	// Register the shell so TabViewer's transport bar can scroll it (item 8) and
+	// keep the shared in-view flag in sync with this route's lifecycle.
+	$: if (browser) playShellEl.set(shellEl);
+
+	// On any new tab/playlist load, keep (or reset) the shell at the top so the
+	// full-height sheet is what the user sees — never auto-jump to the below-fold
+	// playlist/recommendations. Watches the loaded tab id.
+	let lastResetKey = '';
+	$: if (browser && shellEl && hasTab) {
+		const key = currentTabId || currentTab?.fileAsB64?.slice(0, 24) || '';
+		if (key && key !== lastResetKey) {
+			lastResetKey = key;
+			shellEl.scrollTo({ top: 0 });
+			detailsVisible = false;
+			playSheetInView.set(true);
+			// A fresh tab/playlist load never leaves the bottom sheet open.
+			if (useSheet) playSheetOpen.set(false);
+		}
+	}
 
 	// Compress-and-embed the tab bytes in the URL hash whenever the current
 	// tab is file-imported (has bytes but no catalog ID). Runs once per unique
@@ -95,13 +169,28 @@
 			const title = currentTab?.title || state.title || currentTab?.fileName?.replace(/\.[^./]+$/, '') || 'Imported tab';
 			const artist = currentTab?.artist || state.artist || 'Unknown';
 			const digest = hash.slice(7, 19); // skip `#tab=1.` prefix, take 12 chars
+			const importedId = `local:${digest}`;
 			historyStore.addToHistory({
-				id: `local:${digest}`,
+				id: importedId,
 				title,
 				artist,
 				source: currentTab?.source || 'upload',
 				hashPayload: hash
 			});
+
+			// Persist the imported bytes pinned (kind 'imported') so the LRU never
+			// evicts a user's own file and it reopens offline from the blob store.
+			void persistTabBytes(
+				{
+					id: importedId,
+					title,
+					artist,
+					source: currentTab?.source || 'upload',
+					hashPayload: hash
+				},
+				new Uint8Array(buf),
+				'imported'
+			);
 		} catch (err) {
 			console.error('Failed to embed tab in URL hash:', err);
 		} finally {
@@ -148,21 +237,9 @@
 
 	// Handle opening a tab from search results while on /play
 	async function openTab(tab: any): Promise<void> {
-		if (!tab?.id || !SEARCH_API_BASE_URL) return;
-		loadingSharedTab = true;
-		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
-			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}`, {
-				signal: controller.signal
-			});
-			clearTimeout(timeoutId);
+		if (!tab?.id) return;
 
-			if (!response.ok) throw new Error('Download failed.');
-
-			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
+		const applyToStores = (arrayBuffer: ArrayBuffer) => {
 			const b64 = arrayBufferToBase64(arrayBuffer);
 
 			historyStore.addToHistory({
@@ -182,6 +259,44 @@
 				title: tab.title,
 				artist: tab.artist
 			});
+		};
+
+		loadingSharedTab = true;
+		try {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(tab.id);
+			if (stored && stored.byteLength > 0) {
+				applyToStores(stored);
+				return;
+			}
+			if (!SEARCH_API_BASE_URL) return;
+
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
+			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}`, {
+				signal: controller.signal
+			});
+			clearTimeout(timeoutId);
+
+			if (!response.ok) throw new Error('Download failed.');
+
+			const arrayBuffer = await response.arrayBuffer();
+			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
+
+			applyToStores(arrayBuffer);
+
+			void persistTabBytes(
+				{
+					id: tab.id,
+					title: tab.title,
+					artist: tab.artist,
+					album: tab.album,
+					source: tab.source,
+					type: tab.type
+				},
+				new Uint8Array(arrayBuffer),
+				'history'
+			);
 		} catch (err: any) {
 			toastStore.error(err?.message || 'Failed to open tab');
 		} finally {
@@ -233,11 +348,41 @@
 	}
 
 	async function fetchSharedTab(tabId: string) {
-		if (!browser || !SEARCH_API_BASE_URL) return;
+		if (!browser) return;
 		loadingSharedTab = true;
 		sharedTabError = '';
 		currentTabId = tabId;
+
+		// Prefill title/artist/source from the ID so the UI has something to show
+		// even if the file has no embedded metadata. The alphaTab scoreLoaded event
+		// overrides these with real values from the file if present.
+		const parsed = parseTabId(tabId);
+		const applyToStores = (arrayBuffer: ArrayBuffer) => {
+			const b64 = arrayBufferToBase64(arrayBuffer);
+			tabStore.setTab({
+				fileAsB64: b64,
+				tabId,
+				source: parsed.source,
+				title: parsed.title,
+				artist: parsed.artist
+			});
+			if (parsed.title || parsed.artist) {
+				updatePlayerState({
+					title: parsed.title || '',
+					artist: parsed.artist || ''
+				});
+			}
+		};
+
 		try {
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(tabId);
+			if (stored && stored.byteLength > 0) {
+				applyToStores(stored);
+				return;
+			}
+			if (!SEARCH_API_BASE_URL) throw new Error('Failed to load tab');
+
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
 			const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tabId}`, {
@@ -253,25 +398,13 @@
 			const arrayBuffer = await response.arrayBuffer();
 			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Tab file is empty');
 
-			const b64 = arrayBufferToBase64(arrayBuffer);
-			// Prefill title/artist/source from the ID so the UI has something to show
-			// even if the downloaded file has no embedded metadata. The alphaTab scoreLoaded
-			// event will override these with real values from the file if present.
-			const parsed = parseTabId(tabId);
-			tabStore.setTab({
-				fileAsB64: b64,
-				tabId,
-				source: parsed.source,
-				title: parsed.title,
-				artist: parsed.artist
-			});
-			// Also pre-fill playerState so TabViewer shows the fallback title until scoreLoaded fires
-			if (parsed.title || parsed.artist) {
-				updatePlayerState({
-					title: parsed.title || '',
-					artist: parsed.artist || ''
-				});
-			}
+			applyToStores(arrayBuffer);
+
+			void persistTabBytes(
+				{ id: tabId, title: parsed.title, artist: parsed.artist, source: parsed.source },
+				new Uint8Array(arrayBuffer),
+				'history'
+			);
 		} catch (err: any) {
 			console.error('Failed to fetch shared tab:', err);
 			sharedTabError = err?.message || 'Failed to load tab';
@@ -282,6 +415,12 @@
 	}
 
 	onMount(() => {
+		if (browser) {
+			sheetMql = window.matchMedia(SHEET_MEDIA_QUERY);
+			syncUseSheet();
+			sheetMql.addEventListener('change', syncUseSheet);
+		}
+
 		tabUnsubscribe = tabStore.subscribe((tab) => {
 			currentTab = tab;
 			if (tab?.tabId) currentTabId = tab.tabId;
@@ -350,13 +489,20 @@
 			}
 		}
 
-		// If no tab and no share link, redirect to search
-		if (!existingTab && !sharedTabId) {
+		// If no tab and no share link, redirect to search — unless a tab open is
+		// in flight (optimistic navigation), in which case we stay and show the
+		// loading state until the bytes arrive.
+		if (!existingTab && !sharedTabId && !get(pendingTabStore)) {
 			goto(`${base}/`);
 		}
 
 		return () => {
 			if (tabUnsubscribe) tabUnsubscribe();
+			sheetMql?.removeEventListener('change', syncUseSheet);
+			playShellEl.set(null);
+			playSheetInView.set(true);
+			playSheetEnabled.set(false);
+			playSheetOpen.set(false);
 		};
 	});
 </script>
@@ -367,7 +513,7 @@
 
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
-{#if loadingSharedTab}
+{#if loadingSharedTab || opening}
 	<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<LoadingScore message="Loading tablature" size="lg" />
 	</div>
@@ -391,22 +537,87 @@
 		</div>
 	</div>
 {:else if hasTab}
-	<PlayerQueueBar />
-	{#if $queueStore.items.length <= 1}
-		<RelatedStrip
-			artist={$playerState.artist || currentTab?.artist || ''}
+	<!-- YouTube-style layout: the sheet + player bar fill the first screen; the
+	     playlist strip and recommendations live below the fold, revealed by
+	     scrolling past the sheet (the sheet scrolls internally first, then the
+	     page scroll takes over at its boundary). -->
+	<div
+		class="play-shell"
+		bind:this={shellEl}
+		on:scroll={onShellScroll}
+	>
+		<section class="play-sheet-section">
+			<TabViewer
+				{data}
+				tabId={currentTabId}
+				{initialTrackIndex}
+				{playerSettings}
+				on:settingsChanged={handleSettingsChanged}
+				on:sheetChanged={handleSheetChanged}
+			/>
+		</section>
+
+		<!-- Desktop keeps the free-scroll below-fold (the user says it's perfect).
+		     On phones this section is replaced by the bottom sheet below. -->
+		{#if !useSheet}
+			<section class="play-details">
+				<!-- Tab info -->
+				<div class="px-4 pt-4">
+					<h2 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+						{$playerState.title || currentTab?.title || 'Tab'}
+					</h2>
+					{#if $playerState.artist || currentTab?.artist}
+						<a
+							href="{base}/artist/{encodeURIComponent($playerState.artist || currentTab?.artist || '')}"
+							class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:underline transition-colors"
+						>
+							{$playerState.artist || currentTab?.artist}
+						</a>
+					{/if}
+				</div>
+
+				<!-- Playlist strip (only when this tab is part of a queue) -->
+				{#if $queueStore.items.length > 1}
+					<PlayerQueueBar belowFold />
+				{/if}
+
+				<!-- Recommendations — infinite-load observed against the shell scroller. -->
+				<RelatedStrip
+					variant="list"
+					artist={$playerState.artist || currentTab?.artist || ''}
+					title={$playerState.title || currentTab?.title || ''}
+					currentTabId={currentTabId}
+					root={shellEl}
+				/>
+
+				<div class="h-8"></div>
+			</section>
+		{/if}
+	</div>
+
+	<!-- Phone: YouTube-style bottom sheet holding the same below-fold content,
+	     sliding up over the still-playing player (item 23). -->
+	{#if useSheet}
+		<PlayerBottomSheet
 			title={$playerState.title || currentTab?.title || ''}
+			artist={$playerState.artist || currentTab?.artist || ''}
 			currentTabId={currentTabId}
+			artistHref="{base}/artist/{encodeURIComponent($playerState.artist || currentTab?.artist || '')}"
 		/>
 	{/if}
-	<TabViewer
-		{data}
-		tabId={currentTabId}
-		{initialTrackIndex}
-		{playerSettings}
-		on:settingsChanged={handleSettingsChanged}
-		on:sheetChanged={handleSheetChanged}
-	/>
+
+	<!-- Jump-to-top: desktop only. On phones the bottom sheet replaces the
+	     free-scroll details, so this arrow isn't needed (item 23). -->
+	{#if detailsVisible && !useSheet}
+		<button
+			class="play-jump-top"
+			on:click={scrollShellToTop}
+			aria-label="Back to top"
+			title="Back to top"
+		>
+			<i class="material-icons !text-xl">keyboard_arrow_up</i>
+		</button>
+	{/if}
 {:else}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
@@ -419,3 +630,45 @@
 		</a>
 	</div>
 {/if}
+
+<style>
+	/* Page-level scroller for /play. The first section fills the viewport (minus
+	   the 56px header); the details section sits below the fold. Free scrolling —
+	   no scroll-snap (the user asked for plain, non-magnetic scrolling). */
+	.play-shell {
+		height: calc(100dvh - 3.5rem);
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+	}
+	.play-sheet-section {
+		height: 100%;
+	}
+	.play-details {
+		background: white;
+	}
+	:global(.dark) .play-details {
+		background: #0a0a0a;
+	}
+	.play-jump-top {
+		position: fixed;
+		right: calc(env(safe-area-inset-right) + 1rem);
+		bottom: calc(env(safe-area-inset-bottom) + 1rem);
+		z-index: 55;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.75rem;
+		height: 2.75rem;
+		border-radius: 9999px;
+		color: white;
+		background: rgba(140, 82, 255, 0.95);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+		transition: background-color 0.15s, transform 0.1s;
+	}
+	.play-jump-top:hover {
+		background: rgb(94, 23, 235);
+	}
+	.play-jump-top:active {
+		transform: scale(0.94);
+	}
+</style>

@@ -52,6 +52,39 @@ export async function saveFile(
 	document.body.removeChild(a);
 }
 
+// Save a file to a durable, user-accessible location — a TRUE download, not a
+// share sheet. Web: trigger an anchor download. Native (Android): write into the
+// device's public Documents collection via Capacitor Filesystem. On Android 11+
+// this uses scoped storage (MediaStore) so it needs NO runtime storage
+// permission, and the file is visible to the user / other apps under
+// /Documents. Returns the human-readable save location on native (null on web,
+// where the browser owns the download UI).
+export async function downloadFile(
+	fileName: string,
+	data: BlobPart,
+	mimeType = 'application/octet-stream'
+): Promise<{ location: string | null }> {
+	if (isNative()) {
+		const { Filesystem, Directory } = await import('@capacitor/filesystem');
+		const base64 = await blobToBase64(new Blob([data], { type: mimeType }));
+		await Filesystem.writeFile({
+			path: fileName,
+			data: base64,
+			directory: Directory.Documents,
+			recursive: true
+		});
+		return { location: 'Documents' };
+	}
+
+	const a = document.createElement('a');
+	a.download = fileName;
+	a.href = URL.createObjectURL(new Blob([data], { type: mimeType }));
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	return { location: null };
+}
+
 // Share a link. Web: copy to the clipboard (returns 'copied'). Native: open the
 // share sheet (returns 'shared'), since clipboard access is unreliable in the
 // WebView.
@@ -119,6 +152,23 @@ export async function onBackButton(
 		const sub = await App.addListener('backButton', ({ canGoBack }) =>
 			handler(!!canGoBack)
 		);
+		return () => sub.remove();
+	} catch {
+		return () => {};
+	}
+}
+
+// Register a handler for Android App Links / deep links. When the app is opened
+// via an https://tablatures.org URL (see AndroidManifest intent-filter), the App
+// plugin fires `appUrlOpen` with the full URL; the handler routes its
+// path+query into the SPA router. Returns an unsubscribe fn. No-op on web.
+export async function onAppUrlOpen(
+	handler: (url: string) => void
+): Promise<() => void> {
+	if (!isNative()) return () => {};
+	try {
+		const { App } = await import('@capacitor/app');
+		const sub = await App.addListener('appUrlOpen', ({ url }) => handler(url));
 		return () => sub.remove();
 	} catch {
 		return () => {};

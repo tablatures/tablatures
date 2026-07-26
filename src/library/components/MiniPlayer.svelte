@@ -7,11 +7,12 @@
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { shareLink, hapticTap } from '../utils/native';
+	import { shareUrl } from '../utils/shareUrl';
 	import { horizontalSwipe } from '../utils/gestures';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import ProgressBar from './ProgressBar.svelte';
-	import ArtistTooltip from './ArtistTooltip.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 
 	export let showPreview = true;
@@ -22,8 +23,17 @@
 	$: currentTab = $tabStore;
 	$: soundFontLoading = !state.soundFontLoaded;
 
+	// Publish the bar's real measured height so the preview sheet can sit flush
+	// on top of it (no magic numbers). Includes the safe-area padding since it's
+	// measured from the rendered element.
+	let barHeight = 0;
+	$: if (typeof document !== 'undefined' && barHeight > 0) {
+		document.documentElement.style.setProperty('--mini-bar-height', `${barHeight}px`);
+	}
+
 	function togglePlayPause() {
 		if (!api) return;
+		hapticTap();
 		api.playPause();
 	}
 
@@ -40,11 +50,20 @@
 		tabStore.clearTab();
 	}
 
+	// Close (X) behaviour (item 29): a plain TAP quits the tab — stop playback and
+	// unload the track, which removes the bar entirely. Hiding the preview while
+	// keeping the track playing is the PiP toggle's job (and the preview's own
+	// minus button), so the bar needs no separate minimize control.
+	function closeClick() {
+		hapticTap();
+		stopPlayer();
+	}
+
 	async function copyShareLink() {
 		const tabId = currentTab?.tabId;
 		if (!tabId) return;
 		try {
-			const url = new URL(window.location.origin + base + '/play');
+			const url = new URL(shareUrl('/play'));
 			url.searchParams.set('tab', tabId);
 			if ($activeVideoId) url.searchParams.set('video', $activeVideoId);
 			if (state.duration > 0 && state.progress > 0) {
@@ -81,6 +100,13 @@
 			artworkUrl = url;
 		}
 	}
+
+	// Deterministic gradient behind the note glyph when no artwork resolves —
+	// never a flat neutral box (varied hue per song, matching the cards).
+	$: thumbPlaceholder = placeholderArtwork(
+		state.artist || currentTab?.artist || '',
+		state.title || currentTab?.title || ''
+	);
 
 	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
@@ -160,7 +186,10 @@
 
 </script>
 
-<div class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe">
+<div
+	class="fixed bottom-0 left-0 right-0 z-[80] bg-neutral-900 dark:bg-neutral-800 text-white shadow-lg select-none pb-safe"
+	bind:clientHeight={barHeight}
+>
 	<!-- Bleed the bar background a few pixels below its edge so a subpixel seam
 	     at the viewport bottom (fractional device-pixel rounding) does not show
 	     the page through. Off-screen and harmless when there is no seam. -->
@@ -177,7 +206,7 @@
 	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
 
 	<div
-		class="flex items-center px-2 sm:px-4 py-1.5 sm:py-2 gap-2 sm:gap-3"
+		class="flex items-center px-2 sm:px-4 py-2.5 sm:py-3.5 gap-2 sm:gap-3"
 		use:horizontalSwipe={{
 			onSwipe: handleSwitchSwipe,
 			haptic: hapticTap,
@@ -188,26 +217,28 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(-1)}
-				class="flex-shrink-0 hidden sm:flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 hidden sm:flex items-center justify-center w-12 h-12 rounded-xl text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Previous in queue"
 				disabled={!canPrev || steppingQueue}
 			>
-				<i class="material-icons !text-lg sm:!text-xl">skip_previous</i>
+				<i class="material-icons !text-3xl">skip_previous</i>
 			</button>
 		{/if}
 
 		<!-- Play/pause -->
 		<button
 			on:click={togglePlayPause}
-			class="flex-shrink-0 flex items-center justify-center transition-colors active:scale-95
-				{soundFontLoading ? 'text-neutral-600 cursor-not-allowed' : 'text-white hover:text-violet-400'}"
+			class="tap-press flex-shrink-0 flex items-center justify-center rounded-2xl w-14 h-14 sm:w-16 sm:h-16 transition-colors
+				{soundFontLoading
+					? 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+					: 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-500/30'}"
 			aria-label={state.playing ? 'Pause' : 'Play'}
 			disabled={soundFontLoading}
 		>
 			{#if soundFontLoading}
 				<LoadingScore size="xs" message="" />
 			{:else}
-				<i class="material-icons !text-xl sm:!text-2xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons !text-3xl sm:!text-4xl">{state.playing ? 'pause' : 'play_arrow'}</i>
 			{/if}
 		</button>
 
@@ -215,11 +246,11 @@
 		{#if hasQueue}
 			<button
 				on:click={() => queueStep(1)}
-				class="flex-shrink-0 flex items-center justify-center text-white hover:text-violet-400 disabled:opacity-30 transition-colors"
+				class="tap-press flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-xl text-white hover:text-violet-400 hover:bg-white/10 disabled:opacity-30 transition-colors"
 				aria-label="Next in queue"
 				disabled={!canNext || steppingQueue}
 			>
-				<i class="material-icons !text-lg sm:!text-xl">skip_next</i>
+				<i class="material-icons !text-3xl">skip_next</i>
 			</button>
 		{/if}
 
@@ -231,16 +262,20 @@
 			aria-label="Open full player"
 		>
 			{#if artworkUrl}
-				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-9 h-9 sm:w-12 sm:h-12 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
-				<div class="w-8 h-8 sm:w-10 sm:h-10 rounded bg-neutral-700 flex items-center justify-center">
-					<i class="material-icons !text-lg text-neutral-500">music_note</i>
+				<!-- Pastel generated tile (bar is always dark → use the dark variant). -->
+				<div
+					class="w-9 h-9 sm:w-12 sm:h-12 rounded flex items-center justify-center"
+					style="background: {thumbPlaceholder.bgDark}; color: {thumbPlaceholder.fgDark};"
+				>
+					<i class="material-icons !text-lg sm:!text-2xl opacity-90">music_note</i>
 				</div>
 			{/if}
 			<span
 				class="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-60 transition-opacity"
 			>
-				<i class="material-icons !text-base">fullscreen</i>
+				<i class="material-icons !text-base sm:!text-xl">fullscreen</i>
 			</span>
 		</a>
 
@@ -251,22 +286,18 @@
 			class="flex-1 min-w-0 text-left block hover:opacity-80 transition-opacity cursor-pointer"
 			aria-label="Open full player"
 		>
-			<p class="text-sm font-medium truncate text-white">
+			<p class="text-sm sm:text-base font-medium truncate text-white">
 				{state.title || currentTab?.title || 'Now playing'}
 			</p>
-			<p class="text-xs text-neutral-400 truncate">
-				<span class="relative inline-block">
-					<ArtistTooltip artistName={state.artist || currentTab?.artist || ''} position="top">
-						<!-- svelte-ignore a11y-invalid-attribute -->
-						<span
-							role="link"
-							tabindex="0"
-							class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
-							on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
-							on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
-						>{state.artist || currentTab?.artist || ''}</span>
-					</ArtistTooltip>
-				</span>
+			<p class="text-xs sm:text-sm text-neutral-400 truncate">
+				<!-- svelte-ignore a11y-invalid-attribute -->
+				<span
+					role="link"
+					tabindex="0"
+					class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
+					on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
+					on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
+				>{state.artist || currentTab?.artist || ''}</span>
 				{#if state.duration > 0}
 					<span class="text-neutral-500"> &middot; {currentTime} / {totalTime}</span>
 				{/if}
@@ -295,46 +326,58 @@
 
 		<!-- Video audio / sync controls live in the YouTube overlay, not here -->
 
-		<!-- Share link -->
-		{#if currentTab?.tabId}
+		<!-- Right-side controls: each a ≥44px squircle tap target with a clear
+		     press affordance and spacing (gap on the parent row). -->
+		<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+			<!-- Share link (desktop only; mobile shares from the full player) -->
+			{#if currentTab?.tabId}
+				<button
+					on:click|stopPropagation={copyShareLink}
+					class="tap-press hidden sm:flex items-center justify-center w-11 h-11 rounded-xl transition-colors hover:bg-white/10 {shareJustCopied ? 'text-green-400' : 'text-neutral-400 hover:text-white'}"
+					title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
+					aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
+				>
+					<i class="material-icons !text-xl">{shareJustCopied ? 'check' : 'share'}</i>
+				</button>
+			{/if}
+
+			<!-- Toggle picture-in-picture preview. This is the single show/hide control
+			     for the preview sheet, so its ON state is explicit (violet tint +
+			     aria-pressed) — a hidden preview always reads as restorable here. -->
 			<button
-				on:click={copyShareLink}
-				class="flex-shrink-0 transition-colors hidden sm:block {shareJustCopied ? 'text-green-400' : 'text-neutral-500 hover:text-white'}"
-				title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
-				aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
+				on:click|stopPropagation={() => dispatch('togglePreview')}
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl transition-colors
+					{showPreview
+						? 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 hover:text-violet-200'
+						: 'text-neutral-400 hover:text-white hover:bg-white/10'}"
+				aria-pressed={showPreview}
+				title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
+				aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			>
-				<i class="material-icons !text-lg">{shareJustCopied ? 'check' : 'share'}</i>
+				<i class="material-icons !text-xl">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
 			</button>
-		{/if}
 
-		<!-- Open full player: primary way back on mobile, so always visible -->
-		<a
-			href="{base}/play"
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title="Back to full player"
-			aria-label="Open full player"
-		>
-			<i class="material-icons !text-lg">keyboard_arrow_up</i>
-		</a>
+			<!-- Expand to the full player -->
+			<a
+				href="{base}/play"
+				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+				title="Open full player"
+				aria-label="Open full player"
+			>
+				<i class="material-icons !text-2xl">expand_less</i>
+			</a>
 
-		<!-- Toggle preview -->
-		<button
-			on:click={() => dispatch('togglePreview')}
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
-			aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
-		>
-			<i class="material-icons !text-lg">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
-		</button>
-
-		<!-- Close -->
-		<button
-			on:click={stopPlayer}
-			class="flex-shrink-0 text-neutral-500 hover:text-white transition-colors"
-			title="Close player"
-			aria-label="Close player"
-		>
-			<i class="material-icons !text-lg">close</i>
-		</button>
+			<!-- Close the player: a plain tap quits the tab (stop + unload). Modest
+			     visual weight — muted resting color, neutral hover, no danger red —
+			     and tap-target keeps a ≥44px effective hit area despite the small box. -->
+			<button
+				on:click|stopPropagation={closeClick}
+				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+				title="Close player"
+				aria-label="Close player"
+			>
+				<i class="material-icons !text-lg">close</i>
+			</button>
+		</div>
 	</div>
 </div>

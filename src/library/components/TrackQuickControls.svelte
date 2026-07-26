@@ -22,7 +22,7 @@
 	</span>
 	<button
 		on:click={() => dispatch('togglesolo', activeTrackIndex)}
-		class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
+		class="tap-target w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
 			{trackSolos[activeTrackIndex] ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'}"
 		title="Solo current track"
 		aria-label="Solo current track"
@@ -31,7 +31,7 @@
 	</button>
 	<button
 		on:click={() => dispatch(allMuted ? 'unmuteall' : 'muteall')}
-		class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
+		class="tap-target w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700
 			{allMuted ? 'text-red-500' : 'text-neutral-400'}"
 		title={allMuted ? 'Unmute all' : 'Mute all'}
 		aria-label={allMuted ? 'Unmute all' : 'Mute all'}
@@ -40,7 +40,7 @@
 	</button>
 	<button
 		on:click={() => dispatch('resetlevels')}
-		class="w-11 h-8 rounded-lg text-[10px] font-medium text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+		class="tap-target w-11 h-8 rounded-lg text-[10px] font-medium text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
 		title="Reset all volumes"
 		aria-label="Reset volumes"
 	>

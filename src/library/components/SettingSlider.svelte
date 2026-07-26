@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { sliderFill } from '../utils/sliderFill';
 
 	// Public props
 	export let value: number = 1;
@@ -60,9 +61,10 @@
 		{/if}
 	</button>
 
-	<!-- Range Slider -->
+	<!-- Range Slider — deep-purple filled track left of the thumb -->
 	<input
 		bind:value
+		use:sliderFill={value}
 		type="range"
 		{min}
 		{max}
@@ -73,11 +75,11 @@
 		aria-valuemin={min}
 		aria-valuemax={max}
 		aria-valuenow={value}
-		class="
+		class="setting-range
 		w-full h-3 cursor-pointer rounded bg-transparent
 		accent-violet-600 dark:accent-violet-400 appearance-none
 
-		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-neutral-300 dark:[&::-webkit-slider-runnable-track]:bg-neutral-700 [&::-webkit-slider-runnable-track]:rounded
+		[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded
 		[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-violet-600 dark:[&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:focus:outline-none
 
 		[&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-neutral-300 dark:[&::-moz-range-track]:bg-neutral-700 [&::-moz-range-track]:rounded
@@ -86,3 +88,23 @@
 	"
 	/>
 </div>
+
+<style>
+	/* Webkit has no ::-moz-range-progress equivalent, so paint the fill onto the
+	   runnable track with a gradient stopping at --slider-pct (kept in sync by
+	   the sliderFill action). */
+	.setting-range::-webkit-slider-runnable-track {
+		background: linear-gradient(
+			to right,
+			#8c52ff var(--slider-pct, 0%),
+			#d4d4d4 var(--slider-pct, 0%)
+		);
+	}
+	:global(.dark) .setting-range::-webkit-slider-runnable-track {
+		background: linear-gradient(
+			to right,
+			#a06cff var(--slider-pct, 0%),
+			#404040 var(--slider-pct, 0%)
+		);
+	}
+</style>

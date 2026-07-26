@@ -1,0 +1,70 @@
+name: Tests
+
+# The regression gate: type-check + unit + Playwright e2e. Runs on every push
+# and PR to main, and is reusable (workflow_call) so the release workflows can
+# require it before building/publishing anything.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Cache the Playwright browser binaries, keyed on the resolved Playwright
+      # version so a dependency bump busts the cache automatically.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+
+      - name: Install Chromium (with system deps)
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Type-check
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: E2E tests (Playwright)
+        run: pnpm test:e2e
+        env:
+          # The dev server the e2e suite boots reads this; requests are mocked in
+          # the specs, so any base works. A local URL keeps unmocked calls from
+          # reaching the network.
+          VITE_SEARCH_API_BASE_URL: http://localhost:3000
+          VITE_SEARCH_API_TIMEOUT: '10000'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

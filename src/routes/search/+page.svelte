@@ -13,13 +13,17 @@
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
 	import { tabStore } from '../../library/utils/store';
-	import { activeVideoId, sourceVariants } from '../../library/utils/playerStore';
-	import { historyStore } from '../../library/utils/history';
+	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isOfflineErrorLike } from '../../library/data/cachedFetch';
+	import { searchLocalTabs } from '../../library/data/localSearch';
+	import EmptyState from '../../library/components/EmptyState.svelte';
+	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
+	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import { playlistStore } from '../../library/utils/playlists';
 	import type { PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
@@ -108,8 +112,9 @@
 		return url;
 	}
 	let loading = false;
-	let downloadingTab = false;
+	let loadStartTs = 0;
 	let error = '';
+	let offline = false;
 	let apiAvailable = true;
 	let totalResults = 0;
 	let hasMorePages = false;
@@ -152,7 +157,7 @@
 			}));
 	}
 
-	async function performLocalSearch(): Promise<TabResult[]> {
+	async function performLocalSearch(force = false): Promise<TabResult[]> {
 		if (!browser || !apiAvailable) return [];
 
 		const urlParams = new URLSearchParams({
@@ -160,10 +165,13 @@
 			limit: '20'
 		});
 
-		const response = await fetchWithTimeout(
-			`${SEARCH_API_BASE_URL}/api/search?${urlParams}`,
-			{ headers: { Accept: 'application/json' } }
-		);
+		// Network-first with a TTL cache so a repeat query works offline. An
+		// explicit refresh forces the network (bypass cache) so it really re-tries.
+		const response = await cachedFetch(`${SEARCH_API_BASE_URL}/api/search?${urlParams}`, {
+			ttl: TTL_SEARCH,
+			forceRefresh: force,
+			init: { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(SEARCH_API_TIMEOUT) }
+		});
 
 		if (!response.ok) return [];
 
@@ -384,7 +392,10 @@
 			const heroResults = await Promise.all(
 				qualifying.map(async (group) => {
 					try {
-						const resp = await fetch(`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(group.canonical)}`);
+						const resp = await cachedFetch(
+							`${SEARCH_API_BASE_URL}/api/metadata/artist/${encodeURIComponent(group.canonical)}`,
+							{ ttl: TTL_METADATA }
+						);
 						if (resp.ok) {
 							const data = await resp.json();
 							return {
@@ -422,7 +433,15 @@
 	}
 
 	async function performSearch(force: boolean = false): Promise<void> {
-		if (!browser || !apiAvailable) return;
+		if (!browser) return;
+		// An explicit refresh/retry ALWAYS resets the circuit-breaker so a manual
+		// action within the 30s cooldown really re-attempts the network instead of
+		// short-circuiting (the offline-retry bug).
+		if (force) {
+			apiAvailable = true;
+			offline = false;
+		}
+		if (!apiAvailable) return;
 
 		if (!force && query.length < 2) {
 			tabs = [];
@@ -433,6 +452,8 @@
 
 		if (currentPage === 1) {
 			loading = true;
+			loadStartTs =
+				typeof performance !== 'undefined' ? performance.now() : Date.now();
 			// Clear previous results up-front so a new search doesn't leak
 			// stale tabs into the merge path when local-search returns an
 			// empty list (in which case `tabs` would otherwise still hold
@@ -446,14 +467,31 @@
 		}
 		searchLoading = true;
 		error = '';
+		offline = false;
+
+		// On-device matches from the local FTS index — available even fully
+		// offline, and the only live source when the network is down.
+		let onDeviceResults: TabResult[] = [];
 
 		try {
 			if (currentPage === 1) {
 				try {
-					const localResults = await performLocalSearch();
+					onDeviceResults = (await searchLocalTabs(query)) as unknown as TabResult[];
+					if (onDeviceResults.length > 0) {
+						tabs = onDeviceResults;
+						totalResults = onDeviceResults.length;
+						loading = false;
+					}
+				} catch {
+					/* local index unavailable */
+				}
+
+				try {
+					const localResults = await performLocalSearch(force);
 					if (localResults.length > 0) {
-						tabs = localResults;
-						totalResults = localResults.length;
+						// Merge catalog rows on top of any on-device matches.
+						tabs = tabs.length > 0 ? mergeResults(tabs, localResults) : localResults;
+						totalResults = tabs.length;
 						loading = false;
 					}
 				} catch {
@@ -488,10 +526,23 @@
 				fetchArtworkForTabs(liveData.tabs);
 			}
 		} catch (err: any) {
+			// Keep the loader visible a beat before flipping to offline/error so a
+			// fast-failing retry doesn't stutter (loader → 1-frame offline flash).
+			if (currentPage === 1 && loading) {
+				const MIN_LOADING_MS = 500;
+				const nowTs =
+					typeof performance !== 'undefined' ? performance.now() : Date.now();
+				const elapsed = nowTs - loadStartTs;
+				if (elapsed < MIN_LOADING_MS)
+					await new Promise((r) => setTimeout(r, MIN_LOADING_MS - elapsed));
+			}
 			if (err?.name === 'AbortError') {
 				error = 'Search timed out.';
-			} else if (err instanceof TypeError && err?.message?.includes('fetch')) {
-				error = 'Search service is currently unavailable.';
+			} else if (isOfflineErrorLike(err)) {
+				// Network down: flag offline (not a hard error) so we can show any
+				// local results with a non-blocking offline notice, and arm the
+				// 30s circuit-breaker (an explicit refresh resets it — see above).
+				offline = true;
 				apiAvailable = false;
 				setTimeout(() => { apiAvailable = true; }, 30000);
 			} else {
@@ -500,10 +551,11 @@
 			// Only wipe the grid on a failed *first* page. A pagination
 			// error (page 2+) should leave the already-loaded rows alone
 			// and just stop asking for more, otherwise the user loses all
-			// their results when the backend hiccups near the tail.
+			// their results when the backend hiccups near the tail. Keep any
+			// on-device matches so search still works offline.
 			if (currentPage === 1) {
-				tabs = [];
-				totalResults = 0;
+				tabs = onDeviceResults;
+				totalResults = onDeviceResults.length;
 			}
 			hasMorePages = false;
 		} finally {
@@ -561,45 +613,20 @@
 	}
 
 	async function openTab(tab: TabResult): Promise<void> {
-		downloadingTab = true;
 		error = '';
-		try {
-			const srcHint =
-				tab.id.startsWith('ug:') && (tab as any).sourceUrl
-					? `?src=${encodeURIComponent((tab as any).sourceUrl)}`
-					: '';
-			const response = await fetchWithTimeout(
-				`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`,
-				{},
-				10000
-			);
-
-			if (!response.ok) {
-				if (response.status === 400) throw new Error('This tab is invalid or cannot be downloaded.');
-				if (response.status === 404) throw new Error('Tab not found.');
-				throw new Error('Download failed.');
-			}
-
-			const arrayBuffer = await response.arrayBuffer();
-			if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
-
-			const base64 = arrayBufferToBase64(arrayBuffer);
-
-			historyStore.addToHistory({
+		// Delegate to the shared opener so a click navigates to /play IMMEDIATELY
+		// and the loading state shows there while the bytes resolve (offline-first,
+		// then download + persist), instead of blocking the search page behind a
+		// full-screen spinner. History, source pills and errors are handled inside.
+		await openTabById(
+			{
 				id: tab.id,
 				title: tab.title,
-				artist: tab.artist || 'Unknown',
+				artist: tab.artist,
 				source: tab.source,
 				type: tab.type,
-				album: tab.album
-			});
-
-			tabStore.setTab({
-				fileAsB64: base64,
-				tabId: tab.id,
-				source: tab.source,
-				title: tab.title,
-				artist: tab.artist,
+				album: tab.album,
+				sourceUrl: (tab as any).sourceUrl,
 				variants: tab.variants?.map((v) => ({
 					id: v.id,
 					title: v.title || tab.title,
@@ -608,26 +635,9 @@
 					trackCount: v.trackCount ?? undefined,
 					instruments: v.instruments ?? undefined
 				}))
-			});
-
-			// Light up the source pills in the player
-			sourceVariants.set(
-				(tab.variants || [])
-					.reduce((acc: any[], v) => {
-						const cur = acc.find((x) => x.source === v.source);
-						if (!cur) acc.push({ id: v.id, source: v.source, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
-						else if ((v.trackCount || 0) > (cur.trackCount || 0)) Object.assign(cur, { id: v.id, sourceUrl: v.sourceUrl, trackCount: v.trackCount });
-						return acc;
-					}, [])
-			);
-
-			goto(`${base}/play`);
-		} catch (err: any) {
-			error = err?.message || 'Download failed.';
-			tabStore.clearTab();
-		} finally {
-			downloadingTab = false;
-		}
+			},
+			true
+		);
 	}
 
 	function handleOpenTab(e: CustomEvent) {
@@ -638,10 +648,11 @@
 		if (query.trim().length >= 2) return performSearch(true);
 	}
 
+	// Explicit retry (offline/error state button). performSearch(true) resets the
+	// circuit-breaker and forces a real network re-attempt.
 	function retrySearch() {
 		error = '';
-		apiAvailable = true;
-		performSearch(true);
+		return performSearch(true);
 	}
 
 	onMount(async () => {
@@ -654,20 +665,27 @@
 		// If ?tab= is in URL, load that tab into the store (for mini player)
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
-			try {
-				const response = await fetchWithTimeout(
-					`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
-					{},
-					10000
-				);
-				if (response.ok) {
-					const arrayBuffer = await response.arrayBuffer();
-					if (arrayBuffer && arrayBuffer.byteLength > 0) {
-						const base64 = arrayBufferToBase64(arrayBuffer);
-						tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
+			// Offline-first: reopen from the on-device store with no network.
+			const stored = await loadStoredTabBytes(sharedTabId);
+			if (stored && stored.byteLength > 0) {
+				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
+			} else {
+				try {
+					const response = await fetchWithTimeout(
+						`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
+						{},
+						10000
+					);
+					if (response.ok) {
+						const arrayBuffer = await response.arrayBuffer();
+						if (arrayBuffer && arrayBuffer.byteLength > 0) {
+							const base64 = arrayBufferToBase64(arrayBuffer);
+							tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
+							void persistTabBytes({ id: sharedTabId }, new Uint8Array(arrayBuffer), 'history');
+						}
 					}
-				}
-			} catch {}
+				} catch {}
+			}
 		}
 
 		// Test API health
@@ -691,12 +709,6 @@
 	on:input={handleSearchInput}
 	on:openTab={handleOpenTab}
 />
-
-{#if downloadingTab}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm">
-		<LoadingScore message="Downloading tablature" size="lg" />
-	</div>
-{/if}
 
 <main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-3.5rem)]">
 	<PullToRefresh on:refresh={handlePullRefresh}>
@@ -796,8 +808,8 @@
 									}
 									artistHeroes = artistHeroes;
 								}}
-								class="flex-shrink-0 p-1.5 rounded-full transition-all active:scale-90
-									{favoriteArtistsStore.isArtist(hero.name) ? 'text-red-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-red-400'}"
+								class="tap-target flex-shrink-0 p-1.5 rounded-full transition-transform active:scale-90
+									{favoriteArtistsStore.isArtist(hero.name) ? 'text-love-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-love-400'}"
 								title="{favoriteArtistsStore.isArtist(hero.name) ? 'Unfollow' : 'Follow'} {hero.name}"
 							>
 								<i class="material-icons !text-lg">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>
@@ -865,9 +877,18 @@
 				</div>
 			{/if}
 
+			<!-- Loading row (item 28): app-standard loader below the bottom-most row
+			     while another page is in flight, matching the home feed. -->
 			{#if loadingMore}
-				<div class="py-4">
-					<LoadingScore message="Loading more results" size="sm" />
+				<div
+					class="flex items-center justify-center gap-3 py-6"
+					aria-live="polite"
+					data-testid="search-loading-row"
+				>
+					<LoadingScore size="sm" message="" />
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+						>Loading more results…</span
+					>
 				</div>
 			{/if}
 
@@ -876,15 +897,33 @@
 				     starts a screen early instead of only firing when the user
 				     hits the very bottom. -->
 				<ScrollObserver onIntersect={loadMore} rootMargin="800px" />
+			{:else if !loading && !searchingMore && tabs.length > 0}
+				<!-- Distinct end state, only when the result pool is truly exhausted. -->
+				<p class="py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
+					You've reached the end.
+				</p>
+			{/if}
+
+			<!-- Offline + we have (local/cached) results: keep showing them and add
+			     a small non-blocking notice below so the user knows to reconnect. -->
+			{#if offline}
+				<OfflineNotice onRetry={retrySearch} />
 			{/if}
 		</div>
 
+	{:else if offline}
+		<!-- Offline with nothing to show: working retry re-attempts the network. -->
+		<EmptyState
+			icon="cloud_off"
+			tone="offline"
+			title="You're offline"
+			description="Reconnect to search the catalog, or retry."
+			onRetry={retrySearch}
+		/>
+
 	{:else if query.length >= 2}
-		<!-- No results -->
-		<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
-			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search_off</i>
-			<p class="text-neutral-600 dark:text-neutral-400">No results for "{query}"</p>
-		</div>
+		<!-- No results (online, empty) — distinct from the offline state above. -->
+		<EmptyState icon="search_off" title={`No results for "${query}"`} />
 
 	{:else if query.length > 0 && query.length < 2}
 		<!-- Too short -->

@@ -20,13 +20,23 @@
 		isTransitioning,
 		setMasterVolumeDebounced,
 		beatCursorEl,
-		videoHandlers
+		videoHandlers,
+		playShellEl,
+		playSheetInView,
+		playSheetEnabled,
+		playSheetOpen,
+		playSheetHasContent,
+		playerBarHeight,
+		sheetDragBegin,
+		sheetDragMove,
+		sheetDragEnd
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
-	import { isNative, saveFile, shareLink, hapticTap } from '../utils/native';
+	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
+	import { shareUrl } from '../utils/shareUrl';
 	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
-	import ArtistTooltip from '$components/ArtistTooltip.svelte';
+	import { sliderFill } from '../utils/sliderFill';
 	import LoadingScore from '$components/LoadingScore.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
@@ -36,11 +46,13 @@
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
+	import { scoreEdits } from '$utils/scoreEdits';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
 	import { playlistStore } from '../utils/playlists';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { getArtwork } from '../utils/artwork';
+	import { cacheArtistImage, getCachedArtistObjectUrl } from '../utils/artworkCache';
 	import { readUrlState, syncLoopUrl } from '../utils/urlState';
 
 	$: allPlaylists = $playlistStore;
@@ -161,6 +173,9 @@
 	const COUNTDOWN_INTERVAL_MS = 100;
 	const DEBOUNCE_DELAY_MS = 300;
 	const SETTINGS_STORAGE_KEY = 'tabviewer-settings';
+	// Gate the settings-save reactive until loadSettings() has restored persisted
+	// values, so a save can't fire with the component defaults first.
+	let settingsLoaded = false;
 
 	export let data: { fileAsB64?: string };
 	export let tabId: string | undefined = undefined;
@@ -258,6 +273,19 @@
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
 	$: metadataHidden = isFullscreen || isMobileLandscape;
+	// Is the bar's bottom (metadata) row on screen? It carries the sheet's grab
+	// handle; when it isn't there (landscape phones) the handle floats in the
+	// bar's bottom padding instead.
+	$: metadataRowVisible = scoreLoaded && !isFullscreen && !isMobileLandscape;
+	// Landscape phones sit right against the display edges (and the notch), so the
+	// bar gets a little gutter on top of the safe-area insets.
+	$: barSideGutter = isMobileLandscape ? 10 : 0;
+	// Phone-sized bar: the transport row drops the lyrics/video buttons (moved into
+	// the settings panel) and the metadata row collapses to just the source pill.
+	// Excludes the large docked-console layout (landscape tablets/desktops).
+	$: mobileBar = (isSmallScreen || isMobileLandscape) && !isLargeScreen;
+	/** Inline video picker inside the settings panel (mobile only) */
+	let showSettingsVideo = false;
 	// At lg+ the settings panel becomes a docked split-view console instead of a
 	// bottom sheet, and the score reflows into the remaining width.
 	let isLargeScreen = false;
@@ -324,6 +352,27 @@
 	// Live height of the sticky control bar, exposed as a CSS var so floating
 	// layers and the settings sheet can anchor above it without hardcoded offsets
 	let barHeight = 0;
+	let barEl: HTMLElement | undefined;
+	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
+	// its box height: the /play shell is sized in `dvh`, which can resolve taller
+	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
+	// box below the screen. The mobile bottom sheet insets its content by this so
+	// the last row clears the controls (see playerBarHeight).
+	function publishBarInset() {
+		if (!browser || !barEl) return;
+		const top = barEl.getBoundingClientRect().top;
+		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
+	}
+	$: if (browser && barEl && barHeight) publishBarInset();
+	// True while the mobile below-fold sheet has travelled up over the player. The
+	// chrome that floats just above the bar then has to get out of its way: the
+	// karaoke lyrics strip hides, and the progress bar's touch area (which
+	// normally overflows 48px upward) collapses so it cannot steal the touches
+	// that belong to the sheet's list rows.
+	$: sheetCoversScore = $playSheetEnabled && !$playSheetInView;
+	// The bar advertises the sheet drag only where the sheet exists, only while it
+	// holds something worth pulling up, and never while it is already open.
+	$: showSheetHint = $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -362,6 +411,8 @@
 	// Artist metadata
 	let artistImage: string | null = null;
 	let songArtwork: string | null = null;
+	/** Offline fallback for the metadata thumbnail, from the durable byte cache. */
+	let cachedThumbArtwork: string | null = null;
 	let artistInfo: { name?: string; bio?: string; country?: string; tags?: string[] } | null = null;
 	let youtubeResults: {
 		videoId: string;
@@ -409,6 +460,11 @@
 			if (artworkUrl.status === 'fulfilled') {
 				songArtwork = artworkUrl.value;
 			}
+			// Warm the durable byte cache so the thumb renders offline next time,
+			// and fall back to cached bytes when nothing resolved (5b).
+			const thumbUrl = songArtwork || artistImage;
+			if (thumbUrl) void cacheArtistImage(artistName, thumbUrl);
+			else cachedThumbArtwork = await getCachedArtistObjectUrl(artistName);
 			if (ytResp.status === 'fulfilled' && ytResp.value.ok) {
 				const data = await ytResp.value.json();
 				youtubeResults = data.results || [];
@@ -440,7 +496,7 @@
 			target.scrollTop +
 			(elRect.top - containerRect.top) -
 			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = isFullscreen ? page : window;
+		const scrollElement = page ?? window;
 		if (!scrollElement) return;
 		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
 	}
@@ -682,11 +738,20 @@
 			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
+		} finally {
+			// Mark loaded even on early return / parse failure so the save reactive
+			// can start persisting. Until this flips true the reactive below is
+			// gated, so it can't clobber stored settings with the default values
+			// before loadSettings() (which runs in onMount) has restored them —
+			// scoreLoaded can otherwise flip true first and trigger a premature save.
+			settingsLoaded = true;
 		}
 	}
 
-	// Save settings whenever they change
-	$: if (browser && scoreLoaded) {
+	// Save settings whenever they change — but only after loadSettings() has run,
+	// so a save triggered by scoreLoaded flipping true during mount cannot
+	// overwrite persisted settings with the component defaults.
+	$: if (browser && scoreLoaded && settingsLoaded) {
 		(volume, speed, metronome, delaying, tabScale, activeTrackIndex);
 		saveSettings();
 	}
@@ -962,6 +1027,40 @@
 			console.warn('msToBar error:', e);
 		}
 		return 0;
+	}
+
+	/** Span of masterBar indices played on the timeline between two ms
+	 *  positions. A repeated bar plays at several timeline positions, so sizing a
+	 *  loop by the bar index *at the finger* (msToBar) makes the loop end snap
+	 *  backwards when the drag crosses into a repeat's later pass (bar 9 → bar 4).
+	 *  Taking the min/max index of every bar touched keeps the loop growing
+	 *  monotonically with the drag. For scores without repeats the expanded order
+	 *  equals bar-index order, so this returns exactly anchorBar..fingerBar —
+	 *  identical to the previous behaviour. */
+	function barSpanBetweenMs(msA: number, msB: number): { minBar: number; maxBar: number } | null {
+		if (!api || !duration || duration <= 0) return null;
+		try {
+			const entries = api.tickCache?.masterBars;
+			if (!entries?.length) return null;
+			const total = entries[entries.length - 1].end;
+			if (total <= 0) return null;
+			const lo = (Math.min(msA, msB) / duration) * total;
+			const hi = (Math.max(msA, msB) / duration) * total;
+			let minBar = Infinity;
+			let maxBar = -Infinity;
+			for (const e of entries) {
+				// Entry overlaps [lo, hi] (inclusive of the bar containing lo).
+				if (e.end > lo && e.start <= hi) {
+					const idx = e.masterBar.index;
+					if (idx < minBar) minBar = idx;
+					if (idx > maxBar) maxBar = idx;
+				}
+			}
+			if (minBar === Infinity) return null;
+			return { minBar, maxBar };
+		} catch {
+			return null;
+		}
 	}
 
 	/** Sync api.playbackRange from our bar-based loop state. */
@@ -1252,9 +1351,9 @@
 			if (!firstDiv) return;
 			// Get its position on screen and scroll so it's centered
 			const rect = firstDiv.getBoundingClientRect();
-			const scrollTarget = isFullscreen && page ? page : window;
-			const viewportH = isFullscreen && page ? page.clientHeight : window.innerHeight;
-			const currentScroll = isFullscreen && page ? page.scrollTop : window.scrollY;
+			const scrollTarget = page ?? window;
+			const viewportH = page ? page.clientHeight : window.innerHeight;
+			const currentScroll = page ? page.scrollTop : window.scrollY;
 			// rect.top is relative to viewport, add current scroll for absolute position
 			const targetScroll = currentScroll + rect.top - viewportH / 3;
 			scrollTarget.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' });
@@ -1577,9 +1676,10 @@
 	let pbStartPct = 0;
 	// The long-press fired → subsequent movement grows/shrinks the loop region.
 	let pbLoopCreating = false;
-	// Anchor bar for the hold-and-drag loop — dragging past it in either
-	// direction swaps start/end correctly.
-	let pbLoopAnchorBar = 0;
+	// Anchor timeline position (ms) for the hold-and-drag loop. Used to size the
+	// loop by the span of bars touched between the anchor and the finger, so the
+	// loop grows monotonically even across repeat boundaries.
+	let pbLoopAnchorMs = 0;
 	// Movement before the hold fired → scrubbing the playhead, not looping.
 	let pbScrubbing = false;
 	// Movement threshold (px) before the long-press timer is cancelled. Small
@@ -1607,8 +1707,8 @@
 		longPressTimer = setTimeout(() => {
 			// Hold fired without a scrub — seed a 1-bar loop at the cursor/finger
 			// and flip into loop-sizing mode.
-			const barIdx = msToBar(percentToTime(pbStartPct));
-			pbLoopAnchorBar = barIdx;
+			pbLoopAnchorMs = percentToTime(pbStartPct);
+			const barIdx = msToBar(pbLoopAnchorMs);
 			loopStartBar = barIdx;
 			loopEndBar = barIdx;
 			loopEnabled = true;
@@ -1621,16 +1721,16 @@
 	}
 
 	function pbMoveGesture(clientX: number) {
-		// Post-hold: grow the loop around the anchor bar.
+		// Post-hold: grow the loop across the span of bars touched between the
+		// anchor and the finger. Using the touched-bar span (not the bar index at
+		// the finger) keeps the loop monotonic across repeat boundaries.
 		if (pbLoopCreating) {
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const bar = Math.min(msToBar(percentToTime(getProgressPercent(clientX))), maxBar);
-			if (bar >= pbLoopAnchorBar) {
-				setLoopBars(pbLoopAnchorBar, bar);
-			} else {
-				setLoopBars(bar, pbLoopAnchorBar);
+			const fingerMs = percentToTime(getProgressPercent(clientX));
+			const span = barSpanBetweenMs(pbLoopAnchorMs, fingerMs);
+			if (span) {
+				setLoopBars(span.minBar, span.maxBar);
+				updateScoreSelection();
 			}
-			updateScoreSelection();
 			return;
 		}
 
@@ -1674,7 +1774,15 @@
 
 	// Touch entry points — thin wrappers over the shared gesture engine. Edge
 	// resize / inside-move of an existing loop keep their dedicated handlers.
+	//
+	// `pbSuppressed` is set when a clearly VERTICAL swipe that started on the
+	// scrub zone has been handed to the bottom sheet (see onBarTouchMove): from
+	// that point the progress bar ignores the rest of the gesture so the finger
+	// can't scrub or seed a loop on its way up.
+	let pbSuppressed = false;
+
 	function handleProgressBarTouchStart(event: TouchEvent) {
+		pbSuppressed = false;
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.touches[0].clientX - rect.left;
@@ -1702,11 +1810,24 @@
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
-		if (!range || !duration || !event.touches[0]) return;
-		pbMoveGesture(event.touches[0].clientX);
+		if (pbSuppressed) return;
+		const t = event.touches[0];
+		if (!range || !duration || !t) return;
+		// A vertical swipe from the scrub zone is a sheet gesture, not a scrub:
+		// swallow it here BEFORE the (already-armed) hold or scrub can react. The
+		// bar-level handler below is what actually claims it. Once the hold HAS
+		// fired (loop-sizing) or a horizontal scrub is underway, the progress bar
+		// keeps the gesture for good — the loop long-press never regresses.
+		if (!pbLoopCreating && !pbScrubbing && !isDraggingLoop && isVerticalSheetSwipe(t)) return;
+		pbMoveGesture(t.clientX);
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
+		if (pbSuppressed) {
+			pbSuppressed = false;
+			clearTimeout(longPressTimer);
+			return;
+		}
 		if (!event.changedTouches[0]) {
 			clearTimeout(longPressTimer);
 			return;
@@ -1776,6 +1897,154 @@
 		// Now handled by touchstart/move/end handlers above
 	}
 
+	// --- Transport bar → outer shell scroll / bottom sheet (items 8, 21) ---
+	// A DRAG that starts anywhere on the bar — the progress-bar strip, the
+	// play/pause button row AND the metadata row (source pill, favourite, share,
+	// download) — scrolls the outer view: on desktop it drives the /play shell
+	// (revealing the below-fold recommendations); on phones it opens the
+	// YouTube-style bottom sheet (item 23). TAPS still activate the buttons — we
+	// only claim the gesture once the finger moves past a ~10px threshold, and
+	// suppress the click that would otherwise follow a claimed drag.
+	//
+	// The progress bar owns its own gesture (scrub + long-press loop) and KEEPS
+	// priority: it only yields when the swipe is unmistakably vertical (see
+	// isVerticalSheetSwipe) and neither the hold nor a scrub has engaged.
+	// Range sliders and open popover menus are never claimed.
+	const BAR_DRAG_THRESHOLD = 10; // px before a touch is treated as a drag, not a tap
+	// Stricter, vertical-only threshold for swipes that begin on the scrub zone —
+	// the loop long-press must never lose a gesture to a sloppy finger.
+	const BAR_VERTICAL_CLAIM_PX = 14;
+	const BAR_VERTICAL_RATIO = 1.6; // |dy| must beat |dx| by this much
+	let barTouchStartX = 0;
+	let barTouchStartY = 0;
+	let barTouchLastY = 0;
+	let barGesturePending = false; // touch started on a draggable zone, not yet claimed
+	let barGestureClaimed = false; // moved past the threshold → it's a drag
+	let barDrivesSheet = false; // this drag is feeding the mobile bottom sheet
+	let barFromScrubZone = false; // gesture began on the progress bar
+
+	function isBarOwnGesture(target: EventTarget | null): boolean {
+		// Buttons and links are intentionally NOT here: a drag on them scrolls the
+		// view while a tap still clicks (item 21). Only the slider/menu zones keep
+		// their own drag/scroll behaviour outright; the progress bar is handled
+		// separately (it yields to a clearly vertical swipe).
+		const el = target as HTMLElement | null;
+		if (el?.closest?.('[data-scrub-zone]')) return false;
+		return !!el?.closest?.('input, [role="slider"], [role="menu"], select');
+	}
+
+	function isScrubZone(target: EventTarget | null): boolean {
+		return !!(target as HTMLElement | null)?.closest?.('[data-scrub-zone]');
+	}
+
+	/** True when a touch that started on the scrub zone has moved far enough, and
+	 *  vertically enough, that the user clearly means "open the sheet". */
+	function isVerticalSheetSwipe(t: Touch): boolean {
+		if (!barGesturePending || !barFromScrubZone) return false;
+		const dy = t.clientY - barTouchStartY;
+		const dx = t.clientX - barTouchStartX;
+		return Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO;
+	}
+
+	/** Drive the outer view by a vertical delta: on phones the finger moves the
+	 *  bottom sheet 1:1 (the sheet settles it on release); otherwise it scrolls
+	 *  the /play shell. */
+	function barDriveScroll(dyUp: number) {
+		if (barDrivesSheet) {
+			sheetDragMove(dyUp);
+		} else {
+			const shell = get(playShellEl);
+			if (shell) shell.scrollBy({ top: -dyUp });
+		}
+	}
+
+	function onBarWheel(e: WheelEvent) {
+		// Leave interactive controls (open popover menus, sliders) to their own
+		// scroll behaviour; only the bar's blank/metadata/button zones drive the view.
+		if (isBarOwnGesture(e.target)) return;
+		if (get(playSheetEnabled)) {
+			if (e.deltaY < 0) playSheetOpen.set(true); // scroll up on the bar opens the sheet
+		} else {
+			const shell = get(playShellEl);
+			if (!shell) return;
+			shell.scrollBy({ top: e.deltaY });
+		}
+		e.preventDefault();
+	}
+
+	function suppressNextBarClick() {
+		if (!barEl) return;
+		const handler = (ev: Event) => {
+			ev.stopPropagation();
+			ev.preventDefault();
+		};
+		barEl.addEventListener('click', handler, { capture: true, once: true });
+		// Safety: if no click follows the drag, drop the one-shot listener.
+		setTimeout(() => barEl?.removeEventListener('click', handler, true), 400);
+	}
+
+	function onBarTouchStart(e: TouchEvent) {
+		if (isBarOwnGesture(e.target) || e.touches.length !== 1) {
+			barGesturePending = false;
+			barFromScrubZone = false;
+			return;
+		}
+		barFromScrubZone = isScrubZone(e.target);
+		barTouchStartX = e.touches[0].clientX;
+		barTouchStartY = e.touches[0].clientY;
+		barTouchLastY = barTouchStartY;
+		barGesturePending = true;
+		barGestureClaimed = false;
+	}
+
+	function onBarTouchMove(e: TouchEvent) {
+		if (!barGesturePending) return;
+		const t = e.touches[0];
+		if (!t) return;
+		if (!barGestureClaimed) {
+			let claimFrom: number;
+			if (barFromScrubZone) {
+				// The scrub / long-press-loop gesture owns the progress bar. Give it up
+				// only for an unmistakably vertical swipe, and only while it hasn't
+				// engaged yet — and only where the sheet exists (phones), so the
+				// desktop scrub is bit-for-bit unchanged.
+				if (pbLoopCreating || pbScrubbing || isDraggingLoop) return;
+				if (!get(playSheetEnabled) || !isVerticalSheetSwipe(t)) return;
+				pbSuppressed = true; // the progress bar drops the rest of this gesture
+				clearTimeout(longPressTimer);
+				claimFrom = BAR_VERTICAL_CLAIM_PX;
+			} else {
+				const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
+				if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
+				claimFrom = BAR_DRAG_THRESHOLD;
+			}
+			barGestureClaimed = true;
+			// Count travel from the edge of the tap slop, NOT from this event: touch
+			// moves get coalesced, so a fast flick can deliver its whole distance in
+			// one event — resetting to it would throw the entire gesture away.
+			const dy = t.clientY - barTouchStartY;
+			barTouchLastY = barTouchStartY + Math.sign(dy) * claimFrom;
+			// Hand the gesture to the bottom sheet: from here every finger delta
+			// moves it continuously (item 21), and its release decides where it lands.
+			barDrivesSheet = get(playSheetEnabled);
+			if (barDrivesSheet) sheetDragBegin();
+		}
+		const dyUp = barTouchLastY - t.clientY; // + when the finger moves up
+		barTouchLastY = t.clientY;
+		barDriveScroll(dyUp);
+		e.preventDefault();
+	}
+
+	function onBarTouchEnd() {
+		// A claimed drag must not also fire the button's click.
+		if (barGestureClaimed) suppressNextBarClick();
+		if (barDrivesSheet) sheetDragEnd();
+		barDrivesSheet = false;
+		barGesturePending = false;
+		barGestureClaimed = false;
+		barFromScrubZone = false;
+	}
+
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
 	function handleUserScrollIntent() {
 		if (autoFollow) {
@@ -1802,7 +2071,7 @@
 		const el = get(beatCursorEl);
 		if (!el) return;
 		const elRect = el.getBoundingClientRect();
-		const viewportHeight = isFullscreen && page ? page.clientHeight : window.innerHeight;
+		const viewportHeight = page ? page.clientHeight : window.innerHeight;
 		const grabBottom = viewportHeight * 0.15;
 
 		if (elRect.top >= 0 && elRect.top <= grabBottom) {
@@ -1816,7 +2085,7 @@
 		// exposed by the vendored build.
 		const el = get(beatCursorEl);
 		if (!el) return;
-		const scrollElement = isFullscreen && page ? page : window;
+		const scrollElement = page ?? window;
 		// Land the cursor a clear gap below the sticky header so it is never
 		// hidden behind it. Compute the delta from the cursor's current viewport
 		// position; this works whether the scroller is the window or the
@@ -1825,7 +2094,7 @@
 		const settingsH =
 			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
 		const desiredTop = headerBottom + settingsH + 24;
-		const currentTop = isFullscreen && page ? page.scrollTop : window.scrollY;
+		const currentTop = page ? page.scrollTop : window.scrollY;
 		const delta = el.getBoundingClientRect().top - desiredTop;
 		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
 		autoFollow = true;
@@ -1888,6 +2157,58 @@
 				if (api) api.render();
 			}, DEBOUNCE_DELAY_MS);
 		}
+	}
+
+	// --- Orientation / viewport relayout (FIX F) ---
+	// Rotating landscape↔portrait (especially fast, repeatedly) left the whole
+	// player rendered at ~half width: alphaTab keeps the width it last laid out
+	// at, and the responsive-scale recompute alone doesn't fire a re-render when
+	// the scale bucket is unchanged (portrait and landscape phones are both
+	// < 768px). We fix it by, on a debounced orientationchange / width-changing
+	// resize, clearing any stale explicit width on the layout container, recomputing
+	// the responsive scale from the LIVE viewport width, and forcing alphaTab to
+	// relayout with api.render() so the score, cursor and our top/bottom bars all
+	// re-expand to the current width together.
+	let lastRelayoutWidth = browser ? window.innerWidth : 0;
+	let relayoutDebounceTimeout: NodeJS.Timeout;
+	function relayoutForViewport(force = false) {
+		if (!browser) return;
+		clearTimeout(relayoutDebounceTimeout);
+		// Debounce so a burst of rapid rotations collapses into a single relayout
+		// once the viewport has settled — the width is always read fresh inside
+		// the timeout, never cached from when the event fired.
+		relayoutDebounceTimeout = setTimeout(() => {
+			if (!api) return;
+			const width = window.innerWidth; // LIVE viewport width, read now
+			const widthChanged = width !== lastRelayoutWidth;
+			lastRelayoutWidth = width;
+			// Height-only resizes (e.g. the Android soft keyboard) don't need a
+			// costly relayout; orientationchange forces one regardless.
+			if (!force && !widthChanged) return;
+			// Clear any stale explicit width so alphaTab measures the full
+			// container on the next render instead of reusing the old width.
+			const host =
+				(target?.querySelector('#player-host') as HTMLElement | null) ??
+				document.getElementById('player-host');
+			if (host) host.style.width = '100%';
+			if (target) target.style.width = '100%';
+			// Recompute the responsive scale from the current viewport width.
+			const newScale = getResponsiveScale();
+			if (Math.abs(newScale - tabScale) > 0.01) {
+				tabScale = newScale;
+				try {
+					api.settings.display.scale = tabScale;
+					api.updateSettings();
+				} catch {}
+			}
+			// Force a full relayout at the current container width.
+			try {
+				api.render();
+			} catch {}
+		}, DEBOUNCE_DELAY_MS);
+	}
+	function handleOrientationChange() {
+		relayoutForViewport(true);
 	}
 
 	// Pinch-zoom handlers (see gestures.ts). Two-finger pinch drives the same
@@ -1977,9 +2298,9 @@
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
 				autoFollow = true;
 				autoFollowDisengagedAt = 0;
-				// Scroll to top when a new tab is loaded
-				window.scrollTo({ top: 0, behavior: 'smooth' });
-				if (isFullscreen && page) page.scrollTo({ top: 0, behavior: 'smooth' });
+				// Scroll to top when a new tab is loaded (the sheet is always its
+				// own scroller now — window/page fallback covers SSR edge cases).
+				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
@@ -2042,7 +2363,7 @@
 				target.scrollTop +
 				(elRect.top - containerRect.top) -
 				(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-			const scrollElement = isFullscreen ? page : window;
+			const scrollElement = page ?? window;
 			if (!scrollElement) return;
 			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
 		};
@@ -2561,19 +2882,19 @@
 			updateTabScale();
 		}
 
-		let resizeDebounceTimeout: NodeJS.Timeout;
+		// A width-changing resize (rotation, window resize) triggers a debounced
+		// relayout that clears the stale container width, recomputes the responsive
+		// scale from the live viewport and re-renders alphaTab (see FIX F).
+		lastRelayoutWidth = window.innerWidth;
 		mountHandleResize = () => {
-			clearTimeout(resizeDebounceTimeout);
-			resizeDebounceTimeout = setTimeout(() => {
-				const newScale = getResponsiveScale();
-				if (Math.abs(newScale - tabScale) > 0.1) {
-					tabScale = newScale;
-					updateTabScale();
-				}
-			}, DEBOUNCE_DELAY_MS);
+			publishBarInset();
+			relayoutForViewport(false);
 		};
 
 		window.addEventListener('resize', mountHandleResize);
+		// orientationchange forces the relayout even when the scale bucket is
+		// unchanged (portrait↔landscape on a phone stays < 768px).
+		window.addEventListener('orientationchange', handleOrientationChange);
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 
 		// Add mouse event listeners for controls
@@ -2583,8 +2904,9 @@
 			page.addEventListener('mouseenter', handleMouseEnter);
 		}
 
-		// Smart cursor follow: detect user scrolling
-		mountScrollTarget = isFullscreen && page ? page : window;
+		// Smart cursor follow: detect user scrolling. The sheet (#page) is always
+		// its own internal scroller now, so listen there (not the window).
+		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
@@ -2786,6 +3108,8 @@
 		largeScreenMql?.removeEventListener('change', syncLargeScreen);
 		smallScreenMql?.removeEventListener('change', syncSmallScreen);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
+		window.removeEventListener('orientationchange', handleOrientationChange);
+		clearTimeout(relayoutDebounceTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3191,10 +3515,22 @@
 		const exporter = new window.alphaTab.exporter.Gp7Exporter();
 		const data = exporter.export(api.score, api.settings);
 		const fileName = api.score.title.length > 0 ? api.score.title + '.gp' : 'song.gp';
-		await saveFile(fileName, data);
+		try {
+			const { location } = await downloadFile(fileName, data, 'application/octet-stream');
+			toastStore.success(location ? `Saved to ${location}/${fileName}` : 'Downloaded');
+		} catch {
+			toastStore.error('Download failed');
+		}
 	}
 
 	async function toggleFullscreen() {
+		// Native WebView (Capacitor) has no Fullscreen API — use the CSS
+		// fullscreen mode (a fixed inset-0 overlay driven by `isFullscreen`)
+		// instead of requesting real browser fullscreen.
+		if (native) {
+			isFullscreen = !isFullscreen;
+			return;
+		}
 		if (!isFullscreen) {
 			if (page && page.requestFullscreen) {
 				await page.requestFullscreen();
@@ -3231,7 +3567,7 @@
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('scroll', handleScroll);
-		mountScrollTarget = isFullscreen && page ? page : window;
+		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
@@ -3322,9 +3658,8 @@
 	// --- Share link ---
 	async function clickShare() {
 		if (!browser) return;
-		const url = new URL(window.location.href);
-		url.search = '';
-		url.hash = '';
+		// Canonical origin — never window.location (localhost in the WebView / dev).
+		const url = new URL(shareUrl('/play'));
 
 		if (tabId) {
 			// Catalog tabs: short, durable ID-based link
@@ -3363,12 +3698,30 @@
 		}
 	}
 
-	// --- Touch swipe for track switching ---
+	// --- Horizontal drag on the score = seek ±10s (was: track switching) ---
 	let touchStartX = 0;
 	let touchStartY = 0;
-	let swipeIndicator: 'left' | 'right' | null = null;
+	// The flash overlay reports the applied seek ('+10s' / '-10s') rather than a
+	// raw direction so the label reads naturally regardless of gesture direction.
+	let swipeIndicator: '+10s' | '-10s' | null = null;
 	let swipeIndicatorTimeout: NodeJS.Timeout;
 	const SWIPE_THRESHOLD = 50;
+	const SEEK_STEP_SECONDS = 10;
+	// True once a second finger joins the gesture (pinch-zoom) — suppresses the
+	// seek so zooming never scrubs the playhead.
+	let gestureMultiTouch = false;
+
+	/** Seek forward/back by a number of seconds, clamped to [0, duration]. */
+	function seekBySeconds(deltaSec: number) {
+		if (!api || !duration) return;
+		const curMs = (progress / 100) * duration;
+		const newMs = Math.max(0, Math.min(duration, curMs + deltaSec * 1000));
+		progress = (newMs / duration) * 100;
+		api.player.timePosition = newMs;
+		seekDebounce();
+		autoFollow = true;
+		autoFollowDisengagedAt = 0;
+	}
 
 	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
 	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
@@ -3399,6 +3752,7 @@
 
 	function handleTouchStart(e: TouchEvent) {
 		if (!e.touches[0]) return;
+		gestureMultiTouch = e.touches.length > 1;
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		scoreLongPressActive = false;
@@ -3414,6 +3768,7 @@
 
 	function handleScoreTouchMove(e: TouchEvent) {
 		if (!e.touches[0]) return;
+		if (e.touches.length > 1) gestureMultiTouch = true;
 		const x = e.touches[0].clientX;
 		const y = e.touches[0].clientY;
 		if (scoreLongPressActive) {
@@ -3442,23 +3797,33 @@
 			// doesn't also trigger from the same gesture.
 			return;
 		}
-		if (!e.changedTouches[0] || tracks.length <= 1) return;
+		// Suppress seek during a pinch-zoom (two fingers) so zooming never scrubs.
+		if (gestureMultiTouch) {
+			gestureMultiTouch = false;
+			return;
+		}
+		if (!e.changedTouches[0]) return;
 		const dx = e.changedTouches[0].clientX - touchStartX;
 		const dy = e.changedTouches[0].clientY - touchStartY;
 
+		// Only a clearly-horizontal swipe seeks; a mostly-vertical drag scrolls
+		// the sheet and must be left alone.
 		if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
 
-		if (dx < 0 && activeTrackIndex < tracks.length - 1) {
-			setActiveTrack(activeTrackIndex + 1);
-			showSwipeIndicator('left');
-		} else if (dx > 0 && activeTrackIndex > 0) {
-			setActiveTrack(activeTrackIndex - 1);
-			showSwipeIndicator('right');
+		// Swipe left → forward, swipe right → back (matches natural "drag the
+		// timeline" feel: pulling content left advances playback).
+		if (dx < 0) {
+			seekBySeconds(SEEK_STEP_SECONDS);
+			showSeekFlash('+10s');
+		} else {
+			seekBySeconds(-SEEK_STEP_SECONDS);
+			showSeekFlash('-10s');
 		}
+		hapticTap();
 	}
 
-	function showSwipeIndicator(direction: 'left' | 'right') {
-		swipeIndicator = direction;
+	function showSeekFlash(label: '+10s' | '-10s') {
+		swipeIndicator = label;
 		clearTimeout(swipeIndicatorTimeout);
 		swipeIndicatorTimeout = setTimeout(() => {
 			swipeIndicator = null;
@@ -3521,7 +3886,10 @@
 
 <div
 	id="page"
-	class="h-auto fullscreen:h-full fullscreen:overflow-y-auto webkit-fullscreen:h-full webkit-fullscreen:overflow-y-auto"
+	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
+		{isFullscreen && native
+			? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black'
+			: 'h-full'}"
 	bind:this={page}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
@@ -3547,7 +3915,7 @@
 	     the long-press selection becomes active. -->
 	<div
 		class="relative"
-		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y;"
+		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
@@ -3670,7 +4038,7 @@
 
 				<!-- Clear selection -->
 				<button
-					class="p-1 rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+					class="p-1 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 					on:click={clearSheetSelection}
 					title="Remove selection [Esc]"
 				>
@@ -3679,25 +4047,28 @@
 			</div>
 		{/if}
 
-		<!-- Swipe indicator -->
+		<!-- Seek flash: brief "+10s"/"-10s" overlay when a horizontal drag seeks -->
 		{#if swipeIndicator}
 			<div
-				class="fixed top-1/2 {swipeIndicator === 'left'
+				class="fixed top-1/2 {swipeIndicator === '+10s'
 					? 'right-4'
 					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
 			>
-				<div class="bg-violet-500 bg-opacity-80 text-white rounded-full p-3 shadow-lg">
+				<div class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg">
 					<i class="material-icons !text-2xl"
-						>{swipeIndicator === 'left' ? 'skip_next' : 'skip_previous'}</i
+						>{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
 					>
+					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
 				</div>
 			</div>
 		{/if}
 
 		<!-- Floating "scroll to cursor" button — visible when scrolled away
 		     from cursor. Lifted higher on narrow portrait phones so it clears
-		     the metadata row that sits above the transport bar. -->
-		{#if scoreLoaded && !autoFollow}
+		     the metadata row that sits above the transport bar. Only shown while
+		     the sheet section owns the /play view (item 14): once the user scrolls
+		     into the below-fold details, the shell's "back to top" arrow takes over. -->
+		{#if scoreLoaded && !autoFollow && $playSheetInView}
 			<div
 				class="fixed -translate-x-1/2 z-[55]"
 				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
@@ -3715,27 +4086,44 @@
 	</div>
 
 	<!-- Karaoke lyrics — a translucent card floating over the score, just above
-	     the transport. Self-positioned (fixed) so it never eats layout height. -->
-	<LyricsBar api={$playerApi} />
+	     the transport. Self-positioned (fixed) so it never eats layout height.
+	     Suppressed (not unmounted, so its fetched lyrics survive) while the mobile
+	     bottom sheet covers the score: it floats above the sheet and would sit on
+	     top of the playlist. -->
+	<LyricsBar api={$playerApi} suppressed={sheetCoversScore} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- Controls bar (below the rendering, YouTube-style) -->
+	<!-- Controls bar (below the rendering, YouTube-style). The mobile bottom sheet
+	     (z-52) slides up OVER it and covers it while the below-fold content is
+	     open — the bar stays mounted underneath and comes back untouched when the
+	     sheet closes. The bar carries the sheet's only discovery affordance: the
+	     drag gesture, plus the grab-handle hint centered in its bottom row. -->
 	<div
 		on:mouseenter={handleControlsEnter}
 		on:mouseleave={handleControlsLeave}
+		on:wheel|nonpassive={onBarWheel}
+		on:touchstart={onBarTouchStart}
+		on:touchmove|nonpassive={onBarTouchMove}
+		on:touchend={onBarTouchEnd}
+		on:touchcancel={onBarTouchEnd}
+		bind:this={barEl}
 		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
-		style="padding-bottom: calc(env(safe-area-inset-bottom) + 5px)"
+		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: calc(env(safe-area-inset-left) + {barSideGutter}px); padding-right: calc(env(safe-area-inset-right) + {barSideGutter}px)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
 	>
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
-		     desktop keeps the thin-with-hover-grow behavior. -->
+		     desktop keeps the thin-with-hover-grow behavior.
+		     `data-scrub-zone` marks it as the one part of the bar that owns its own
+		     gesture: the bar-level drag-to-open-the-sheet claim only takes it over
+		     for an unmistakably vertical swipe (see isVerticalSheetSwipe). -->
 		<div
+			data-scrub-zone
 			class="relative h-3 sm:h-1 sm:hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"
 			style="touch-action: none;"
 			role="slider"
@@ -3870,7 +4258,7 @@
 
 					<!-- Remove -->
 					<button
-						class="p-0.5 rounded-full text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 						on:click|stopPropagation={clearLoopPoints}
 						title="Remove loop [Esc]"
 					>
@@ -3879,8 +4267,11 @@
 				</div>
 			{/if}
 
-			<!-- Expanded hit area for easier interaction (overflow upward only to avoid buttons below) -->
-			<div class="absolute inset-x-0 -top-12 bottom-0" />
+			<!-- Expanded hit area for easier interaction (overflow upward only to avoid
+			     buttons below). Collapsed while the mobile bottom sheet covers the
+			     area above the bar, otherwise the scrub would steal the touches that
+			     belong to the sheet's list rows. -->
+			<div class="absolute inset-x-0 bottom-0 {sheetCoversScore ? 'top-0' : '-top-12'}" />
 
 			<!-- Tooltip -->
 			{#if showProgressTooltip && tooltipTime && !isDraggingLoop}
@@ -3894,10 +4285,10 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 {compactBar ? 'py-0.5 gap-0.5' : 'py-1 gap-1'}">
+		<div class="flex items-center px-2 {compactBar ? 'py-1.5 gap-0.5' : 'py-2.5 gap-1'}">
 			<!-- Left: playback controls -->
 			<button
-				class="{compactBar ? 'p-1' : 'p-1.5'} rounded-full transition-colors {playing
+				class="{compactBar ? 'p-1.5' : 'p-2.5'} rounded-xl transition-colors {playing
 					? 'text-violet-500'
 					: 'text-neutral-600 dark:text-neutral-400'} hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => {
@@ -3906,31 +4297,31 @@
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
+				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}"
 					>{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
 			<button
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(-1)}
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_previous</i>
 			</button>
 
 			<button
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 				on:click={() => seekByBars(1)}
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -3947,8 +4338,8 @@
 			>
 				<button
 					class="{isFullscreen
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{volume === 0
 						? 'text-neutral-400 dark:text-neutral-500'
 						: 'text-neutral-600 dark:text-neutral-400'}"
@@ -3963,7 +4354,7 @@
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
@@ -4090,17 +4481,18 @@
 				{/each}
 			</PopoverMenu>
 
-			<!-- Video picker button -->
-			{#if youtubeResults.length > 0}
+			<!-- Video picker button (desktop/tablet bar only; on phones it moves
+			     into the settings panel) -->
+			{#if youtubeResults.length > 0 && !mobileBar}
 				<div class="relative">
 					<button
 						on:click={() => (showVideoDropdown = !showVideoDropdown)}
-						class="p-1.5 rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						class="p-2.5 rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
 						aria-label="Play video"
 					>
-						<i class="material-icons !text-xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+						<i class="material-icons !text-2xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
 
 					{#if showVideoDropdown}
@@ -4123,7 +4515,7 @@
 									>Play with video</span
 								>
 								{#if hasActiveVideo}
-									<button on:click={closeVideo} class="text-xs text-red-400 hover:text-red-500"
+									<button on:click={closeVideo} class="text-xs text-danger-400 hover:text-danger-500"
 										>Stop video</button
 									>
 								{/if}
@@ -4163,19 +4555,23 @@
 				</div>
 			{/if}
 
-			<!-- Loop indicator (shows when loop region exists) -->
+			<!-- Loop indicator (shows when loop region exists). Hidden on the phone
+			     bar (item 10): loops are made by long-press drag and the loop
+			     toggle lives in the settings panel there; the freed slot keeps the
+			     phone bar to the essentials (settings + fullscreen). -->
+			{#if !mobileBar}
 			{#if loopStartBar !== null && loopEndBar !== null}
 				<button
 					on:click={toggleLoopEnabled}
 					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
 					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
 						1}) [Esc to clear]"
 					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
 						>{loopEnabled ? 'repeat_on' : 'repeat'}</i
 					>
 				</button>
@@ -4183,19 +4579,21 @@
 				<button
 					on:click={clickLooping}
 					class="{isFullscreen
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 					title="Loop [L] &middot; Drag on progress bar to set region"
 					aria-label="Toggle loop"
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">repeat</i>
 				</button>
 			{/if}
+			{/if}
 
-			<!-- Compact transposed pill: only when the metadata row (and its chip)
-			     is hidden, otherwise the chip would appear twice -->
-			{#if metadataHidden}
+			<!-- Compact transposed pill: only in fullscreen (where the metadata row
+			     is hidden). Removed from the phone bar per the mobile redesign —
+			     tuning lives in the settings panel there. -->
+			{#if metadataHidden && !isMobileLandscape}
 				<TuningChip
 					compact
 					api={$playerApi}
@@ -4205,12 +4603,12 @@
 				/>
 			{/if}
 
-			{#if scoreLoaded}
+			{#if scoreLoaded && !mobileBar}
 				<button
 					on:click={onLyricsButton}
 					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						? 'p-1.5'
+						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{lyricsAvailable && $lyricsStore.mode === 'auto'
 						? 'text-violet-500'
 						: 'text-neutral-500 dark:text-neutral-400'}"
@@ -4218,47 +4616,49 @@
 					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
 					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">lyrics</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">lyrics</i>
 				</button>
 			{/if}
 
 			<button
 				on:click={() => togglePanel()}
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 					{showSettings ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">tune</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">tune</i>
 			</button>
 
-			{#if !native}
-				<button
-					on:click={toggleFullscreen}
-					class="{compactBar
-						? 'p-1'
-						: 'p-1.5'} rounded-full transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-					title="Fullscreen [F]"
-					aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+			<!-- Fullscreen: shown on every platform (item 10). On native the button
+			     drives a CSS fixed-overlay fullscreen (the WebView has no Fullscreen
+			     API) — previously the button was hidden on native so it never
+			     appeared on the user's phone. -->
+			<button
+				on:click={toggleFullscreen}
+				class="{compactBar
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+					{isFullscreen ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+				title="Fullscreen [F]"
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+			>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
+					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
-					<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}"
-						>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
-					>
-				</button>
-			{/if}
+			</button>
 
 			<button
 				on:click={() => (showKeyboardShortcuts = !showKeyboardShortcuts)}
 				class="{compactBar
-					? 'p-1'
-					: 'p-1.5'} rounded-full text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
+					? 'p-1.5'
+					: 'p-2.5'} rounded-xl text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hidden sm:block"
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {compactBar ? '!text-lg' : '!text-xl'}">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">keyboard</i>
 			</button>
 		</div>
 
@@ -4286,7 +4686,7 @@
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
-										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										? 'bg-violet-700 text-white hover:bg-violet-800'
 										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
@@ -4326,7 +4726,7 @@
 						</div>
 						<button
 							on:click={closeVideo}
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
 							aria-label="Close video"
 						>
@@ -4349,7 +4749,9 @@
 									step="0.1"
 									value={videoOffset}
 									on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
-									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+									use:sliderFill={videoOffset}
+									style="--range-track: rgba(255,255,255,0.2)"
+									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
 									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>
@@ -4409,17 +4811,18 @@
 		     ~414px tall). Narrow-portrait phones still show it, because the
 		     vertical space is there and the tags/country have already been
 		     pruned via the sm:-gated classes below. -->
-		{#if scoreLoaded && !isFullscreen && !isMobileLandscape}
+		{#if metadataRowVisible}
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
-					<!-- Album artwork or artist image -->
-					{#if songArtwork || artistImage}
+					<!-- Album artwork or artist image (hidden on the phone bar) -->
+					{#if (songArtwork || artistImage || cachedThumbArtwork) && !mobileBar}
 						<div
 							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
 							<img
-								src={songArtwork || artistImage}
+								src={songArtwork || artistImage || cachedThumbArtwork}
 								alt=""
+								decoding="async"
 								class="w-full h-full object-cover"
 								on:error={(e) => {
 									if (e.target instanceof HTMLElement) e.target.style.display = 'none';
@@ -4428,6 +4831,9 @@
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
+						<!-- Title / artist / tuning: hidden on the phone bar, which shows
+						     only the compact source pill below (mobile redesign 1b). -->
+						{#if !mobileBar}
 						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
 							<a
 								href="{base}/search?q={encodeURIComponent(songTitle)}"
@@ -4435,23 +4841,18 @@
 								title="Search other versions">{songTitle}</a
 							>
 						</h1>
-						<!-- Subtitle + tuning chip share one horizontal line so the chip
-						     stays compact and does not add a row to the bottom bar -->
+						<!-- Subtitle + current-track chip share one horizontal line. The
+						     prominent chip selects the track (opens the tracks panel); the
+						     tuning is demoted to muted text alongside the artist. -->
 						<div class="flex items-center gap-2 min-w-0">
 							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
 								{#if currentArtistName}
 									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
-										<ArtistTooltip
-											artistName={currentArtistName}
-											position="bottom"
-											className="block min-w-0 max-w-full"
+										<a
+											href="{base}/artist/{encodeURIComponent(currentArtistName)}"
+											class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+											title="View artist page">{currentArtistName}</a
 										>
-											<a
-												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-												title="View artist page">{currentArtistName}</a
-											>
-										</ArtistTooltip>
 									</span>
 									<span class="flex-shrink-0 opacity-60">&middot;</span>
 								{/if}
@@ -4488,11 +4889,12 @@
 								{/each}
 							</div>
 						{/if}
+						{/if}
 						{#if hasVariants}
 							<!-- Version selector: browse and pick ANY version (grouped by
 							     source), not just one representative per source. Mirrors the
 							     search results' expanded-versions list. -->
-							<div class="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+							<div class="flex items-center gap-1.5 {mobileBar ? '' : 'mt-1 sm:mt-1.5'}">
 								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
 									>Source:</span
 								>
@@ -4576,9 +4978,43 @@
 									{/each}
 								</PopoverMenu>
 							</div>
+						{:else if mobileBar && currentSourceDisplay}
+							<!-- Single-source phone bar: a static source pill so the compact
+							     bar always carries a source indicator. -->
+							<div class="flex items-center">
+								<span
+									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
+								>
+									<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
+									<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
+								</span>
+							</div>
 						{/if}
 					</div>
-					<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+
+					<!-- Sheet grab handle: the bar's drag affordance, centered in this
+					     bottom row between the source pill and the action icons. Same
+					     visual language as the sheet's own top grip so it reads as "drag
+					     here"; tapping it opens the sheet too. Both flanking blocks are
+					     `flex-1 basis-0`, which is what keeps the handle in the middle
+					     regardless of how wide the source label is. -->
+					{#if showSheetHint}
+						<button
+							class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+							on:click={() => playSheetOpen.set(true)}
+							aria-label="Show what's up next"
+							title="Up next"
+						>
+							<span class="sheet-hint-grip" aria-hidden="true"></span>
+							<span class="sheet-hint-label">Up next</span>
+						</button>
+					{/if}
+
+					<div
+						class="flex items-center gap-0.5 sm:gap-1 {showSheetHint
+							? 'flex-1 basis-0 justify-end'
+							: 'flex-shrink-0'}"
+					>
 						{#if tabId}
 							<FavoriteButton
 								id={tabId}
@@ -4632,6 +5068,21 @@
 					</div>
 				</div>
 			</div>
+		{/if}
+
+		<!-- Landscape phones hide the metadata row entirely, so the grab handle gets
+		     its own centered spot in the bar's bottom padding — it costs no layout
+		     height there and still reads as the same "drag here" affordance. -->
+		{#if showSheetHint && !metadataRowVisible}
+			<button
+				class="sheet-hint sheet-hint-float flex items-center justify-center gap-1.5 px-5 py-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+				on:click={() => playSheetOpen.set(true)}
+				aria-label="Show what's up next"
+				title="Up next"
+			>
+				<span class="sheet-hint-grip" aria-hidden="true"></span>
+				<span class="sheet-hint-label">Up next</span>
+			</button>
 		{/if}
 	</div>
 	<!-- end sticky controls wrapper -->
@@ -4696,30 +5147,118 @@
 					<i class="material-icons !text-base">close</i>
 				</button>
 			</div>
-			<PlayerConsole
-				api={$playerApi}
-				{tracks}
-				{activeTrackIndex}
-				bind:trackVolumes
-				bind:trackMutes
-				bind:trackSolos
-				{loopStartBar}
-				{loopEndBar}
-				{loopEnabled}
-				bind:mergeMode
-				bind:selectedIndexes={mergeSelection}
-				on:selecttrack={(e) => setActiveTrack(e.detail)}
-				on:togglesolo={(e) => toggleTrackSolo(e.detail)}
-				on:togglemute={(e) => toggleTrackMute(e.detail)}
-				on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
-				on:muteall={muteAllTracks}
-				on:unmuteall={unmuteAllTracks}
-				on:resetlevels={resetAllVolumes}
-				on:toggleloop={toggleLoopEnabled}
-				on:clearloop={clearLoopPoints}
-				on:merged={onTrackMerged}
-				on:removed={onMergedTrackRemoved}
-			/>
+
+			<!-- Mobile-only entries: the lyrics, video and download controls have
+			     no room on the phone transport bar, so they live here (1b). The
+			     desktop bar is unchanged and hides this block. -->
+			{#if mobileBar}
+				<div class="flex-shrink-0 border-b border-neutral-200 dark:border-neutral-700">
+					{#if scoreLoaded}
+						<button
+							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+							on:click={onLyricsButton}
+						>
+							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">lyrics</i>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">
+								{lyricsAvailable ? 'Lyrics / subtitles' : 'Find lyrics online'}
+							</span>
+							{#if lyricsAvailable && $lyricsStore.mode === 'auto'}
+								<i class="material-icons !text-base text-violet-500">check</i>
+							{/if}
+						</button>
+					{/if}
+
+					{#if youtubeResults.length > 0}
+						<button
+							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+							on:click={() => (showSettingsVideo = !showSettingsVideo)}
+						>
+							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Play along with video</span>
+							<i class="material-icons !text-base text-neutral-400">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
+						</button>
+						{#if showSettingsVideo}
+							<div class="bg-neutral-50 dark:bg-neutral-800/40">
+								{#if hasActiveVideo}
+									<button
+										class="w-full text-left px-4 py-2 text-xs text-danger-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+										on:click={closeVideo}
+									>
+										Stop video
+									</button>
+								{/if}
+								{#each youtubeResults as yt}
+									<button
+										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId === yt.videoId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
+										on:click={() => selectVideo(yt.videoId)}
+									>
+										<div class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700">
+											{#if yt.thumbnail}
+												<img src={yt.thumbnail} alt="" class="w-full h-full object-cover" />
+											{/if}
+										</div>
+										<div class="flex-1 min-w-0">
+											<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">{yt.title}</p>
+											<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
+										</div>
+										{#if $activeVideoId === yt.videoId}
+											<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+										{/if}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					{/if}
+
+					<button
+						class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40"
+						on:click={clickShare}
+						disabled={!scoreLoaded}
+					>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">share</i>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Share tab link</span>
+					</button>
+
+					<button
+						class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40"
+						on:click={clickDownload}
+						disabled={!scoreLoaded}
+					>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">download</i>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Download tab file</span>
+					</button>
+				</div>
+			{/if}
+
+			<!-- Fill the remaining height so the console (and its track list) is
+			     bounded and scrolls internally instead of pushing the footer
+			     controls off-screen on the full-screen mobile sheet. -->
+			<div class="flex-1 min-h-0">
+				<PlayerConsole
+					api={$playerApi}
+					{tracks}
+					{activeTrackIndex}
+					bind:trackVolumes
+					bind:trackMutes
+					bind:trackSolos
+					{loopStartBar}
+					{loopEndBar}
+					{loopEnabled}
+					bind:mergeMode
+					bind:selectedIndexes={mergeSelection}
+					on:selecttrack={(e) => setActiveTrack(e.detail)}
+					on:togglesolo={(e) => toggleTrackSolo(e.detail)}
+					on:togglemute={(e) => toggleTrackMute(e.detail)}
+					on:trackvolume={(e) => updateTrackVolume(e.detail.index, e.detail.volume)}
+					on:muteall={muteAllTracks}
+					on:unmuteall={unmuteAllTracks}
+					on:resetlevels={resetAllVolumes}
+					on:toggleloop={toggleLoopEnabled}
+					on:clearloop={clearLoopPoints}
+					on:merged={onTrackMerged}
+					on:removed={onMergedTrackRemoved}
+				/>
+			</div>
 		</aside>
 	{/if}
 
@@ -4989,5 +5528,40 @@
 		content: '';
 		position: absolute;
 		inset: -8px;
+	}
+
+	/* --- Sheet grab handle (the bar's drag affordance) ----------------------
+	   Deliberately the SAME pill as the bottom sheet's own top grip, so the two
+	   ends of the gesture look like one object: pull this pill up, the sheet's
+	   pill is what you push back down. The micro label is a whisper — the grip
+	   plus the drag is the real affordance. */
+	.sheet-hint {
+		z-index: 20; /* above the progress bar's invisible upward hit expander */
+	}
+	.sheet-hint-grip {
+		display: block;
+		width: 36px;
+		height: 4px;
+		border-radius: 999px;
+		background: rgb(163 163 163 / 0.55);
+		transition: background-color 150ms ease;
+	}
+	.sheet-hint:active .sheet-hint-grip {
+		background: rgb(115 115 115 / 0.85);
+	}
+	.sheet-hint-label {
+		font-size: 9px;
+		line-height: 1;
+		font-weight: 500;
+		letter-spacing: 0.03em;
+		opacity: 0.75;
+	}
+	/* Landscape phones have no metadata row: the handle sits in the bar's bottom
+	   padding, centered, costing zero layout height. */
+	.sheet-hint-float {
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		bottom: calc(env(safe-area-inset-bottom) + 3px);
 	}
 </style>

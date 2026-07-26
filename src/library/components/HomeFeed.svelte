@@ -9,6 +9,8 @@
 	import SkeletonTabCard from './SkeletonTabCard.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 	import PullToRefresh from './PullToRefresh.svelte';
+	import OfflineNotice from './OfflineNotice.svelte';
+	import EmptyState from './EmptyState.svelte';
 	import { historyStore } from '../utils/history';
 	import { favoritesStore } from '../utils/favorites';
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
@@ -16,7 +18,9 @@
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import { cachedFetch, TTL_HOME_FEED, isFromCache, isOfflineErrorLike } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
+	import { metronomeOpen } from '../utils/metronome';
 	import { debugEmptyContinue } from '../utils/debug';
 
 	/** Effective history — respects the Header's debug toggle so we can preview
@@ -39,6 +43,8 @@
 	let observer: IntersectionObserver | undefined;
 	let loadingFeed = false;
 	let exhausted = false;
+	/** True when the last fetch fell back to cache or failed with no network. */
+	let offline = false;
 	/** Consecutive empty fetches — if too many, stop trying */
 	let emptyFetchesInARow = 0;
 
@@ -173,12 +179,56 @@
 		emptyFetchesInARow = 0;
 		lastFetchAt = 0;
 		nextPoolIndex = 0;
-		await primeFirstPaint();
+		offline = false;
+		// Pull-to-refresh is an explicit refresh: force the network (bypass cache).
+		await primeFirstPaint(true);
 	}
 
-	/** Append a freshly-fetched, already-deduped batch to the feed and kick off
-	 *  its background artwork resolution. Shared by the throttled fill loop and
-	 *  the concurrent first-paint primer. */
+	// --- Artwork fetch queue (5c: don't storm the network while scrolling) ---
+	// Each appended batch enqueues its un-embedded tabs; a single idle-scheduled
+	// flush drains the queue. requestIdleCallback naturally defers while the main
+	// thread is busy (e.g. an active scroll/paint), so artwork requests pause
+	// during flings and resume when the user settles — no scroll listener needed.
+	let artworkQueue: any[] = [];
+	let artworkIdleHandle: number | null = null;
+
+	function scheduleArtworkFlush() {
+		if (artworkIdleHandle !== null || typeof window === 'undefined') return;
+		const run = () => {
+			artworkIdleHandle = null;
+			void flushArtworkQueue();
+		};
+		if (typeof (window as any).requestIdleCallback === 'function') {
+			artworkIdleHandle = (window as any).requestIdleCallback(run, { timeout: 1200 });
+		} else {
+			artworkIdleHandle = window.setTimeout(run, 200);
+		}
+	}
+
+	async function flushArtworkQueue() {
+		if (artworkQueue.length === 0) return;
+		const batch = artworkQueue;
+		artworkQueue = [];
+		try {
+			const m = await fetchArtworkBatch(batch, {});
+			const additions: Record<string, string> = {};
+			for (const t of batch) if (m[t.id]) additions[t.id] = m[t.id];
+			if (Object.keys(additions).length > 0) {
+				feedArtwork = { ...feedArtwork, ...additions };
+			}
+		} catch {
+			/* leave pulse-cleared below */
+		} finally {
+			for (const t of batch) artworkLoadingIds.delete(t.id);
+			artworkLoadingIds = artworkLoadingIds;
+			// More may have queued while we were resolving.
+			if (artworkQueue.length > 0) scheduleArtworkFlush();
+		}
+	}
+
+	/** Append a freshly-fetched, already-deduped batch to the feed and enqueue
+	 *  its background artwork resolution (idle-flushed). Shared by the throttled
+	 *  fill loop and the concurrent first-paint primer. */
 	function appendTabs(newTabs: any[]) {
 		feedTabs = [...feedTabs, ...newTabs];
 
@@ -188,50 +238,44 @@
 		for (const t of newTabs) if (t.artworkUrl) embedded[t.id] = t.artworkUrl;
 		if (Object.keys(embedded).length > 0) feedArtwork = { ...feedArtwork, ...embedded };
 		const needsArtwork = newTabs.filter((t) => !t.artworkUrl);
+		if (needsArtwork.length === 0) return;
 
 		// Mark these as "artwork loading" so cards show a pulse
 		for (const t of needsArtwork) artworkLoadingIds.add(t.id);
 		artworkLoadingIds = artworkLoadingIds;
 
-		// Fetch artwork for new tabs in background.
-		// IMPORTANT: merge only this batch's own fetched entries into the live map.
-		// Using `feedArtwork = m` would overwrite other in-flight batches' updates
-		// because each call to fetchArtworkBatch returns a new map based on its own
-		// starting snapshot.
-		fetchArtworkBatch(needsArtwork, {})
-			.then((m) => {
-				const additions: Record<string, string> = {};
-				for (const t of needsArtwork) {
-					if (m[t.id]) additions[t.id] = m[t.id];
-				}
-				if (Object.keys(additions).length > 0) {
-					feedArtwork = { ...feedArtwork, ...additions };
-				}
-			})
-			.catch(() => {})
-			.finally(() => {
-				// ALWAYS clear the pulse, even when the batch fails - a card
-				// stuck on artworkLoading shimmers forever otherwise
-				for (const t of needsArtwork) artworkLoadingIds.delete(t.id);
-				artworkLoadingIds = artworkLoadingIds;
-			});
+		// Queue + idle-flush instead of firing a fetch per batch immediately.
+		artworkQueue.push(...needsArtwork);
+		scheduleArtworkFlush();
 	}
 
 	/** Fetch a single endpoint, dedupe, and append. Returns the count of new
 	 *  tabs (0 on network error / empty / all-duplicate). No throttle/pool
 	 *  bookkeeping — callers own that. */
-	async function runFetch(endpoint: string, firstBatch: number | null): Promise<number> {
+	async function runFetch(
+		endpoint: string,
+		firstBatch: number | null,
+		force = false
+	): Promise<number> {
 		let ep = endpoint;
 		if (firstBatch) {
 			ep = ep.replace(/limit=\d+/, `limit=${firstBatch}`).replace(/count=\d+/, `count=${firstBatch}`);
 		}
 		let res: Response;
 		try {
-			res = await fetch(`${SEARCH_API_BASE_URL}${ep}`);
-		} catch {
+			// Network-first with a short TTL so the last feed is available offline.
+			// An explicit refresh forces the network (bypass cache).
+			res = await cachedFetch(`${SEARCH_API_BASE_URL}${ep}`, {
+				ttl: TTL_HOME_FEED,
+				forceRefresh: force
+			});
+		} catch (err) {
+			if (isOfflineErrorLike(err)) offline = true;
 			return 0;
 		}
 		if (!res.ok) return 0;
+		// Fresh network response clears the flag; a stale cache hit keeps it set.
+		offline = isFromCache(res);
 		const data = await res.json();
 
 		let incoming: any[];
@@ -260,7 +304,7 @@
 	 *  the slower of two parallel round-trips instead of a sequential
 	 *  400ms-throttled chain. Each batch renders independently as it resolves.
 	 *  The throttled fill loop takes over afterwards for infinite scroll. */
-	async function primeFirstPaint() {
+	async function primeFirstPaint(force = false) {
 		if (exhausted) return;
 		const firstBatch = Math.max(8, (gridCols || 4) * 2);
 		loadingFeed = true;
@@ -292,7 +336,7 @@
 		}
 
 		try {
-			const counts = await Promise.all(endpoints.map((ep) => runFetch(ep, firstBatch)));
+			const counts = await Promise.all(endpoints.map((ep) => runFetch(ep, firstBatch, force)));
 			const total = counts.reduce((a, b) => a + b, 0);
 			if (total === 0) {
 				emptyFetchesInARow++;
@@ -377,6 +421,30 @@
 				}
 			}
 		}
+	}
+
+	// --- Scroll-end fill safety net (item 28) ---
+	// The IntersectionObserver only fires on a visibility *transition*; if the user
+	// flings straight to the bottom while a fetch is already in flight, that single
+	// intersection can be "spent" and the self-rearm can stop once its buffer is
+	// satisfied — leaving the feed parked at the end with nothing loading. A
+	// debounced scroll-END check re-arms the loop (and resumes the idle artwork
+	// queue) whenever the user settles near the bottom, so it never starves.
+	let scrollEndTimer: ReturnType<typeof setTimeout> | null = null;
+	function resumeFillIfNeeded() {
+		if (typeof window === 'undefined' || exhausted) return;
+		// Resume any deferred artwork resolution now that scrolling has settled.
+		if (artworkQueue.length > 0) scheduleArtworkFlush();
+		if (loadingFeed) return;
+		const viewH = window.innerHeight;
+		const sentinelTop = sentinelEl?.getBoundingClientRect().top ?? Infinity;
+		const gridBottom = feedGridEl?.getBoundingClientRect().bottom ?? Infinity;
+		// Near the bottom (sentinel within a screen, or the grid's end within reach).
+		if (sentinelTop < viewH + 800 || gridBottom < viewH + 400) fetchMore();
+	}
+	function onScrollSettle() {
+		if (scrollEndTimer) clearTimeout(scrollEndTimer);
+		scrollEndTimer = setTimeout(resumeFillIfNeeded, 140);
 	}
 
 	// Import handlers
@@ -623,6 +691,32 @@
 			? feedTabs
 			: feedTabs.slice(0, feedFullRowCount);
 
+	// Loading row visibility (item 28). The raw `loadingFeed` flag drops to false
+	// in the sub-second gaps between fill-loop iterations (the 100ms self-rearm and
+	// the 400ms throttle retry), which made the row blink in and out. Latch it ON
+	// instantly and OFF only after the loop has really gone quiet, so "a fetch is in
+	// flight" reads as one continuous indicator below the bottom-most row.
+	let showLoadingRow = false;
+	let loadingRowOffTimer: ReturnType<typeof setTimeout> | null = null;
+	$: {
+		const busy = (loadingFeed || throttleRetryTimer !== null) && !exhausted;
+		if (busy) {
+			if (loadingRowOffTimer) {
+				clearTimeout(loadingRowOffTimer);
+				loadingRowOffTimer = null;
+			}
+			showLoadingRow = true;
+		} else if (showLoadingRow && !loadingRowOffTimer) {
+			loadingRowOffTimer = setTimeout(
+				() => {
+					loadingRowOffTimer = null;
+					showLoadingRow = false;
+				},
+				exhausted ? 0 : 500
+			);
+		}
+	}
+
 	// Skeleton count during loading: fill out the partial row first, then add
 	// one more row for the upcoming batch. Caps at 3 rows so we don't render
 	// a wall of shimmer on fast networks.
@@ -631,15 +725,6 @@
 		const completePartial = feedPartialCount > 0 ? gridCols - feedPartialCount : 0;
 		return Math.min(3 * gridCols, Math.max(gridCols, completePartial + gridCols));
 	})();
-
-	/** Scroll handler: if user scrolls within ~800px of the sentinel, fetch more. */
-	function handleScroll() {
-		if (loadingFeed || exhausted || !sentinelEl || typeof window === 'undefined') return;
-		const rect = sentinelEl.getBoundingClientRect();
-		if (rect.top < window.innerHeight + 800) {
-			fetchMore();
-		}
-	}
 
 	onMount(() => {
 		mounted = true;
@@ -663,8 +748,12 @@
 			if (sentinelEl) observer.observe(sentinelEl);
 		}
 
-		// Backup: scroll listener, in case IntersectionObserver misses edge cases
-		window.addEventListener('scroll', handleScroll, { passive: true });
+		// NB: the per-scroll fetchMore listener removed in 5c is NOT back — this one
+		// is debounced to fire only after scrolling SETTLES (item 28), so it costs a
+		// single getBoundingClientRect per scroll-end rather than per frame. It's the
+		// safety net for a user parked at the very bottom, where a spent IO
+		// intersection plus a satisfied self-rearm could otherwise stall the feed.
+		window.addEventListener('scroll', onScrollSettle, { passive: true });
 
 		// Measure grid columns (for dynamic Continue card count) + watch for resize
 		measureLayout();
@@ -680,9 +769,19 @@
 		if (gridResizeObserver) gridResizeObserver.disconnect();
 		if (coldStartTimer) clearTimeout(coldStartTimer);
 		if (throttleRetryTimer) clearTimeout(throttleRetryTimer);
+		if (artworkIdleHandle !== null && typeof window !== 'undefined') {
+			if (typeof (window as any).cancelIdleCallback === 'function') {
+				(window as any).cancelIdleCallback(artworkIdleHandle);
+			} else {
+				clearTimeout(artworkIdleHandle);
+			}
+		}
+		if (scrollEndTimer) clearTimeout(scrollEndTimer);
+		if (loadingRowOffTimer) clearTimeout(loadingRowOffTimer);
+		if (skeletonOffTimer) clearTimeout(skeletonOffTimer);
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('resize', measureLayout);
-			window.removeEventListener('scroll', handleScroll);
+			window.removeEventListener('scroll', onScrollSettle);
 		}
 	});
 
@@ -766,7 +865,8 @@
 			>
 				{#if importLayout === 'full'}
 					<!-- Mobile: touch has no drag-drop and the full-width square card
-					     wasted vertical space, so use one compact full-width button. -->
+					     wasted vertical space, so use one compact full-width button,
+					     with the practice-tool overlays as secondary buttons below. -->
 					<button
 						on:click={() => fileInput.click()}
 						class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold shadow-sm transition-colors hover:bg-violet-600 active:scale-[0.99]"
@@ -775,6 +875,28 @@
 						<i class="material-icons !text-xl" aria-hidden="true">upload_file</i>
 						<span>Import a tab</span>
 					</button>
+					<div class="mt-2 grid grid-cols-2 gap-2">
+						<button
+							on:click={() => tunerOpen.set(true)}
+							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
+							aria-label="Open tuner"
+						>
+							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+								>compass_calibration</i
+							>
+							<span>Tuner</span>
+						</button>
+						<button
+							on:click={() => metronomeOpen.set(true)}
+							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
+							aria-label="Open metronome"
+						>
+							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+								>graphic_eq</i
+							>
+							<span>Metronome</span>
+						</button>
+					</div>
 				{:else}
 					<div
 						class="flex flex-col flex-1 min-h-0 w-full cursor-pointer
@@ -1020,7 +1142,17 @@
 			</div>
 		{/if}
 
-		{#if feedTabs.length === 0 && !loadingFeed && exhausted}
+		{#if feedTabs.length === 0 && !loadingFeed && offline}
+			<!-- Offline with nothing cached: offline state with a working retry. -->
+			<EmptyState
+				icon="cloud_off"
+				tone="offline"
+				title="You're offline"
+				description="Reconnect to load your recommendations."
+				onRetry={refreshFeed}
+				size="compact"
+			/>
+		{:else if feedTabs.length === 0 && !loadingFeed && exhausted}
 			<!-- Truly empty + exhausted: show nothing-to-show state -->
 			<div
 				class="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-neutral-50 dark:bg-neutral-900/50"
@@ -1037,19 +1169,25 @@
 				class="grid gap-3 sm:gap-4 responsive-tab-grid"
 			>
 				{#each visibleFeedTabs as tab (tab.id)}
-					<TabCard
-						id={tab.id}
-						title={tab.title}
-						artist={tab.artist}
-						album={tab.album}
-						source={tab.source}
-						type={tab.type}
-						artworkUrl={feedArtwork[tab.id] || ''}
-						artistImage={tab.artistImage || ''}
-						artworkLoading={artworkLoadingIds.has(tab.id)}
-						onClick={() => openTab(tab)}
-						onAddToPlaylist={() => openPlaylistPicker(tab)}
-					/>
+					<!-- feed-cell: content-visibility:auto skips layout/paint for
+					     off-screen cards (cheap virtualization, 5c); the intrinsic
+					     size reserves each cell's height so nothing reflows and
+					     scrollbars stay stable. -->
+					<div class="feed-cell">
+						<TabCard
+							id={tab.id}
+							title={tab.title}
+							artist={tab.artist}
+							album={tab.album}
+							source={tab.source}
+							type={tab.type}
+							artworkUrl={feedArtwork[tab.id] || ''}
+							artistImage={tab.artistImage || ''}
+							artworkLoading={artworkLoadingIds.has(tab.id)}
+							onClick={() => openTab(tab)}
+							onAddToPlaylist={() => openPlaylistPicker(tab)}
+						/>
+					</div>
 				{/each}
 
 				<!-- Skeleton placeholders: shown while fetching or while any
@@ -1064,14 +1202,29 @@
 			</div>
 		{/if}
 
-		<!-- Loading more banner (below grid, always visible while fetching) -->
-		{#if loadingFeed && feedTabs.length > 0}
-			<div class="flex items-center justify-center gap-3 py-8" aria-live="polite">
+		<!-- Loading row (item 28): sits below the bottom-most row and stays visible
+		     for as long as ANY feed fetch is in flight — including the brief gaps
+		     between fill-loop iterations — so scrolling to the very end never looks
+		     like loading silently stopped. -->
+		{#if showLoadingRow && feedTabs.length > 0}
+			<div
+				class="flex items-center justify-center gap-3 py-8"
+				aria-live="polite"
+				data-testid="feed-loading-row"
+			>
 				<LoadingScore size="sm" message="" />
 				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
 					>Loading more tabs…</span
 				>
 			</div>
+		{/if}
+
+		<!-- Offline but we have cached recommendations: keep them, note it below. -->
+		{#if offline && feedTabs.length > 0}
+			<OfflineNotice
+				onRetry={refreshFeed}
+				message="You're offline — showing your last recommendations. Reconnect for fresh picks."
+			/>
 		{/if}
 
 		<!-- Infinite-scroll sentinel -->
@@ -1177,6 +1330,21 @@
 	   heading, and feed grids all share this class so they stay aligned. */
 	.responsive-tab-grid {
 		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+	}
+
+	/* Cheap virtualization for the recommendation feed (5c): the browser skips
+	   layout + paint for cards outside the viewport (plus a buffer) while the
+	   intrinsic size keeps each cell's box reserved, so scrolling a long feed
+	   stays smooth and the scroll position never jumps. ~130px thumbnail + title
+	   ≈ 190px; the height auto-corrects once a card is rendered. */
+	.feed-cell {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 190px;
+	}
+	@media (min-width: 1024px) {
+		.feed-cell {
+			contain-intrinsic-size: auto 210px;
+		}
 	}
 
 	/* Cold-start "tuning up" hint: the peg icon rocks back and forth like a

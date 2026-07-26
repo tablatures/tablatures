@@ -135,7 +135,9 @@ test.describe('transposition', () => {
 		expect(tuningAfter.capo).toBe(tuningBefore.capo);
 	});
 
-	test('the tuning chip reflects the transposition and reverts it', async ({ page }) => {
+	test('transposition can be reverted from the tuning panel (mobile)', async ({ page }) => {
+		// On the phone bar the tuning chip is gone (the bar shows only a compact
+		// source pill); transposition and its revert live in the tuning panel.
 		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
 		const tuningBefore = await getStaffTuning(page);
 
@@ -143,15 +145,10 @@ test.describe('transposition', () => {
 		await transposeTo(page, STANDARD_LABEL);
 		await expect(page.locator('text=Transposed')).toBeVisible();
 
-		// Close the panel so only the metadata chip remains
-		await page.keyboard.press('Escape');
-		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
-
-		// The chip exposes a revert affordance only while transposed
-		const revertBtn = page.locator('button[aria-label="Revert transposition"]');
-		await expect(revertBtn).toBeVisible();
-		await revertBtn.first().click();
-		await expect(revertBtn).toHaveCount(0);
+		// Revert from the panel's transposer and confirm the tuning is restored.
+		const resetButton = page.locator('button:has-text("Reset to original")');
+		await expect(resetButton).toBeVisible();
+		await resetButton.click();
 
 		const tuningAfter = await getStaffTuning(page);
 		expect(tuningAfter.tunings).toEqual(tuningBefore.tunings);

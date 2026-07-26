@@ -38,14 +38,14 @@ test.describe('Favorites from history', () => {
 		await expect(star).toBeVisible();
 		await star.click();
 
-		// Persisted to localStorage.
+		// Persisted to the on-device DB (favorites migrated from localStorage to
+		// the SQLite data layer). Poll the dev test seam until the async repo
+		// write lands.
 		await expect
-			.poll(async () =>
-				page.evaluate(() => JSON.parse(localStorage.getItem('favorites') || '[]').length)
-			)
+			.poll(async () => page.evaluate(() => (window as any).__testFavorites?.() ?? []).then((r: any[]) => r.length))
 			.toBe(1);
-		const favId = await page.evaluate(
-			() => JSON.parse(localStorage.getItem('favorites') || '[]')[0]?.id
+		const favId = await page.evaluate(() =>
+			(window as any).__testFavorites().then((r: any[]) => r[0]?.id)
 		);
 		expect(favId).toBe('test-tab');
 
@@ -60,9 +60,7 @@ test.describe('Favorites from history', () => {
 		await filled.click();
 
 		await expect
-			.poll(async () =>
-				page.evaluate(() => JSON.parse(localStorage.getItem('favorites') || '[]').length)
-			)
+			.poll(async () => page.evaluate(() => (window as any).__testFavorites?.() ?? []).then((r: any[]) => r.length))
 			.toBe(0);
 	});
 });

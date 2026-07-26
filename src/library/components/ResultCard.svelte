@@ -6,6 +6,8 @@
 	import { hapticTap } from '../utils/native';
 	import { favoritesStore } from '../utils/favorites';
 	import { placeholderArtwork } from '../utils/placeholder';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { queueArtistImageForCache } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -23,11 +25,28 @@
 	export let artworkLoading: boolean = false;
 
 	let imageFailed = false;
+	/** True once the chosen image has decoded — keeps the neutral loading tile
+	 *  behind it until then so a swap is never a blank box. */
+	let imgLoaded = false;
 
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	// Fast path from the caller-resolved props; the unified resolver supplies a
+	// cached-bytes / artist / related-tab fallback only when nothing renders or
+	// the URL failed offline, and warms the offline byte cache (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) queueArtistImageForCache(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
+	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
 	export let variants:
 		| Array<{
@@ -55,6 +74,11 @@
 	$: sourceDisplay = getSourceDisplay(source);
 
 	// Swipe-left toggles favorite, reusing the favorites store mutators.
+	// `swipeRevealed` is true only while the row is actually slid aside, so the
+	// rose action layer behind it can never bleed through a translucent
+	// hover/active row background on a plain tap (that read as a stray pink
+	// rectangle with a second heart in it).
+	let swipeRevealed = false;
 	$: isFav = $favoritesStore.some((f) => f.id === id);
 	function toggleFavorite() {
 		if (!id) return;
@@ -64,12 +88,12 @@
 
 	$: placeholder = placeholderArtwork(artist, title);
 	$: hasVersions = variants && variants.length > 1;
-	// "7 versions - GP Tabs, Songsterr, UG"
-	$: versionsSummary = (() => {
-		if (!variants || variants.length < 2) return '';
-		const sources = [...new Set(variants.map((v) => getSourceDisplay(v.source).label))];
-		return `${variants.length} versions - ${sources.slice(0, 3).join(', ')}${sources.length > 3 ? '...' : ''}`;
-	})();
+	// One compact control merges the source pill + the version count:
+	// "GP Tabs · 3 versions" when there are alternates, just the source label
+	// otherwise. Tapping it (when there are versions) expands the sub-list.
+	$: mergedSourceLabel = hasVersions
+		? `${sourceDisplay.label} · ${variants!.length} versions`
+		: sourceDisplay.label;
 
 	/** A meaningful label per version: descriptive title parts, tracks, instruments */
 	function versionDetail(v: { title?: string; trackCount?: number; instruments?: string[] }): string {
@@ -83,52 +107,76 @@
 <div class="group w-full">
 	<div class="relative {id ? 'overflow-hidden' : ''}">
 	{#if id}
+		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture).
+		     Hidden unless the row is genuinely swiped aside. -->
 		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white {isFav
-				? 'bg-neutral-500'
-				: 'bg-pink-500'}"
+			class="swipe-reveal absolute inset-y-0 right-0 flex items-center justify-end px-6 text-white bg-love-500 pointer-events-none transition-opacity duration-150 {swipeRevealed
+				? 'opacity-100'
+				: 'opacity-0'}"
+			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
-			<i class="material-icons">{isFav ? 'heart_broken' : 'favorite'}</i>
+			<i class="material-icons !text-xl">{isFav ? 'heart_broken' : 'favorite'}</i>
 		</div>
 	{/if}
-	<button
-		class="flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
-			? 'bg-white dark:bg-neutral-900'
-			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50 active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
-		on:click={onClick}
+	<!-- Row is a div (not a button) so the nested action buttons — merged
+	     source/versions control, add-to-playlist, favorite — are valid HTML;
+	     a nested <button> would make the HTML parser split the row. -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div
 		use:swipeActionGesture={{
 			onCommit: toggleFavorite,
 			directions: ['left'],
 			haptic: hapticTap,
-			enabled: !!id
+			enabled: !!id,
+			onReveal: (v) => (swipeRevealed = v)
+		}}
+		role="button"
+		tabindex="0"
+		class="relative flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
+			? 'bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 active:bg-neutral-100 dark:active:bg-neutral-700'
+			: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60 active:bg-neutral-100 dark:active:bg-neutral-700/50'} active:scale-[0.99] transition-all transition-colors duration-150 cursor-pointer"
+		on:click={onClick}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				onClick();
+			}
 		}}
 	>
 		<!-- Artwork preview -->
 		<div
 			class="relative flex-shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center transition-all group-hover:scale-[1.03] group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30 shadow-sm"
 		>
+			<!-- Base layer beneath the image: neutral loading tile while resolving,
+			     pastel generated tile when nothing resolves — never a blank box. -->
+			{#if artworkLoading || (displayImage && !imgLoaded)}
+				<div class="absolute inset-0 bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse">
+					<span class="absolute inset-0 m-auto h-4 w-4 rounded-full border-2 border-violet-400/50 border-t-transparent animate-spin"></span>
+				</div>
+			{:else if !displayImage}
+				<!-- No artwork found: deterministic generated pastel tile -->
+				<div
+					class="artwork-ph absolute inset-0 flex items-center justify-center"
+					style={placeholder.style}
+				>
+					<span class="text-base sm:text-xl font-black tracking-tight select-none opacity-95">
+						{placeholder.initials}
+					</span>
+				</div>
+			{/if}
+
 			{#if displayImage}
 				<img
 					src={displayImage}
 					alt=""
 					loading="lazy"
+					decoding="async"
 					use:fadeInImage={displayImage}
-					class="w-full h-full object-cover"
+					on:load={() => (imgLoaded = true)}
+					class="absolute inset-0 w-full h-full object-cover"
 					on:error={() => (imageFailed = true)}
 				/>
-			{:else if artworkLoading}
-				<div class="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse"></div>
-			{:else}
-				<!-- No artwork found: deterministic generated tile (gradient + initials) -->
-				<div
-					class="w-full h-full flex items-center justify-center"
-					style="background: {placeholder.gradient};"
-				>
-					<span class="text-base sm:text-xl font-black text-white/90 tracking-tight select-none">
-						{placeholder.initials}
-					</span>
-				</div>
 			{/if}
 
 			<!-- Hover play affordance (desktop pointers only) -->
@@ -161,12 +209,29 @@
 				>{album ? ` — ${album}` : ''}
 			</div>
 			<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-				{#if source}
+				<!-- Merged source + versions control: expands the sub-list on tap when
+				     there are alternates, otherwise a plain source pill. Lives in the
+				     wrapping info column so it never crowds the right-aligned actions. -->
+				{#if source && hasVersions}
+					<button
+						class="tap-target-sm inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
+							{versionsExpanded
+								? 'bg-violet-500 text-white border-violet-500'
+								: 'text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
+						on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
+						aria-expanded={versionsExpanded}
+						title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
+					>
+						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
+						{mergedSourceLabel}
+						<i class="material-icons !text-sm -mr-0.5">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
+					</button>
+				{:else if source}
 					<span
 						class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
 					>
 						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
-						{sourceDisplay.label}
+						{mergedSourceLabel}
 					</span>
 				{/if}
 				{#if type}
@@ -183,22 +248,9 @@
 
 		<!-- Right actions -->
 		<div class="flex items-center gap-1 flex-shrink-0">
-			{#if hasVersions}
-				<button
-					class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors mr-1
-						{versionsExpanded
-							? 'bg-violet-500 text-white border-violet-500'
-							: 'text-violet-600 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
-					on:click|stopPropagation={() => (versionsExpanded = !versionsExpanded)}
-					title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
-				>
-					{versionsSummary}
-					<i class="material-icons !text-base">{versionsExpanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</i>
-				</button>
-			{/if}
 			{#if onAddToPlaylist && id}
 				<button
-					class="w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition-all duration-150 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-violet-500 hover:text-white"
+					class="tap-target w-10 h-10 flex items-center justify-center rounded-full active:scale-90 transition-transform duration-150 bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-violet-500 hover:text-white"
 					on:click|stopPropagation={onAddToPlaylist}
 					aria-label="Add {title} to playlist"
 					title="Add to playlist"
@@ -212,12 +264,12 @@
 				>play_arrow</i
 			>
 		</div>
-	</button>
+	</div>
 	</div>
 
 	<!-- Expanded versions: full-width playlist-like list with real differentiators -->
 	{#if hasVersions && versionsExpanded && variants}
-		<div class="mx-3 sm:mx-4 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden bg-neutral-50/60 dark:bg-neutral-900/40">
+		<div class="mx-3 sm:mx-4 mb-3 pt-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800/60 overflow-hidden bg-neutral-50/60 dark:bg-neutral-900/40">
 			{#each variants as v, i}
 				{@const vd = getSourceDisplay(v.source)}
 				{@const detail = versionDetail(v)}

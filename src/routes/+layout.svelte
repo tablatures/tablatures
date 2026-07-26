@@ -31,18 +31,22 @@
 		audioSource,
 		beatCursorEl,
 		videoHandlers,
-		videoSyncOffset
+		videoSyncOffset,
+		playSheetOpen
 	} from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
+	import { sliderFill } from '../library/utils/sliderFill';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import { configureImporterEncoding } from '../library/utils/lyrics';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
+	import Metronome from '../library/components/Metronome.svelte';
 	import PwaReloadPrompt from '../library/components/PwaReloadPrompt.svelte';
 	import { tunerOpen } from '../library/utils/tuner';
+	import { metronomeOpen } from '../library/utils/metronome';
 	import {
 		setAudioSessionType,
 		requestWakeLock,
@@ -54,15 +58,15 @@
 		syncStatusBar,
 		onBackButton,
 		exitApp,
-		hapticTap,
-		onAppStateChange
+		onAppStateChange,
+		onAppUrlOpen
 	} from '../library/utils/native';
-	import { edgeSwipe } from '../library/utils/gestures';
 	import {
 		hydrateFromUrl,
 		syncStableUrlFromState,
 		syncPlaybackTime
 	} from '../library/utils/urlState';
+	import { initData } from '../library/data/init';
 
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
@@ -74,6 +78,11 @@
 	// persist across navigation.
 	let urlHydrated = false;
 	onMount(() => {
+		// P1 (persistence): open the on-device database, run migrations and the
+		// one-time localStorage import. The DB-backed stores await this via
+		// `dataReady`, so we don't need to block the rest of onMount on it.
+		initData().catch((e) => console.error('[data] init failed', e));
+
 		hydrateFromUrl();
 		urlHydrated = true;
 	});
@@ -581,7 +590,11 @@
 	// silent switch), otherwise auto. Feature-guarded.
 	$: if (browser) {
 		setAudioSessionType(
-			$tunerOpen ? 'play-and-record' : $playerState.playing ? 'playback' : 'auto'
+			$tunerOpen
+				? 'play-and-record'
+				: $playerState.playing || $metronomeOpen
+					? 'playback'
+					: 'auto'
 		);
 	}
 
@@ -607,6 +620,15 @@
 		hideSplash();
 		let removeBack = () => {};
 		onBackButton((canGoBack) => {
+			// The /play bottom sheet takes back-button priority: close it first.
+			if (get(playSheetOpen)) {
+				playSheetOpen.set(false);
+				return;
+			}
+			if (get(metronomeOpen)) {
+				metronomeOpen.set(false);
+				return;
+			}
 			if (get(tunerOpen)) {
 				tunerOpen.set(false);
 				return;
@@ -617,19 +639,26 @@
 			}
 			exitApp();
 		}).then((r) => (removeBack = r));
-		return () => removeBack();
-	});
 
-	// P4: left-edge swipe → back, mirroring the hardware back button handler
-	// above (close the tuner first, otherwise navigate back). Attached to the
-	// app body via `use:edgeSwipe` in the template below.
-	function handleEdgeBack() {
-		if (get(tunerOpen)) {
-			tunerOpen.set(false);
-			return;
-		}
-		history.back();
-	}
+		// Android App Links: an https://tablatures.org/... link opened while the
+		// app is installed lands here. Route its path+query+hash into the SPA
+		// router so the shared tab/artist/playlist opens in-app.
+		let removeUrlOpen = () => {};
+		onAppUrlOpen((url) => {
+			try {
+				const u = new URL(url);
+				const path = u.pathname.startsWith(base) ? u.pathname.slice(base.length) : u.pathname;
+				goto(base + (path || '/') + u.search + u.hash);
+			} catch {
+				// malformed URL — ignore
+			}
+		}).then((r) => (removeUrlOpen = r));
+
+		return () => {
+			removeBack();
+			removeUrlOpen();
+		};
+	});
 
 	onMount(() => {
 		// Wake locks are dropped when the tab is backgrounded; re-acquire on
@@ -766,7 +795,6 @@
 
 <body
 	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
-	use:edgeSwipe={{ onBack: handleEdgeBack, haptic: hapticTap }}
 >
 	<a
 		href="#main-content"
@@ -844,7 +872,7 @@
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
-										? 'bg-emerald-500 text-white hover:bg-emerald-600'
+										? 'bg-violet-700 text-white hover:bg-violet-800'
 										: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title={$audioSource === 'video'
 									? 'Video audio only — click for both'
@@ -882,7 +910,7 @@
 							</button>
 						</div>
 						<button
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-red-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							on:click|stopPropagation={closeMiniVideo}
 							title="Close video"
 							aria-label="Close video"
@@ -905,7 +933,9 @@
 									value={$videoSyncOffset}
 									on:input|stopPropagation={(e) =>
 										setMiniVideoOffset(parseFloat(e.currentTarget.value))}
-									class="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-white/20
+									use:sliderFill={$videoSyncOffset}
+									style="--range-track: rgba(255,255,255,0.2)"
+									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
 										[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 										[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>
@@ -972,18 +1002,21 @@
 				<i class="material-icons !text-4xl text-white drop-shadow">fullscreen</i>
 			</div>
 
-			<!-- Hide-preview button, above the scrim. -->
+			<!-- The preview's own hide control (item 29): a subtle MINUS — never an X,
+			     which now means "quit the tab" on the bar. It does exactly what the
+			     bar's PiP toggle off does: hide the preview, keep playing. One
+			     obvious way to hide the preview from the preview itself. -->
 			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-9 h-9 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-red-500 hover:ring-red-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
-						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/50 text-white/80 backdrop-blur-sm hover:bg-black/70 hover:text-white active:scale-95 transition-all duration-150 pointer-events-auto
+						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-90"
 					on:click|stopPropagation={() => {
 						miniPreviewVisible = false;
 					}}
 					title="Hide preview"
 					aria-label="Hide preview"
 				>
-					<i class="material-icons !text-lg">close</i>
+					<i class="material-icons !text-lg">remove</i>
 				</button>
 			</div>
 		{/if}
@@ -992,6 +1025,9 @@
 	<!-- Guitar Tuner panel (global, floats below header) -->
 	<GuitarTuner open={$tunerOpen} on:close={() => tunerOpen.set(false)} />
 
+	<!-- Metronome panel (global overlay tool, floats over the app) -->
+	<Metronome open={$metronomeOpen} on:close={() => metronomeOpen.set(false)} />
+
 	<!-- Service worker update prompt (PWA) -->
 	<PwaReloadPrompt />
 
@@ -999,7 +1035,7 @@
 		id="main-content"
 		class="animate-fade-in min-h-dvh {showMiniPlayer
 			? miniPreviewVisible
-				? 'pb-[272px] sm:pb-14'
+				? 'pb-[360px] sm:pb-14'
 				: 'pb-14'
 			: ''}"
 	>
@@ -1058,8 +1094,10 @@
 		position: fixed;
 		bottom: 58px;
 		right: 8px;
-		width: 340px;
-		height: 220px;
+		/* Match .player-host-mini's enlarged desktop preview box (item 25) so the
+		   video overlay + fullscreen hint stay exactly aligned with the tab preview. */
+		width: 440px;
+		height: 290px;
 		z-index: 75;
 		cursor: pointer;
 	}
@@ -1095,8 +1133,12 @@
 			left: 0;
 			right: 0;
 			width: 100%;
-			height: 220px;
-			bottom: 50px;
+			/* Readable preview, ~100px shorter than the previous 370px so it no
+			   longer dominates the screen. Sits flush on the bar: bottom is the
+			   bar's REAL measured height (published as --mini-bar-height, which
+			   already includes the safe-area padding) — no magic 88px + gap. */
+			height: min(50dvh, 270px);
+			bottom: var(--mini-bar-height, 76px);
 			border-radius: 0;
 		}
 		.mini-player-overlay {

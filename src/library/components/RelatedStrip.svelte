@@ -1,15 +1,27 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { openTabById } from '../utils/openTab';
 	import { getSourceDisplay } from '../utils/sources';
 	import { fetchArtworkBatch } from '../utils/artwork';
+	import ResultCard from './ResultCard.svelte';
+	import LoadingScore from './LoadingScore.svelte';
 
-	// Fills the (otherwise empty) top space of /play when there is no queue with
-	// a quiet "what to play next" strip built from existing recommender/search
-	// endpoints. Non-sticky by design: it scrolls away as you read into the sheet.
+	// Recommendations built from existing recommender/search endpoints. Rendered
+	// below the fold on /play (the "what to play next" area).
 	export let artist = '';
 	export let title = '';
 	export let currentTabId: string | undefined = undefined;
+	// 'strip' = compact horizontal cards (legacy); 'list' = full-size ResultCard
+	// rows for the below-the-fold details area (vertical room available there).
+	export let variant: 'strip' | 'list' = 'strip';
+	// Scroll container the infinite-load sentinel is watched against (item 24).
+	// Desktop passes the /play shell scroller; the mobile bottom sheet passes its
+	// own body scroller so "scroll to the bottom → load more" fires inside it. When
+	// null the observer falls back to the viewport (legacy behaviour).
+	export let root: HTMLElement | null = null;
+
+	const dispatch = createEventDispatcher<{ loaded: number }>();
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -23,13 +35,35 @@
 		artworkUrl?: string;
 	}
 
-	// Session cache: one resolved list per tab so re-opening a tab never re-fetches.
+	// Session cache: one resolved (initial) list per tab so re-opening a tab never
+	// re-fetches the first page.
 	const cache = new Map<string, RelatedTab[]>();
 
 	let items: RelatedTab[] = [];
 	let art: Record<string, string> = {};
 	let loadedKey = '';
 	let opening = '';
+
+	// --- Infinite loading (list variant, item 6) ---
+	// Scrolling further pulls more content, deduped against everything already
+	// shown and the current tab, driven by an IntersectionObserver sentinel.
+	//
+	// The source is a POOL of stages, mirroring the home feed: the artist's own
+	// catalog first (most relevant), then the recommender seeded with the artist,
+	// then random batches — which never dry up. A narrow artist catalog (or a
+	// backend that ignores `page`) therefore no longer ends the list after one
+	// fetch; "You've reached the end" only appears once several fetches in a row
+	// bring back nothing new anywhere in the pool.
+	type PoolStage = 'artist' | 'recommender' | 'random';
+	const EMPTY_STREAK_LIMIT = 3;
+	const seenIds = new Set<string>();
+	let morePage = 1; // catalog page already covered by the initial load
+	let stage: PoolStage = 'artist';
+	let emptyStreak = 0;
+	let loadingMore = false;
+	let exhausted = false;
+	let sentinelEl: HTMLDivElement | undefined;
+	let observer: IntersectionObserver | undefined;
 
 	$: cacheKey = currentTabId || artist;
 	$: hasArtist = !!artist && artist.toLowerCase() !== 'unknown';
@@ -59,9 +93,22 @@
 		return [];
 	}
 
+	function seedSeen(list: RelatedTab[], excludeId: string | undefined) {
+		seenIds.clear();
+		if (excludeId) seenIds.add(normId(excludeId));
+		for (const t of list) seenIds.add(normId(t.id));
+	}
+
 	async function load(key: string, a: string, excludeId: string | undefined, curTitle: string) {
+		// New tab/artist: reset the infinite-scroll accumulator.
+		morePage = 1;
+		stage = hasArtist ? 'artist' : 'recommender';
+		emptyStreak = 0;
+		exhausted = false;
+		loadingMore = false;
 		if (cache.has(key)) {
 			items = cache.get(key)!;
+			seedSeen(items, excludeId);
 			resolveArt();
 			return;
 		}
@@ -105,11 +152,137 @@
 
 			// Only publish (and cache) once we're confident — never a broken shell.
 			items = mapped;
+			seedSeen(mapped, excludeId);
 			cache.set(key, mapped);
 			resolveArt();
 		} catch {
 			items = [];
 		}
+	}
+
+	/** URL for the next batch, per the current pool stage. */
+	function nextBatchUrl(): string {
+		if (stage === 'artist') {
+			morePage += 1;
+			const sp = new URLSearchParams({ artist, page: String(morePage), limit: '20' });
+			return `${SEARCH_API_BASE_URL}/api/search?${sp}`;
+		}
+		if (stage === 'recommender') {
+			const sp = new URLSearchParams({ limit: '20' });
+			if (hasArtist) sp.append('artists', artist);
+			if (currentTabId) sp.append('exclude', currentTabId);
+			return `${SEARCH_API_BASE_URL}/api/recommendations?${sp}`;
+		}
+		return `${SEARCH_API_BASE_URL}/api/random?count=24`;
+	}
+
+	/** Map a raw payload to the not-yet-seen tabs, registering them as seen. */
+	function takeFresh(raw: any[]): RelatedTab[] {
+		const fresh: RelatedTab[] = [];
+		for (const t of raw) {
+			if (!t || !t.id || typeof t.title !== 'string') continue;
+			const nid = normId(t.id);
+			if (seenIds.has(nid)) continue;
+			// Skip the current song itself (any other-source version).
+			if (normId(t.title) === normId(title) && normId(t.artist) === normId(artist)) continue;
+			seenIds.add(nid);
+			fresh.push({
+				id: t.id,
+				title: t.title,
+				artist: t.artist || artist,
+				source: t.source || '',
+				type: t.tabType || t.type || '',
+				album: t.album || '',
+				artworkUrl: t.artworkUrl || ''
+			});
+		}
+		return fresh;
+	}
+
+	/** A batch brought nothing new: move down the pool, and only give up once
+	 *  even the random batches have come back empty several times running. */
+	function noteEmptyBatch() {
+		emptyStreak += 1;
+		if (stage === 'artist') stage = 'recommender';
+		else if (stage === 'recommender') stage = 'random';
+		if (emptyStreak >= EMPTY_STREAK_LIMIT) exhausted = true;
+	}
+
+	// Pull the next batch from the pool and append the not-yet-seen tabs. Only
+	// meaningful for the below-fold list variant.
+	async function loadMore() {
+		if (loadingMore || exhausted || !SEARCH_API_BASE_URL || items.length === 0) return;
+		loadingMore = true;
+		try {
+			const url = nextBatchUrl();
+			const res = await fetch(url);
+			if (!res.ok) {
+				noteEmptyBatch();
+				return;
+			}
+			const data = await res.json();
+			const fresh = takeFresh(toList(data));
+			if (fresh.length > 0) {
+				emptyStreak = 0;
+				items = [...items, ...fresh];
+				resolveArt();
+				// The catalog stops where the backend says it ends; the recommender is
+				// a one-shot (same params return the same picks), so both hand over to
+				// the endless random batches once they are spent.
+				const totalPages = Number(data?.totalPages) || 0;
+				if (stage === 'artist' && totalPages > 0 && morePage >= totalPages) stage = 'recommender';
+				else if (stage === 'recommender') stage = 'random';
+			} else {
+				noteEmptyBatch();
+			}
+		} catch {
+			noteEmptyBatch();
+		} finally {
+			loadingMore = false;
+			// Self-rearm (item 28): an IntersectionObserver only fires on a visibility
+			// TRANSITION, so a user parked at the bottom of the sheet/shell would see
+			// loading stop after one page — the sentinel never leaves and re-enters the
+			// root. If it's still inside the observer's zone after this page landed,
+			// keep the loop alive ourselves.
+			if (!exhausted) setTimeout(rearmIfSentinelVisible, 120);
+		}
+	}
+
+	/** Re-trigger loadMore when the sentinel is still within the root's load zone. */
+	function rearmIfSentinelVisible() {
+		if (exhausted || loadingMore || !sentinelEl) return;
+		const s = sentinelEl.getBoundingClientRect();
+		// Bottom edge of the scroll root (or the viewport when unrooted).
+		const limit = root ? root.getBoundingClientRect().bottom : window.innerHeight;
+		if (s.top < limit + 600) loadMore();
+	}
+
+	function setupObserver() {
+		if (typeof IntersectionObserver === 'undefined') return;
+		observer?.disconnect();
+		observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) loadMore();
+			},
+			// `root: null` watches the viewport (legacy). When the recos live inside a
+			// clipping scroller (the /play shell on desktop, the bottom sheet on
+			// mobile) the sentinel is clipped out of the viewport, so the root MUST be
+			// that scroller or loadMore never fires (item 24).
+			{ root: root ?? null, rootMargin: '600px' }
+		);
+		if (sentinelEl) observer.observe(sentinelEl);
+	}
+
+	onMount(() => {
+		setupObserver();
+		return () => observer?.disconnect();
+	});
+
+	// (Re)build the observer whenever the sentinel mounts or the scroll root
+	// changes (the mobile sheet's scroller mounts after this component).
+	$: if (typeof IntersectionObserver !== 'undefined') {
+		root;
+		if (sentinelEl) setupObserver();
 	}
 
 	async function resolveArt() {
@@ -127,6 +300,10 @@
 		}
 	}
 
+	// Let the host know how many recommendations resolved (drives the
+	// "swipe up for more" affordance and whether the details area has content).
+	$: dispatch('loaded', items.length);
+
 	async function open(t: RelatedTab) {
 		if (opening) return;
 		opening = t.id;
@@ -141,7 +318,51 @@
 	}
 </script>
 
-{#if items.length > 0}
+{#if items.length > 0 && variant === 'list'}
+	<!-- Below-the-fold recommendations: full-size ResultCard rows -->
+	<div>
+		<div class="flex items-center gap-1.5 px-4 pt-4 pb-2">
+			<i class="material-icons !text-base text-violet-500">recommend</i>
+			<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-200 truncate">{heading}</span>
+		</div>
+		<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+			{#each items as t (t.id)}
+				<ResultCard
+					id={t.id}
+					title={t.title}
+					artist={t.artist}
+					album={t.album}
+					source={t.source}
+					type={t.type}
+					artworkUrl={t.artworkUrl || art[t.id] || ''}
+					onClick={() => open(t)}
+				/>
+			{/each}
+		</div>
+		<!-- Infinite-scroll sentinel + loading row (items 6 / 28). The row uses the
+		     app's standard double-ring loader so it matches every other list, and
+		     "You've reached the end" only appears once the pool is truly exhausted. -->
+		{#if !exhausted}
+			<div bind:this={sentinelEl} class="h-8" aria-hidden="true"></div>
+			{#if loadingMore}
+				<div
+					class="flex items-center justify-center gap-3 py-4"
+					aria-live="polite"
+					data-testid="recos-loading-row"
+				>
+					<LoadingScore size="sm" message="" />
+					<span class="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+						Loading more…
+					</span>
+				</div>
+			{/if}
+		{:else}
+			<p class="py-4 text-center text-xs text-neutral-400 dark:text-neutral-500">
+				You've reached the end.
+			</p>
+		{/if}
+	</div>
+{:else if items.length > 0}
 	<div
 		transition:slide|local={{ duration: 200 }}
 		class="border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm"

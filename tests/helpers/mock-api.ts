@@ -47,6 +47,33 @@ export async function setupMockApi(page: Page): Promise<void> {
 		})
 	);
 
+	// Artist page (profile + top tabs + albums)
+	await page.route('**/api/artist/*', (route) => {
+		// Album and nested endpoints (e.g. /api/artist/X/album/Y) fall through to
+		// an empty payload; the top-level artist request gets the full profile.
+		const url = route.request().url();
+		if (/\/api\/artist\/[^/]+$/.test(url.split('?')[0])) {
+			route.fulfill({
+				json: {
+					artist: {
+						name: 'Test Artist',
+						image: null,
+						tags: [],
+						popularity: 0,
+						downloadCount: 0
+					},
+					topTabs: [
+						{ id: 'test-tab', title: 'Test Song', source: 'test', type: 'Guitar Pro' }
+					],
+					similarArtists: [],
+					albums: []
+				}
+			});
+		} else {
+			route.fulfill({ json: { tabs: [], tracks: [] } });
+		}
+	});
+
 	// Artist metadata
 	await page.route('**/api/metadata/artist/*', (route) =>
 		route.fulfill({

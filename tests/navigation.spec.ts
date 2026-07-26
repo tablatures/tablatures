@@ -26,17 +26,19 @@ test.describe('Player navigation links', () => {
 		await expect(page.getByText('Test Song').first()).toBeVisible();
 	});
 
-	test('an artist name links to a search for the artist', async ({ page }) => {
+	test('an artist name links to the artist page', async ({ page }) => {
 		await setupMockApi(page);
 		await page.goto('/search?q=test');
 
-		// The result card artist name is a conventional artist search link.
+		// The result card artist name links to that artist's dedicated page.
 		const artistLink = page.getByRole('link', { name: 'Test Artist' }).first();
 		await expect(artistLink).toBeVisible();
 		await artistLink.click();
 
-		await page.waitForURL('**/search?q=**');
-		await expect(page).toHaveURL(/q=Test(%20|\+|\s)Artist/i);
+		await page.waitForURL('**/artist/**');
+		await expect(page).toHaveURL(/artist\/Test(%20|\+|\s)Artist/i);
+		// The artist page renders the profile and the artist's tabs.
+		await expect(page.getByRole('heading', { name: 'Test Artist' })).toBeVisible();
 		await expect(page.getByText('Test Song').first()).toBeVisible();
 	});
 });

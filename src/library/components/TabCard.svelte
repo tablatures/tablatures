@@ -4,6 +4,8 @@
 	import { favoritesStore } from '../utils/favorites';
 	import { getSourceDisplay } from '../utils/sources';
 	import { placeholderArtwork } from '../utils/placeholder';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { queueArtistImageForCache } from '../utils/artworkCache';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -19,11 +21,31 @@
 	export let artworkLoading: boolean = false;
 
 	let imageFailed = false;
+	/** True once the chosen image's bytes have actually decoded — until then the
+	 *  neutral loading tile stays behind it so a swap is never an empty box. */
+	let imgLoaded = false;
 
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	// Primary image from the props the list already resolved (fast path). The
+	// unified resolver only kicks in when there's nothing to show — or the URL
+	// failed to load (offline) — supplying a cached-bytes/artist/related-tab
+	// fallback and warming the offline byte cache. See artworkResolver.ts (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) queueArtistImageForCache(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
+	// Reset the decoded flag whenever the source changes so the neutral loading
+	// tile re-appears behind the incoming image until it paints.
+	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 
@@ -52,29 +74,37 @@
 	>
 	<!-- Thumbnail -->
 	<div class="relative w-full aspect-square bg-neutral-100 dark:bg-neutral-800 overflow-hidden rounded-xl">
+		<!-- Base layer (always beneath the image): the neutral loading tile while an
+		     image is still resolving/decoding, otherwise the pastel generated tile.
+		     Guarantees the cell is never an empty/white box. -->
+		{#if artworkLoading || (displayImage && !imgLoaded)}
+			<div class="absolute inset-0 bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse">
+				<span class="absolute inset-0 m-auto h-5 w-5 rounded-full border-2 border-violet-400/50 border-t-transparent animate-spin"></span>
+			</div>
+		{:else if !displayImage}
+			<!-- No artwork found: deterministic generated pastel tile (gradient + initials) -->
+			<div
+				class="artwork-ph absolute inset-0 flex items-center justify-center overflow-hidden"
+				style={placeholder.style}
+			>
+				<span class="text-3xl sm:text-4xl font-black tracking-tight select-none opacity-95">
+					{placeholder.initials}
+				</span>
+				<i class="material-icons absolute bottom-2 right-2 !text-base opacity-30">{typeIcon(type)}</i>
+			</div>
+		{/if}
+
 		{#if displayImage}
 			<img
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				decoding="async"
 				use:fadeInImage={displayImage}
-				class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+				on:load={() => (imgLoaded = true)}
+				class="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
 				on:error={() => (imageFailed = true)}
 			/>
-		{:else if artworkLoading}
-			<!-- Pulse while artwork is being fetched -->
-			<div class="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse" />
-		{:else}
-			<!-- No artwork found: deterministic generated tile (gradient + initials) -->
-			<div
-				class="w-full h-full flex items-center justify-center relative overflow-hidden"
-				style="background: {placeholder.gradient};"
-			>
-				<span class="text-3xl sm:text-4xl font-black text-white/90 tracking-tight select-none drop-shadow-sm">
-					{placeholder.initials}
-				</span>
-				<i class="material-icons absolute bottom-2 right-2 !text-base text-white/40">{typeIcon(type)}</i>
-			</div>
 		{/if}
 
 		<!-- Hover play affordance (desktop pointers only): a subtle scrim + violet
@@ -105,7 +135,7 @@
 				{#if onAddToPlaylist}
 					<button
 						on:click|stopPropagation={onAddToPlaylist}
-						class="w-10 h-10 flex items-center justify-center rounded-lg bg-black/70 backdrop-blur-sm text-white hover:bg-violet-500 transition-colors"
+						class="tap-target w-10 h-10 flex items-center justify-center rounded-lg bg-black/70 backdrop-blur-sm text-white hover:bg-violet-500 transition-colors"
 						title="Add to playlist"
 						aria-label="Add {title} to playlist"
 					>
@@ -118,7 +148,7 @@
 
 		<!-- Always-visible favorite (subtle) when favorited, shown even without hover -->
 		{#if id && isFavorite}
-			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-red-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
+			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-love-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
 				<i class="material-icons !text-xl">favorite</i>
 			</div>
 		{/if}

@@ -10,6 +10,9 @@
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
+	import { resolveArtwork } from '../utils/artworkResolver';
+	import { queueArtistImageForCache } from '../utils/artworkCache';
+	import { placeholderArtwork } from '../utils/placeholder';
 	import FavoriteButton from './FavoriteButton.svelte';
 
 	export let id: string = '';
@@ -23,12 +26,28 @@
 	export let artistImage: string = '';
 
 	let imageFailed = false;
-
-	// Settle once: pulse while the song artwork resolves, then artwork or artist image.
-	// A failed load falls back to the icon (never a blank box).
-	$: displayImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
-	$: artworkUrl, artistImage, (imageFailed = false);
 	export let artworkLoading: boolean = false;
+	/** True once the chosen image has decoded (keeps the neutral tile behind it). */
+	let imgLoaded = false;
+
+	// Fast path from the caller-resolved props; the unified resolver supplies a
+	// cached-bytes / artist / related-tab fallback only when nothing renders or
+	// the URL failed offline, and warms the offline byte cache (5b).
+	let resolvedSrc = '';
+	$: primaryImage = imageFailed ? '' : artworkUrl || (artworkLoading ? '' : artistImage);
+	$: void resolveDisplay(artist, title, primaryImage, artworkLoading);
+	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
+		if (primary) {
+			resolvedSrc = primary;
+			if (a) queueArtistImageForCache(a, primary);
+			return;
+		}
+		if (loading) return;
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+	}
+	$: displayImage = resolvedSrc;
+	$: artworkUrl, artistImage, (imageFailed = false);
+	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 	/** Optional left-swipe action (e.g. remove). Reveals a colored background
@@ -38,8 +57,15 @@
 		| undefined = undefined;
 
 	$: enableSwipe = !!swipeAction;
+	// True only while the row is genuinely slid aside — see ResultCard: the
+	// coloured action layer must never bleed through a translucent hover/active
+	// row background on a plain tap.
+	let swipeRevealed = false;
 
 	$: sourceDisplay = source ? getSourceDisplay(source) : null;
+	// Deterministic gradient + initials so a missing thumbnail never renders as a
+	// blank/white cell (varied hue per song, matching TabCard/ResultCard).
+	$: placeholder = placeholderArtwork(artist, title);
 
 	function openArtistSearch(e: Event) {
 		e.stopPropagation();
@@ -52,8 +78,9 @@
 <div class="relative {enableSwipe ? 'overflow-hidden' : ''}" role="listitem">
 	{#if swipeAction}
 		<div
-			class="absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white {swipeAction.colorClass ||
-				'bg-red-500'}"
+			class="swipe-reveal absolute inset-y-0 right-0 flex items-center justify-end px-5 text-white pointer-events-none transition-opacity duration-150 {swipeAction.colorClass ||
+				'bg-danger-500'} {swipeRevealed ? 'opacity-100' : 'opacity-0'}"
+			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
 			<i class="material-icons !text-lg">{swipeAction.icon}</i>
@@ -62,13 +89,14 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="relative flex items-stretch w-full text-left {enableSwipe
-			? 'bg-white dark:bg-neutral-900'
-			: ''} hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-colors group h-14"
+			? 'bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+			: 'hover:bg-neutral-50 dark:hover:bg-neutral-800/60'} transition-colors group h-14"
 		use:swipeActionGesture={{
 			onCommit: () => swipeAction?.run(),
 			directions: ['left'],
 			haptic: hapticTap,
-			enabled: enableSwipe
+			enabled: enableSwipe,
+			onReveal: (v) => (swipeRevealed = v)
 		}}
 	>
 	<!-- Leading slot (drag handle, index, etc.) -->
@@ -77,28 +105,33 @@
 	<!-- Artwork — no padding, fills full row height, square aspect so it looks like a thumbnail -->
 	<button
 		on:click={onClick}
-		class="flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
+		class="relative flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
 		aria-label={`Open ${title} by ${artist}`}
 	>
+		<!-- Base layer beneath the image: neutral loading tile while resolving,
+		     pastel generated tile otherwise — never a blank/white cell. -->
+		{#if artworkLoading || (displayImage && !imgLoaded)}
+			<div class="absolute inset-0 bg-gradient-to-br from-neutral-200 to-neutral-300 dark:from-neutral-700 dark:to-neutral-800 animate-pulse">
+				<span class="absolute inset-0 m-auto h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-transparent animate-spin"></span>
+			</div>
+		{:else if !displayImage}
+			<!-- No artwork: deterministic pastel tile + initials -->
+			<div class="artwork-ph absolute inset-0 flex items-center justify-center" style={placeholder.style}>
+				<span class="text-xs font-black tracking-tight select-none opacity-95">{placeholder.initials}</span>
+			</div>
+		{/if}
+
 		{#if displayImage}
 			<img
 				src={displayImage}
 				alt=""
 				loading="lazy"
+				decoding="async"
 				use:fadeInImage={displayImage}
-				class="w-full h-full object-cover"
-				on:error={(e) => {
-					if (e.target instanceof HTMLElement) e.target.style.display = 'none';
-				}}
+				on:load={() => (imgLoaded = true)}
+				class="absolute inset-0 w-full h-full object-cover"
+				on:error={() => (imageFailed = true)}
 			/>
-		{:else if artworkLoading}
-			<div class="w-full h-full animate-pulse bg-neutral-200 dark:bg-neutral-700"></div>
-		{:else}
-			<div class="w-full h-full flex items-center justify-center">
-				<i class="material-icons-outlined !text-base text-neutral-400 dark:text-neutral-500" aria-hidden="true">
-					music_note
-				</i>
-			</div>
 		{/if}
 	</button>
 
@@ -135,7 +168,7 @@
 		{#if onAddToPlaylist && id}
 			<button
 				on:click|stopPropagation={onAddToPlaylist}
-				class="w-9 h-9 flex items-center justify-center rounded-lg text-neutral-400 dark:text-neutral-500 hover:bg-violet-500 hover:text-white transition-colors self-center active:scale-90"
+				class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-neutral-400 dark:text-neutral-500 hover:bg-violet-500 hover:text-white transition-colors self-center active:scale-90"
 				title="Add to playlist"
 				aria-label={`Add ${title} to playlist`}
 			>

@@ -114,6 +114,19 @@
 		overscroll-behavior: none;
 	}
 
+	/* Clip any horizontal overflow at the page scroll container so no stray
+	   child (e.g. a right-edge control whose invisible .tap-target::after halo
+	   reaches past the viewport, or a full-bleed row) can make
+	   document.scrollWidth exceed innerWidth. That horizontal overflow is what
+	   left a phantom right-hand "gutter" on mobile, stopping content short of
+	   the screen edge. `clip` (not `hidden`) is used deliberately: it does NOT
+	   establish a scroll container, so the sticky header keeps sticking and hit
+	   areas are unchanged. overflow-y stays visible so vertical page scroll and
+	   pull-to-refresh are untouched. */
+	body {
+		overflow-x: clip;
+	}
+
 	/* Remove the legacy 300ms tap delay and disable double-tap-to-zoom on
 	   interactive chrome so presses register instantly and feel native. Real
 	   pinch-zoom targets (the score) are opted out via .touch-pan below. */
@@ -264,6 +277,61 @@
 	}
 }
 
+/* ==========================================================================
+   P3 — Touch targets. This @layer block is OWNED by the touch-targets branch;
+   keep other app.css edits (P5 motion/overscroll) in their own blocks.
+
+   Goal: lift every control to a >=48dp (Material 3) / >=44px (WCAG 2.5.5) hit
+   area. In dense clusters we must NOT change the visual box (that would reflow
+   the layout), so an invisible absolutely-positioned ::after grows only the
+   *tappable* region. Roomy areas grow their real box instead.
+   ========================================================================== */
+@layer components {
+	/* Invisible hit-area expansion. Apply to a control; the ::after halo (which
+	   forwards its taps to the host element) reaches out past the visual box with
+	   zero layout impact. Default -12px each side => +24px (a 24px glyph => 48px).
+	   `touch-action: manipulation` also drops the legacy 300ms tap delay. */
+	.tap-target {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target::after {
+		content: '';
+		position: absolute;
+		inset: -12px;
+	}
+	/* Tighter / roomier halos for cramped rows or generous bars. */
+	.tap-target-sm {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target-sm::after {
+		content: '';
+		position: absolute;
+		inset: -8px;
+	}
+	.tap-target-lg {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target-lg::after {
+		content: '';
+		position: absolute;
+		inset: -16px;
+	}
+
+	/* Fast, native-feeling press for controls that already meet the size floor
+	   (so they don't need hit expansion). Reduced-motion is handled by the
+	   base-layer media query, which zeroes the transition. */
+	.tap-press {
+		touch-action: manipulation;
+		transition: transform 100ms ease-out;
+	}
+	.tap-press:active {
+		transform: scale(0.94);
+	}
+}
+
 /* Progress bar */
 .loading-bar {
 	width: 100%;
@@ -321,6 +389,38 @@
 	background: #8c52ff;
 }
 
+/* ---------------------------------------------------------------------------
+ * .range-fill — deep-purple filled track LEFT of the thumb, for any
+ * <input type="range">. Drive the fill with the `sliderFill` Svelte action,
+ * which keeps `--slider-pct` in sync with the value. Cross-browser:
+ *   - webkit/blink: the element background IS the track (appearance:none), so
+ *     a gradient stopping at --slider-pct paints the fill.
+ *   - firefox: ::-moz-range-progress natively fills to the thumb.
+ * Override --range-track inline for sliders on dark surfaces (e.g. the video
+ * overlay: style="--range-track: rgba(255,255,255,0.25)").
+ * ------------------------------------------------------------------------- */
+.range-fill {
+	--slider-pct: 0%;
+	--range-fill-color: #8c52ff;
+	--range-track: #d4d4d4;
+	background: linear-gradient(
+		to right,
+		var(--range-fill-color) var(--slider-pct),
+		var(--range-track) var(--slider-pct)
+	);
+}
+.dark .range-fill {
+	--range-track: #404040;
+}
+.range-fill::-moz-range-track {
+	background: var(--range-track);
+	border-radius: 9999px;
+}
+.range-fill::-moz-range-progress {
+	background: var(--range-fill-color);
+	border-radius: 9999px;
+}
+
 /* Persistent player host states */
 .player-host-full #player-host {
 	position: relative;
@@ -332,8 +432,10 @@
 	position: fixed !important;
 	bottom: 58px !important;
 	right: 8px !important;
-	width: 340px !important;
-	height: 220px !important;
+	/* Desktop preview: enlarged (item 25) so it reads clearly at arm's length.
+	   Box == the 800×520 host scaled by 0.55 (440×286), height rounded to 290. */
+	width: 440px !important;
+	height: 290px !important;
 	overflow: auto !important;
 	scrollbar-width: none !important; /* Firefox */
 	border-radius: 8px !important;
@@ -351,7 +453,7 @@
 
 .player-host-mini #player-host {
 	transform-origin: top left;
-	transform: scale(0.425);
+	transform: scale(0.55);
 	width: 800px;
 	height: 520px;
 	pointer-events: none;
@@ -363,13 +465,15 @@
 		left: 0 !important;
 		right: 0 !important;
 		width: 100% !important;
-		height: 220px !important;
+		/* Match .mini-player-wrapper: ~100px shorter preview sitting flush on
+		   the MiniPlayer bar (real measured height via --mini-bar-height). */
+		height: min(50dvh, 270px) !important;
 		overflow: auto !important;
 		scrollbar-width: none !important;
 		border-radius: 0 !important;
 		border-left: none !important;
 		border-right: none !important;
-		bottom: 50px !important;
+		bottom: var(--mini-bar-height, 76px) !important;
 		box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
 	}
 
@@ -378,8 +482,22 @@
 		transform-origin: top left;
 		transform: scale(var(--mini-player-scale-mobile, 0.7));
 		width: calc(100% / var(--mini-player-scale-mobile, 0.7));
-		height: calc(220px / var(--mini-player-scale-mobile, 0.7));
+		height: calc(min(50dvh, 270px) / var(--mini-player-scale-mobile, 0.7));
 	}
+}
+
+/* Generated pastel artwork placeholder (item 27). The tile's per-item colors
+   arrive as CSS custom properties on the element (--ph-bg / --ph-bg-dark /
+   --ph-fg / --ph-fg-dark from placeholderArtwork()); this class just wires the
+   active theme's pair to background + text so no consumer branches on dark
+   mode. Fallbacks keep it from ever being a bare white box. */
+.artwork-ph {
+	background: var(--ph-bg, linear-gradient(135deg, #ede9fe, #ddd6fe));
+	color: var(--ph-fg, #6d28d9);
+}
+.dark .artwork-ph {
+	background: var(--ph-bg-dark, linear-gradient(135deg, #3b2f5e, #2a2140));
+	color: var(--ph-fg-dark, #c4b5fd);
 }
 
 /* AlphaTab rendering */
