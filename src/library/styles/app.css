@@ -432,8 +432,10 @@
 	position: fixed !important;
 	bottom: 58px !important;
 	right: 8px !important;
-	width: 340px !important;
-	height: 220px !important;
+	/* Desktop preview: enlarged (item 25) so it reads clearly at arm's length.
+	   Box == the 800×520 host scaled by 0.55 (440×286), height rounded to 290. */
+	width: 440px !important;
+	height: 290px !important;
 	overflow: auto !important;
 	scrollbar-width: none !important; /* Firefox */
 	border-radius: 8px !important;
@@ -451,7 +453,7 @@
 
 .player-host-mini #player-host {
 	transform-origin: top left;
-	transform: scale(0.425);
+	transform: scale(0.55);
 	width: 800px;
 	height: 520px;
 	pointer-events: none;

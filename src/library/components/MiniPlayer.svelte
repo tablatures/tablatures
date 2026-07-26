@@ -283,19 +283,20 @@
 			aria-label="Open full player"
 		>
 			{#if artworkUrl}
-				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-8 h-8 sm:w-10 sm:h-10 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-9 h-9 sm:w-12 sm:h-12 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 			{:else}
+				<!-- Pastel generated tile (bar is always dark → use the dark variant). -->
 				<div
-					class="w-8 h-8 sm:w-10 sm:h-10 rounded flex items-center justify-center"
-					style="background: {thumbPlaceholder.gradient};"
+					class="w-9 h-9 sm:w-12 sm:h-12 rounded flex items-center justify-center"
+					style="background: {thumbPlaceholder.bgDark}; color: {thumbPlaceholder.fgDark};"
 				>
-					<i class="material-icons !text-lg text-white/70">music_note</i>
+					<i class="material-icons !text-lg sm:!text-2xl opacity-90">music_note</i>
 				</div>
 			{/if}
 			<span
 				class="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-60 transition-opacity"
 			>
-				<i class="material-icons !text-base">fullscreen</i>
+				<i class="material-icons !text-base sm:!text-xl">fullscreen</i>
 			</span>
 		</a>
 
@@ -306,10 +307,10 @@
 			class="flex-1 min-w-0 text-left block hover:opacity-80 transition-opacity cursor-pointer"
 			aria-label="Open full player"
 		>
-			<p class="text-sm font-medium truncate text-white">
+			<p class="text-sm sm:text-base font-medium truncate text-white">
 				{state.title || currentTab?.title || 'Now playing'}
 			</p>
-			<p class="text-xs text-neutral-400 truncate">
+			<p class="text-xs sm:text-sm text-neutral-400 truncate">
 				<!-- svelte-ignore a11y-invalid-attribute -->
 				<span
 					role="link"
@@ -381,20 +382,21 @@
 				<i class="material-icons !text-2xl">expand_less</i>
 			</a>
 
-			<!-- Minimize (X): smaller, less imposing. Tap = minimize the preview
-			     (keeps playing); hold = fully stop/unload. tap-target keeps a
-			     ≥44px effective hit area despite the smaller visual box. -->
+			<!-- Minimize: a collapse glyph (not a hard X) reading as the pair of the
+			     PiP/restore toggle beside it — subtle, neutral hover (no danger red).
+			     Tap = minimize the preview (keeps playing); hold = fully stop/unload.
+			     tap-target keeps a ≥44px effective hit area despite the smaller box. -->
 			<button
 				on:click|stopPropagation={closeClick}
 				on:pointerdown={closePointerDown}
 				on:pointerup={closePointerEnd}
 				on:pointercancel={closePointerEnd}
 				on:pointerleave={closePointerEnd}
-				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-400 hover:text-white hover:bg-danger-500/80 transition-colors"
-				title="Minimize preview (hold to close)"
+				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+				title="Minimize preview (hold to stop)"
 				aria-label="Minimize preview"
 			>
-				<i class="material-icons !text-lg">close</i>
+				<i class="material-icons !text-lg">close_fullscreen</i>
 			</button>
 		</div>
 	</div>

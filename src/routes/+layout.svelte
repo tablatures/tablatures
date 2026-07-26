@@ -1002,18 +1002,19 @@
 				<i class="material-icons !text-4xl text-white drop-shadow">fullscreen</i>
 			</div>
 
-			<!-- Hide-preview button, above the scrim. -->
+			<!-- Minimize-preview button, above the scrim. A collapse glyph (pairs with
+			     the bar's PiP/restore toggle) with a neutral hover — subtle, not a red X. -->
 			<div class="pointer-events-none absolute top-1.5 right-1.5 z-[90]">
 				<button
-					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm hover:bg-danger-500 hover:ring-danger-400 hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm hover:bg-black/80 hover:text-white hover:scale-105 active:scale-95 transition-all duration-150 pointer-events-auto
 						{miniHovered ? 'opacity-100' : 'opacity-0'} [@media(pointer:coarse)]:opacity-100"
 					on:click|stopPropagation={() => {
 						miniPreviewVisible = false;
 					}}
-					title="Hide preview"
-					aria-label="Hide preview"
+					title="Minimize preview"
+					aria-label="Minimize preview"
 				>
-					<i class="material-icons !text-lg">close</i>
+					<i class="material-icons !text-lg">close_fullscreen</i>
 				</button>
 			</div>
 		{/if}
@@ -1092,8 +1093,10 @@
 		position: fixed;
 		bottom: 58px;
 		right: 8px;
-		width: 340px;
-		height: 220px;
+		/* Match .player-host-mini's enlarged desktop preview box (item 25) so the
+		   video overlay + fullscreen hint stay exactly aligned with the tab preview. */
+		width: 440px;
+		height: 290px;
 		z-index: 75;
 		cursor: pointer;
 	}
