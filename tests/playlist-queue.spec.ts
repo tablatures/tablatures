@@ -8,7 +8,7 @@ import { waitForScoreLoaded } from './helpers/wait';
 //   - a single-track open CLEARS any active queue (never inherits/populates);
 //   - "Play all" from a playlist DOES populate the queue;
 //   - on /play (phone), when the queue holds >1 item, the playlist shows in the
-//     bottom sheet opened via the "Up next" affordance (item 23).
+//     bottom sheet the user drags up from the transport bar (item 23).
 
 // Phone viewport → the below-fold playlist lives in the YouTube-style sheet.
 test.use({ viewport: { width: 390, height: 844 } });
@@ -93,11 +93,32 @@ test('Play all populates the queue and reveals the below-fold playlist strip', a
 	// The whole playlist is now the queue.
 	expect(await queueLength(page)).toBe(2);
 
-	// On the phone the playlist lives in the bottom sheet: a multi-item queue
-	// surfaces the "Up next" affordance; opening it reveals the list.
-	const peek = page.getByRole('button', { name: 'Show playlist and recommendations' });
-	await expect(peek).toBeVisible();
-	await peek.click();
+	// On the phone the playlist lives in the bottom sheet: dragging the transport
+	// bar up pulls it over the player (nothing floats over the score to open it).
+	await page.evaluate(async () => {
+		const bar = [...document.querySelectorAll('[role="toolbar"]')].find(
+			(b) => b.getAttribute('aria-label') === 'Playback controls'
+		) as HTMLElement;
+		const mk = (y: number) => new Touch({ identifier: 1, target: bar, clientX: 195, clientY: y });
+		const fire = (type: string, y: number, ended = false) =>
+			bar.dispatchEvent(
+				new TouchEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					touches: ended ? [] : [mk(y)],
+					targetTouches: ended ? [] : [mk(y)],
+					changedTouches: [mk(y)]
+				})
+			);
+		const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+		fire('touchstart', 800);
+		for (let i = 1; i <= 12; i++) {
+			await wait(14);
+			fire('touchmove', 800 - i * 20);
+		}
+		fire('touchend', 560, true);
+	});
+	await page.waitForTimeout(500);
 
 	// The below-fold playlist (PlayerQueueBar belowFold) renders the queue label
 	// in a header row that is itself a link to the full playlist view (item 16).
