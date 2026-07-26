@@ -423,6 +423,30 @@
 		}
 	}
 
+	// --- Scroll-end fill safety net (item 28) ---
+	// The IntersectionObserver only fires on a visibility *transition*; if the user
+	// flings straight to the bottom while a fetch is already in flight, that single
+	// intersection can be "spent" and the self-rearm can stop once its buffer is
+	// satisfied — leaving the feed parked at the end with nothing loading. A
+	// debounced scroll-END check re-arms the loop (and resumes the idle artwork
+	// queue) whenever the user settles near the bottom, so it never starves.
+	let scrollEndTimer: ReturnType<typeof setTimeout> | null = null;
+	function resumeFillIfNeeded() {
+		if (typeof window === 'undefined' || exhausted) return;
+		// Resume any deferred artwork resolution now that scrolling has settled.
+		if (artworkQueue.length > 0) scheduleArtworkFlush();
+		if (loadingFeed) return;
+		const viewH = window.innerHeight;
+		const sentinelTop = sentinelEl?.getBoundingClientRect().top ?? Infinity;
+		const gridBottom = feedGridEl?.getBoundingClientRect().bottom ?? Infinity;
+		// Near the bottom (sentinel within a screen, or the grid's end within reach).
+		if (sentinelTop < viewH + 800 || gridBottom < viewH + 400) fetchMore();
+	}
+	function onScrollSettle() {
+		if (scrollEndTimer) clearTimeout(scrollEndTimer);
+		scrollEndTimer = setTimeout(resumeFillIfNeeded, 140);
+	}
+
 	// Import handlers
 	function handleDragEnter(e: DragEvent) {
 		e.preventDefault();
@@ -667,6 +691,32 @@
 			? feedTabs
 			: feedTabs.slice(0, feedFullRowCount);
 
+	// Loading row visibility (item 28). The raw `loadingFeed` flag drops to false
+	// in the sub-second gaps between fill-loop iterations (the 100ms self-rearm and
+	// the 400ms throttle retry), which made the row blink in and out. Latch it ON
+	// instantly and OFF only after the loop has really gone quiet, so "a fetch is in
+	// flight" reads as one continuous indicator below the bottom-most row.
+	let showLoadingRow = false;
+	let loadingRowOffTimer: ReturnType<typeof setTimeout> | null = null;
+	$: {
+		const busy = (loadingFeed || throttleRetryTimer !== null) && !exhausted;
+		if (busy) {
+			if (loadingRowOffTimer) {
+				clearTimeout(loadingRowOffTimer);
+				loadingRowOffTimer = null;
+			}
+			showLoadingRow = true;
+		} else if (showLoadingRow && !loadingRowOffTimer) {
+			loadingRowOffTimer = setTimeout(
+				() => {
+					loadingRowOffTimer = null;
+					showLoadingRow = false;
+				},
+				exhausted ? 0 : 500
+			);
+		}
+	}
+
 	// Skeleton count during loading: fill out the partial row first, then add
 	// one more row for the upcoming batch. Caps at 3 rows so we don't render
 	// a wall of shimmer on fast networks.
@@ -698,10 +748,12 @@
 			if (sentinelEl) observer.observe(sentinelEl);
 		}
 
-		// NB: the redundant window scroll listener that also triggered fetchMore
-		// was removed (5c) — the IntersectionObserver (rootMargin 800px) plus the
-		// self-rearming fill loop cover infinite scroll without a per-scroll
-		// getBoundingClientRect on the main thread.
+		// NB: the per-scroll fetchMore listener removed in 5c is NOT back — this one
+		// is debounced to fire only after scrolling SETTLES (item 28), so it costs a
+		// single getBoundingClientRect per scroll-end rather than per frame. It's the
+		// safety net for a user parked at the very bottom, where a spent IO
+		// intersection plus a satisfied self-rearm could otherwise stall the feed.
+		window.addEventListener('scroll', onScrollSettle, { passive: true });
 
 		// Measure grid columns (for dynamic Continue card count) + watch for resize
 		measureLayout();
@@ -724,8 +776,12 @@
 				clearTimeout(artworkIdleHandle);
 			}
 		}
+		if (scrollEndTimer) clearTimeout(scrollEndTimer);
+		if (loadingRowOffTimer) clearTimeout(loadingRowOffTimer);
+		if (skeletonOffTimer) clearTimeout(skeletonOffTimer);
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('resize', measureLayout);
+			window.removeEventListener('scroll', onScrollSettle);
 		}
 	});
 
@@ -1146,9 +1202,16 @@
 			</div>
 		{/if}
 
-		<!-- Loading more banner (below grid, always visible while fetching) -->
-		{#if loadingFeed && feedTabs.length > 0}
-			<div class="flex items-center justify-center gap-3 py-8" aria-live="polite">
+		<!-- Loading row (item 28): sits below the bottom-most row and stays visible
+		     for as long as ANY feed fetch is in flight — including the brief gaps
+		     between fill-loop iterations — so scrolling to the very end never looks
+		     like loading silently stopped. -->
+		{#if showLoadingRow && feedTabs.length > 0}
+			<div
+				class="flex items-center justify-center gap-3 py-8"
+				aria-live="polite"
+				data-testid="feed-loading-row"
+			>
 				<LoadingScore size="sm" message="" />
 				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
 					>Loading more tabs…</span

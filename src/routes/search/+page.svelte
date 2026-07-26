@@ -877,9 +877,18 @@
 				</div>
 			{/if}
 
+			<!-- Loading row (item 28): app-standard loader below the bottom-most row
+			     while another page is in flight, matching the home feed. -->
 			{#if loadingMore}
-				<div class="py-4">
-					<LoadingScore message="Loading more results" size="sm" />
+				<div
+					class="flex items-center justify-center gap-3 py-6"
+					aria-live="polite"
+					data-testid="search-loading-row"
+				>
+					<LoadingScore size="sm" message="" />
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+						>Loading more results…</span
+					>
 				</div>
 			{/if}
 
@@ -888,6 +897,11 @@
 				     starts a screen early instead of only firing when the user
 				     hits the very bottom. -->
 				<ScrollObserver onIntersect={loadMore} rootMargin="800px" />
+			{:else if !loading && !searchingMore && tabs.length > 0}
+				<!-- Distinct end state, only when the result pool is truly exhausted. -->
+				<p class="py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
+					You've reached the end.
+				</p>
 			{/if}
 
 			<!-- Offline + we have (local/cached) results: keep showing them and add

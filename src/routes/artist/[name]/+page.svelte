@@ -829,15 +829,35 @@
 			     the button below stays as an accessible / no-JS fallback. Both
 			     funnel through loadMoreTabs, which guards against double fetches. -->
 			<div use:inViewport={{ onEnter: loadMoreTabs, rootMargin: '600px' }} aria-hidden="true"></div>
-			<div class="text-center mb-10">
-				<button
-					on:click={loadMoreTabs}
-					disabled={allTabsLoading}
-					class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50"
+			<!-- Loading row (item 28): the app-standard loader below the bottom-most
+			     row while a page is in flight, replacing the button so the user always
+			     has a visual for an in-flight fetch. -->
+			{#if allTabsLoading}
+				<div
+					class="flex items-center justify-center gap-3 py-6 mb-4"
+					aria-live="polite"
+					data-testid="artist-loading-row"
 				>
-					{allTabsLoading ? 'Loading' : `Load more (${allTabs.length}/${allTabsTotal})`}
-				</button>
-			</div>
+					<LoadingScore size="sm" message="" />
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+						>Loading more tabs…</span
+					>
+				</div>
+			{:else}
+				<div class="text-center mb-10">
+					<button
+						on:click={loadMoreTabs}
+						class="px-5 py-2 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+					>
+						Load more ({allTabs.length}/{allTabsTotal})
+					</button>
+				</div>
+			{/if}
+		{:else if allTabs.length > 0}
+			<!-- Truly exhausted: distinct end state rather than a silent stop. -->
+			<p class="py-4 mb-10 text-center text-xs text-neutral-400 dark:text-neutral-500">
+				You've reached the end.
+			</p>
 		{:else}
 			<div class="mb-10"></div>
 		{/if}

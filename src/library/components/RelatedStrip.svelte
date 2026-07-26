@@ -5,6 +5,7 @@
 	import { getSourceDisplay } from '../utils/sources';
 	import { fetchArtworkBatch } from '../utils/artwork';
 	import ResultCard from './ResultCard.svelte';
+	import LoadingScore from './LoadingScore.svelte';
 
 	// Recommendations built from existing recommender/search endpoints. Rendered
 	// below the fold on /play (the "what to play next" area).
@@ -199,7 +200,22 @@
 			exhausted = true;
 		} finally {
 			loadingMore = false;
+			// Self-rearm (item 28): an IntersectionObserver only fires on a visibility
+			// TRANSITION, so a user parked at the bottom of the sheet/shell would see
+			// loading stop after one page — the sentinel never leaves and re-enters the
+			// root. If it's still inside the observer's zone after this page landed,
+			// keep the loop alive ourselves.
+			if (!exhausted) setTimeout(rearmIfSentinelVisible, 120);
 		}
+	}
+
+	/** Re-trigger loadMore when the sentinel is still within the root's load zone. */
+	function rearmIfSentinelVisible() {
+		if (exhausted || loadingMore || !sentinelEl) return;
+		const s = sentinelEl.getBoundingClientRect();
+		// Bottom edge of the scroll root (or the viewport when unrooted).
+		const limit = root ? root.getBoundingClientRect().bottom : window.innerHeight;
+		if (s.top < limit + 600) loadMore();
 	}
 
 	function setupObserver() {
@@ -284,14 +300,27 @@
 				/>
 			{/each}
 		</div>
-		<!-- Infinite-scroll sentinel + spinner (item 6) -->
+		<!-- Infinite-scroll sentinel + loading row (items 6 / 28). The row uses the
+		     app's standard double-ring loader so it matches every other list, and
+		     "You've reached the end" only appears once the pool is truly exhausted. -->
 		{#if !exhausted}
 			<div bind:this={sentinelEl} class="h-8" aria-hidden="true"></div>
 			{#if loadingMore}
-				<div class="flex justify-center py-3">
-					<span class="w-5 h-5 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
+				<div
+					class="flex items-center justify-center gap-3 py-4"
+					aria-live="polite"
+					data-testid="recos-loading-row"
+				>
+					<LoadingScore size="sm" message="" />
+					<span class="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+						Loading more…
+					</span>
 				</div>
 			{/if}
+		{:else}
+			<p class="py-4 text-center text-xs text-neutral-400 dark:text-neutral-500">
+				You've reached the end.
+			</p>
 		{/if}
 	</div>
 {:else if items.length > 0}
