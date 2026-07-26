@@ -25,6 +25,9 @@
 	export let artworkLoading: boolean = false;
 
 	let imageFailed = false;
+	/** True once the chosen image has decoded — keeps the neutral loading tile
+	 *  behind it until then so a swap is never a blank box. */
+	let imgLoaded = false;
 
 	// Fast path from the caller-resolved props; the unified resolver supplies a
 	// cached-bytes / artist / related-tab fallback only when nothing renders or
@@ -43,6 +46,7 @@
 	}
 	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
+	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
 	export let variants:
 		| Array<{
@@ -134,6 +138,24 @@
 		<div
 			class="relative flex-shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center transition-all group-hover:scale-[1.03] group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30 shadow-sm"
 		>
+			<!-- Base layer beneath the image: neutral loading tile while resolving,
+			     pastel generated tile when nothing resolves — never a blank box. -->
+			{#if artworkLoading || (displayImage && !imgLoaded)}
+				<div class="absolute inset-0 bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse">
+					<span class="absolute inset-0 m-auto h-4 w-4 rounded-full border-2 border-violet-400/50 border-t-transparent animate-spin"></span>
+				</div>
+			{:else if !displayImage}
+				<!-- No artwork found: deterministic generated pastel tile -->
+				<div
+					class="artwork-ph absolute inset-0 flex items-center justify-center"
+					style={placeholder.style}
+				>
+					<span class="text-base sm:text-xl font-black tracking-tight select-none opacity-95">
+						{placeholder.initials}
+					</span>
+				</div>
+			{/if}
+
 			{#if displayImage}
 				<img
 					src={displayImage}
@@ -141,24 +163,10 @@
 					loading="lazy"
 					decoding="async"
 					use:fadeInImage={displayImage}
-					class="w-full h-full object-cover"
+					on:load={() => (imgLoaded = true)}
+					class="absolute inset-0 w-full h-full object-cover"
 					on:error={() => (imageFailed = true)}
 				/>
-			{:else if artworkLoading}
-				<!-- Loading: neutral gradient + subtle loader ring, never a white flash. -->
-				<div class="relative w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-200 dark:from-neutral-800 dark:to-neutral-900 animate-pulse">
-					<span class="absolute inset-0 m-auto h-4 w-4 rounded-full border-2 border-violet-400/50 border-t-transparent animate-spin"></span>
-				</div>
-			{:else}
-				<!-- No artwork found: deterministic generated tile (gradient + initials) -->
-				<div
-					class="w-full h-full flex items-center justify-center"
-					style="background: {placeholder.gradient};"
-				>
-					<span class="text-base sm:text-xl font-black text-white/90 tracking-tight select-none">
-						{placeholder.initials}
-					</span>
-				</div>
 			{/if}
 
 			<!-- Hover play affordance (desktop pointers only) -->

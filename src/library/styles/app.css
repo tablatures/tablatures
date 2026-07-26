@@ -484,6 +484,20 @@
 	}
 }
 
+/* Generated pastel artwork placeholder (item 27). The tile's per-item colors
+   arrive as CSS custom properties on the element (--ph-bg / --ph-bg-dark /
+   --ph-fg / --ph-fg-dark from placeholderArtwork()); this class just wires the
+   active theme's pair to background + text so no consumer branches on dark
+   mode. Fallbacks keep it from ever being a bare white box. */
+.artwork-ph {
+	background: var(--ph-bg, linear-gradient(135deg, #ede9fe, #ddd6fe));
+	color: var(--ph-fg, #6d28d9);
+}
+.dark .artwork-ph {
+	background: var(--ph-bg-dark, linear-gradient(135deg, #3b2f5e, #2a2140));
+	color: var(--ph-fg-dark, #c4b5fd);
+}
+
 /* AlphaTab rendering */
 .at-surface {
 	background: white;

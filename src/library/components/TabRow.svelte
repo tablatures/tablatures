@@ -27,6 +27,8 @@
 
 	let imageFailed = false;
 	export let artworkLoading: boolean = false;
+	/** True once the chosen image has decoded (keeps the neutral tile behind it). */
+	let imgLoaded = false;
 
 	// Fast path from the caller-resolved props; the unified resolver supplies a
 	// cached-bytes / artist / related-tab fallback only when nothing renders or
@@ -45,6 +47,7 @@
 	}
 	$: displayImage = resolvedSrc;
 	$: artworkUrl, artistImage, (imageFailed = false);
+	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
 	export let onAddToPlaylist: (() => void) | undefined = undefined;
 	/** Optional left-swipe action (e.g. remove). Reveals a colored background
@@ -96,9 +99,22 @@
 	<!-- Artwork — no padding, fills full row height, square aspect so it looks like a thumbnail -->
 	<button
 		on:click={onClick}
-		class="flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
+		class="relative flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
 		aria-label={`Open ${title} by ${artist}`}
 	>
+		<!-- Base layer beneath the image: neutral loading tile while resolving,
+		     pastel generated tile otherwise — never a blank/white cell. -->
+		{#if artworkLoading || (displayImage && !imgLoaded)}
+			<div class="absolute inset-0 bg-gradient-to-br from-neutral-200 to-neutral-300 dark:from-neutral-700 dark:to-neutral-800 animate-pulse">
+				<span class="absolute inset-0 m-auto h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-transparent animate-spin"></span>
+			</div>
+		{:else if !displayImage}
+			<!-- No artwork: deterministic pastel tile + initials -->
+			<div class="artwork-ph absolute inset-0 flex items-center justify-center" style={placeholder.style}>
+				<span class="text-xs font-black tracking-tight select-none opacity-95">{placeholder.initials}</span>
+			</div>
+		{/if}
+
 		{#if displayImage}
 			<img
 				src={displayImage}
@@ -106,19 +122,10 @@
 				loading="lazy"
 				decoding="async"
 				use:fadeInImage={displayImage}
-				class="w-full h-full object-cover"
+				on:load={() => (imgLoaded = true)}
+				class="absolute inset-0 w-full h-full object-cover"
 				on:error={() => (imageFailed = true)}
 			/>
-		{:else if artworkLoading}
-			<!-- Loading: neutral gradient + subtle loader dot, never a white flash. -->
-			<div class="relative w-full h-full bg-gradient-to-br from-neutral-200 to-neutral-300 dark:from-neutral-700 dark:to-neutral-800 animate-pulse">
-				<span class="absolute inset-0 m-auto h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-transparent animate-spin"></span>
-			</div>
-		{:else}
-			<!-- No artwork: deterministic gradient + initials -->
-			<div class="w-full h-full flex items-center justify-center" style="background: {placeholder.gradient};">
-				<span class="text-xs font-black text-white/90 tracking-tight select-none">{placeholder.initials}</span>
-			</div>
 		{/if}
 	</button>
 

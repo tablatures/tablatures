@@ -557,13 +557,13 @@
 		<div class="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12 sm:-mt-16 relative z-10">
 			<!-- Avatar -->
 			<div
-				class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center"
-				style={avatarUrl ? '' : `background: ${placeholderArtwork(info.name, '').gradient};`}
+				class="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-white dark:border-black bg-neutral-200 dark:bg-neutral-800 shadow-xl flex-shrink-0 flex items-center justify-center {avatarUrl ? '' : 'artwork-ph'}"
+				style={avatarUrl ? '' : placeholderArtwork(info.name, '').style}
 			>
 				{#if avatarUrl}
 					<img src={avatarUrl} alt={info.name} use:fadeInImage={avatarUrl} class="w-full h-full object-cover" on:error={() => (avatarFailed = true)} />
 				{:else}
-					<span class="text-2xl sm:text-3xl font-black text-white/90 tracking-tight select-none">{placeholderArtwork(info.name, '').initials}</span>
+					<span class="text-2xl sm:text-3xl font-black tracking-tight select-none opacity-95">{placeholderArtwork(info.name, '').initials}</span>
 				{/if}
 			</div>
 
