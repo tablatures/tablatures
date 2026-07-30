@@ -45,8 +45,8 @@
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
 	import Metronome from '../library/components/Metronome.svelte';
 	import PwaReloadPrompt from '../library/components/PwaReloadPrompt.svelte';
-	import { tunerOpen } from '../library/utils/tuner';
-	import { metronomeOpen } from '../library/utils/metronome';
+	import { tunerOpen, tunerStore } from '../library/utils/tuner';
+	import { metronomeOpen, metronomeStore } from '../library/utils/metronome';
 	import {
 		setAudioSessionType,
 		requestWakeLock,
@@ -552,6 +552,12 @@
 		if (api) {
 			api.pause();
 		}
+		// A cleared tab has to tear down the persistent YouTube host too. The mini
+		// player's X calls tabStore.clearTab() but never touched the video, so with
+		// the bar gone the iframe fell into the off-screen `-left-[9999px]` branch
+		// and kept playing. Its close button is gated behind `showMiniPlayer`, so
+		// nothing on screen could stop it short of restarting the app.
+		if (get(activeVideoId)) closeMiniVideo();
 		resetPlayerState();
 		loadedTabB64.set(null);
 		resetScoreEdits(null);
@@ -704,6 +710,22 @@
 				if (api) {
 					try {
 						api.pause();
+					} catch {}
+				}
+				// Everything else that makes noise or holds hardware is independent of
+				// the alphaTab api and has to be stopped explicitly. Pausing only the
+				// synth left the metronome clicking, the tuner's microphone capturing,
+				// and the YouTube iframe playing in the background. The video also
+				// undid the pause above: TabViewer's 200ms sync poller sees the video
+				// still playing and calls api.play(), which restarts the synth and
+				// re-acquires the wake locks while backgrounded. Pausing the video
+				// here removes that loop at its source.
+				metronomeStore.stop();
+				tunerStore.stop();
+				const yt = get(videoPlayerRef);
+				if (yt) {
+					try {
+						yt.pauseVideo?.();
 					} catch {}
 				}
 				setKeepAwake(false);
