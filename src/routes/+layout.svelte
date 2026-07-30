@@ -957,7 +957,7 @@
 										setMiniVideoOffset(parseFloat(e.currentTarget.value))}
 									use:sliderFill={$videoSyncOffset}
 									style="--range-track: rgba(255,255,255,0.2)"
-									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
+									class="range-fill range-touch flex-1 h-1 cursor-pointer appearance-none rounded-full
 										[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 										[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>
@@ -1053,12 +1053,19 @@
 	<!-- Service worker update prompt (PWA) -->
 	<PwaReloadPrompt />
 
+	<!-- The bottom padding has to clear the mini player, which measures 104px to
+	     128px on a phone (4px progress bar + py-2.5 + a 56px play button +
+	     env(safe-area-inset-bottom), where the inset is ~24px for the gesture pill
+	     and ~48px for 3-button navigation). It was a hardcoded pb-14, i.e. 56px, so
+	     the last result row and the end-of-feed marker sat behind the bar. The bar
+	     publishes its real measured height as --mini-bar-height; the 76px fallback
+	     matches the one app.css and the preview host already use. -->
 	<main
 		id="main-content"
 		class="animate-fade-in min-h-dvh {showMiniPlayer
 			? miniPreviewVisible
-				? 'pb-[360px] sm:pb-14'
-				: 'pb-14'
+				? 'pb-[calc(var(--mini-bar-height,76px)+min(50dvh,270px))] sm:pb-[var(--mini-bar-height,76px)]'
+				: 'pb-[var(--mini-bar-height,76px)]'
 			: ''}"
 	>
 		<slot />

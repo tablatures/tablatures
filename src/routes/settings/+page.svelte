@@ -20,6 +20,7 @@
 		DEFAULT_BUDGET_BYTES
 	} from '../../library/data/storagePrefs';
 	import { dataReady } from '../../library/data/init';
+	import { getEngineKind, getFallbackReason } from '../../library/data/db';
 
 	// Flip once the first Android release is published and listed on the stores.
 	const APP_RELEASED = false;
@@ -145,6 +146,10 @@
 	let pinnedCount = 0;
 	let budgetMB = Math.round(DEFAULT_BUDGET_BYTES / MB);
 	let storageLoading = true;
+	/** Set when the durable engine failed to open and we are on the in-memory
+	 *  fallback. Until this was rendered, that condition was console-only: the app
+	 *  kept toasting "Added to favorites" while nothing survived a restart. */
+	let storageFallbackReason: string | null = null;
 	let clearingCache = false;
 	let showDeleteTabsConfirm = false;
 
@@ -169,6 +174,7 @@
 			storedCount = stats.count;
 			pinnedCount = stats.pinned;
 			budgetMB = Math.round(budget / MB);
+			storageFallbackReason = getEngineKind() === 'memory' ? (getFallbackReason() ?? 'the durable database could not be opened') : null;
 		} catch {
 			/* storage unavailable */
 		} finally {
@@ -248,7 +254,7 @@
 
 <main
 	id="main-content"
-	class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] min-h-[calc(100dvh-3.5rem)]"
+	class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] min-h-[calc(100dvh-var(--header-h))]"
 >
 	<!-- Page title. Settings is a PAGE (reached from the top bar), not an
 	     overlay, so it has no close cross — the header nav and the Android
@@ -434,7 +440,7 @@
 					type="range" min="0" max="1" step="0.1"
 					bind:value={$preferencesStore.defaultMetronomeVolume}
 					use:sliderFill={$preferencesStore.defaultMetronomeVolume}
-					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
+					class="range-fill range-touch w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -488,7 +494,7 @@
 					type="range" min="0.3" max="1.5" step="0.1"
 					bind:value={$preferencesStore.tabScaleDesktop}
 					use:sliderFill={$preferencesStore.tabScaleDesktop}
-					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
+					class="range-fill range-touch w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -504,7 +510,7 @@
 					type="range" min="0.3" max="1.0" step="0.1"
 					bind:value={$preferencesStore.tabScaleMobile}
 					use:sliderFill={$preferencesStore.tabScaleMobile}
-					class="range-fill w-full h-2 cursor-pointer appearance-none rounded-full
+					class="range-fill range-touch w-full h-2 cursor-pointer appearance-none rounded-full
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
@@ -531,7 +537,7 @@
 			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Vibrate on taps, toggles and player actions (needs a device with a vibrator)</p>
 			<div>
 				<button
-					class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.haptics ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.haptics ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
 					on:click={toggleHaptics}
 					role="switch"
 					aria-checked={$preferencesStore.haptics}
@@ -614,9 +620,25 @@
 	<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 space-y-4">
 		<p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
 			Tabs you open are cached on this device so they reopen instantly and work
-			offline. Favorited and imported tabs are pinned and never evicted; other
-			tabs are dropped oldest-first once the budget below is exceeded.
+			offline. Favorited and imported tabs are pinned and never evicted; for other
+			tabs the cached copy is dropped oldest-first once the budget below is
+			exceeded. They stay in your history either way.
 		</p>
+
+		{#if storageFallbackReason}
+			<!-- The in-memory engine is a data-loss condition, not a detail. Nothing in
+			     the UI used to say so, while every write still reported success. -->
+			<div
+				role="alert"
+				class="rounded-lg border border-amber-400/60 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200"
+			>
+				<span class="font-semibold">Nothing is being saved on this device.</span>
+				The durable database could not be opened, so history, favorites, playlists
+				and offline tabs live in memory only and will be gone when the app
+				restarts.
+				<span class="block mt-1 opacity-75">Reason: {storageFallbackReason}</span>
+			</div>
+		{/if}
 
 		<!-- Usage summary -->
 		<div class="grid grid-cols-3 gap-2 text-center">

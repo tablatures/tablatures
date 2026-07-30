@@ -57,7 +57,7 @@
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 
-<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-3.5rem)]">
+<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
 	<HomeFeed {openTab} />
 </main>
 
