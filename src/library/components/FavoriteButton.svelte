@@ -24,7 +24,10 @@
 		overlay: 'tap-target w-10 h-10 rounded-lg bg-black/70 backdrop-blur-sm transition-colors',
 		pill: 'tap-target w-10 h-10 rounded-full transition-transform duration-150 active:scale-90',
 		plain: 'tap-target p-1.5 sm:p-2 rounded-full transition-transform duration-150 active:scale-90 hover:bg-neutral-100 dark:hover:bg-neutral-800',
-		row: 'tap-target w-9 h-9 rounded-lg transition-colors active:scale-90'
+		// Vertical-only halo: the row variant sits in a `gap-1` cluster next to the
+		// add-to-playlist button, and a 12px sideways reach covered 8px of it, so
+		// aiming at "add to playlist" toggled the favorite instead.
+		row: 'tap-target-y w-9 h-9 rounded-lg transition-colors active:scale-90'
 	};
 
 	$: colors = {

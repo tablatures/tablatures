@@ -27,7 +27,7 @@
 
 <div
 	class="flex flex-col items-center justify-center text-center px-4 {size === 'full'
-		? 'h-[calc(100dvh-3.5rem)]'
+		? 'h-[calc(100dvh-var(--header-h))]'
 		: 'py-16'}"
 	role="status"
 	aria-live="polite"

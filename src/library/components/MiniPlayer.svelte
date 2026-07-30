@@ -372,7 +372,7 @@
 			     and tap-target keeps a ≥44px effective hit area despite the small box. -->
 			<button
 				on:click|stopPropagation={closeClick}
-				class="tap-target flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+				class="tap-target-y flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
 				title="Close player"
 				aria-label="Close player"
 			>

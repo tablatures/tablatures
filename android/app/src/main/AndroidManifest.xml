@@ -51,6 +51,20 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Writing a downloaded tab into the public Documents collection.
+         Directory.Documents is a PUBLIC directory, so on API < 30 the Filesystem
+         plugin gates the write behind these two. They were not declared, and
+         requesting a permission the manifest does not declare returns DENIED
+         immediately with no dialog, so "Download" could never succeed on Android
+         7 to 10. API 30+ needs neither, hence maxSdkVersion. downloadFile() also
+         falls back to the share sheet if the write still fails. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
     <!-- Microphone for the guitar tuner (getUserMedia). Capacitor bridges the
          runtime permission prompt automatically. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

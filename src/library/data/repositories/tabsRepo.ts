@@ -239,17 +239,32 @@ export function createTabsRepo(getDb: () => Database) {
 	}
 
 	/**
+	 * Drop a row's cached bytes while keeping the row. Same shape as
+	 * `clearAllBytes` but for a single id.
+	 */
+	async function dropBytes(id: string): Promise<void> {
+		const row = await get(id);
+		if (row?.blob_path) await deleteBlob(row.blob_path);
+		await getDb().run('UPDATE tabs SET blob_path = NULL, byte_size = 0 WHERE id = ?', [id]);
+	}
+
+	/**
 	 * LRU eviction over rows that actually hold bytes. Pinned rows survive; the
-	 * least-recently-opened non-pinned rows are dropped (blob + metadata) until
-	 * total blob bytes fit `budgetBytes`. Returns the evicted ids.
+	 * least-recently-opened non-pinned rows give up their bytes until the total
+	 * fits `budgetBytes`. Returns the evicted ids.
+	 *
+	 * This drops bytes only, never the row. The budget is a byte budget, but the
+	 * row is also the History entry and the local-search index entry, so deleting
+	 * it made a tab vanish from both when the user had only asked to cap disk use.
+	 * `clearAllBytes` already made the same choice for the bulk case.
 	 */
 	async function enforceBudget(budgetBytes = DEFAULT_BLOB_BUDGET_BYTES): Promise<string[]> {
 		const rows = await getDb().query<BudgetRow>(
-			`SELECT id, byte_size, pinned, last_opened_at, blob_path
+			`SELECT id, byte_size, pinned, last_opened_at, blob_path, kind
 			 FROM tabs WHERE blob_path IS NOT NULL`
 		);
 		const toDelete = planEviction(rows, budgetBytes);
-		for (const id of toDelete) await remove(id);
+		for (const id of toDelete) await dropBytes(id);
 		return toDelete;
 	}
 
@@ -264,9 +279,17 @@ export function createTabsRepo(getDb: () => Database) {
 		return { count: rows[0]?.n ?? 0, bytes: rows[0]?.b ?? 0, pinned: rows[0]?.p ?? 0 };
 	}
 
-	/** Unpin every row so the LRU can reclaim previously-protected bytes. */
+	/**
+	 * Unpin saved rows so the LRU can reclaim previously-protected bytes.
+	 *
+	 * Imported rows keep their pin. They hold files the user supplied themselves,
+	 * whose only other copy is `hash_payload` on the same row, so once unpinned
+	 * they became ordinary eviction candidates and the next over-budget tab open
+	 * destroyed them for good. `planEviction` refuses them as well, so this is
+	 * belt and braces.
+	 */
 	async function unpinAll(): Promise<void> {
-		await getDb().run('UPDATE tabs SET pinned = 0 WHERE pinned = 1');
+		await getDb().run("UPDATE tabs SET pinned = 0 WHERE pinned = 1 AND kind != 'imported'");
 	}
 
 	/**

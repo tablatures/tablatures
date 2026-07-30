@@ -270,7 +270,7 @@
 				<button
 					type="button"
 					on:pointerdown|preventDefault={clearQuery}
-					class="tap-target self-center mr-1 h-8 w-8 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+					class="tap-target-y self-center mr-1 h-8 w-8 flex items-center justify-center rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 					title="Clear search"
 					aria-label="Clear search"
 				>
