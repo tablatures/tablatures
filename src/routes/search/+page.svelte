@@ -12,6 +12,8 @@
 	import ScrollObserver from '../../library/components/ScrollObserver.svelte';
 	import HomeFeed from '../../library/components/HomeFeed.svelte';
 	import PullToRefresh from '../../library/components/PullToRefresh.svelte';
+	import Seo from '../../library/components/Seo.svelte';
+	import { pageTitle } from '../../library/utils/seo';
 	import { tabStore } from '../../library/utils/store';
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
@@ -699,9 +701,13 @@
 	});
 </script>
 
-<svelte:head>
-	<title>Tablatures - Search</title>
-</svelte:head>
+<!-- The canonical deliberately drops ?q=: every query renders the same page,
+     so the results consolidate onto /search instead of competing with it. -->
+<Seo
+	title={pageTitle(query ? `${query} tabs` : 'Search Guitar Pro tabs by song or artist')}
+	description="Find free Guitar Pro tabs for guitar, bass and drums. Search by song, artist or album, then open any result straight in the player."
+	path="/search"
+/>
 
 <Header
 	searchValue={query}
@@ -722,7 +728,7 @@
 	{:else if error}
 		<!-- Error -->
 		<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
+			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">error_outline</i>
 			<p class="text-neutral-600 dark:text-neutral-400 mb-4">{error}</p>
 			<button
 				on:click={retrySearch}
@@ -813,7 +819,7 @@
 									{favoriteArtistsStore.isArtist(hero.name) ? 'text-love-500' : 'text-neutral-300 dark:text-neutral-600 hover:text-love-400'}"
 								title="{favoriteArtistsStore.isArtist(hero.name) ? 'Unfollow' : 'Follow'} {hero.name}"
 							>
-								<i class="material-icons !text-lg">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>
+								<i class="material-icons !text-lg" aria-hidden="true">{favoriteArtistsStore.isArtist(hero.name) ? 'favorite' : 'favorite_border'}</i>
 							</button>
 						</div>
 						<!-- Tags + bio -->
@@ -935,7 +941,7 @@
 	{:else}
 		<!-- Empty search - show prompt -->
 		<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4">search</i>
+			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">search</i>
 			<p class="text-neutral-500 dark:text-neutral-400 text-sm">Search for tabs by song, artist, or album</p>
 		</div>
 	{/if}
@@ -958,7 +964,7 @@
 						on:click={() => addToPickedPlaylist(i)}
 						class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
 					>
-						<i class="material-icons !text-lg text-violet-500">queue_music</i>
+						<i class="material-icons !text-lg text-violet-500" aria-hidden="true">queue_music</i>
 						<span class="flex-1 truncate">{pl.name}</span>
 						<span class="text-[10px] text-neutral-400">{pl.entries.length} tabs</span>
 					</button>
@@ -988,7 +994,7 @@
 						on:click={() => { showNewInlinePlaylist = true; }}
 						class="text-xs text-violet-500 hover:underline flex items-center gap-1"
 					>
-						<i class="material-icons !text-xs">add</i>
+						<i class="material-icons !text-xs" aria-hidden="true">add</i>
 						New playlist
 					</button>
 				{/if}

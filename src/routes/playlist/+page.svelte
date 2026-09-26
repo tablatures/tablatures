@@ -5,6 +5,8 @@
 	import { fadeInImage } from '$utils/fadeInImage';
 	import { page } from '$app/stores';
 	import Header from '$components/Header.svelte';
+	import Seo from '$components/Seo.svelte';
+	import { pageTitle } from '$utils/seo';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
 	import TagPill from '$components/TagPill.svelte';
 	import { queueStore, setQueue, jumpQueue, playerState } from '$utils/playerStore';
@@ -340,15 +342,23 @@
 	});
 </script>
 
-<svelte:head>
-	<title>{name || 'Playlist'} - Tablatures</title>
-</svelte:head>
+<!-- A playlist is either the live queue or a share-link payload, so there is
+     nothing stable to index. noindex keeps those URLs out of search while
+     still letting crawlers follow the links out of them. -->
+<Seo
+	title={pageTitle(name ? `${name} playlist` : 'Playlist')}
+	description={entries.length
+		? `${name || 'Playlist'}: ${entries.length} ${entries.length === 1 ? 'tab' : 'tabs'} queued to play, loop and practice in Tablatures.`
+		: 'A playlist of Guitar Pro tabs queued to play in Tablatures.'}
+	path="/playlist"
+	noindex={true}
+/>
 
 <Header showSearch={true} on:search={(e) => goto(`${base}/search?q=${encodeURIComponent(e.detail)}`)} />
 
 {#if entries.length === 0 && mode.kind === 'queue'}
 	<div class="flex flex-col items-center justify-center py-24">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">queue_music</i>
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">queue_music</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">Nothing in the play queue</p>
 		<a href="{base}/" class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors">
 			Find something to play
@@ -370,7 +380,7 @@
 						<img src={heroArt[0]} alt="" use:fadeInImage={heroArt[0]} class="w-full h-full object-cover" />
 					{:else}
 						<div class="w-full h-full flex items-center justify-center">
-							<i class="material-icons !text-6xl text-white/40">queue_music</i>
+							<i class="material-icons !text-6xl text-white/40" aria-hidden="true">queue_music</i>
 						</div>
 					{/if}
 				</div>
@@ -393,7 +403,7 @@
 						title="Rename playlist"
 					>
 						<h1 class="text-xl font-bold truncate">{name}</h1>
-						<i class="material-icons !text-base text-white/50 group-hover:text-white transition-colors shrink-0">edit</i>
+						<i class="material-icons !text-base text-white/50 group-hover:text-white transition-colors shrink-0" aria-hidden="true">edit</i>
 					</button>
 				{/if}
 				<p class="text-sm text-white/70 mt-1">
@@ -411,7 +421,7 @@
 								class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-white/15 text-white hover:bg-white/30 transition-colors"
 								title="View {artistName}"
 							>
-								<i class="material-icons !text-xs">person</i>
+								<i class="material-icons !text-xs" aria-hidden="true">person</i>
 								{artistName}
 							</a>
 						{/each}
@@ -435,31 +445,31 @@
 						disabled={entries.length === 0}
 						class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-full bg-white text-violet-700 text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-50"
 					>
-						<i class="material-icons !text-lg">play_arrow</i> Play all
+						<i class="material-icons !text-lg" aria-hidden="true">play_arrow</i> Play all
 					</button>
 					{#if inRepertoire}
-						<a
+						<a aria-label="Back to playlists"
 							href="{base}/repertoire?view=playlists"
 							class="flex items-center justify-center w-10 h-10 rounded-full bg-white/25 hover:bg-white/35 transition-colors"
 							title="In your repertoire - manage playlists there"
 						>
-							<i class="material-icons !text-lg">library_music</i>
+							<i class="material-icons !text-lg" aria-hidden="true">library_music</i>
 						</a>
 					{:else}
-						<button
+						<button aria-label="Save to your repertoire"
 							on:click={saveToRepertoire}
 							class="flex items-center justify-center w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
 							title="Save to your repertoire"
 						>
-							<i class="material-icons !text-lg">playlist_add</i>
+							<i class="material-icons !text-lg" aria-hidden="true">playlist_add</i>
 						</button>
 					{/if}
-					<button
+					<button aria-label="Share this playlist"
 						on:click={sharePlaylist}
 						class="flex items-center justify-center w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
 						title="Share this playlist (everything is encoded in the link)"
 					>
-						<i class="material-icons !text-lg">share</i>
+						<i class="material-icons !text-lg" aria-hidden="true">share</i>
 					</button>
 				</div>
 			</div>
@@ -485,23 +495,23 @@
 					>
 						<!-- Reorder: drag handle + arrows, at the left -->
 						<span class="flex items-center shrink-0">
-							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 cursor-grab active:cursor-grabbing" title="Drag to reorder">drag_indicator</i>
+							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 cursor-grab active:cursor-grabbing" title="Drag to reorder" aria-hidden="true">drag_indicator</i>
 							<span class="flex flex-col">
-								<button
+								<button aria-label="Move up"
 									class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
 									on:click={() => moveEntry(i, -1)}
 									disabled={i === 0}
 									title="Move up"
 								>
-									<i class="material-icons !text-base">keyboard_arrow_up</i>
+									<i class="material-icons !text-base" aria-hidden="true">keyboard_arrow_up</i>
 								</button>
-								<button
+								<button aria-label="Move down"
 									class="text-neutral-300 dark:text-neutral-600 hover:text-violet-500 transition-colors disabled:opacity-20"
 									on:click={() => moveEntry(i, 1)}
 									disabled={i === entries.length - 1}
 									title="Move down"
 								>
-									<i class="material-icons !text-base">keyboard_arrow_down</i>
+									<i class="material-icons !text-base" aria-hidden="true">keyboard_arrow_down</i>
 								</button>
 							</span>
 						</span>
@@ -517,7 +527,7 @@
 								{#if navigatingIndex === i}
 									<span class="inline-block w-3.5 h-3.5 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
 								{:else if isCurrent && $playerState.playing}
-									<i class="material-icons !text-base">equalizer</i>
+									<i class="material-icons !text-base" aria-hidden="true">equalizer</i>
 								{:else}
 									{i + 1}
 								{/if}
@@ -526,7 +536,7 @@
 								{#if art[item.id]}
 									<img src={art[item.id]} alt="" loading="lazy" use:fadeInImage={art[item.id]} class="w-full h-full object-cover" />
 								{:else}
-									<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
+									<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600" aria-hidden="true">music_note</i>
 								{/if}
 							</span>
 							<span class="flex-1 min-w-0">
@@ -536,15 +546,15 @@
 									<span class="truncate">{item.artist || sd.label}</span>
 								</span>
 							</span>
-							<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors shrink-0">play_arrow</i>
+							<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors shrink-0" aria-hidden="true">play_arrow</i>
 						</button>
 						<FavoriteButton id={item.id} title={item.title} artist={item.artist} source={item.source} variant="pill" />
-						<button
+						<button aria-label="Remove from playlist"
 							class="tap-target w-8 h-8 flex items-center justify-center rounded-full text-neutral-300 dark:text-neutral-600 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors shrink-0"
 							on:click={() => removeEntry(item.id)}
 							title="Remove from playlist"
 						>
-							<i class="material-icons !text-lg">close</i>
+							<i class="material-icons !text-lg" aria-hidden="true">close</i>
 						</button>
 					</div>
 				{/each}
@@ -553,11 +563,11 @@
 			<!-- Add tabs: search-styled input + result rows like the search page -->
 			<div class="mt-6">
 				<h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2 flex items-center gap-1.5">
-					<i class="material-icons !text-lg text-violet-500">playlist_add</i>
+					<i class="material-icons !text-lg text-violet-500" aria-hidden="true">playlist_add</i>
 					Add tabs
 				</h2>
 				<div class="relative">
-					<i class="material-icons !text-xl text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none">search</i>
+					<i class="material-icons !text-xl text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true">search</i>
 					<input
 						class="w-full pl-11 pr-10 py-2.5 rounded-full text-sm bg-neutral-100 dark:bg-neutral-800 border border-transparent focus:border-violet-500 focus:bg-white dark:focus:bg-neutral-900 outline-none text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 transition-colors"
 						placeholder="Search the catalog..."
@@ -567,12 +577,12 @@
 					{#if addSearching}
 						<span class="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-violet-300 border-t-violet-600 animate-spin"></span>
 					{:else if addQuery}
-						<button
+						<button aria-label="Clear search"
 							class="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
 							on:click={() => { addQuery = ''; addResults = []; }}
 							title="Clear"
 						>
-							<i class="material-icons !text-lg">close</i>
+							<i class="material-icons !text-lg" aria-hidden="true">close</i>
 						</button>
 					{/if}
 				</div>
@@ -590,7 +600,7 @@
 									{#if addArt[tab.id] || tab.artistImage}
 										<img src={addArt[tab.id] || tab.artistImage} alt="" loading="lazy" use:fadeInImage={addArt[tab.id] || tab.artistImage} class="w-full h-full object-cover" />
 									{:else}
-										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
+										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600" aria-hidden="true">music_note</i>
 									{/if}
 								</span>
 								<span class="flex-1 min-w-0">
@@ -602,9 +612,9 @@
 								</span>
 								{#if inPlaylist}
 									<span class="text-xs text-neutral-400 shrink-0">Added</span>
-									<i class="material-icons !text-lg text-neutral-300 shrink-0">check</i>
+									<i class="material-icons !text-lg text-neutral-300 shrink-0" aria-hidden="true">check</i>
 								{:else}
-									<i class="material-icons !text-2xl text-violet-500 group-hover/add:scale-110 transition-transform shrink-0">add_circle</i>
+									<i class="material-icons !text-2xl text-violet-500 group-hover/add:scale-110 transition-transform shrink-0" aria-hidden="true">add_circle</i>
 								{/if}
 							</button>
 						{/each}

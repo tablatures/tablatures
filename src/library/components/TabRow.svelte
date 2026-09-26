@@ -83,7 +83,7 @@
 			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
-			<i class="material-icons !text-lg">{swipeAction.icon}</i>
+			<i class="material-icons !text-lg" aria-hidden="true">{swipeAction.icon}</i>
 		</div>
 	{/if}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -172,7 +172,7 @@
 				title="Add to playlist"
 				aria-label={`Add ${title} to playlist`}
 			>
-				<i class="material-icons !text-lg">playlist_add</i>
+				<i class="material-icons !text-lg" aria-hidden="true">playlist_add</i>
 			</button>
 		{/if}
 		<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="row" class="self-center" />

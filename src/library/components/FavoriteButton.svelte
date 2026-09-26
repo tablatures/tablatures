@@ -66,6 +66,6 @@
 		title="{isFavorite ? 'Remove from' : 'Add to'} favorites"
 		aria-label="{isFavorite ? 'Remove' : 'Add'} {title} {isFavorite ? 'from' : 'to'} favorites"
 	>
-		<i class="material-icons {iconSize}">{isFavorite ? 'favorite' : 'favorite_border'}</i>
+		<i class="material-icons {iconSize}" aria-hidden="true">{isFavorite ? 'favorite' : 'favorite_border'}</i>
 	</button>
 {/if}

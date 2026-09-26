@@ -48,7 +48,7 @@
 			on:click={dismiss}
 			aria-label="Dismiss update"
 		>
-			<i class="material-icons !text-xl">close</i>
+			<i class="material-icons !text-xl" aria-hidden="true">close</i>
 		</button>
 	</div>
 {/if}

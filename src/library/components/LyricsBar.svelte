@@ -229,8 +229,9 @@
 			</div>
 		{:else if fetchState === 'loading'}
 			<div class="{line} text-sm text-white/80">
-				<i class="material-icons mr-1 animate-spin align-middle !text-sm">autorenew</i>Searching for
-				lyrics&hellip;
+				<i class="material-icons mr-1 animate-spin align-middle !text-sm" aria-hidden="true"
+					>autorenew</i
+				>Searching for lyrics&hellip;
 			</div>
 		{:else}
 			<div class="{line} text-sm text-white/80">
@@ -255,7 +256,7 @@
 				aria-label="Toggle lyrics in score"
 				aria-pressed={$lyricsStore.showInScore}
 			>
-				<i class="material-icons !text-lg">lyrics</i>
+				<i class="material-icons !text-lg" aria-hidden="true">lyrics</i>
 			</button>
 		{/if}
 
@@ -318,7 +319,7 @@
 					aria-label="Lyrics settings"
 					aria-pressed={settingsOpen}
 				>
-					<i class="material-icons !text-lg">tune</i>
+					<i class="material-icons !text-lg" aria-hidden="true">tune</i>
 				</button>
 			</div>
 		{/if}

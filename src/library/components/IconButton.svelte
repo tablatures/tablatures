@@ -24,7 +24,7 @@
 		title={tooltip || label}
 		aria-label={label}
 	>
-		<i class="material-icons {sizeClasses[size]}">{icon}</i>
+		<i class="material-icons {sizeClasses[size]}" aria-hidden="true">{icon}</i>
 	</a>
 {:else}
 	<button
@@ -37,6 +37,6 @@
 		title={tooltip || label}
 		aria-label={label}
 	>
-		<i class="material-icons {sizeClasses[size]}">{icon}</i>
+		<i class="material-icons {sizeClasses[size]}" aria-hidden="true">{icon}</i>
 	</button>
 {/if}

@@ -8,7 +8,7 @@
 <div class="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-2 px-3">
 	<div class="flex items-center gap-1">
 		{#if icon}
-			<i class="material-icons !text-sm">{icon}</i>
+			<i class="material-icons !text-sm" aria-hidden="true">{icon}</i>
 		{/if}
 		<span>{title}</span>
 	</div>

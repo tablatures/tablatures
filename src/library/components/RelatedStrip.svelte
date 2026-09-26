@@ -322,7 +322,7 @@
 	<!-- Below-the-fold recommendations: full-size ResultCard rows -->
 	<div>
 		<div class="flex items-center gap-1.5 px-4 pt-4 pb-2">
-			<i class="material-icons !text-base text-violet-500">recommend</i>
+			<i class="material-icons !text-base text-violet-500" aria-hidden="true">recommend</i>
 			<span class="text-sm font-semibold text-neutral-700 dark:text-neutral-200 truncate">{heading}</span>
 		</div>
 		<div class="divide-y divide-neutral-100 dark:divide-neutral-800/60">
@@ -368,7 +368,7 @@
 		class="border-b border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-sm"
 	>
 		<div class="flex items-center gap-1.5 px-3 pt-2 pb-0.5">
-			<i class="material-icons !text-sm text-violet-500">recommend</i>
+			<i class="material-icons !text-sm text-violet-500" aria-hidden="true">recommend</i>
 			<span class="text-xs font-medium text-neutral-600 dark:text-neutral-300 truncate">{heading}</span>
 		</div>
 		<div class="flex gap-2 px-3 pb-2 pt-1 overflow-x-auto scrollbar-thin">
@@ -390,7 +390,7 @@
 						{:else if art[t.id]}
 							<img src={art[t.id]} alt="" loading="lazy" class="w-full h-full object-cover" />
 						{:else}
-							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600">music_note</i>
+							<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600" aria-hidden="true">music_note</i>
 						{/if}
 					</span>
 					<span class="flex-1 min-w-0">

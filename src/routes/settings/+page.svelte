@@ -3,6 +3,8 @@
 	import { browser } from '$app/environment';
 	import Header from '../../library/components/Header.svelte';
 	import Button from '../../library/components/Button.svelte';
+	import Seo from '../../library/components/Seo.svelte';
+	import { pageTitle } from '../../library/utils/seo';
 	import { favoritesStore } from '../../library/utils/favorites';
 	import { historyStore } from '../../library/utils/history';
 	import { tabStore } from '../../library/utils/store';
@@ -246,9 +248,11 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Settings - Tablatures</title>
-</svelte:head>
+<Seo
+	title={pageTitle('Settings: sound, playback and storage')}
+	description="Choose your soundfont and playback defaults, switch between light and dark, manage offline storage, and install the Tablatures app for Android."
+	path="/settings"
+/>
 
 <Header showSearch={true} />
 
@@ -261,7 +265,7 @@
 	     back button are the exits. -->
 	<div class="flex items-center mb-6">
 		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-			<i class="material-icons-outlined !text-2xl text-violet-500">settings</i>
+			<i class="material-icons-outlined !text-2xl text-violet-500" aria-hidden="true">settings</i>
 			Settings
 		</h1>
 	</div>
@@ -271,7 +275,7 @@
 		<div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
 			<div class="flex items-start sm:items-center gap-3 flex-1 min-w-0">
 				<div class="flex-shrink-0 w-10 h-10 rounded-full bg-violet-500/10 dark:bg-violet-500/20 flex items-center justify-center">
-					<i class="material-icons-outlined !text-xl text-violet-500">campaign</i>
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">campaign</i>
 				</div>
 				<div class="min-w-0">
 					<p class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Help improve Tablatures</p>
@@ -285,7 +289,7 @@
 					rel="noopener noreferrer"
 					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
 				>
-					<i class="material-icons-outlined !text-base">bug_report</i>
+					<i class="material-icons-outlined !text-base" aria-hidden="true">bug_report</i>
 					Report issue
 				</a>
 				<a
@@ -294,7 +298,7 @@
 					rel="noopener noreferrer"
 					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-violet-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
 				>
-					<i class="material-icons-outlined !text-base">library_add</i>
+					<i class="material-icons-outlined !text-base" aria-hidden="true">library_add</i>
 					Suggest source
 				</a>
 				<a
@@ -303,7 +307,7 @@
 					rel="noopener noreferrer"
 					class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors"
 				>
-					<i class="material-icons-outlined !text-base">star_outline</i>
+					<i class="material-icons-outlined !text-base" aria-hidden="true">star_outline</i>
 					Star on GitHub
 				</a>
 			</div>
@@ -316,7 +320,7 @@
 			class="mb-6 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900"
 		>
 			<div class="flex items-center gap-2 mb-1">
-				<i class="material-icons-outlined !text-xl text-violet-500">install_mobile</i>
+				<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">install_mobile</i>
 				<h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-100">Get the app</h3>
 			</div>
 			<p class="text-xs text-neutral-600 dark:text-neutral-400 mb-3">
@@ -353,7 +357,7 @@
 
 	<!-- ===== AUDIO SECTION ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-0">
-		<i class="material-icons-outlined text-violet-500 !text-xl">volume_up</i>
+		<i class="material-icons-outlined text-violet-500 !text-xl" aria-hidden="true">volume_up</i>
 		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Audio</h3>
 	</div>
 
@@ -480,7 +484,7 @@
 
 	<!-- ===== DISPLAY SECTION ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-6">
-		<i class="material-icons-outlined text-violet-500 !text-xl">tune</i>
+		<i class="material-icons-outlined text-violet-500 !text-xl" aria-hidden="true">tune</i>
 		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Display</h3>
 	</div>
 
@@ -558,7 +562,7 @@
 
 	<!-- ===== DATA SECTION ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-6">
-		<i class="material-icons-outlined text-violet-500 !text-xl">storage</i>
+		<i class="material-icons-outlined text-violet-500 !text-xl" aria-hidden="true">storage</i>
 		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Data</h3>
 	</div>
 
@@ -613,7 +617,7 @@
 
 	<!-- ===== STORAGE SECTION (offline tab cache) ===== -->
 	<div class="flex items-center gap-2 mb-3 mt-6">
-		<i class="material-icons-outlined text-violet-500 !text-xl">sd_storage</i>
+		<i class="material-icons-outlined text-violet-500 !text-xl" aria-hidden="true">sd_storage</i>
 		<h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-100">Storage</h3>
 	</div>
 
@@ -666,7 +670,7 @@
 		     into a collapsed disclosure with smaller, technical styling. -->
 		<details class="group rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-800/30">
 			<summary class="flex items-center gap-1.5 px-3 py-2 cursor-pointer select-none text-[11px] font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 list-none">
-				<i class="material-icons !text-base transition-transform group-open:rotate-90">chevron_right</i>
+				<i class="material-icons !text-base transition-transform group-open:rotate-90" aria-hidden="true">chevron_right</i>
 				Advanced
 			</summary>
 			<div class="px-3 pb-3 pt-1">
@@ -703,7 +707,7 @@
 				disabled={clearingCache}
 				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors disabled:opacity-50 w-full sm:w-auto"
 			>
-				<i class="material-icons !text-lg">cached</i>
+				<i class="material-icons !text-lg" aria-hidden="true">cached</i>
 				Clear response cache
 			</button>
 
@@ -711,7 +715,7 @@
 				on:click={unpinTabs}
 				class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 transition-colors w-full sm:w-auto"
 			>
-				<i class="material-icons !text-lg">push_pin</i>
+				<i class="material-icons !text-lg" aria-hidden="true">push_pin</i>
 				Unpin saved tabs
 			</button>
 
@@ -736,7 +740,7 @@
 					on:click={() => (showDeleteTabsConfirm = true)}
 					class="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border border-danger-200 dark:border-danger-900 text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-colors w-full sm:w-auto"
 				>
-					<i class="material-icons !text-lg">delete_sweep</i>
+					<i class="material-icons !text-lg" aria-hidden="true">delete_sweep</i>
 					Delete cached tabs
 				</button>
 			{/if}

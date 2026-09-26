@@ -54,7 +54,7 @@
 				class="flex items-center gap-1 text-[11px] font-medium"
 				title="Original: {originalLabel}"
 			>
-				<i class="material-icons !text-sm">swap_vert</i>
+				<i class="material-icons !text-sm" aria-hidden="true">swap_vert</i>
 				<span class="max-w-[6rem] truncate">{shortLabel}</span>
 			</button>
 			<button
@@ -63,7 +63,7 @@
 				title="Revert transposition"
 				aria-label="Revert transposition"
 			>
-				<i class="material-icons !text-sm">undo</i>
+				<i class="material-icons !text-sm" aria-hidden="true">undo</i>
 			</button>
 		</div>
 	{/if}
@@ -77,7 +77,7 @@
 				: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
 			title={isTransposed ? `Original: ${originalLabel}` : 'Open tuning'}
 		>
-			<i class="material-icons !text-sm">swap_vert</i>
+			<i class="material-icons !text-sm" aria-hidden="true">swap_vert</i>
 			<span class="max-w-[10rem] truncate">{currentLabel}</span>
 		</button>
 		{#if isTransposed}
@@ -87,7 +87,7 @@
 				title="Revert transposition"
 				aria-label="Revert transposition"
 			>
-				<i class="material-icons !text-sm">undo</i>
+				<i class="material-icons !text-sm" aria-hidden="true">undo</i>
 			</button>
 		{/if}
 	</div>

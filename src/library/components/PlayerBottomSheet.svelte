@@ -281,7 +281,7 @@
 	<div class="sheet-handle" on:touchstart={onHandleTouchStart}>
 		<span class="sheet-grip" aria-hidden="true"></span>
 		<button class="sheet-close" on:click={closeSheet} aria-label="Close">
-			<i class="material-icons !text-xl">keyboard_arrow_down</i>
+			<i class="material-icons !text-xl" aria-hidden="true">keyboard_arrow_down</i>
 		</button>
 	</div>
 

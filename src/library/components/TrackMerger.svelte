@@ -108,7 +108,7 @@
 			on:click={removeMerged}
 			class="w-full px-4 py-2 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors active:scale-[0.98]"
 		>
-			<i class="material-icons !text-sm align-middle mr-1">undo</i>
+			<i class="material-icons !text-sm align-middle mr-1" aria-hidden="true">undo</i>
 			Remove merged track
 		</button>
 	{/if}
@@ -123,7 +123,7 @@
 		<p
 			class="text-xs px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400"
 		>
-			<i class="material-icons !text-sm align-middle mr-1">check_circle</i>
+			<i class="material-icons !text-sm align-middle mr-1" aria-hidden="true">check_circle</i>
 			Merged track created{lastResult.droppedNotes > 0
 				? `, ${lastResult.droppedNotes} notes simplified away`
 				: ''}

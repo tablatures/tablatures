@@ -221,7 +221,7 @@
 				aria-label="Previous in queue"
 				disabled={!canPrev || steppingQueue}
 			>
-				<i class="material-icons !text-3xl">skip_previous</i>
+				<i class="material-icons !text-3xl" aria-hidden="true">skip_previous</i>
 			</button>
 		{/if}
 
@@ -238,7 +238,7 @@
 			{#if soundFontLoading}
 				<LoadingScore size="xs" message="" />
 			{:else}
-				<i class="material-icons !text-3xl sm:!text-4xl">{state.playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons !text-3xl sm:!text-4xl" aria-hidden="true">{state.playing ? 'pause' : 'play_arrow'}</i>
 			{/if}
 		</button>
 
@@ -250,7 +250,7 @@
 				aria-label="Next in queue"
 				disabled={!canNext || steppingQueue}
 			>
-				<i class="material-icons !text-3xl">skip_next</i>
+				<i class="material-icons !text-3xl" aria-hidden="true">skip_next</i>
 			</button>
 		{/if}
 
@@ -269,13 +269,13 @@
 					class="w-9 h-9 sm:w-12 sm:h-12 rounded flex items-center justify-center"
 					style="background: {thumbPlaceholder.bgDark}; color: {thumbPlaceholder.fgDark};"
 				>
-					<i class="material-icons !text-lg sm:!text-2xl opacity-90">music_note</i>
+					<i class="material-icons !text-lg sm:!text-2xl opacity-90" aria-hidden="true">music_note</i>
 				</div>
 			{/if}
 			<span
 				class="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-60 transition-opacity"
 			>
-				<i class="material-icons !text-base sm:!text-xl">fullscreen</i>
+				<i class="material-icons !text-base sm:!text-xl" aria-hidden="true">fullscreen</i>
 			</span>
 		</a>
 
@@ -337,7 +337,7 @@
 					title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
 					aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
 				>
-					<i class="material-icons !text-xl">{shareJustCopied ? 'check' : 'share'}</i>
+					<i class="material-icons !text-xl" aria-hidden="true">{shareJustCopied ? 'check' : 'share'}</i>
 				</button>
 			{/if}
 
@@ -354,7 +354,7 @@
 				title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 				aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			>
-				<i class="material-icons !text-xl">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
+				<i class="material-icons !text-xl" aria-hidden="true">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
 			</button>
 
 			<!-- Expand to the full player -->
@@ -364,7 +364,7 @@
 				title="Open full player"
 				aria-label="Open full player"
 			>
-				<i class="material-icons !text-2xl">expand_less</i>
+				<i class="material-icons !text-2xl" aria-hidden="true">expand_less</i>
 			</a>
 
 			<!-- Close the player: a plain tap quits the tab (stop + unload). Modest
@@ -378,7 +378,7 @@
 				title="Close player"
 				aria-label="Close player"
 			>
-				<i class="material-icons !text-lg">close</i>
+				<i class="material-icons !text-lg" aria-hidden="true">close</i>
 			</button>
 		</div>
 	</div>

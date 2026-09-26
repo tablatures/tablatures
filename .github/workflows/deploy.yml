@@ -48,9 +48,6 @@ jobs:
           VITE_DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
           VITE_BASE_PATH: ${{ secrets.BASE_PATH }}
 
-      - name: Create 404.html for SPA routing
-        run: cp build/index.html build/404.html
-
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v4
         with:

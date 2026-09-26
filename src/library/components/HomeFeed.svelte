@@ -1273,7 +1273,7 @@
 						on:click={() => addToPickedPlaylist(i)}
 						class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
 					>
-						<i class="material-icons !text-lg text-violet-500">queue_music</i>
+						<i class="material-icons !text-lg text-violet-500" aria-hidden="true">queue_music</i>
 						<span class="flex-1 truncate">{pl.name}</span>
 						<span class="text-[10px] text-neutral-500">{pl.entries.length}</span>
 					</button>
@@ -1314,7 +1314,7 @@
 						}}
 						class="text-xs text-violet-500 hover:underline flex items-center gap-1"
 					>
-						<i class="material-icons !text-xs">add</i>
+						<i class="material-icons !text-xs" aria-hidden="true">add</i>
 						New playlist
 					</button>
 				{/if}

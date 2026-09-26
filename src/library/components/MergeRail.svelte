@@ -27,7 +27,7 @@
 			aria-label="Merge tracks"
 			class="flex-shrink-0 self-stretch w-8 flex flex-col items-center justify-center gap-1 border-r border-neutral-200 dark:border-neutral-700 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
 		>
-			<i class="material-icons !text-lg">call_merge</i>
+			<i class="material-icons !text-lg" aria-hidden="true">call_merge</i>
 			<span
 				class="text-[9px] font-semibold uppercase tracking-wide [writing-mode:vertical-rl] rotate-180"
 				>Merge</span
@@ -47,7 +47,7 @@
 					? 'bg-violet-500 hover:bg-violet-600 text-white'
 					: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'}"
 			>
-				<i class="material-icons !text-lg">call_merge</i>
+				<i class="material-icons !text-lg" aria-hidden="true">call_merge</i>
 				{#if selectedIndexes.length}
 					<span class="text-[10px] font-bold leading-none">{selectedIndexes.length}</span>
 				{/if}
@@ -58,7 +58,7 @@
 				aria-label="Cancel merge"
 				class="h-8 flex-shrink-0 flex items-center justify-center border-t border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 			>
-				<i class="material-icons !text-base">close</i>
+				<i class="material-icons !text-base" aria-hidden="true">close</i>
 			</button>
 		</div>
 	{/if}

@@ -46,6 +46,7 @@
 			<i
 				class="material-icons !text-lg transition-colors duration-200 text-neutral-500 dark:text-neutral-400
                group-hover:text-violet-600 dark:group-hover:text-violet-300"
+				aria-hidden="true"
 			>
 				{value === min ? iconOff : iconOn}
 			</i>

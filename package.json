@@ -12,7 +12,6 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"postbuild": "if [ \"$VITE_DEPLOY_TARGET\" = \"static\" ]; then cp build/index.html build/404.html; fi",
 		"test:unit": "vitest run",
 		"test:e2e": "playwright test"
 	},
