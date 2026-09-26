@@ -23,6 +23,8 @@
 
 	const dispatch = createEventDispatcher<{ loaded: number }>();
 
+	import { powFetch } from '$utils/powFetch';
+
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
 	interface RelatedTab {
@@ -118,13 +120,13 @@
 			p.append('artists', a);
 			if (excludeId) p.append('exclude', excludeId);
 			let raw: any[] = [];
-			const res = await fetch(`${SEARCH_API_BASE_URL}/api/recommendations?${p}`);
+			const res = await powFetch(`${SEARCH_API_BASE_URL}/api/recommendations?${p}`);
 			if (res.ok) raw = toList(await res.json());
 
 			// Fallback / top-up: this artist's own catalog.
 			if (raw.length < 4) {
 				const sp = new URLSearchParams({ artist: a, limit: '14' });
-				const r2 = await fetch(`${SEARCH_API_BASE_URL}/api/search?${sp}`);
+				const r2 = await powFetch(`${SEARCH_API_BASE_URL}/api/search?${sp}`);
 				if (r2.ok) raw = [...raw, ...toList(await r2.json())];
 			}
 
@@ -215,7 +217,7 @@
 		loadingMore = true;
 		try {
 			const url = nextBatchUrl();
-			const res = await fetch(url);
+			const res = await powFetch(url);
 			if (!res.ok) {
 				noteEmptyBatch();
 				return;

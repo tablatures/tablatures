@@ -22,6 +22,7 @@
  * caches the artist's image bytes for future offline use.
  */
 import { browser } from '$app/environment';
+import { powFetch } from './powFetch';
 import { getArtwork, normalizeArtworkKey } from './artwork';
 import { enrichArtistImage, safeImageUrl } from './artistImage';
 import { queueArtistImageForCache, getCachedArtistObjectUrl } from './artworkCache';
@@ -51,7 +52,9 @@ async function fetchAttributedArtwork(artist: string, title: string): Promise<st
 
 	const task = (async (): Promise<string | null> => {
 		try {
-			const resp = await fetch(`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(artist)}`);
+			const resp = await powFetch(
+				`${SEARCH_API_BASE_URL}/api/artist/${encodeURIComponent(artist)}`
+			);
 			if (!resp.ok) return null;
 			const data = await resp.json();
 			// Require the resolved artist to match before trusting its releases.
