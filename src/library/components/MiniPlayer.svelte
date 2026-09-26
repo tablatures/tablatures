@@ -368,11 +368,13 @@
 			</a>
 
 			<!-- Close the player: a plain tap quits the tab (stop + unload). Modest
-			     visual weight — muted resting color, neutral hover, no danger red —
-			     and tap-target keeps a ≥44px effective hit area despite the small box. -->
+			     visual weight: muted resting color, neutral hover, no danger red.
+			     tap-target-y only pads vertically (an all-sides halo on a right-edge
+			     control leaves a phantom gutter, see app.css), so the 44px horizontal
+			     tap floor has to come from the box itself: w-11. -->
 			<button
 				on:click|stopPropagation={closeClick}
-				class="tap-target-y flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
+				class="tap-target-y flex-shrink-0 flex items-center justify-center w-11 h-9 rounded-xl text-neutral-500 hover:text-white hover:bg-white/10 transition-colors"
 				title="Close player"
 				aria-label="Close player"
 			>
