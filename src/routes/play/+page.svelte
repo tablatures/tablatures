@@ -514,11 +514,11 @@
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
 {#if loadingSharedTab || opening}
-	<div class="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
+	<div class="flex items-center justify-center h-[calc(100dvh-var(--header-h))]">
 		<LoadingScore message="Loading tablature" size="lg" />
 	</div>
 {:else if sharedTabError}
-	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
+	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
 		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
 		<div class="flex gap-3 mt-2">
@@ -619,7 +619,7 @@
 		</button>
 	{/if}
 {:else}
-	<div class="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)]">
+	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">No tab loaded</p>
 		<a
@@ -636,7 +636,7 @@
 	   the 56px header); the details section sits below the fold. Free scrolling —
 	   no scroll-snap (the user asked for plain, non-magnetic scrolling). */
 	.play-shell {
-		height: calc(100dvh - 3.5rem);
+		height: calc(100dvh - var(--header-h));
 		overflow-y: auto;
 		overscroll-behavior-y: contain;
 	}

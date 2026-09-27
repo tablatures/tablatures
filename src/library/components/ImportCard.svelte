@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SUPPORTED_TYPES } from '../utils/upload';
+	import { SUPPORTED_TYPES, ACCEPT_ATTR } from '../utils/upload';
 
 	/** Called when a valid file is dropped or selected */
 	export let onFile: (file: File) => void;
@@ -96,7 +96,7 @@
 		bind:this={fileInput}
 		on:change={handleFileSelect}
 		type="file"
-		accept={SUPPORTED_TYPES.join(',')}
+		accept={ACCEPT_ATTR}
 		class="hidden"
 	/>
 </section>

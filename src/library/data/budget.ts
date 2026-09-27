@@ -14,6 +14,8 @@ export interface BudgetRow {
 	pinned: number | boolean;
 	last_opened_at: number;
 	blob_path?: string | null;
+	/** Row kind. 'imported' rows are never evictable, pinned or not. */
+	kind?: string | null;
 }
 
 /** Sum of all blob bytes across the given rows. */
@@ -24,15 +26,20 @@ export function totalBytes(rows: BudgetRow[]): number {
 /**
  * Decide which tab ids to evict so total blob bytes fit `budgetBytes`.
  * Pinned rows are untouchable. Non-pinned rows are dropped oldest-first
- * (ascending `last_opened_at`) — i.e. least-recently-used. Returns the ids to
- * delete, in eviction order. Empty when already within budget.
+ * (ascending `last_opened_at`), least-recently-used. Returns the ids to
+ * evict, in eviction order. Empty when already within budget.
+ *
+ * 'imported' rows are excluded whatever their pinned flag says. They hold files
+ * the user supplied themselves, which exist nowhere else and cannot be fetched
+ * again, and `unpinAll` used to clear their pinned flag along with everyone
+ * else's, which handed them straight to this function.
  */
 export function planEviction(rows: BudgetRow[], budgetBytes: number): string[] {
 	let running = totalBytes(rows);
 	if (running <= budgetBytes) return [];
 
 	const evictable = rows
-		.filter((r) => !r.pinned)
+		.filter((r) => !r.pinned && r.kind !== 'imported')
 		.sort((a, b) => a.last_opened_at - b.last_opened_at);
 
 	const toDelete: string[] = [];

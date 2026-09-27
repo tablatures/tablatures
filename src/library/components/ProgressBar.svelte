@@ -103,8 +103,19 @@
 		/>
 	{/if}
 
-	<!-- Expanded hit area (upward only, avoids interfering with buttons below) -->
-	<div class="absolute inset-x-0 -top-12 bottom-0" />
+	<!-- Expanded hit area. It has to stay inside the host's own box.
+	     This used to be `-top-12 bottom-0`, a 48px full-width strip reaching above
+	     the bar. The only host is the MiniPlayer's `fixed bottom-0 z-[80]` bar and
+	     this is its first child, so with nothing clipping it the strip floated over
+	     the page. Tapping a list row in the band roughly 104-176px above the
+	     viewport bottom seeked the tab instead of opening the row, and since the
+	     root carries `touch-none` (which intersects with ancestors) a vertical
+	     swipe there could not scroll the page at all. It also covered the bottom
+	     48px of the PiP preview (z-75).
+	     Growing downward instead keeps the strip within the host: the control row
+	     below opens with `py-2.5` (10px), so 8px of growth lands in that padding
+	     and never reaches the transport buttons. -->
+	<div class="absolute inset-x-0 top-0 -bottom-2" />
 
 	<!-- Time tooltip -->
 	{#if showTooltip && tooltipTime && duration > 0}

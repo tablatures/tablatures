@@ -223,13 +223,21 @@
 
 	// --- Open/close lifecycle: release mic when popup closes ---
 
+	// The latch must live inside a function. Written as two sibling `$:` statements
+	// (`if (!open && prevOpen) ...` plus `prevOpen = open`), Svelte sorts the
+	// assignment above the check, because the check reads what the assignment
+	// writes. The guard then never sees the previous value and the mic was never
+	// released. +layout.svelte also mounts this panel unconditionally, so onDestroy
+	// is not a fallback: closing with the hardware back button left the microphone
+	// capturing for the rest of the session.
 	let prevOpen = false;
 
-	$: if (browser && !open && prevOpen) {
-		tunerStore.stop();
-	}
+	$: if (browser) syncOpenState(open);
 
-	$: prevOpen = open;
+	function syncOpenState(isOpen: boolean): void {
+		if (!isOpen && prevOpen) tunerStore.stop();
+		prevOpen = isOpen;
+	}
 
 	async function safeToggle() {
 		try {

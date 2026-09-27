@@ -238,8 +238,18 @@ export function swipeAction(
 			const dir: 'left' | 'right' = mx < 0 ? 'left' : 'right';
 
 			if (state.last) {
+				// A touchcancel must never commit. @use-gesture binds touchcancel to the
+				// same pointerUp handler as touchend and emits a `last` frame that looks
+				// exactly like a real release, and `state.canceled` is only set by the
+				// explicit state.cancel() path, so it does not cover this. Without the
+				// check, Android claiming the touch (edge-back gesture, notification
+				// shade, incoming call) ran onCommit: a swipe started near the left edge
+				// deleted the row while the row animated back home looking untouched.
+				const cancelled = state.event?.type === 'touchcancel';
 				const committed =
-					dirAllowed(dir) && (exceedsSwipeThreshold(mx, 0, threshold) || state.swipe[0] !== 0);
+					!cancelled &&
+					dirAllowed(dir) &&
+					(exceedsSwipeThreshold(mx, 0, threshold) || state.swipe[0] !== 0);
 				if (committed) {
 					p.haptic?.();
 					p.onCommit(dir);
@@ -412,6 +422,11 @@ export interface PullToRefreshParams {
  *  the top can never be mistaken for a deliberate pull-to-refresh. */
 export const PULL_MOMENTUM_SETTLE_MS = 250;
 
+/** Movement needed before a pull commits to an axis. Small enough that a real
+ *  pull still feels immediate, large enough that the first noisy touchmove
+ *  sample does not decide the direction. */
+export const AXIS_LOCK_SLOP_PX = 8;
+
 export function pullToRefresh(
 	node: HTMLElement,
 	params: PullToRefreshParams
@@ -420,6 +435,9 @@ export function pullToRefresh(
 	const reduced = prefersReducedMotion();
 
 	let startY = 0;
+	let startX = 0;
+	/** Axis lock. A pull only takes over once the gesture is provably vertical. */
+	let axis: 'undecided' | 'vertical' = 'undecided';
 	let pulling = false;
 	let refreshing = false;
 	let readyFired = false;
@@ -450,17 +468,41 @@ export function pullToRefresh(
 	//   2. no scroll (incl. momentum) in the last PULL_MOMENTUM_SETTLE_MS — this
 	//      rejects the "catch the fling as it lands at the top" case that was
 	//      accidentally triggering refreshes.
-	function begin(y: number) {
+	function begin(y: number, x: number) {
 		if (p.enabled === false || refreshing) return;
 		if (scrollTop() > 0) return;
 		if (nowMs() - lastScrollTs < PULL_MOMENTUM_SETTLE_MS) return;
 		startY = y;
+		startX = x;
+		axis = 'undecided';
 		pulling = true;
 		readyFired = false;
 	}
 
-	function move(y: number, e: Event): boolean {
+	function move(y: number, x: number, e: Event): boolean {
 		if (!pulling) return false;
+
+		// Axis lock, decided once per gesture. Without it, move() looked only at
+		// clientY and called preventDefault() on any downward component, which
+		// killed horizontal panning for the whole sequence. Every call site wraps a
+		// page that contains `snap-x` carousels (the search chip strips, the
+		// repertoire artists strip), and those strips sit exactly in the armed state
+		// (scrollTop 0, scroller at rest), so a normal diagonal thumb flick on a
+		// carousel showed the refresh disc instead of scrolling the strip.
+		if (axis === 'undecided') {
+			const dx = Math.abs(x - startX);
+			const dy = y - startY;
+			if (Math.max(dx, Math.abs(dy)) < AXIS_LOCK_SLOP_PX) return false;
+			if (dx > Math.abs(dy)) {
+				// Horizontal gesture. Release control for the rest of the sequence and
+				// leave the event alone so the carousel gets it.
+				pulling = false;
+				emit(0);
+				return false;
+			}
+			axis = 'vertical';
+		}
+
 		const raw = y - startY;
 		if (raw <= 0) {
 			// Scrolled back up past the origin — release control to the page.
@@ -515,11 +557,11 @@ export function pullToRefresh(
 	// --- Touch path (primary) ---
 	function onTouchStart(e: TouchEvent) {
 		if (e.touches.length !== 1) return;
-		begin(e.touches[0].clientY);
+		begin(e.touches[0].clientY, e.touches[0].clientX);
 	}
 	function onTouchMove(e: TouchEvent) {
 		if (!e.touches[0]) return;
-		move(e.touches[0].clientY, e);
+		move(e.touches[0].clientY, e.touches[0].clientX, e);
 	}
 	function onTouchEnd() {
 		end();
@@ -530,11 +572,11 @@ export function pullToRefresh(
 	function onPointerDown(e: PointerEvent) {
 		if (e.pointerType !== 'mouse' || e.button !== 0) return;
 		mouseDown = true;
-		begin(e.clientY);
+		begin(e.clientY, e.clientX);
 	}
 	function onPointerMove(e: PointerEvent) {
 		if (!mouseDown) return;
-		move(e.clientY, e);
+		move(e.clientY, e.clientX, e);
 	}
 	function onPointerUp() {
 		if (!mouseDown) return;

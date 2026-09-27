@@ -100,6 +100,30 @@
 	}
 }
 
+/* ---------------------------------------------------------------------------
+   Real header height.
+
+   Full-height panes used to subtract a hardcoded 3.5rem, which is the header's
+   `sm:h-14`. Below `sm` the row is `h-[4.5rem]` (72px), the header carries
+   `pt-safe`, and it has a 1px bottom border, so on a phone those panes ran
+   17px to 65px past the bottom of the viewport depending on the status-bar
+   inset. On /play that pushed the sticky transport bar (play/pause, progress)
+   off screen, and since the phone layout gives the shell a single 100%-height
+   child there was no internal scroll to reach it with.
+
+   Keep this in sync with Header.svelte's row height if that ever changes.
+   --------------------------------------------------------------------------- */
+:root {
+	--header-row-h: 4.5rem;
+	--header-h: calc(var(--header-row-h) + env(safe-area-inset-top) + 1px);
+}
+
+@media (min-width: 640px) {
+	:root {
+		--header-row-h: 3.5rem;
+	}
+}
+
 /* ===========================================================================
    P5 — native motion / touch tuning (global). Owns overscroll-behavior,
    touch-action defaults, and route-transition motion. Distinct from P3's
@@ -299,6 +323,38 @@
 		content: '';
 		position: absolute;
 		inset: -12px;
+	}
+	/* Thumb-sized hit area for a range input.
+	   These paint their track with the ELEMENT's own background, so the visual
+	   height and the hit area were the same 4px to 12px: a drag starting a few
+	   pixels off the centerline missed the slider entirely and scrolled the page,
+	   and the value never moved. Vertical padding grows the element, and therefore
+	   the hit area, while background-clip keeps the painted track exactly as thick
+	   as it was. */
+	.range-touch {
+		/* content-box matters: Tailwind sets border-box globally, so on an `h-2`
+		   input the padding below would eat the whole 8px and leave no track at
+		   all. Here the h-* utility becomes the CONTENT height and the padding is
+		   added around it. */
+		box-sizing: content-box;
+		padding-block: 10px;
+		background-clip: content-box;
+	}
+
+	/* Vertical-only halo, for a control that sits beside another control.
+	   `.tap-target` also implies `position: relative`, so its halo paints above
+	   static in-flow siblings: a 12px horizontal reach across a 2-4px gap covered
+	   8-10px of the neighbour and swallowed taps meant for it. Where controls are
+	   stacked horizontally there is no free room sideways anyway, so grow only up
+	   and down and let the gap stay honest. */
+	.tap-target-y {
+		position: relative;
+		touch-action: manipulation;
+	}
+	.tap-target-y::after {
+		content: '';
+		position: absolute;
+		inset: -12px 0;
 	}
 	/* Tighter / roomier halos for cramped rows or generous bars. */
 	.tap-target-sm {

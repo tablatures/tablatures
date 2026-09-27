@@ -345,7 +345,7 @@
 
 <Header bind:this={headerRef} showSearch={true} on:search={handleHeaderSearch} on:openTab={handleHeaderOpenTab} />
 
-<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-3.5rem)]">
+<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[calc(100dvh-var(--header-h))]">
 	<PullToRefresh on:refresh={handlePullRefresh}>
 	<!-- Shared playlist banner -->
 	{#if sharedPlaylist && !sharedPlaylistDismissed}

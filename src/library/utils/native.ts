@@ -52,28 +52,71 @@ export async function saveFile(
 	document.body.removeChild(a);
 }
 
-// Save a file to a durable, user-accessible location — a TRUE download, not a
-// share sheet. Web: trigger an anchor download. Native (Android): write into the
-// device's public Documents collection via Capacitor Filesystem. On Android 11+
-// this uses scoped storage (MediaStore) so it needs NO runtime storage
-// permission, and the file is visible to the user / other apps under
-// /Documents. Returns the human-readable save location on native (null on web,
-// where the browser owns the download UI).
+// Strip anything that would turn a file name into a path or upset the
+// filesystem. The score title goes straight into `path`, and Filesystem.writeFile
+// runs with `recursive: true`, so a title like "AC/DC - Highway to Hell" used to
+// create a Documents/AC/ directory and bury the file inside it. Browsers sanitise
+// a[download] for us, native does not.
+function safeFileName(name: string, fallback = 'song'): string {
+	const dot = name.lastIndexOf('.');
+	// Only a short trailing group counts as an extension, never a dot in a title.
+	const hasExt = dot > 0 && dot >= name.length - 8;
+	const ext = hasExt ? name.slice(dot) : '';
+	const base = (hasExt ? name.slice(0, dot) : name)
+		// Path separators plus the characters Android rejects in a file name.
+		.replace(/[/\\:*?"<>|]/g, '-')
+		// Control characters, which a malformed score title can carry.
+		// eslint-disable-next-line no-control-regex
+		.replace(/[\u0000-\u001f]/g, '')
+		// A leading dot would hide the file, or at worst form a ".." segment.
+		.replace(/^\.+/, '')
+		.trim();
+	// Keep the whole name well inside the usual 255-byte limit.
+	return (base.slice(0, 120).trim() || fallback) + ext;
+}
+
+// Save a file to a durable, user-accessible location, a real download rather
+// than a share sheet. Web: trigger an anchor download. Native: write into the
+// device's Documents collection via Capacitor Filesystem. Returns the
+// human-readable save location on native (null on web, where the browser owns
+// the download UI).
+//
+// Directory.Documents is a PUBLIC directory, so below Android 11 the plugin gates
+// it behind READ/WRITE_EXTERNAL_STORAGE. Those are declared with
+// android:maxSdkVersion="29" in the manifest for exactly this call. If the write
+// still fails (permission refused, API 29 scoped storage, no space) we fall back
+// to the cache + share-sheet path, which needs no permission on any version.
+// Before this fallback existed, every download on Android 7 to 10 died on an
+// immediate DENIED with no prompt and surfaced as a bare "Download failed".
 export async function downloadFile(
 	fileName: string,
 	data: BlobPart,
 	mimeType = 'application/octet-stream'
 ): Promise<{ location: string | null }> {
 	if (isNative()) {
-		const { Filesystem, Directory } = await import('@capacitor/filesystem');
+		const safeName = safeFileName(fileName);
 		const base64 = await blobToBase64(new Blob([data], { type: mimeType }));
-		await Filesystem.writeFile({
-			path: fileName,
-			data: base64,
-			directory: Directory.Documents,
-			recursive: true
-		});
-		return { location: 'Documents' };
+		try {
+			const { Filesystem, Directory } = await import('@capacitor/filesystem');
+			await Filesystem.writeFile({
+				path: safeName,
+				data: base64,
+				directory: Directory.Documents,
+				recursive: true
+			});
+			return { location: 'Documents' };
+		} catch (err) {
+			console.warn('[native] Documents write failed, falling back to share sheet', err);
+			const { Filesystem, Directory } = await import('@capacitor/filesystem');
+			const { Share } = await import('@capacitor/share');
+			const { uri } = await Filesystem.writeFile({
+				path: safeName,
+				data: base64,
+				directory: Directory.Cache
+			});
+			await Share.share({ title: safeName, url: uri });
+			return { location: null };
+		}
 	}
 
 	const a = document.createElement('a');
@@ -143,15 +186,11 @@ export async function syncStatusBar(isDark: boolean): Promise<void> {
 
 // Register a handler for the Android hardware back button. The callback gets
 // whether the WebView can navigate back; returns an unsubscribe function.
-export async function onBackButton(
-	handler: (canGoBack: boolean) => void
-): Promise<() => void> {
+export async function onBackButton(handler: (canGoBack: boolean) => void): Promise<() => void> {
 	if (!isNative()) return () => {};
 	try {
 		const { App } = await import('@capacitor/app');
-		const sub = await App.addListener('backButton', ({ canGoBack }) =>
-			handler(!!canGoBack)
-		);
+		const sub = await App.addListener('backButton', ({ canGoBack }) => handler(!!canGoBack));
 		return () => sub.remove();
 	} catch {
 		return () => {};
@@ -162,9 +201,7 @@ export async function onBackButton(
 // via an https://tablatures.org URL (see AndroidManifest intent-filter), the App
 // plugin fires `appUrlOpen` with the full URL; the handler routes its
 // path+query into the SPA router. Returns an unsubscribe fn. No-op on web.
-export async function onAppUrlOpen(
-	handler: (url: string) => void
-): Promise<() => void> {
+export async function onAppUrlOpen(handler: (url: string) => void): Promise<() => void> {
 	if (!isNative()) return () => {};
 	try {
 		const { App } = await import('@capacitor/app');
@@ -317,15 +354,11 @@ export async function hapticTap(): Promise<void> {
 // Register a handler for foreground/background transitions (native only). The
 // callback receives whether the app is now active. Returns an unsubscribe fn.
 // No-op on the web (use the Page Visibility API there).
-export async function onAppStateChange(
-	handler: (isActive: boolean) => void
-): Promise<() => void> {
+export async function onAppStateChange(handler: (isActive: boolean) => void): Promise<() => void> {
 	if (!isNative()) return () => {};
 	try {
 		const { App } = await import('@capacitor/app');
-		const sub = await App.addListener('appStateChange', ({ isActive }) =>
-			handler(!!isActive)
-		);
+		const sub = await App.addListener('appStateChange', ({ isActive }) => handler(!!isActive));
 		return () => sub.remove();
 	} catch {
 		return () => {};
@@ -360,9 +393,7 @@ export async function lockOrientation(mode: OrientationLockMode = 'portrait'): P
 		}
 	}
 	try {
-		await (screen.orientation as unknown as { lock?: (m: string) => Promise<void> })?.lock?.(
-			mode
-		);
+		await (screen.orientation as unknown as { lock?: (m: string) => Promise<void> })?.lock?.(mode);
 	} catch {
 		// unsupported outside fullscreen
 	}
@@ -394,9 +425,7 @@ export type KeyboardResizeMode = 'body' | 'ionic' | 'native' | 'none';
 // Fires when the soft keyboard is about to show; the callback gets its height
 // in px so a focused field can be scrolled into view. Native only; returns an
 // unsubscribe fn.
-export async function onKeyboardShow(
-	handler: (height: number) => void
-): Promise<() => void> {
+export async function onKeyboardShow(handler: (height: number) => void): Promise<() => void> {
 	if (!isNative()) return () => {};
 	try {
 		const { Keyboard } = await import('@capacitor/keyboard');

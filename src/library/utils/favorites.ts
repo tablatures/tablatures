@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { dataReady } from '../data/init';
 import { favoritesRepo, type FavoriteRow } from '../data/repositories';
 import { setTabPinned, ensureTabBytesStored, releaseFavoriteBytes } from '../data/tabBytes';
+import { toastStore } from './toast';
 
 export interface FavoriteItem {
 	id: string;
@@ -88,7 +89,17 @@ function createFavoritesStore() {
 							addedAt
 						})
 					)
-					.catch(() => {});
+					.catch((err) => {
+						// A failed write used to be swallowed whole. The optimistic update
+						// above stayed on screen and the caller had already toasted
+						// success, so on a device that is out of storage the user starred
+						// tab after tab, saw a filled star every time, and discovered on
+						// the next launch that none of it was kept. Roll the store back so
+						// the UI stops claiming something that is not true.
+						console.error('[favorites] could not persist favorite', err);
+						update((items) => items.filter((f) => f.id !== item.id));
+						toastStore.error('Could not save this favorite on the device');
+					});
 				// Pin the on-device tab row (if any) so the LRU never evicts a
 				// favorited tab's cached bytes.
 				void setTabPinned(item.id, true);

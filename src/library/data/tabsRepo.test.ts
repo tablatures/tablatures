@@ -39,10 +39,44 @@ describe('tabsRepo', () => {
 		const evicted = await tabsRepo.enforceBudget(200 * MB);
 		expect(evicted).toEqual(['old']);
 
+		// Eviction reclaims BYTES, it does not delete the row. The row is also the
+		// History entry and the local-search index entry, so dropping it made a tab
+		// disappear from both when the user had only asked to cap disk use.
 		const remaining = (await db.query<{ id: string }>('SELECT id FROM tabs ORDER BY id')).map(
 			(r) => r.id
 		);
-		expect(remaining).toEqual(['new', 'saved']);
+		expect(remaining).toEqual(['new', 'old', 'saved']);
+
+		const evictedRow = await tabsRepo.get('old');
+		expect(evictedRow?.blob_path).toBeNull();
+		expect(evictedRow?.byte_size).toBe(0);
+
+		// The rows that kept their bytes are untouched.
+		expect((await tabsRepo.get('new'))?.byte_size).toBe(60 * MB);
+		expect((await tabsRepo.get('saved'))?.byte_size).toBe(100 * MB);
+	});
+
+	it('enforceBudget never evicts imported rows, even once unpinned', async () => {
+		const { db, tabsRepo } = await freshTestDb();
+		// An imported file the user unpinned via Settings > "Unpin saved tabs".
+		await insertTab(db, 'mine', { size: 150 * MB, pinned: 0, lastOpened: 1, kind: 'imported' });
+		await insertTab(db, 'cached', { size: 100 * MB, pinned: 0, lastOpened: 20 });
+
+		// 250MB against a 200MB budget. 'mine' is the oldest and would be the LRU
+		// pick, but its bytes exist nowhere else, so 'cached' must go instead.
+		expect(await tabsRepo.enforceBudget(200 * MB)).toEqual(['cached']);
+		expect((await tabsRepo.get('mine'))?.byte_size).toBe(150 * MB);
+	});
+
+	it('unpinAll leaves imported rows pinned', async () => {
+		const { db, tabsRepo } = await freshTestDb();
+		await insertTab(db, 'saved', { size: 1, pinned: 1, kind: 'saved' });
+		await insertTab(db, 'mine', { size: 1, pinned: 1, kind: 'imported' });
+
+		await tabsRepo.unpinAll();
+
+		expect((await tabsRepo.get('saved'))?.pinned).toBeFalsy();
+		expect((await tabsRepo.get('mine'))?.pinned).toBeTruthy();
 	});
 
 	it('touch updates last_opened_at', async () => {

@@ -75,7 +75,7 @@
 		aria-valuemin={min}
 		aria-valuemax={max}
 		aria-valuenow={value}
-		class="setting-range
+		class="setting-range range-touch
 		w-full h-3 cursor-pointer rounded bg-transparent
 		accent-violet-600 dark:accent-violet-400 appearance-none
 
