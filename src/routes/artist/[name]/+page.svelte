@@ -14,6 +14,7 @@
 	import PullToRefresh from '$components/PullToRefresh.svelte';
 	import EmptyState from '$components/EmptyState.svelte';
 	import OfflineNotice from '$components/OfflineNotice.svelte';
+	import Seo from '$components/Seo.svelte';
 	import { openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
@@ -21,6 +22,7 @@
 	import { toastStore } from '$utils/toast';
 	import { shareLink } from '$utils/native';
 	import { shareUrl } from '$utils/shareUrl';
+	import { artistDescription, musicGroupJsonLd, pageTitle } from '$utils/seo';
 	import { fetchArtworkBatch } from '$utils/artwork';
 	import { getSourceDisplay } from '$utils/sources';
 	import { inViewport } from '$utils/inViewport';
@@ -500,11 +502,36 @@
 	function handlePullRefresh() {
 		if (artistName) return load(artistName, true);
 	}
+
+	// Head metadata. The route param is the source of truth for the canonical
+	// URL: `info` arrives later (or not at all, offline), and the canonical must
+	// not move once the bio loads.
+	$: routeName = decodeURIComponent($page.params.name || '') || artistName;
+	$: displayName = info?.name || routeName;
+	$: metaDescription = artistDescription({
+		name: displayName,
+		genre: info?.genre,
+		tabCount: info?.tabCount,
+		bio: info?.bio
+	});
+	$: artistImage = safeImageUrl(info?.image) || safeImageUrl(info?.banner) || '';
 </script>
 
-<svelte:head>
-	<title>{info?.name || artistName} - Tablatures</title>
-</svelte:head>
+<Seo
+	title={pageTitle(`${displayName} tabs`)}
+	description={metaDescription}
+	path={`/artist/${encodeURIComponent(routeName)}`}
+	image={artistImage}
+	type="profile"
+	jsonLd={displayName
+		? musicGroupJsonLd({
+				name: displayName,
+				genre: info?.genre,
+				image: artistImage,
+				description: info?.bio
+			})
+		: null}
+/>
 
 <Header showSearch={true} on:search={(e) => goto(`${base}/search?q=${encodeURIComponent(e.detail)}`)} />
 
@@ -526,7 +553,7 @@
 	/>
 {:else if notFound}
 	<div class="flex flex-col items-center justify-center py-24">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">person_off</i>
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">person_off</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">Artist "{artistName}" not found</p>
 		<a href="{base}/search?q={encodeURIComponent(artistName)}" class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors">
 			Search instead
@@ -605,7 +632,7 @@
 					aria-label={isFollowed ? 'Remove from favorite artists' : 'Add to favorite artists'}
 					aria-pressed={isFollowed}
 				>
-					<i class="material-icons !text-xl">{isFollowed ? 'favorite' : 'favorite_border'}</i>
+					<i class="material-icons !text-xl" aria-hidden="true">{isFollowed ? 'favorite' : 'favorite_border'}</i>
 				</button>
 				<button
 					on:click={shareArtist}
@@ -613,7 +640,7 @@
 					title="Share artist"
 					aria-label="Share artist"
 				>
-					<i class="material-icons !text-lg">share</i>
+					<i class="material-icons !text-lg" aria-hidden="true">share</i>
 				</button>
 			</div>
 		</div>
@@ -650,13 +677,13 @@
 						<div class="relative w-32 h-32 sm:w-40 sm:h-40 rounded-xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 shadow-sm group-hover:shadow-lg transition-all border-2 {openAlbum?.deezerId === album.deezerId ? 'border-violet-500' : 'border-transparent'}">
 							{#if openAlbum?.deezerId === album.deezerId}
 								<div class="absolute bottom-1.5 right-1.5 z-10 w-7 h-7 rounded-full bg-violet-500 text-white flex items-center justify-center shadow">
-									<i class="material-icons !text-base">queue_music</i>
+									<i class="material-icons !text-base" aria-hidden="true">queue_music</i>
 								</div>
 							{/if}
 							{#if album.cover}
 								<img src={album.cover} alt={album.title} loading="lazy" use:fadeInImage={album.cover} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
 							{:else}
-								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600">album</i></div>
+								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600" aria-hidden="true">album</i></div>
 							{/if}
 						</div>
 						<div class="mt-1.5 px-0.5">
@@ -683,14 +710,14 @@
 								on:click={() => playAlbum()}
 								class="flex items-center gap-1 px-4 py-1.5 rounded-full bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
 							>
-								<i class="material-icons !text-lg">play_arrow</i> Play all
+								<i class="material-icons !text-lg" aria-hidden="true">play_arrow</i> Play all
 							</button>
-							<button
+							<button aria-label="Save as playlist"
 								on:click={saveAlbumAsPlaylist}
 								class="flex items-center gap-1 px-3 py-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-sm hover:bg-neutral-300 dark:hover:bg-neutral-700 transition-colors"
 								title="Save as playlist"
 							>
-								<i class="material-icons !text-lg">playlist_add</i>
+								<i class="material-icons !text-lg" aria-hidden="true">playlist_add</i>
 							</button>
 						{/if}
 					</div>
@@ -714,7 +741,7 @@
 										{#if track.duration}
 											<span class="text-xs text-neutral-400 tabular-nums">{fmtDuration(track.duration)}</span>
 										{/if}
-										<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">play_arrow</i>
+										<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors" aria-hidden="true">play_arrow</i>
 									</button>
 								{:else if resolvingTracks.has(track.position)}
 									<!-- Background catalog lookup in flight -->
@@ -727,7 +754,7 @@
 										{#if track.duration}
 											<span class="text-xs text-neutral-300 dark:text-neutral-600 tabular-nums">{fmtDuration(track.duration)}</span>
 										{/if}
-										<i class="material-icons !text-lg text-violet-400 animate-spin">progress_activity</i>
+										<i class="material-icons !text-lg text-violet-400 animate-spin" aria-hidden="true">progress_activity</i>
 									</div>
 								{:else}
 									<!-- No tab yet: click runs a search (live results get added to the catalog) -->
@@ -744,7 +771,7 @@
 										{#if track.duration}
 											<span class="text-xs text-neutral-300 dark:text-neutral-600 tabular-nums">{fmtDuration(track.duration)}</span>
 										{/if}
-										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors">search</i>
+										<i class="material-icons !text-lg text-neutral-300 dark:text-neutral-600 group-hover/track:text-violet-400 transition-colors" aria-hidden="true">search</i>
 									</a>
 								{/if}
 							{/each}
@@ -774,7 +801,7 @@
 							{#if simImg}
 								<img src={simImg} use:fadeInImage={simImg} alt={sim.name} loading="lazy" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
-								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600">person</i></div>
+								<div class="w-full h-full flex items-center justify-center"><i class="material-icons !text-3xl text-neutral-300 dark:text-neutral-600" aria-hidden="true">person</i></div>
 							{/if}
 						</div>
 						<div class="mt-1.5 text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate group-hover:text-violet-500">{sim.name}</div>
@@ -795,7 +822,7 @@
 			</div>
 		{:else if allTabs.length === 0 && !allTabsLoading}
 			<div class="rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 px-6 py-10 text-center mb-10">
-				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2">travel_explore</i>
+				<i class="material-icons !text-4xl text-neutral-300 dark:text-neutral-600 mb-2" aria-hidden="true">travel_explore</i>
 				<p class="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
 					No tabs found for {info.name} yet. Try a full search - anything found is added automatically.
 				</p>
@@ -803,7 +830,7 @@
 					href="{base}/search?q={encodeURIComponent(info.name)}"
 					class="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
 				>
-					<i class="material-icons !text-lg">search</i>
+					<i class="material-icons !text-lg" aria-hidden="true">search</i>
 					Search {info.name}
 				</a>
 			</div>

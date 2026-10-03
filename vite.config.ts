@@ -75,8 +75,9 @@ const config: UserConfig = {
 			kit: {
 				// Mirror svelte.config (default 'never') or offline navigation 404s.
 				trailingSlash: 'never',
-				// adapter-static falls back to index.html for SPA routing offline.
-				adapterFallback: 'index.html'
+				// Must match the adapter-static `fallback` in svelte.config.js: the
+				// static routes are prerendered, so the SPA fallback is 404.html.
+				adapterFallback: '404.html'
 			}
 		})
 	],

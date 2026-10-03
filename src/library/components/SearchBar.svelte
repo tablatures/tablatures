@@ -241,7 +241,7 @@
 
 <div class="relative {compact ? '' : 'w-full max-w-2xl'}">
 	<div class="relative flex items-center">
-		<i class="material-icons !text-lg absolute left-3 text-neutral-500 dark:text-neutral-400 pointer-events-none">search</i>
+		<i class="material-icons !text-lg absolute left-3 text-neutral-500 dark:text-neutral-400 pointer-events-none" aria-hidden="true">search</i>
 		<!-- svelte-ignore a11y-autofocus -->
 		<input
 			bind:this={inputEl}
@@ -274,7 +274,7 @@
 					title="Clear search"
 					aria-label="Clear search"
 				>
-					<i class="material-icons !text-base">close</i>
+					<i class="material-icons !text-base" aria-hidden="true">close</i>
 				</button>
 			{/if}
 			<button
@@ -291,7 +291,7 @@
 				{#if loading || openingResult}
 					<LoadingScore size="xs" message="" />
 				{:else}
-					<i class="material-icons !text-base">arrow_forward</i>
+					<i class="material-icons !text-base" aria-hidden="true">arrow_forward</i>
 				{/if}
 			</button>
 		</div>
@@ -322,21 +322,21 @@
 							{#if recentArtwork[item.id]}
 								<img src={recentArtwork[item.id]} alt="" use:fadeInImage={recentArtwork[item.id]} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
 							{:else}
-								<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">history</i>
+								<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400" aria-hidden="true">history</i>
 							{/if}
 						</div>
 						<div class="flex-1 min-w-0">
 							<div class="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">{item.title}</div>
 							<div class="text-xs text-neutral-500 dark:text-neutral-400 truncate">{item.artist}</div>
 						</div>
-						<button
+						<button aria-label="Search {item.artist}"
 							class="tap-target-sm flex-shrink-0 p-1 rounded-full text-neutral-300 dark:text-neutral-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
 							on:pointerdown|preventDefault|stopPropagation={(e) => searchArtist(item.artist, e)}
 							title="Search {item.artist}"
 						>
-							<i class="material-icons !text-sm">person_search</i>
+							<i class="material-icons !text-sm" aria-hidden="true">person_search</i>
 						</button>
-						<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0">open_in_new</i>
+						<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0" aria-hidden="true">open_in_new</i>
 					</button>
 				{/each}
 			{/if}
@@ -366,7 +366,7 @@
 							{#if s.image}
 								<img src={s.image} alt="" loading="lazy" use:fadeInImage={s.image} class="w-full h-full object-cover" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display = 'none'; }} />
 							{:else}
-								<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{suggestionIcon(s.type)}</i>
+								<i class="material-icons !text-base {s.type === 'artist' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">{suggestionIcon(s.type)}</i>
 							{/if}
 						</div>
 						<div class="flex-1 min-w-0">
@@ -399,11 +399,11 @@
 					class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-violet-50 dark:hover:bg-violet-900/20 border-t border-neutral-100 dark:border-neutral-800 transition-colors"
 					on:pointerdown|preventDefault={runSearch}
 				>
-					<i class="material-icons !text-lg text-violet-500 flex-shrink-0">search</i>
+					<i class="material-icons !text-lg text-violet-500 flex-shrink-0" aria-hidden="true">search</i>
 					<span class="text-sm text-neutral-700 dark:text-neutral-200 truncate">
 						See all results for "<span class="font-medium">{value.trim()}</span>"
 					</span>
-					<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0 ml-auto">arrow_forward</i>
+					<i class="material-icons !text-base text-neutral-300 dark:text-neutral-600 flex-shrink-0 ml-auto" aria-hidden="true">arrow_forward</i>
 				</button>
 			{/if}
 

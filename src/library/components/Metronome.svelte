@@ -136,7 +136,7 @@
 				class="flex items-center justify-between px-5 py-3 border-b border-neutral-100 dark:border-neutral-800"
 			>
 				<div class="flex items-center gap-2.5 text-neutral-700 dark:text-neutral-300">
-					<i class="material-icons-outlined !text-2xl text-violet-500">graphic_eq</i>
+					<i class="material-icons-outlined !text-2xl text-violet-500" aria-hidden="true">graphic_eq</i>
 					<span class="font-semibold text-sm">Metronome</span>
 				</div>
 				<button
@@ -145,7 +145,7 @@
 						text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 					aria-label="Close metronome"
 				>
-					<i class="material-icons !text-xl">close</i>
+					<i class="material-icons !text-xl" aria-hidden="true">close</i>
 				</button>
 			</div>
 
@@ -192,7 +192,7 @@
 						class="flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95 transition-all select-none"
 						aria-label="Decrease tempo"
 					>
-						<i class="material-icons !text-2xl">remove</i>
+						<i class="material-icons !text-2xl" aria-hidden="true">remove</i>
 					</button>
 					<input
 						type="range"
@@ -219,7 +219,7 @@
 						class="flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 active:scale-95 transition-all select-none"
 						aria-label="Increase tempo"
 					>
-						<i class="material-icons !text-2xl">add</i>
+						<i class="material-icons !text-2xl" aria-hidden="true">add</i>
 					</button>
 				</div>
 
@@ -253,7 +253,7 @@
 						bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700"
 					aria-label="Tap tempo"
 				>
-					<i class="material-icons-outlined !text-xl">touch_app</i>
+					<i class="material-icons-outlined !text-xl" aria-hidden="true">touch_app</i>
 					<span>Tap Tempo</span>
 				</button>
 
@@ -268,7 +268,7 @@
 								: 'bg-violet-500 hover:bg-violet-600'}"
 						aria-label={state.playing ? 'Stop metronome' : 'Start metronome'}
 					>
-						<i class="material-icons !text-2xl">{state.playing ? 'stop' : 'play_arrow'}</i>
+						<i class="material-icons !text-2xl" aria-hidden="true">{state.playing ? 'stop' : 'play_arrow'}</i>
 						<span>{state.playing ? 'Stop' : 'Start'}</span>
 					</button>
 					<span class="text-[10px] text-neutral-400 dark:text-neutral-500 hidden sm:inline">

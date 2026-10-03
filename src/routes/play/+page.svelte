@@ -19,6 +19,8 @@
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
+	import Seo from '../../library/components/Seo.svelte';
+	import { pageTitle } from '../../library/utils/seo';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -40,6 +42,15 @@
 
 	$: data = currentTab ? { fileAsB64: currentTab.fileAsB64 } : {};
 	$: hasTab = currentTab?.fileAsB64;
+	// "<song> by <artist> tab" is how someone searches for this page. The
+	// canonical stays the bare /play for every tab, since a tab is not a URL of
+	// its own, but the title is still what a browser tab and a share preview
+	// show.
+	$: playTitle = currentTab?.title
+		? currentTab.artist
+			? `${currentTab.title} by ${currentTab.artist} tab`
+			: `${currentTab.title} tab`
+		: 'Guitar Pro tab player';
 	// A tab open was requested (from a list item) and its bytes haven't landed
 	// yet — show the loading state instead of the stale/empty tab. Cleared by
 	// openTabById once bytes arrive or on failure.
@@ -507,9 +518,13 @@
 	});
 </script>
 
-<svelte:head>
-	<title>{currentTab?.title ? `${currentTab.title} - Tablatures` : 'Tablatures'}</title>
-</svelte:head>
+<!-- The tab itself comes from ?tab=, so the canonical points at the bare
+     /play page and every loaded tab consolidates onto it. -->
+<Seo
+	title={pageTitle(playTitle)}
+	description="Play any Guitar Pro tab with real instrument sounds. Change the tempo, loop a passage, mute or merge tracks, transpose, and follow the score as it plays."
+	path="/play"
+/>
 
 <Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
 
@@ -519,7 +534,7 @@
 	</div>
 {:else if sharedTabError}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">error_outline</i>
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">error_outline</i>
 		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
 		<div class="flex gap-3 mt-2">
 			<button
@@ -615,12 +630,12 @@
 			aria-label="Back to top"
 			title="Back to top"
 		>
-			<i class="material-icons !text-xl">keyboard_arrow_up</i>
+			<i class="material-icons !text-xl" aria-hidden="true">keyboard_arrow_up</i>
 		</button>
 	{/if}
 {:else}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4">music_off</i>
+		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">music_off</i>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">No tab loaded</p>
 		<a
 			href="{base}/"

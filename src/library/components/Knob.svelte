@@ -148,7 +148,9 @@
 		<div
 			class="absolute inset-0 flex items-center justify-center transition-transform group-focus:scale-110"
 		>
-			<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400">{icon}</i>
+			<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400" aria-hidden="true"
+				>{icon}</i
+			>
 		</div>
 	</div>
 	<button

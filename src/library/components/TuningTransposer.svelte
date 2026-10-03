@@ -217,7 +217,7 @@
 			<p
 				class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
 			>
-				<i class="material-icons !text-sm">swap_vert</i>
+				<i class="material-icons !text-sm" aria-hidden="true">swap_vert</i>
 				Transpose to
 			</p>
 			<select
@@ -263,7 +263,7 @@
 			<p
 				class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-2 font-medium"
 			>
-				<i class="material-icons !text-sm">straighten</i>
+				<i class="material-icons !text-sm" aria-hidden="true">straighten</i>
 				Capo
 			</p>
 			<div class="flex items-center gap-2">
@@ -273,7 +273,7 @@
 					class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
 					aria-label="Lower capo"
 				>
-					<i class="material-icons !text-lg">remove</i>
+					<i class="material-icons !text-lg" aria-hidden="true">remove</i>
 				</button>
 				<input
 					type="range"
@@ -295,7 +295,7 @@
 					class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
 					aria-label="Raise capo"
 				>
-					<i class="material-icons !text-lg">add</i>
+					<i class="material-icons !text-lg" aria-hidden="true">add</i>
 				</button>
 				<span
 					class="text-xs font-mono w-14 text-center flex-shrink-0 px-2 py-1.5 rounded-lg
@@ -314,7 +314,7 @@
 				<p
 					class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500 font-medium"
 				>
-					<i class="material-icons !text-sm">height</i>
+					<i class="material-icons !text-sm" aria-hidden="true">height</i>
 					Octave shift
 				</p>
 				<p class="text-[10px] text-neutral-400 dark:text-neutral-500">Shift notes up or down</p>
@@ -358,7 +358,7 @@
 					? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-400 cursor-not-allowed'
 					: 'bg-violet-500 hover:bg-violet-600 text-white shadow-sm'}"
 			>
-				<i class="material-icons !text-base align-middle mr-1.5">swap_vert</i>
+				<i class="material-icons !text-base align-middle mr-1.5" aria-hidden="true">swap_vert</i>
 				Transpose
 			</button>
 			{#if isTransposed}
@@ -366,7 +366,7 @@
 					on:click={resetTransposition}
 					class="w-full px-4 py-2.5 text-sm font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors active:scale-[0.98]"
 				>
-					<i class="material-icons !text-base align-middle mr-1.5">undo</i>
+					<i class="material-icons !text-base align-middle mr-1.5" aria-hidden="true">undo</i>
 					Reset to original
 					<span class="text-neutral-400 dark:text-neutral-500 ml-1"
 						>({sourcePresetName ?? formatSourceTuning(sourceTuning)})</span
@@ -383,7 +383,7 @@
 					: 'bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400'}"
 			>
 				{#if lastResult.success}
-					<i class="material-icons !text-sm align-middle mr-1">check_circle</i>
+					<i class="material-icons !text-sm align-middle mr-1" aria-hidden="true">check_circle</i>
 					Transposed {lastResult.transposedCount} notes successfully
 					{#if lastResult.appliedOctaveShift !== 0}
 						<span class="block mt-1"
@@ -393,7 +393,7 @@
 						>
 					{/if}
 				{:else}
-					<i class="material-icons !text-sm align-middle mr-1">warning</i>
+					<i class="material-icons !text-sm align-middle mr-1" aria-hidden="true">warning</i>
 					{lastResult.transposedCount} transposed, {lastResult.unplayableNotes.length} out of range
 					{#if suggestionHint}
 						<span class="block mt-1 text-violet-500">{suggestionHint}</span>

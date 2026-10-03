@@ -113,12 +113,13 @@
 					</div>
 					<div class="flex items-center gap-0.5 flex-shrink-0 opacity-40 pointer-events-none">
 						<span class="w-8 h-8 flex items-center justify-center text-neutral-400"
-							><i class="material-icons !text-base"
+							><i class="material-icons !text-base" aria-hidden="true"
 								>{trackSolos[i] ? 'headphones' : 'headset_off'}</i
 							></span
 						>
 						<span class="w-8 h-8 flex items-center justify-center text-neutral-400"
-							><i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i
+							><i class="material-icons !text-base" aria-hidden="true"
+								>{trackMutes[i] ? 'volume_off' : 'volume_up'}</i
 							></span
 						>
 						<span
@@ -162,7 +163,8 @@
 							title="Solo"
 							aria-label="Solo {track.name}"
 						>
-							<i class="material-icons !text-base">{trackSolos[i] ? 'headphones' : 'headset_off'}</i
+							<i class="material-icons !text-base" aria-hidden="true"
+								>{trackSolos[i] ? 'headphones' : 'headset_off'}</i
 							>
 						</button>
 						<button
@@ -174,7 +176,9 @@
 							title="Mute"
 							aria-label="Mute {track.name}"
 						>
-							<i class="material-icons !text-base">{trackMutes[i] ? 'volume_off' : 'volume_up'}</i>
+							<i class="material-icons !text-base" aria-hidden="true"
+								>{trackMutes[i] ? 'volume_off' : 'volume_up'}</i
+							>
 						</button>
 						<button
 							on:click={() => (expandedIndex = expandedIndex === i ? -1 : i)}

@@ -22,7 +22,7 @@
 			title={loopEnabled ? 'Loop on' : 'Loop off'}
 			aria-label={loopEnabled ? 'Disable loop' : 'Enable loop'}
 		>
-			<i class="material-icons !text-lg">repeat</i>
+			<i class="material-icons !text-lg" aria-hidden="true">repeat</i>
 		</button>
 		<div class="flex-1 min-w-0 leading-tight">
 			<p
@@ -42,14 +42,14 @@
 			title="Clear loop"
 			aria-label="Clear loop"
 		>
-			<i class="material-icons !text-base">close</i>
+			<i class="material-icons !text-base" aria-hidden="true">close</i>
 		</button>
 	</div>
 {:else}
 	<p
 		class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 text-[11px] text-neutral-500 dark:text-neutral-400"
 	>
-		<i class="material-icons !text-sm">info_outline</i>
+		<i class="material-icons !text-sm" aria-hidden="true">info_outline</i>
 		Drag on the progress bar to set a loop region
 	</p>
 {/if}

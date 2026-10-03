@@ -1,0 +1,10 @@
+# Tablatures: https://tablatures.org
+#
+# Everything is crawlable. /playlist is kept out of the index by a noindex
+# meta tag rather than a Disallow here, because a disallowed URL is never
+# fetched and its noindex would never be seen.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://tablatures.org/sitemap.xml

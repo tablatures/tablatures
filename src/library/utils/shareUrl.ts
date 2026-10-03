@@ -4,11 +4,11 @@
 // shared link would be unopenable. Every share/copy path routes through
 // shareUrl() so links always point at the real public site.
 
-import { base } from '$app/paths';
+import { CANONICAL_ORIGIN, absoluteUrl } from './seo';
 
-// Overridable at build time via VITE_PUBLIC_ORIGIN; defaults to the live site.
-export const CANONICAL_ORIGIN: string =
-	import.meta.env.VITE_PUBLIC_ORIGIN || 'https://tablatures.org';
+// Re-exported for callers that only need the origin. The constant itself lives
+// in seo.ts, which canonical/og:url also build on, so the two can never drift.
+export { CANONICAL_ORIGIN };
 
 /**
  * Build an absolute share URL on the canonical origin for an app-relative
@@ -17,10 +17,5 @@ export const CANONICAL_ORIGIN: string =
  * query strings and hashes may be appended by the caller on the returned URL.
  */
 export function shareUrl(pathAndQuery = '/'): string {
-	const origin = CANONICAL_ORIGIN.replace(/\/+$/, '');
-	let suffix = pathAndQuery.startsWith('/') ? pathAndQuery : '/' + pathAndQuery;
-	if (base && suffix !== base && !suffix.startsWith(base + '/')) {
-		suffix = base + suffix;
-	}
-	return origin + suffix;
+	return absoluteUrl(pathAndQuery);
 }

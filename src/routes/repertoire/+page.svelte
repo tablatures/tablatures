@@ -20,6 +20,8 @@
 	import { setQueue } from '../../library/utils/playerStore';
 	import { shareLink } from '../../library/utils/native';
 	import { shareUrl } from '../../library/utils/shareUrl';
+	import Seo from '../../library/components/Seo.svelte';
+	import { pageTitle } from '../../library/utils/seo';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { activeVideoId } from '../../library/utils/playerStore';
@@ -339,9 +341,11 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Repertoire - Tablatures</title>
-</svelte:head>
+<Seo
+	title={pageTitle('Repertoire: your saved tabs and playlists')}
+	description="Everything you have saved: tabs, favorite artists, playlists and play history. Kept on your device, available offline, with no account to sign in to."
+	path="/repertoire"
+/>
 
 <Header bind:this={headerRef} showSearch={true} on:search={handleHeaderSearch} on:openTab={handleHeaderOpenTab} />
 
@@ -352,7 +356,7 @@
 		<div class="mb-4 p-4 rounded-xl border-2 border-violet-400 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/20 flex flex-col sm:flex-row items-start sm:items-center gap-3" transition:fade={{ duration: 150 }}>
 			<div class="flex-1 min-w-0">
 				<p class="text-sm font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
-					<i class="material-icons !text-lg">playlist_add</i>
+					<i class="material-icons !text-lg" aria-hidden="true">playlist_add</i>
 					Shared playlist: {sharedPlaylist.name}
 				</p>
 				<p class="text-xs text-violet-500 dark:text-violet-400 mt-0.5">
@@ -382,7 +386,7 @@
 	<!-- Page title -->
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-			<i class="material-icons-outlined !text-2xl text-violet-500">library_music</i>
+			<i class="material-icons-outlined !text-2xl text-violet-500" aria-hidden="true">library_music</i>
 			Repertoire
 		</h1>
 	</div>
@@ -397,7 +401,7 @@
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
 			<span class="flex items-center gap-1.5">
-				<i class="material-icons-outlined !text-base">favorite_border</i>
+				<i class="material-icons-outlined !text-base" aria-hidden="true">favorite_border</i>
 				Favorites
 			</span>
 			{#if activeTab === 'favorites'}
@@ -412,7 +416,7 @@
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
 			<span class="flex items-center gap-1.5">
-				<i class="material-icons-outlined !text-base">history</i>
+				<i class="material-icons-outlined !text-base" aria-hidden="true">history</i>
 				History
 			</span>
 			{#if activeTab === 'history'}
@@ -427,7 +431,7 @@
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
 			<span class="flex items-center gap-1.5">
-				<i class="material-icons-outlined !text-base">queue_music</i>
+				<i class="material-icons-outlined !text-base" aria-hidden="true">queue_music</i>
 				Playlists
 				{#if playlists.length > 0}
 					<span class="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">({playlists.length})</span>
@@ -582,7 +586,7 @@
 		<div transition:fade={{ duration: 150 }}>
 			<div class="flex items-center justify-between mb-3">
 				<h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
-					<i class="material-icons !text-lg text-neutral-400">history</i>
+					<i class="material-icons !text-lg text-neutral-400" aria-hidden="true">history</i>
 					History
 					<span class="text-xs font-normal text-neutral-500 dark:text-neutral-400">({historyItems.length})</span>
 				</h2>
@@ -591,7 +595,7 @@
 						on:click={() => historyStore.clearHistory()}
 						class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-danger-500 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-danger-50 dark:hover:bg-danger-900/20"
 					>
-						<i class="material-icons !text-base">delete_outline</i>
+						<i class="material-icons !text-base" aria-hidden="true">delete_outline</i>
 						Clear all history
 					</button>
 				{/if}
@@ -599,7 +603,7 @@
 
 			{#if historyItems.length === 0}
 				<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 flex flex-col items-center justify-center py-12 px-4">
-					<i class="material-icons !text-4xl text-neutral-200 dark:text-neutral-700 mb-3">history</i>
+					<i class="material-icons !text-4xl text-neutral-200 dark:text-neutral-700 mb-3" aria-hidden="true">history</i>
 					<p class="text-neutral-500 dark:text-neutral-400 text-sm">No recent tabs</p>
 				</div>
 			{:else}
@@ -624,12 +628,12 @@
 											onClick={() => openTab(item)}
 											swipeAction={{ icon: 'delete', label: 'Remove from history', run: () => removeHistoryItem(item.id) }}
 										>
-											<button
+											<button aria-label="Remove from history"
 												on:click|stopPropagation={() => removeHistoryItem(item.id)}
 												class="tap-target w-9 h-9 flex items-center justify-center rounded-lg text-danger-500 dark:text-danger-400 hover:bg-danger-500 hover:text-white dark:hover:bg-danger-500 dark:hover:text-white transition-colors opacity-0 group-hover:opacity-100 self-center"
 												title="Remove from history"
 											>
-												<i class="material-icons !text-lg">close</i>
+												<i class="material-icons !text-lg" aria-hidden="true">close</i>
 											</button>
 										</TabRow>
 									{/each}
@@ -647,7 +651,7 @@
 			<!-- Create new playlist -->
 			<div class="flex items-center justify-between mb-4">
 				<h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
-					<i class="material-icons !text-lg text-neutral-400">queue_music</i>
+					<i class="material-icons !text-lg text-neutral-400" aria-hidden="true">queue_music</i>
 					Playlists
 					<span class="text-xs font-normal text-neutral-500 dark:text-neutral-400">({playlists.length})</span>
 				</h2>
@@ -658,7 +662,7 @@
 							? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
 							: 'bg-violet-500 text-white hover:bg-violet-600'}"
 				>
-					<i class="material-icons !text-lg">{showNewPlaylist ? 'close' : 'add'}</i>
+					<i class="material-icons !text-lg" aria-hidden="true">{showNewPlaylist ? 'close' : 'add'}</i>
 					{showNewPlaylist ? 'Cancel' : 'New playlist'}
 				</button>
 			</div>
@@ -688,7 +692,7 @@
 
 			{#if playlists.length === 0 && !showNewPlaylist}
 				<div class="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 flex flex-col items-center justify-center py-12 px-4">
-					<i class="material-icons !text-4xl text-neutral-200 dark:text-neutral-700 mb-3">queue_music</i>
+					<i class="material-icons !text-4xl text-neutral-200 dark:text-neutral-700 mb-3" aria-hidden="true">queue_music</i>
 					<p class="text-neutral-500 dark:text-neutral-400 text-sm mb-3">No playlists yet</p>
 					<button
 						on:click={() => { showNewPlaylist = true; }}
@@ -714,7 +718,7 @@
 									{:else if covers.length > 0}
 										<img src={covers[0]} alt="" use:fadeInImage={covers[0]} class="w-full h-full object-cover" />
 									{:else}
-										<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600">queue_music</i>
+										<i class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600" aria-hidden="true">queue_music</i>
 									{/if}
 								</span>
 								<span class="flex-1 min-w-0">
@@ -725,20 +729,20 @@
 							</a>
 							<!-- Quick actions -->
 							<div class="absolute top-2 right-2 flex gap-1">
-								<button
+								<button aria-label="Play all"
 									on:click|stopPropagation={() => playPlaylist(pIndex, 0)}
 									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-violet-500 text-white shadow hover:bg-violet-600 transition-colors disabled:opacity-40"
 									disabled={playlist.entries.length === 0}
 									title="Play all"
 								>
-									<i class="material-icons !text-lg">play_arrow</i>
+									<i class="material-icons !text-lg" aria-hidden="true">play_arrow</i>
 								</button>
-								<button
+								<button aria-label="Delete playlist"
 									on:click|stopPropagation={() => deletePlaylist(pIndex)}
 									class="tap-target w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-neutral-800/90 text-neutral-400 hover:text-danger-500 shadow transition-colors opacity-0 group-hover:opacity-100"
 									title="Delete playlist"
 								>
-									<i class="material-icons !text-lg">delete_outline</i>
+									<i class="material-icons !text-lg" aria-hidden="true">delete_outline</i>
 								</button>
 							</div>
 						</div>

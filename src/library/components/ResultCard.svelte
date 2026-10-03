@@ -116,7 +116,7 @@
 			data-revealed={swipeRevealed}
 			aria-hidden="true"
 		>
-			<i class="material-icons !text-xl">{isFav ? 'heart_broken' : 'favorite'}</i>
+			<i class="material-icons !text-xl" aria-hidden="true">{isFav ? 'heart_broken' : 'favorite'}</i>
 		</div>
 	{/if}
 	<!-- Row is a div (not a button) so the nested action buttons — merged
@@ -187,7 +187,7 @@
 					<span
 						class="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/95 shadow-md opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200"
 					>
-						<i class="material-icons !text-xl sm:!text-2xl text-violet-600 ml-0.5">play_arrow</i>
+						<i class="material-icons !text-xl sm:!text-2xl text-violet-600 ml-0.5" aria-hidden="true">play_arrow</i>
 					</span>
 				</div>
 			{/if}
@@ -224,7 +224,7 @@
 					>
 						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
 						{mergedSourceLabel}
-						<i class="material-icons !text-sm -mr-0.5">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
+						<i class="material-icons !text-sm -mr-0.5" aria-hidden="true">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
 					</button>
 				{:else if source}
 					<span
@@ -255,13 +255,13 @@
 					aria-label="Add {title} to playlist"
 					title="Add to playlist"
 				>
-					<i class="material-icons !text-xl">playlist_add</i>
+					<i class="material-icons !text-xl" aria-hidden="true">playlist_add</i>
 				</button>
 			{/if}
 			<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="pill" />
 			<i
 				class="material-icons !text-2xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 transition-colors"
-				>play_arrow</i
+				 aria-hidden="true">play_arrow</i
 			>
 		</div>
 	</div>
@@ -292,9 +292,9 @@
 						</span>
 					</span>
 					{#if v.id === id}
-						<i class="material-icons !text-lg text-violet-500 shrink-0">check</i>
+						<i class="material-icons !text-lg text-violet-500 shrink-0" aria-hidden="true">check</i>
 					{:else}
-						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 shrink-0">play_arrow</i>
+						<i class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 group-hover:text-violet-400 shrink-0" aria-hidden="true">play_arrow</i>
 					{/if}
 				</button>
 			{/each}

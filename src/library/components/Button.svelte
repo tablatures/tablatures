@@ -45,7 +45,7 @@
 
 {#if href}
 	<a {href} class={base} title={title || label} aria-label={label || undefined} on:click>
-		{#if icon}<i class="material-icons {iconSize[size]}">{icon}</i>{/if}
+		{#if icon}<i class="material-icons {iconSize[size]}" aria-hidden="true">{icon}</i>{/if}
 		<slot />
 	</a>
 {:else}
@@ -57,7 +57,7 @@
 		aria-label={label || undefined}
 		on:click
 	>
-		{#if icon}<i class="material-icons {iconSize[size]}">{icon}</i>{/if}
+		{#if icon}<i class="material-icons {iconSize[size]}" aria-hidden="true">{icon}</i>{/if}
 		<slot />
 	</button>
 {/if}

@@ -836,7 +836,7 @@
 			class="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center pointer-events-none"
 		>
 			<div class="text-center">
-				<i class="material-icons !text-6xl text-violet-400 mb-4">upload_file</i>
+				<i class="material-icons !text-6xl text-violet-400 mb-4" aria-hidden="true">upload_file</i>
 				<p class="text-white text-lg font-medium">Drop to open tab</p>
 				<p class="text-neutral-400 text-sm mt-1">.gp3 .gp4 .gp5 .gpx .gp .xml</p>
 			</div>
@@ -903,7 +903,7 @@
 										: 'Tab audio only — click for video'}
 							>
 								<i class="material-icons !text-lg"
-									>{$audioSource === 'video'
+									 aria-hidden="true">{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
@@ -925,7 +925,7 @@
 									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s"
 							>
-								<i class="material-icons !text-lg">sync</i>
+								<i class="material-icons !text-lg" aria-hidden="true">sync</i>
 								{#if $videoSyncOffset !== 0}
 									<span>{$videoSyncOffset > 0 ? '+' : ''}{$videoSyncOffset.toFixed(1)}s</span>
 								{/if}
@@ -937,7 +937,7 @@
 							title="Close video"
 							aria-label="Close video"
 						>
-							<i class="material-icons !text-xl">close</i>
+							<i class="material-icons !text-xl" aria-hidden="true">close</i>
 						</button>
 					</div>
 
@@ -981,7 +981,7 @@
 									class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
 									title="Auto-sync to current video position"
 								>
-									<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
+									<i class="material-icons !text-xs align-middle mr-0.5" aria-hidden="true">sync</i>
 									Tap to sync
 								</button>
 								<button
@@ -1021,7 +1021,7 @@
 				title="Back to full player"
 				aria-hidden="true"
 			>
-				<i class="material-icons !text-4xl text-white drop-shadow">fullscreen</i>
+				<i class="material-icons !text-4xl text-white drop-shadow" aria-hidden="true">fullscreen</i>
 			</div>
 
 			<!-- The preview's own hide control (item 29): a subtle MINUS — never an X,
@@ -1038,7 +1038,7 @@
 					title="Hide preview"
 					aria-label="Hide preview"
 				>
-					<i class="material-icons !text-lg">remove</i>
+					<i class="material-icons !text-lg" aria-hidden="true">remove</i>
 				</button>
 			</div>
 		{/if}
@@ -1092,11 +1092,11 @@
 						{toast.type === 'info' ? 'bg-neutral-800 dark:bg-neutral-200 text-white dark:text-black' : ''}"
 				>
 					{#if toast.type === 'success'}
-						<i class="material-icons !text-base">check_circle</i>
+						<i class="material-icons !text-base" aria-hidden="true">check_circle</i>
 					{:else if toast.type === 'error'}
-						<i class="material-icons !text-base">error</i>
+						<i class="material-icons !text-base" aria-hidden="true">error</i>
 					{:else}
-						<i class="material-icons !text-base">info</i>
+						<i class="material-icons !text-base" aria-hidden="true">info</i>
 					{/if}
 					{toast.message}
 				</div>

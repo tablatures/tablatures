@@ -6,10 +6,12 @@
 	import { onMount } from 'svelte';
 	import Header from '../library/components/Header.svelte';
 	import HomeFeed from '../library/components/HomeFeed.svelte';
+	import Seo from '../library/components/Seo.svelte';
 	import { tabStore } from '../library/utils/store';
 	import { openTabById } from '../library/utils/openTab';
 	import { arrayBufferToBase64 } from '../library/utils/utils';
 	import { loadStoredTabBytes, persistTabBytes } from '../library/data/tabBytes';
+	import { websiteJsonLd } from '../library/utils/seo';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -51,9 +53,9 @@
 	});
 </script>
 
-<svelte:head>
-	<title>Tablatures</title>
-</svelte:head>
+<!-- The home page is the site, so its title and description ARE the site-wide
+     defaults in $utils/seo. Passing neither keeps one copy of that copy. -->
+<Seo path="/" jsonLd={websiteJsonLd()} />
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 

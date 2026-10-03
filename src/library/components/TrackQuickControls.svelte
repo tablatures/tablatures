@@ -27,7 +27,7 @@
 		title="Solo current track"
 		aria-label="Solo current track"
 	>
-		<i class="material-icons !text-base">headphones</i>
+		<i class="material-icons !text-base" aria-hidden="true">headphones</i>
 	</button>
 	<button
 		on:click={() => dispatch(allMuted ? 'unmuteall' : 'muteall')}
@@ -36,7 +36,9 @@
 		title={allMuted ? 'Unmute all' : 'Mute all'}
 		aria-label={allMuted ? 'Unmute all' : 'Mute all'}
 	>
-		<i class="material-icons !text-base">{allMuted ? 'volume_off' : 'volume_up'}</i>
+		<i class="material-icons !text-base" aria-hidden="true"
+			>{allMuted ? 'volume_off' : 'volume_up'}</i
+		>
 	</button>
 	<button
 		on:click={() => dispatch('resetlevels')}

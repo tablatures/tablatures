@@ -144,7 +144,7 @@
 				title="Tuner [G]"
 				aria-label="Tuner"
 			>
-				<i class="material-icons-outlined !text-xl">compass_calibration</i>
+				<i class="material-icons-outlined !text-xl" aria-hidden="true">compass_calibration</i>
 				<span class="hidden lg:inline">Tuner</span>
 			</button>
 
@@ -157,7 +157,7 @@
 				title="Metronome [M]"
 				aria-label="Metronome"
 			>
-				<i class="material-icons-outlined !text-xl">graphic_eq</i>
+				<i class="material-icons-outlined !text-xl" aria-hidden="true">graphic_eq</i>
 				<span class="hidden lg:inline">Metronome</span>
 			</button>
 
@@ -170,7 +170,7 @@
 				title="Repertoire"
 				aria-label="Repertoire"
 			>
-				<i class="material-icons-outlined !text-2xl sm:!text-xl">library_music</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">library_music</i>
 				<span class="hidden lg:inline">Repertoire</span>
 			</a>
 			<a
@@ -182,7 +182,7 @@
 				title="Settings"
 				aria-label="Settings"
 			>
-				<i class="material-icons-outlined !text-2xl sm:!text-xl">settings</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">settings</i>
 				<span class="hidden lg:inline">Settings</span>
 			</a>
 			<ThemeToggle />

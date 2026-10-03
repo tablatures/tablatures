@@ -131,7 +131,7 @@
 						<h3
 							class="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-violet-100 dark:bg-violet-900/30 border-b border-violet-200/70 dark:border-violet-800/50 text-xs font-semibold text-violet-600 dark:text-violet-400"
 						>
-							<i class="material-icons !text-base">tune</i>
+							<i class="material-icons !text-base" aria-hidden="true">tune</i>
 							<span class="text-[10px] uppercase tracking-wider opacity-70">Editing</span>
 							<span class="truncate">{tracks[activeTrackIndex]?.name ?? 'Track'}</span>
 						</h3>
@@ -146,8 +146,9 @@
 								<div
 									class="px-4 py-4 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-center space-y-3"
 								>
-									<i class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500"
-										>music_off</i
+									<i
+										class="material-icons !text-2xl text-neutral-400 dark:text-neutral-500"
+										aria-hidden="true">music_off</i
 									>
 									<p class="text-sm text-neutral-600 dark:text-neutral-300">
 										This track has no tuning to transpose.

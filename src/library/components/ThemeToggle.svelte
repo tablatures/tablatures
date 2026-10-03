@@ -27,8 +27,8 @@
 	aria-label="Toggle theme"
 >
 	{#if theme}
-		<i class="material-icons !text-xl text-yellow-400">dark_mode</i>
+		<i class="material-icons !text-xl text-yellow-400" aria-hidden="true">dark_mode</i>
 	{:else}
-		<i class="material-icons !text-xl">light_mode</i>
+		<i class="material-icons !text-xl" aria-hidden="true">light_mode</i>
 	{/if}
 </button>

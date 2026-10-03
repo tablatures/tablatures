@@ -312,7 +312,7 @@
 				class="flex items-center justify-between px-5 py-3 border-b border-neutral-100 dark:border-neutral-800"
 			>
 				<div class="flex items-center gap-2.5 text-neutral-700 dark:text-neutral-300">
-					<i class="material-icons-outlined !text-2xl text-violet-500">compass_calibration</i>
+					<i class="material-icons-outlined !text-2xl text-violet-500" aria-hidden="true">compass_calibration</i>
 					<span class="font-semibold text-sm">Guitar Tuner</span>
 				</div>
 				<button
@@ -321,7 +321,7 @@
 						text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
 					aria-label="Close tuner"
 				>
-					<i class="material-icons !text-xl">close</i>
+					<i class="material-icons !text-xl" aria-hidden="true">close</i>
 				</button>
 			</div>
 
@@ -558,14 +558,14 @@
 					>
 						{#if state.active}
 							<span class="relative flex items-center">
-								<i class="material-icons !text-2xl">mic_off</i>
+								<i class="material-icons !text-2xl" aria-hidden="true">mic_off</i>
 								<span
 									class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-white rounded-full animate-pulse"
 								/>
 							</span>
 							<span>Stop Tuner</span>
 						{:else}
-							<i class="material-icons !text-2xl">mic</i>
+							<i class="material-icons !text-2xl" aria-hidden="true">mic</i>
 							<span>Start Tuner</span>
 						{/if}
 					</button>

@@ -1257,7 +1257,7 @@
 				const dragHandle = document.createElement('div');
 				dragHandle.style.cssText = `cursor:grab;color:${isDark ? '#555' : '#ccc'};padding:0 2px;`;
 				dragHandle.innerHTML =
-					'<i class="material-icons" style="font-size:14px;">drag_indicator</i>';
+					'<i class="material-icons" style="font-size:14px;" aria-hidden="true">drag_indicator</i>';
 				dragHandle.title = 'Drag to move loop';
 				dragHandle.addEventListener('mousedown', (e) => {
 					e.preventDefault();
@@ -1274,7 +1274,7 @@
 				// Loop toggle
 				const loopBtn = document.createElement('button');
 				loopBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
-				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
+				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
 				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
 				loopBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1285,7 +1285,7 @@
 				// Play from A
 				const playBtn = document.createElement('button');
 				playBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				playBtn.innerHTML = '<i class="material-icons" style="font-size:16px;">play_circle</i>';
+				playBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">play_circle</i>';
 				playBtn.title = 'Play from start';
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1308,7 +1308,7 @@
 				// Delete
 				const delBtn = document.createElement('button');
 				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;">delete_outline</i>';
+				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">delete_outline</i>';
 				delBtn.title = 'Remove loop [Esc]';
 				delBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -3932,7 +3932,7 @@
 			<div class="flex items-center justify-center min-h-[60vh]">
 				<div class="text-center">
 					<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
-						>error_outline</i
+						 aria-hidden="true">error_outline</i
 					>
 					<p class="text-neutral-600 dark:text-neutral-400 mb-4">{apiError}</p>
 					<button
@@ -3996,14 +3996,14 @@
 					on:mousedown={startLoopDrag}
 					title="Drag to move selection"
 				>
-					<i class="material-icons !text-lg">drag_indicator</i>
+					<i class="material-icons !text-lg" aria-hidden="true">drag_indicator</i>
 				</div>
 
 				<!-- Divider -->
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Loop on/off toggle -->
-				<button
+				<button aria-label="Toggle loop"
 					class="p-1 rounded-full transition-all {loopEnabled
 						? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 						: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
@@ -4012,7 +4012,7 @@
 					}}
 					title={loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
 				>
-					<i class="material-icons !text-lg">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+					<i class="material-icons !text-lg" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
 				</button>
 
 				<!-- Play selection from start -->
@@ -4030,19 +4030,19 @@
 					}}
 					title="Play from A"
 				>
-					<i class="material-icons !text-lg">play_circle</i>
+					<i class="material-icons !text-lg" aria-hidden="true">play_circle</i>
 				</button>
 
 				<!-- Divider -->
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Clear selection -->
-				<button
+				<button aria-label="Remove selection"
 					class="p-1 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 					on:click={clearSheetSelection}
 					title="Remove selection [Esc]"
 				>
-					<i class="material-icons !text-lg">delete_outline</i>
+					<i class="material-icons !text-lg" aria-hidden="true">delete_outline</i>
 				</button>
 			</div>
 		{/if}
@@ -4056,7 +4056,7 @@
 			>
 				<div class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg">
 					<i class="material-icons !text-2xl"
-						>{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
+						 aria-hidden="true">{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
 					>
 					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
 				</div>
@@ -4078,7 +4078,7 @@
 					class="flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500 text-white shadow-lg hover:bg-violet-600 active:scale-95 transition-all animate-fade-in"
 					title="Scroll to cursor"
 				>
-					<i class="material-icons !text-lg">fiber_manual_record</i>
+					<i class="material-icons !text-lg" aria-hidden="true">fiber_manual_record</i>
 					<span class="text-sm font-medium">Back to cursor</span>
 				</button>
 			</div>
@@ -4219,20 +4219,20 @@
 						on:mousedown|stopPropagation={startLoopDrag}
 						title="Drag to move loop"
 					>
-						<i class="material-icons !text-sm">drag_indicator</i>
+						<i class="material-icons !text-sm" aria-hidden="true">drag_indicator</i>
 					</div>
 
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Loop on/off -->
-					<button
+					<button aria-label="Toggle loop"
 						class="p-0.5 rounded-full transition-all {loopEnabled
 							? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 							: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 						on:click|stopPropagation={toggleLoopEnabled}
 						title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
 					>
-						<i class="material-icons !text-base">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+						<i class="material-icons !text-base" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
 					</button>
 
 					<!-- Play from A -->
@@ -4250,19 +4250,19 @@
 						}}
 						title="Play from A"
 					>
-						<i class="material-icons !text-base">play_circle</i>
+						<i class="material-icons !text-base" aria-hidden="true">play_circle</i>
 					</button>
 
 					<!-- Divider -->
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Remove -->
-					<button
+					<button aria-label="Remove loop"
 						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 						on:click|stopPropagation={clearLoopPoints}
 						title="Remove loop [Esc]"
 					>
-						<i class="material-icons !text-base">delete_outline</i>
+						<i class="material-icons !text-base" aria-hidden="true">delete_outline</i>
 					</button>
 				</div>
 			{/if}
@@ -4298,7 +4298,7 @@
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
 				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}"
-					>{playing ? 'pause' : 'play_arrow'}</i
+					 aria-hidden="true">{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
@@ -4310,7 +4310,7 @@
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_previous</i>
 			</button>
 
 			<button
@@ -4321,7 +4321,7 @@
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_next</i>
 			</button>
 
 			<!-- Time display -->
@@ -4355,7 +4355,7 @@
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
 					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
+						 aria-hidden="true">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
 				{#if volumeHover}
@@ -4404,14 +4404,14 @@
 						aria-haspopup="menu"
 						aria-expanded={open}
 					>
-						<i class="material-icons !text-lg">queue_music</i>
+						<i class="material-icons !text-lg" aria-hidden="true">queue_music</i>
 						<span class="hidden sm:inline max-w-[8rem] truncate"
 							>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
 						>
 						<i
 							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
 								? 'rotate-180'
-								: ''}">arrow_drop_down</i
+								: ''}" aria-hidden="true">arrow_drop_down</i
 						>
 					</button>
 					{#each tracks as track, i}
@@ -4429,7 +4429,7 @@
 						>
 							<span class="flex-1 min-w-0 truncate">{track.name || `Track ${i + 1}`}</span>
 							{#if i === activeTrackIndex}
-								<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+								<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
 							{/if}
 						</button>
 					{/each}
@@ -4452,12 +4452,12 @@
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
-					<i class="material-icons !text-base">speed</i>
+					<i class="material-icons !text-base" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
 						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
 							? 'text-white/70'
-							: 'text-neutral-400'} {open ? 'rotate-180' : ''}">arrow_drop_down</i
+							: 'text-neutral-400'} {open ? 'rotate-180' : ''}" aria-hidden="true">arrow_drop_down</i
 					>
 				</button>
 				{#each speedOptions as s}
@@ -4475,7 +4475,7 @@
 					>
 						<span class="flex-1">{s}x</span>
 						{#if s === speedRounded}
-							<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+							<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
 						{/if}
 					</button>
 				{/each}
@@ -4492,7 +4492,7 @@
 						title="Play video"
 						aria-label="Play video"
 					>
-						<i class="material-icons !text-2xl">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+						<i class="material-icons !text-2xl" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 					</button>
 
 					{#if showVideoDropdown}
@@ -4546,7 +4546,7 @@
 										<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 									</div>
 									{#if $activeVideoId === yt.videoId}
-										<i class="material-icons !text-sm text-violet-500">playing_for_changes</i>
+										<i class="material-icons !text-sm text-violet-500" aria-hidden="true">playing_for_changes</i>
 									{/if}
 								</button>
 							{/each}
@@ -4572,7 +4572,7 @@
 					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 				>
 					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						>{loopEnabled ? 'repeat_on' : 'repeat'}</i
+						 aria-hidden="true">{loopEnabled ? 'repeat_on' : 'repeat'}</i
 					>
 				</button>
 			{:else}
@@ -4585,7 +4585,7 @@
 					title="Loop [L] &middot; Drag on progress bar to set region"
 					aria-label="Toggle loop"
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">repeat</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">repeat</i>
 				</button>
 			{/if}
 			{/if}
@@ -4616,7 +4616,7 @@
 					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
 					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">lyrics</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">lyrics</i>
 				</button>
 			{/if}
 
@@ -4629,7 +4629,7 @@
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">tune</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">tune</i>
 			</button>
 
 			<!-- Fullscreen: shown on every platform (item 10). On native the button
@@ -4646,7 +4646,7 @@
 				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
 				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+					 aria-hidden="true">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
 			</button>
 
@@ -4658,7 +4658,7 @@
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">keyboard</i>
 			</button>
 		</div>
 
@@ -4695,7 +4695,7 @@
 										: 'Tab audio only — click for video'}
 							>
 								<i class="material-icons !text-lg"
-									>{$audioSource === 'video'
+									 aria-hidden="true">{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
@@ -4718,7 +4718,7 @@
 									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
 							>
-								<i class="material-icons !text-lg">sync</i>
+								<i class="material-icons !text-lg" aria-hidden="true">sync</i>
 								{#if videoOffset !== 0}
 									<span>{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s</span>
 								{/if}
@@ -4730,7 +4730,7 @@
 							title="Close video"
 							aria-label="Close video"
 						>
-							<i class="material-icons !text-xl">close</i>
+							<i class="material-icons !text-xl" aria-hidden="true">close</i>
 						</button>
 					</div>
 
@@ -4776,7 +4776,7 @@
 									class="px-2.5 py-1 rounded-full bg-violet-500/80 text-white text-[10px] font-medium hover:bg-violet-500 transition-colors"
 									title="Auto-sync: matches current tab position to current video position"
 								>
-									<i class="material-icons !text-xs align-middle mr-0.5">sync</i>
+									<i class="material-icons !text-xs align-middle mr-0.5" aria-hidden="true">sync</i>
 									Tap to sync
 								</button>
 								<button
@@ -4924,7 +4924,7 @@
 										<i
 											class="material-icons !text-base text-neutral-400 transition-transform duration-150 {open
 												? 'rotate-180'
-												: ''}">arrow_drop_down</i
+												: ''}" aria-hidden="true">arrow_drop_down</i
 										>
 									</button>
 									{#each versionGroups as group}
@@ -4966,11 +4966,11 @@
 													{/if}
 												</span>
 												{#if active}
-													<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+													<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
 												{:else}
 													<i
 														class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0"
-														>play_arrow</i
+														 aria-hidden="true">play_arrow</i
 													>
 												{/if}
 											</button>
@@ -5024,14 +5024,14 @@
 							/>
 						{/if}
 						{#if tabId && allPlaylists.length > 0}
-							<button
+							<button aria-label="Add to playlist"
 								on:click={() => {
 									showPlaylistPicker = !showPlaylistPicker;
 								}}
 								class="p-1.5 sm:p-2 rounded-full text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 								title="Add to playlist [P]"
 							>
-								<i class="material-icons !text-lg sm:!text-xl">playlist_add</i>
+								<i class="material-icons !text-lg sm:!text-xl" aria-hidden="true">playlist_add</i>
 							</button>
 						{/if}
 						<button
@@ -5041,7 +5041,7 @@
 							title="Share"
 							aria-label="Share"
 						>
-							<i class="material-icons !text-lg sm:!text-xl">share</i>
+							<i class="material-icons !text-lg sm:!text-xl" aria-hidden="true">share</i>
 						</button>
 						<button
 							disabled={!scoreLoaded}
@@ -5050,7 +5050,7 @@
 							title="Download"
 							aria-label="Download"
 						>
-							<i class="material-icons !text-lg sm:!text-xl">download</i>
+							<i class="material-icons !text-lg sm:!text-xl" aria-hidden="true">download</i>
 						</button>
 						<!-- Print: desktop only, and unsupported in the native WebView. On
 						     mobile we rely on Share / Download so this row stays one line. -->
@@ -5062,7 +5062,7 @@
 								title="Print"
 								aria-label="Print"
 							>
-								<i class="material-icons !text-xl">print</i>
+								<i class="material-icons !text-xl" aria-hidden="true">print</i>
 							</button>
 						{/if}
 					</div>
@@ -5144,7 +5144,7 @@
 					title="Close"
 					aria-label="Close settings"
 				>
-					<i class="material-icons !text-base">close</i>
+					<i class="material-icons !text-base" aria-hidden="true">close</i>
 				</button>
 			</div>
 
@@ -5158,12 +5158,12 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={onLyricsButton}
 						>
-							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">lyrics</i>
+							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">lyrics</i>
 							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">
 								{lyricsAvailable ? 'Lyrics / subtitles' : 'Find lyrics online'}
 							</span>
 							{#if lyricsAvailable && $lyricsStore.mode === 'auto'}
-								<i class="material-icons !text-base text-violet-500">check</i>
+								<i class="material-icons !text-base text-violet-500" aria-hidden="true">check</i>
 							{/if}
 						</button>
 					{/if}
@@ -5173,9 +5173,9 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={() => (showSettingsVideo = !showSettingsVideo)}
 						>
-							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
 							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Play along with video</span>
-							<i class="material-icons !text-base text-neutral-400">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
+							<i class="material-icons !text-base text-neutral-400" aria-hidden="true">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
 						</button>
 						{#if showSettingsVideo}
 							<div class="bg-neutral-50 dark:bg-neutral-800/40">
@@ -5202,7 +5202,7 @@
 											<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 										</div>
 										{#if $activeVideoId === yt.videoId}
-											<i class="material-icons !text-base text-violet-500 shrink-0">check</i>
+											<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
 										{/if}
 									</button>
 								{/each}
@@ -5215,7 +5215,7 @@
 						on:click={clickShare}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">share</i>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">share</i>
 						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Share tab link</span>
 					</button>
 
@@ -5224,7 +5224,7 @@
 						on:click={clickDownload}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400">download</i>
+						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">download</i>
 						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Download tab file</span>
 					</button>
 				</div>
@@ -5277,12 +5277,12 @@
 				<!-- Circular countdown with +/- -->
 				<div class="flex items-center justify-center gap-5 mb-6">
 					<!-- Minus: restart with 1s less -->
-					<button
+					<button aria-label="One second less"
 						on:click={() => adjustCountdownTime(-1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second less (restarts)"
 					>
-						<i class="material-icons !text-xl">remove</i>
+						<i class="material-icons !text-xl" aria-hidden="true">remove</i>
 					</button>
 
 					<!-- Ring + number (hover shows pause icon) -->
@@ -5315,7 +5315,7 @@
 						</svg>
 						<div class="absolute inset-0 flex items-center justify-center">
 							{#if countdownPaused}
-								<i class="material-icons !text-5xl text-violet-300">play_arrow</i>
+								<i class="material-icons !text-5xl text-violet-300" aria-hidden="true">play_arrow</i>
 							{:else}
 								<span class="text-5xl font-bold text-white tabular-nums"
 									>{Math.ceil(rest / 1000)}</span
@@ -5324,19 +5324,19 @@
 								<div
 									class="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
 								>
-									<i class="material-icons !text-4xl text-white/80">pause</i>
+									<i class="material-icons !text-4xl text-white/80" aria-hidden="true">pause</i>
 								</div>
 							{/if}
 						</div>
 					</button>
 
 					<!-- Plus: restart with 1s more -->
-					<button
+					<button aria-label="One second more"
 						on:click={() => adjustCountdownTime(1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second more (restarts)"
 					>
-						<i class="material-icons !text-xl">add</i>
+						<i class="material-icons !text-xl" aria-hidden="true">add</i>
 					</button>
 				</div>
 
@@ -5354,7 +5354,7 @@
 						on:click={startPlaybackNow}
 						class="px-6 py-2.5 bg-violet-500 hover:bg-violet-600 text-white text-sm font-medium rounded-full transition-colors shadow-lg shadow-violet-500/25"
 					>
-						<i class="material-icons !text-base align-middle mr-1">play_arrow</i>
+						<i class="material-icons !text-base align-middle mr-1" aria-hidden="true">play_arrow</i>
 						Play now
 					</button>
 					<button
@@ -5365,7 +5365,7 @@
 						class="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white/70 text-sm rounded-full transition-colors"
 						title="Disable delay and cancel"
 					>
-						<i class="material-icons !text-base align-middle mr-1">timer_off</i>
+						<i class="material-icons !text-base align-middle mr-1" aria-hidden="true">timer_off</i>
 						Clear delay
 					</button>
 				</div>
@@ -5413,16 +5413,16 @@
 					class="flex items-center justify-between px-5 py-4 border-b border-neutral-200 dark:border-neutral-800 sticky top-0 bg-white dark:bg-neutral-900 z-10 rounded-t-2xl"
 				>
 					<div class="flex items-center gap-2">
-						<i class="material-icons !text-xl text-violet-500">keyboard</i>
+						<i class="material-icons !text-xl text-violet-500" aria-hidden="true">keyboard</i>
 						<h2 class="text-base font-semibold text-neutral-800 dark:text-neutral-200">
 							Keyboard shortcuts
 						</h2>
 					</div>
-					<button
+					<button aria-label="Close keyboard shortcuts"
 						on:click={() => (showKeyboardShortcuts = false)}
 						class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 					>
-						<i class="material-icons !text-lg">close</i>
+						<i class="material-icons !text-lg" aria-hidden="true">close</i>
 					</button>
 				</div>
 
@@ -5430,7 +5430,7 @@
 					{#each shortcutSections as section}
 						<div>
 							<div class="flex items-center gap-1.5 mb-2">
-								<i class="material-icons !text-sm text-violet-500">{section.icon}</i>
+								<i class="material-icons !text-sm text-violet-500" aria-hidden="true">{section.icon}</i>
 								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">
 									{section.title}
 								</h3>
@@ -5445,7 +5445,7 @@
 											>{key}</kbd
 										>
 										<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
-											>{icon}</i
+											 aria-hidden="true">{icon}</i
 										>
 										<span class="text-sm text-neutral-600 dark:text-neutral-400">{desc}</span>
 									</div>
@@ -5502,7 +5502,7 @@
 							on:click={() => addCurrentToPlaylist(i)}
 							class="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors flex items-center gap-3"
 						>
-							<i class="material-icons !text-lg text-violet-500">queue_music</i>
+							<i class="material-icons !text-lg text-violet-500" aria-hidden="true">queue_music</i>
 							<span class="flex-1 truncate">{pl.name}</span>
 							<span class="text-[10px] text-neutral-400">{pl.entries.length}</span>
 						</button>

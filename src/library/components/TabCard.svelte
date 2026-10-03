@@ -90,7 +90,7 @@
 				<span class="text-3xl sm:text-4xl font-black tracking-tight select-none opacity-95">
 					{placeholder.initials}
 				</span>
-				<i class="material-icons absolute bottom-2 right-2 !text-base opacity-30">{typeIcon(type)}</i>
+				<i class="material-icons absolute bottom-2 right-2 !text-base opacity-30" aria-hidden="true">{typeIcon(type)}</i>
 			</div>
 		{/if}
 
@@ -116,7 +116,7 @@
 				<span
 					class="flex items-center justify-center w-12 h-12 rounded-full bg-white/95 shadow-lg opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200"
 				>
-					<i class="material-icons !text-3xl text-violet-600 ml-0.5">play_arrow</i>
+					<i class="material-icons !text-3xl text-violet-600 ml-0.5" aria-hidden="true">play_arrow</i>
 				</span>
 			</div>
 		{/if}
@@ -139,7 +139,7 @@
 						title="Add to playlist"
 						aria-label="Add {title} to playlist"
 					>
-						<i class="material-icons !text-xl">playlist_add</i>
+						<i class="material-icons !text-xl" aria-hidden="true">playlist_add</i>
 					</button>
 				{/if}
 				<FavoriteButton {id} {title} {artist} {source} {album} {type} variant="overlay" />
@@ -149,7 +149,7 @@
 		<!-- Always-visible favorite (subtle) when favorited, shown even without hover -->
 		{#if id && isFavorite}
 			<div class="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 text-love-400 group-hover:opacity-0 [@media(pointer:coarse)]:opacity-0 transition-opacity">
-				<i class="material-icons !text-xl">favorite</i>
+				<i class="material-icons !text-xl" aria-hidden="true">favorite</i>
 			</div>
 		{/if}
 	</div>

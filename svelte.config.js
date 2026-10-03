@@ -16,7 +16,13 @@ const config = {
 				: adapterStatic({
 						pages: 'build',
 						assets: 'build',
-						fallback: 'index.html',
+						// 404.html, not index.html: the static routes are prerendered
+						// and adapter-static overwrites the fallback file, so an
+						// index.html fallback would replace the real home page with
+						// an empty SPA shell. GitHub Pages serves 404.html for any
+						// path it has no file for, which is exactly the SPA fallback
+						// the unprerendered routes (/artist/[name]) need.
+						fallback: '404.html',
 						precompress: false
 					}),
 
