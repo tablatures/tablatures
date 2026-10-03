@@ -13,6 +13,7 @@
 // (awaited behind `dataReady` so the DB is open before we touch it).
 
 import type { CachedResponse } from './repositories/httpCacheRepo';
+import { powFetch } from '$utils/powFetch';
 
 /** Common TTLs (ms). Tuned per the plan: volatile lists ~1h, metadata ~7d. */
 export const TTL_HOUR = 60 * 60 * 1000;
@@ -185,5 +186,8 @@ const singletonCache: CachedFetchCache = {
  * offline (search, autocomplete, metadata, home feed). Returns a Response.
  */
 export function cachedFetch(url: string, opts: CachedFetchOptions = {}): Promise<Response> {
-	return cachedFetchWith({ fetchFn: (u, i) => fetch(u, i), cache: singletonCache }, url, opts);
+	// powFetch is a plain fetch unless the API's proof-of-work gate trips, in
+	// which case it solves and retries transparently. Injected here rather than
+	// inside cachedFetchWith so the core stays dependency-free for tests.
+	return cachedFetchWith({ fetchFn: (u, i) => powFetch(u, i), cache: singletonCache }, url, opts);
 }
