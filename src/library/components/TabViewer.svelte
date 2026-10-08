@@ -5,7 +5,9 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
+	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
+	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { tabStore, type TabVersion } from '../utils/store';
@@ -18,8 +20,8 @@
 		audioSource,
 		videoSyncOffset,
 		isTransitioning,
-		setMasterVolumeDebounced,
 		beatCursorEl,
+		seekSessionVideo,
 		videoHandlers,
 		playShellEl,
 		playSheetInView,
@@ -44,7 +46,12 @@
 	import TuningChip from '$components/TuningChip.svelte';
 	import PopoverMenu from '$components/PopoverMenu.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
-	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
+	import {
+		lyricsStore,
+		toggleLyricsBar,
+		findLyricsOnline,
+		hasAnyLyrics
+	} from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { scoreEdits } from '$utils/scoreEdits';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
@@ -200,6 +207,12 @@
 
 	// Use props instead of local variables
 	let { volume, speed, metronome, tabScale, delaying, scrollOffset } = playerSettings;
+
+	let settingsScoreKey = data?.fileAsB64;
+	$: if (data?.fileAsB64 && settingsScoreKey !== data.fileAsB64) {
+		settingsScoreKey = data.fileAsB64;
+		({ volume, speed, metronome, tabScale, delaying, scrollOffset } = playerSettings);
+	}
 
 	$: if (browser) {
 		dispatch('settingsChanged', {
@@ -398,6 +411,24 @@
 	let loopEndBar: number | null = null;
 	let loopEnabled = true;
 	let loopSyncKey = '';
+	let loopRestored = false;
+	let pendingUrlLoop = browser ? readUrlState().loop : undefined;
+	let adoptedScore: any = null;
+
+	function restoreScoreSession(score: any) {
+		if (!score || score === adoptedScore) return;
+		adoptedScore = score;
+		const shared = get(playerState).loop;
+		const region = pendingUrlLoop && pendingUrlLoop.endBar < totalBars ? pendingUrlLoop : shared;
+		pendingUrlLoop = undefined;
+		loopStartBar = region?.startBar ?? null;
+		loopEndBar = region?.endBar ?? null;
+		loopEnabled = region?.enabled ?? true;
+		trackVolumes = score.tracks.map((t: any) => t.playbackInfo.volume / 16);
+		trackMutes = score.tracks.map((t: any) => !!t.playbackInfo.isMute);
+		trackSolos = score.tracks.map((t: any) => !!t.playbackInfo.isSolo);
+		loopRestored = true;
+	}
 
 	// Loop drag state
 	let isDraggingLoop = false;
@@ -519,7 +550,6 @@
 
 	// Video player state
 	let showVideoDropdown = false;
-	let volumeBeforeVideo = 1;
 	$: hasActiveVideo = $activeVideoId !== null;
 
 	// Video sync offset (seconds) - stored per video+tab combo, shared via store
@@ -567,7 +597,7 @@
 		if (!ytPlayer || !api || !duration) return;
 		try {
 			const videoTime = ytPlayer.getCurrentTime?.() || 0;
-			const tabTimeSec = (progress / 100) * (duration / 1000);
+			const tabTimeSec = engineToScoreMs((progress / 100) * duration, speed) / 1000;
 			const newOffset = videoTime - tabTimeSec;
 			setVideoOffset(Math.round(newOffset * 10) / 10);
 		} catch {}
@@ -578,127 +608,11 @@
 		const current = $audioSource;
 		const next = current === 'tab' ? 'video' : current === 'video' ? 'both' : 'tab';
 		audioSource.set(next);
-		applyAudioSource(next);
 	}
 
-	function applyAudioSource(source: 'tab' | 'video' | 'both') {
-		const ytPlayer = $videoPlayerRef;
-		if (source === 'video') {
-			// Mute tab, unmute video
-			if (api) api.masterVolume = 0;
-			if (ytPlayer)
-				try {
-					ytPlayer.unMute();
-					ytPlayer.setVolume(100);
-				} catch {}
-		} else if (source === 'both') {
-			// Keep tab volume at user's setting AND unmute video
-			if (api) api.masterVolume = volume;
-			if (ytPlayer)
-				try {
-					ytPlayer.unMute();
-					ytPlayer.setVolume(100);
-				} catch {}
-		} else {
-			// Restore tab volume, mute video
-			if (api) api.masterVolume = volume;
-			if (ytPlayer)
-				try {
-					ytPlayer.mute();
-				} catch {}
-		}
-	}
+	// Offset storage belongs to the score UI; playback synchronization lives in layout.
+	$: if (hasActiveVideo && $activeVideoId) loadVideoOffset();
 
-	// Apply audio source when video is selected/changes
-	$: if (hasActiveVideo && $videoPlayerRef) {
-		applyAudioSource($audioSource);
-	}
-
-	// Video progress sync interval
-	let videoSyncInterval: NodeJS.Timeout;
-
-	function startVideoSync() {
-		stopVideoSync();
-		videoSyncInterval = setInterval(() => {
-			const ytPlayer = $videoPlayerRef;
-			if (!ytPlayer || !api || !duration) return;
-			// Don't read video time while YouTube is still settling a seek we
-			// just issued — the old position would fight the user's drag.
-			if (Date.now() < userSeekLockUntil) return;
-			// Only pull from video when it is actively playing. When paused
-			// the video's time is frozen and would drag the tab back to that
-			// stale position every 200ms, blocking user progress-bar seeks.
-			try {
-				const ytState = ytPlayer.getPlayerState?.();
-				if (ytState !== 1) return;
-			} catch {
-				return;
-			}
-
-			// The video is playing; make sure the tab is playing too (muted, since
-			// the video is the audio source) so its cursor animates smoothly rather
-			// than lurching on each 200ms sync tick. api.play() is idempotent, so
-			// this is a no-op once playback is running.
-			if (!playing) {
-				try {
-					api.play();
-				} catch {}
-				return;
-			}
-
-			try {
-				const videoTime = ytPlayer.getCurrentTime?.() || 0;
-				const videoDuration = ytPlayer.getDuration?.() || 0;
-				if (videoDuration <= 0) return;
-
-				// Sync alphaTab position to video (with offset)
-				const adjustedVideoTime = videoTime - $videoSyncOffset;
-				const tabDurationSec = duration / 1000;
-				if (tabDurationSec <= 0) return;
-
-				const targetProgress = (adjustedVideoTime / tabDurationSec) * 100;
-
-				// When a loop is active, clamp video sync to loop boundaries
-				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
-					const lr = loopRangeMs();
-					if (lr) {
-						const loopStartPct = (lr.startMs / duration) * 100;
-						const loopEndPct = (lr.endMs / duration) * 100;
-						// If video time falls outside the loop range, seek video back to loop start
-						if (targetProgress < loopStartPct - 1 || targetProgress > loopEndPct + 1) {
-							const loopStartSec = lr.startMs / 1000 + $videoSyncOffset;
-							try {
-								ytPlayer.seekTo(loopStartSec, true);
-							} catch {}
-						}
-					}
-					return;
-				}
-
-				const clampedProgress = Math.max(0, Math.min(100, targetProgress));
-
-				// Sync if difference > 0.5% for tighter coupling
-				if (Math.abs(clampedProgress - progress) > 0.5) {
-					progress = clampedProgress;
-					api.player.timePosition = (progress / 100) * duration;
-					skipVideoDriveOnce = true;
-					seekDebounce();
-				}
-			} catch {}
-		}, 200); // 200ms polling for smoother sync
-	}
-
-	function stopVideoSync() {
-		clearInterval(videoSyncInterval);
-	}
-
-	// Start/stop sync when video state changes
-	$: if (hasActiveVideo && $activeVideoId) {
-		loadVideoOffset();
-		startVideoSync();
-	} else {
-		stopVideoSync();
-	}
 	let selectionPopoverX = 0;
 	let selectionPopoverY = 0;
 	let selectionStartBeat: any = null;
@@ -729,12 +643,6 @@
 			const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
 			if (!stored) return;
 			const parsed = JSON.parse(stored);
-			if (typeof parsed.volume === 'number') volume = parsed.volume;
-			if (typeof parsed.speed === 'number') speed = parsed.speed;
-			if (typeof parsed.metronome === 'number') metronome = parsed.metronome;
-			if (typeof parsed.delaying === 'number') delaying = parsed.delaying;
-			if (typeof parsed.tabScale === 'number') tabScale = parsed.tabScale;
-			if (typeof parsed.activeTrackIndex === 'number') activeTrackIndex = parsed.activeTrackIndex;
 			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
@@ -820,12 +728,12 @@
 		const currentBarIdx = msToBar(currentTime);
 		if (point === 'A') {
 			loopStartBar = currentBarIdx;
-			if (loopEndBar !== null && loopEndBar <= currentBarIdx) {
+			if (loopEndBar !== null && loopEndBar < currentBarIdx) {
 				loopEndBar = null;
 			}
 		} else {
 			loopEndBar = currentBarIdx;
-			if (loopStartBar !== null && loopStartBar >= currentBarIdx) {
+			if (loopStartBar !== null && loopStartBar > currentBarIdx) {
 				loopStartBar = null;
 			}
 		}
@@ -886,147 +794,52 @@
 
 	/** Convert bar index range to expanded (playback) tick range.
 	 *  Finds the smallest contiguous range across all occurrences of startBar/endBar
-	 *  in the expanded sequence. Prefers later occurrences when spans tie
-	 *  (e.g. alternate endings). */
-	function barToExpandedRange(
-		startBar: number,
-		endBar: number
-	): { startTick: number; endTick: number } | null {
-		if (!api) return null;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return null;
-			// Find all occurrences of endBar in the expanded sequence
-			const endOccurrences: number[] = [];
-			for (let i = 0; i < entries.length; i++) {
-				if (entries[i].masterBar.index === endBar) endOccurrences.push(i);
-			}
-			if (endOccurrences.length === 0) return null;
-			// For each endBar occurrence (first-to-last), find the closest preceding startBar.
-			// Pick the pair with the smallest range. By iterating first-to-last, earlier
-			// occurrences win ties — avoids "teleporting" playback to a later repeat pass
-			// when the user loops bars within a simple repeat section.
-			let bestStart = -1;
-			let bestEnd = -1;
-			let bestSpan = Infinity;
-			for (let e = 0; e < endOccurrences.length; e++) {
-				const endIdx = endOccurrences[e];
-				for (let i = endIdx; i >= 0; i--) {
-					if (entries[i].masterBar.index === startBar) {
-						const span = endIdx - i;
-						if (span < bestSpan) {
-							bestStart = i;
-							bestEnd = endIdx;
-							bestSpan = span;
-						}
-						break;
-					}
-				}
-			}
-			if (bestStart === -1) return null;
-			const expandedStart = entries[bestStart].start;
-			const expandedEnd = entries[bestEnd].end;
-			if (expandedEnd > expandedStart) {
-				return { startTick: expandedStart, endTick: expandedEnd };
-			}
-		} catch (e) {
-			console.warn('barToExpandedRange error:', e);
-		}
-		return null;
+	 *  in the expanded sequence. Earliest occurrences win equal spans. */
+	function barToExpandedRange(startBar: number, endBar: number) {
+		return timingForApi(api)?.range(startBar, endBar) ?? null;
 	}
 
-	/** Get ms start/end for the current loop range, consistent with playback. */
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
-		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0)
-			return null;
-		const range = barToExpandedRange(loopStartBar, loopEndBar);
-		if (!range) return null;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries?.length) return null;
-			const total = entries[entries.length - 1].end;
-			if (total <= 0) return null;
-			return {
-				startMs: (range.startTick / total) * duration,
-				endMs: (range.endTick / total) * duration
-			};
-		} catch {
-			return null;
-		}
+		if (loopStartBar === null || loopEndBar === null) return null;
+		const timing = timingForApi(api);
+		const range = timing?.range(loopStartBar, loopEndBar);
+		return range && timing
+			? {
+					startMs: timing.tickToMs(range.startTick, api.playbackSpeed),
+					endMs: timing.tickToMs(range.endTick, api.playbackSpeed)
+				}
+			: null;
 	}
 
-	/** Get ms position for a bar's start (last occurrence for repeated bars) */
+	/** Sheet actions use the same repeat visit as the regional loop. */
 	function barToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return -1;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return -1;
-			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return -1;
-			let found = false;
-			let expandedTick = 0;
-			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) {
-					expandedTick = entry.start;
-					found = true;
-				}
-			}
-			if (!found) {
-				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
-				return -1;
-			}
-			return (expandedTick / totalExpanded) * duration;
-		} catch (e) {
-			console.warn('barToMs error:', e);
-		}
-		return -1;
+		const timing = timingForApi(api);
+		const range =
+			loopStartBar !== null && loopEndBar !== null
+				? timing?.range(loopStartBar, loopEndBar)
+				: timing?.range(barIdx, barIdx);
+		const visit = timing?.visits.find(
+			(v) =>
+				v.masterBar.index === barIdx &&
+				(!range || (v.start >= range.startTick && v.end <= range.endTick))
+		);
+		return visit && timing ? timing.tickToMs(visit.start, api.playbackSpeed) : -1;
 	}
 
-	/** Get ms position for a bar's end (last occurrence for repeated bars) */
 	function barEndToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return -1;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return -1;
-			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return -1;
-			let found = false;
-			let expandedEnd = 0;
-			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) {
-					expandedEnd = entry.end;
-					found = true;
-				}
-			}
-			if (!found) {
-				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
-				return -1;
-			}
-			return (expandedEnd / totalExpanded) * duration;
-		} catch (e) {
-			console.warn('barEndToMs error:', e);
-		}
-		return 0;
+		const timing = timingForApi(api);
+		const startMs = barToMs(barIdx);
+		const visit = timing?.visits.find(
+			(v) =>
+				v.masterBar.index === barIdx &&
+				Math.abs(timing.tickToMs(v.start, api.playbackSpeed) - startMs) < 0.01
+		);
+		return visit && timing ? timing.tickToMs(visit.end, api.playbackSpeed) : -1;
 	}
 
-	/** Convert ms position to bar index (snaps to bar boundary) */
 	function msToBar(ms: number): number {
-		if (!api || !duration || duration <= 0) return 0;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return 0;
-			const totalExpanded = entries[entries.length - 1].end;
-			const expandedTick = (ms / duration) * totalExpanded;
-			for (const entry of entries) {
-				if (expandedTick >= entry.start && expandedTick < entry.end) {
-					return entry.masterBar.index;
-				}
-			}
-			return entries[entries.length - 1].masterBar.index;
-		} catch (e) {
-			console.warn('msToBar error:', e);
-		}
-		return 0;
+		const timing = timingForApi(api);
+		return timing?.barAt(timing.msToTick(ms, api.playbackSpeed)) ?? 0;
 	}
 
 	/** Span of masterBar indices played on the timeline between two ms
@@ -1044,8 +857,10 @@
 			if (!entries?.length) return null;
 			const total = entries[entries.length - 1].end;
 			if (total <= 0) return null;
-			const lo = (Math.min(msA, msB) / duration) * total;
-			const hi = (Math.max(msA, msB) / duration) * total;
+			const timing = timingForApi(api);
+			if (!timing) return null;
+			const lo = timing.msToTick(Math.min(msA, msB), api.playbackSpeed);
+			const hi = timing.msToTick(Math.max(msA, msB), api.playbackSpeed);
 			let minBar = Infinity;
 			let maxBar = -Infinity;
 			for (const e of entries) {
@@ -1070,15 +885,21 @@
 			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
 				const range = barToExpandedRange(loopStartBar, loopEndBar);
 				if (range && range.endTick > range.startTick) {
-					api.playbackRange = range;
+					if (
+						api.playbackRange?.startTick !== range.startTick ||
+						api.playbackRange?.endTick !== range.endTick
+					)
+						api.playbackRange = range;
 					api.isLooping = true;
 				} else {
 					api.playbackRange = null;
 					api.isLooping = false;
 				}
 			} else {
-				api.playbackRange = null;
-				api.isLooping = false;
+				if (api.playbackRange) api.playbackRange = null;
+				// A disabled region stops looping; absent bounds leave the whole-song
+				// toggle owned by the persistent engine.
+				if (loopStartBar !== null || loopEndBar !== null) api.isLooping = false;
 			}
 		} catch {}
 	}
@@ -1285,7 +1106,8 @@
 				// Play from A
 				const playBtn = document.createElement('button');
 				playBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				playBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">play_circle</i>';
+				playBtn.innerHTML =
+					'<i class="material-icons" style="font-size:16px;" aria-hidden="true">play_circle</i>';
 				playBtn.title = 'Play from start';
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1308,7 +1130,8 @@
 				// Delete
 				const delBtn = document.createElement('button');
 				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">delete_outline</i>';
+				delBtn.innerHTML =
+					'<i class="material-icons" style="font-size:16px;" aria-hidden="true">delete_outline</i>';
 				delBtn.title = 'Remove loop [Esc]';
 				delBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1321,11 +1144,14 @@
 
 			// Update scrollbar minimap indicator
 			if (merged.length > 0) {
-				const docHeight = document.documentElement.scrollHeight;
-				const viewportH = window.innerHeight;
+				const docHeight = page?.scrollHeight ?? document.documentElement.scrollHeight;
+				const viewportH = page?.clientHeight ?? window.innerHeight;
 				const host = document.getElementById('player-host');
 				if (host && docHeight > 0) {
-					const hostTop = host.getBoundingClientRect().top + window.scrollY;
+					const hostTop =
+						host.getBoundingClientRect().top -
+						(page?.getBoundingClientRect().top ?? 0) +
+						(page?.scrollTop ?? window.scrollY);
 					const selTop = hostTop + merged[0].y;
 					const selBottom = hostTop + merged[merged.length - 1].y + merged[merged.length - 1].h;
 					// Map page position to viewport-relative position (like a scrollbar)
@@ -1362,12 +1188,15 @@
 
 	// React to loop changes: sync playbackRange and update score selection
 	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}`;
-	$: if (api && scoreLoaded && duration > 0 && loopSyncKey) {
+	$: if (api && scoreLoaded && loopRestored && duration > 0 && loopSyncKey) {
 		syncPlaybackRange();
 		updateScoreSelection();
 	}
 	// Persist the loop region in the URL so it survives reloads / shared links.
-	$: if (browser && scoreLoaded && loopSyncKey) {
+	$: if (browser && scoreLoaded && loopRestored && loopSyncKey) {
+		updatePlayerState({
+			loop: { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
+		});
 		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled);
 	}
 
@@ -1442,6 +1271,56 @@
 		showSelectionPopover = true;
 	}
 
+	let cancelActiveDrag: (() => void) | null = null;
+	function startDocumentDrag(moveType: string, endType: string, onMove: any, onEnd: any) {
+		cancelActiveDrag?.();
+		const original = { start: loopStartBar, end: loopEndBar, enabled: loopEnabled };
+		const cleanup = () => {
+			document.removeEventListener(moveType, move);
+			document.removeEventListener(endType, end);
+			document.removeEventListener('touchcancel', cancel);
+			window.removeEventListener('blur', cancel);
+			document.removeEventListener('visibilitychange', visibility);
+			cancelActiveDrag = null;
+		};
+		const cancel = () => {
+			cleanup();
+			cancelProgressGesture();
+			loopStartBar = original.start;
+			loopEndBar = original.end;
+			loopEnabled = original.enabled;
+			updateScoreSelection();
+		};
+		const visibility = () => {
+			if (document.hidden) cancel();
+		};
+		const move = (event: any) => {
+			if (event.touches && event.touches.length !== 1) {
+				cancel();
+				return;
+			}
+			onMove(event);
+		};
+		const end = (event: any) => {
+			cleanup();
+			onEnd(event);
+		};
+		cancelActiveDrag = cancel;
+		document.addEventListener(moveType, move, { passive: true });
+		document.addEventListener(endType, end);
+		document.addEventListener('touchcancel', cancel);
+		window.addEventListener('blur', cancel);
+		document.addEventListener('visibilitychange', visibility);
+	}
+	function cancelProgressGesture() {
+		pbTouchActive = false;
+		clearTimeout(longPressTimer);
+		pbLoopCreating = false;
+		pbScrubbing = false;
+		isDraggingLoop = false;
+		bindDuration = true;
+	}
+
 	// Drag the entire loop region (move both start and end together)
 	function startLoopDrag(e: MouseEvent) {
 		if (loopStartBar === null || loopEndBar === null || !duration) return;
@@ -1479,8 +1358,7 @@
 			document.removeEventListener('mouseup', onUp);
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function clearSheetSelection() {
@@ -1527,7 +1405,7 @@
 				return;
 			}
 			// Inside the loop region - drag to move
-			if (mouseX > startX + EDGE_THRESHOLD_PX && mouseX < endX - EDGE_THRESHOLD_PX) {
+			if (loopEnabled && mouseX > startX + EDGE_THRESHOLD_PX && mouseX < endX - EDGE_THRESHOLD_PX) {
 				e.preventDefault();
 				startLoopMoveDrag(e);
 				return;
@@ -1545,8 +1423,7 @@
 			pbEndGesture(me.clientX);
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
@@ -1588,8 +1465,7 @@
 			isDraggingLoop = false;
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
@@ -1646,8 +1522,7 @@
 			}
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function handleProgressBarHover(event: MouseEvent) {
@@ -1748,11 +1623,7 @@
 		if (pbLoopCreating) {
 			pbLoopCreating = false;
 			isDraggingLoop = false;
-			// Discard a zero-length loop — a hold with no drag shouldn't leave a
-			// single-bar selection behind.
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
+
 			return;
 		}
 		if (pbScrubbing) {
@@ -1780,8 +1651,15 @@
 	// that point the progress bar ignores the rest of the gesture so the finger
 	// can't scrub or seed a loop on its way up.
 	let pbSuppressed = false;
+	let pbTouchActive = false;
 
 	function handleProgressBarTouchStart(event: TouchEvent) {
+		pbTouchActive = event.touches.length === 1;
+		if (event.touches.length !== 1) {
+			cancelActiveDrag?.();
+			cancelProgressGesture();
+			return;
+		}
 		pbSuppressed = false;
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
@@ -1800,7 +1678,7 @@
 				startLoopEdgeDragTouch(event, 'end');
 				return;
 			}
-			if (x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
+			if (loopEnabled && x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
 				startLoopMoveDragTouch(event);
 				return;
 			}
@@ -1810,6 +1688,12 @@
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
+		if (event.touches.length !== 1) {
+			pbTouchActive = false;
+			cancelActiveDrag?.();
+			cancelProgressGesture();
+			return;
+		}
 		if (pbSuppressed) return;
 		const t = event.touches[0];
 		if (!range || !duration || !t) return;
@@ -1823,6 +1707,9 @@
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
+		if (!pbTouchActive) return;
+		pbTouchActive = false;
+		if (isDraggingLoop && !pbLoopCreating) return;
 		if (pbSuppressed) {
 			pbSuppressed = false;
 			clearTimeout(longPressTimer);
@@ -1856,8 +1743,7 @@
 			document.removeEventListener('touchend', onEnd);
 			isDraggingLoop = false;
 		};
-		document.addEventListener('touchmove', onMove, { passive: true });
-		document.addEventListener('touchend', onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
@@ -1888,8 +1774,7 @@
 			document.removeEventListener('touchend', onEnd);
 			isDraggingLoop = false;
 		};
-		document.addEventListener('touchmove', onMove, { passive: true });
-		document.addEventListener('touchend', onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
 	}
 
 	// Legacy mouse touch handler (kept for backward compat)
@@ -1943,7 +1828,9 @@
 		if (!barGesturePending || !barFromScrubZone) return false;
 		const dy = t.clientY - barTouchStartY;
 		const dx = t.clientX - barTouchStartX;
-		return Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO;
+		return (
+			Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO
+		);
 	}
 
 	/** Drive the outer view by a vertical delta: on phones the finger moves the
@@ -2072,9 +1959,10 @@
 		if (!el) return;
 		const elRect = el.getBoundingClientRect();
 		const viewportHeight = page ? page.clientHeight : window.innerHeight;
-		const grabBottom = viewportHeight * 0.15;
+		const top = page?.getBoundingClientRect().top ?? 0;
+		const grabBottom = top + viewportHeight * 0.15;
 
-		if (elRect.top >= 0 && elRect.top <= grabBottom) {
+		if (elRect.top >= top && elRect.top <= grabBottom) {
 			autoFollow = true;
 		}
 	}
@@ -2107,15 +1995,19 @@
 		}
 	}
 
-	$: if (api) {
-		// Debounce volume changes to avoid synth worker rebuffering on every slider tick
-		if ($audioSource === 'tab' || !hasActiveVideo) {
-			setMasterVolumeDebounced(api, volume);
-		}
+	$: if (hasActiveVideo && $videoPlayerRef) {
+		const rates: number[] = $videoPlayerRef.getAvailablePlaybackRates?.() ?? [];
+		if (rates.length)
+			speed = rates.reduce(
+				(best, rate) => (Math.abs(rate - speed) < Math.abs(best - speed) ? rate : best),
+				rates[0]
+			);
 	}
 	$: if (api) {
-		api.playbackSpeed = speed;
+		if (api.playbackSpeed !== speed) api.playbackSpeed = speed;
+		updatePlayerState({ speed, masterVolume: volume });
 	}
+
 	$: if (api) {
 		api.metronomeVolume = metronome;
 	}
@@ -2124,13 +2016,6 @@
 		const end = Math.round(duration / 1000);
 		const now = Math.round(progress * 0.01 * end);
 		current = `${displayTime(now)} / ${displayTime(end)}`;
-	}
-
-	// Initialize track states when tracks load
-	$: if (tracks.length > 0 && trackVolumes.length === 0) {
-		trackVolumes = tracks.map(() => 1.0);
-		trackMutes = tracks.map(() => false);
-		trackSolos = tracks.map(() => false);
 	}
 
 	// Responsive scale based on screen size and user preferences
@@ -2165,8 +2050,8 @@
 	// at, and the responsive-scale recompute alone doesn't fire a re-render when
 	// the scale bucket is unchanged (portrait and landscape phones are both
 	// < 768px). We fix it by, on a debounced orientationchange / width-changing
-	// resize, clearing any stale explicit width on the layout container, recomputing
-	// the responsive scale from the LIVE viewport width, and forcing alphaTab to
+	// resize, clearing any stale explicit width on the layout container, preserving
+	// the selected scale, and forcing alphaTab to
 	// relayout with api.render() so the score, cursor and our top/bottom bars all
 	// re-expand to the current width together.
 	let lastRelayoutWidth = browser ? window.innerWidth : 0;
@@ -2192,15 +2077,9 @@
 				document.getElementById('player-host');
 			if (host) host.style.width = '100%';
 			if (target) target.style.width = '100%';
-			// Recompute the responsive scale from the current viewport width.
-			const newScale = getResponsiveScale();
-			if (Math.abs(newScale - tabScale) > 0.01) {
-				tabScale = newScale;
-				try {
-					api.settings.display.scale = tabScale;
-					api.updateSettings();
-				} catch {}
-			}
+			// Relayout changes geometry, while the user-selected notation scale persists.
+			api.settings.display.scale = tabScale;
+			api.updateSettings();
 			// Force a full relayout at the current container width.
 			try {
 				api.render();
@@ -2256,10 +2135,13 @@
 	// Seek by bar
 	function seekByBars(delta: number) {
 		if (!api || totalBars === 0) return;
-		const newBar = Math.max(0, Math.min(totalBars - 1, currentBar + delta));
-		const newProgress = ((newBar + 0.5) / totalBars) * 100;
-		progress = newProgress;
-		api.player.timePosition = (progress / 100) * duration;
+		const timing = timingForApi(api);
+		if (!timing) return;
+		const tick = timing.msToTick((progress / 100) * duration, api.playbackSpeed);
+		const nextVisit = Math.max(0, Math.min(timing.visits.length - 1, timing.visitAt(tick) + delta));
+		const ms = timing.tickToMs(timing.visits[nextVisit].start, api.playbackSpeed);
+		progress = duration > 0 ? (ms / duration) * 100 : 0;
+		api.player.timePosition = ms;
 		seekDebounce();
 		autoFollow = true;
 		autoFollowDisengagedAt = 0;
@@ -2272,6 +2154,10 @@
 		// Clean up any previous listeners
 		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
+
+		const listen = (emitter: any, handler: (...args: any[]) => void) => {
+			fullPlayerListenerCleanups.push(subscribePlayerEvent(apiRef, emitter, handler));
+		};
 
 		// Score loaded (detailed handler for full player)
 		const onScoreLoaded = (score: any) => {
@@ -2316,40 +2202,25 @@
 				activeTrackIndex = 0;
 			}
 
-			// Restore a loop region carried in the URL (once, when no loop is set yet)
-			if (loopStartBar === null && loopEndBar === null) {
-				const { loop } = readUrlState();
-				if (loop && loop.endBar < totalBars) {
-					loopStartBar = loop.startBar;
-					loopEndBar = loop.endBar;
-					loopEnabled = loop.enabled;
-				}
-			}
+			restoreScoreSession(score);
 
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
-		apiRef.scoreLoaded.on(onScoreLoaded);
+		listen(apiRef.scoreLoaded, onScoreLoaded);
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
 			if (bindDuration) {
-				const prev = progress;
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
-				// A jump of >2% between position events is not natural playback —
-				// it's a seek (e.g. alphaTab's built-in beat click). Propagate it
-				// to the video so the sync poller doesn't undo the user's click.
-				if (Math.abs(progress - prev) > 2 && duration > 0) {
-					driveVideoSeek(e.currentTime);
-				}
 			}
 			if (totalBars > 0 && duration > 0) {
-				currentBar = Math.floor((e.currentTime / e.endTime) * totalBars);
+				currentBar = timingForApi(apiRef)?.barAt(e.currentTick) ?? msToBar(e.currentTime);
 				currentBar = Math.max(0, Math.min(totalBars - 1, currentBar));
 			}
 		};
-		apiRef.playerPositionChanged.on(onPosition);
+		listen(apiRef.playerPositionChanged, onPosition);
 
 		// Auto-scroll cursor
 		const onPositionScroll = (e: any) => {
@@ -2367,13 +2238,13 @@
 			if (!scrollElement) return;
 			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
 		};
-		apiRef.playerPositionChanged.on(onPositionScroll);
+		listen(apiRef.playerPositionChanged, onPositionScroll);
 
 		// Player state
 		const onState = (args: { state: number }) => {
 			playing = args.state !== 0;
 		};
-		apiRef.playerStateChanged.on(onState);
+		listen(apiRef.playerStateChanged, onState);
 
 		// Error
 		const onError = (error: Error) => {
@@ -2381,7 +2252,7 @@
 			apiError = error.message || 'Failed to load tablature';
 			scoreLoaded = false;
 		};
-		apiRef.error.on(onError);
+		listen(apiRef.error, onError);
 
 		// Render events
 		const onRenderStart = () => {
@@ -2392,25 +2263,28 @@
 				if (tracksSet.has(trackItem.index)) activeTrackIndex = trackItem.index;
 			});
 		};
-		apiRef.renderStarted.on(onRenderStart);
+		listen(apiRef.renderStarted, onRenderStart);
 
 		const onRenderEnd = () => {
 			isRendering = false;
+			requestAnimationFrame(() => {
+				if (api) updateScoreSelection();
+			});
 		};
-		apiRef.renderFinished?.on(onRenderEnd);
+		listen(apiRef.renderFinished, onRenderEnd);
 
 		// SoundFont progress (might already be loaded)
 		if (apiRef.soundFontLoad) {
 			const onSfLoad = (e: any) => {
 				if (e.total > 0) soundFontProgress = Math.round((e.loaded / e.total) * 100);
 			};
-			apiRef.soundFontLoad.on(onSfLoad);
+			listen(apiRef.soundFontLoad, onSfLoad);
 		}
 
 		const onSfLoaded = () => {
 			soundFontLoaded = true;
 		};
-		apiRef.soundFontLoaded.on(onSfLoaded);
+		listen(apiRef.soundFontLoaded, onSfLoaded);
 
 		// --- Sheet selection via alphaTab beat events ---
 		// During drag: show a lightweight preview overlay (no loop state changes).
@@ -2419,6 +2293,10 @@
 
 		let scoreDragStartBeat: any = null;
 		let scoreDragging = false;
+		cancelScoreSelection = () => {
+			scoreDragStartBeat = null;
+			scoreDragging = false;
+		};
 
 		/** Show a lightweight preview overlay during score drag (no state changes) */
 		function showDragPreview(startBeat: any, endBeat: any) {
@@ -2489,19 +2367,21 @@
 		}
 
 		const onBeatMouseDown = (beat: any) => {
+			scoreGestureCancelled = false;
 			scoreDragStartBeat = beat;
 			scoreDragging = false;
 		};
-		apiRef.beatMouseDown.on(onBeatMouseDown);
+		listen(apiRef.beatMouseDown, onBeatMouseDown);
 
 		const onBeatMouseMove = (beat: any) => {
 			if (!scoreDragStartBeat || beat === scoreDragStartBeat) return;
 			scoreDragging = true;
 			showDragPreview(scoreDragStartBeat, beat);
 		};
-		apiRef.beatMouseMove.on(onBeatMouseMove);
+		listen(apiRef.beatMouseMove, onBeatMouseMove);
 
 		const onBeatMouseUp = (beat: any) => {
+			if (scoreGestureCancelled || !scoreDragStartBeat) return;
 			if (!scoreDragging) {
 				// Single click - clear loop
 				if (loopStartBar !== null || loopEndBar !== null) {
@@ -2533,7 +2413,7 @@
 			scoreDragStartBeat = null;
 			scoreDragging = false;
 		};
-		apiRef.beatMouseUp.on(onBeatMouseUp);
+		listen(apiRef.beatMouseUp, onBeatMouseUp);
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -2588,66 +2468,12 @@
 		if (smallScreenMql) isSmallScreen = smallScreenMql.matches;
 	}
 
-	onMount(async () => {
-		// Restore saved settings
-		loadSettings();
-		if (browser) {
-			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
-			syncMobileLandscape();
-			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
-			// Split-view needs landscape width; portrait screens (phones and
-			// tablets alike) use the compact bottom sheet instead.
-			largeScreenMql = window.matchMedia('(min-width: 976px) and (orientation: landscape)');
-			syncLargeScreen();
-			largeScreenMql.addEventListener('change', syncLargeScreen);
-			smallScreenMql = window.matchMedia('(max-width: 480px)');
-			syncSmallScreen();
-			smallScreenMql.addEventListener('change', syncSmallScreen);
-		}
-		// Seed playerState.activeTrackIndex from URL so adoption sync below
-		// sees the URL value as authoritative. Otherwise the adoption sync
-		// would overwrite our URL-supplied track with a stale state value.
-		if (initialTrackIndex !== undefined && initialTrackIndex >= 0) {
-			updatePlayerState({ activeTrackIndex: initialTrackIndex });
-		}
-		isFullPlayerView.set(true);
-
-		// Register our video handlers so the layout's persistent VideoPlayer
-		// (the single YT iframe that survives route changes) can notify us.
-		videoHandlers.set({
-			onStateChange: handleVideoStateChange,
-			onReady: () => {
-				startVideoSync();
-				const st = get(playerState);
-				const yt = get(videoPlayerRef);
-				// If the user just attached a video while the tab is already
-				// playing, jump the video to the tab's current time (accounting
-				// for the sync offset) and start it so both tracks line up the
-				// moment the iframe is ready.
-				if (yt && st.playing && st.duration > 0) {
-					const tabSec = (st.progress / 100) * (st.duration / 1000);
-					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
-					userSeekLockUntil = Date.now() + 600;
-					try {
-						yt.seekTo(videoSec, true);
-					} catch {}
-					try {
-						yt.playVideo();
-					} catch {}
-					updatePlayerState({ videoWasPlaying: false });
-					return;
-				}
-				if (st.videoWasPlaying) {
-					try {
-						yt?.playVideo();
-					} catch {}
-					updatePlayerState({ videoWasPlaying: false });
-				}
-			}
-		});
-
+	let unsubscribePlayerApi: (() => void) | undefined;
+	let unsubscribePlayerTarget: (() => void) | undefined;
+	function adoptPersistentApi(nextApi: any) {
 		// --- Adopt persistent alphaTab API from layout ---
-		api = get(playerApi);
+		if (!nextApi || nextApi === api || didReturnPlayerHost) return;
+		api = nextApi;
 		const playerHostEl = get(playerTarget);
 
 		// Reparent the persistent player host into our container. Web Audio context
@@ -2676,6 +2502,8 @@
 			playing = state.playing;
 			progress = state.progress;
 			duration = state.duration;
+			currentBar = state.currentBar;
+			if (state.scoreLoaded && state.scoreKey === data.fileAsB64) restoreScoreSession(api.score);
 
 			// IMPORTANT: Do NOT call api.render() during adoption.
 			// The rendering surface is already populated from the previous render.
@@ -2697,6 +2525,40 @@
 				if (api) updateAlphaTabTheme(theme);
 			});
 		}
+	}
+
+	onMount(async () => {
+		// Restore saved settings
+		loadSettings();
+		if (browser) {
+			mobileLandscapeMql = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+			syncMobileLandscape();
+			mobileLandscapeMql.addEventListener('change', syncMobileLandscape);
+			// Split-view needs landscape width; portrait screens (phones and
+			// tablets alike) use the compact bottom sheet instead.
+			largeScreenMql = window.matchMedia('(min-width: 976px) and (orientation: landscape)');
+			syncLargeScreen();
+			largeScreenMql.addEventListener('change', syncLargeScreen);
+			smallScreenMql = window.matchMedia('(max-width: 480px)');
+			syncSmallScreen();
+			smallScreenMql.addEventListener('change', syncSmallScreen);
+		}
+		// Seed playerState.activeTrackIndex from URL so adoption sync below
+		// sees the URL value as authoritative. Otherwise the adoption sync
+		// would overwrite our URL-supplied track with a stale state value.
+		if (initialTrackIndex !== undefined && initialTrackIndex >= 0) {
+			updatePlayerState({ activeTrackIndex: initialTrackIndex });
+		}
+		isFullPlayerView.set(true);
+
+		unsubscribePlayerApi = playerApi.subscribe(adoptPersistentApi);
+		unsubscribePlayerTarget = playerTarget.subscribe((host) => {
+			if (host && target && !didReturnPlayerHost && host.parentElement !== target) {
+				isTransitioning.set(true);
+				target.appendChild(host);
+				isTransitioning.set(false);
+			}
+		});
 
 		// --- Test API bridge (dev mode only) ---
 		if (import.meta.env.DEV) {
@@ -2713,6 +2575,8 @@
 				},
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
+				getNativePosition: () => ({ tick: api.tickPosition, ms: api.timePosition }),
+				getFullViewListenerCount: () => getViewSubscriptionCount(get(playerApi)),
 				getTotalBars: () => totalBars,
 				getScale: () => ({ apiScale: api?.settings?.display?.scale, tabScale }),
 				getSpeed: () => speed,
@@ -2735,19 +2599,48 @@
 					}
 				},
 				setMockVideo: (currentTimeSec: number, durationSec: number) => {
+					let mediaTime = currentTimeSec,
+						state = 2,
+						rate = 1,
+						timestamp = Date.now();
+					const read = () => {
+						if (state === 1) mediaTime += ((Date.now() - timestamp) / 1000) * rate;
+						timestamp = Date.now();
+						return mediaTime;
+					};
 					const mockPlayer = {
-						getCurrentTime: () => currentTimeSec,
+						getCurrentTime: read,
 						getDuration: () => durationSec,
-						getPlayerState: () => 1,
-						pauseVideo: () => {},
-						playVideo: () => {},
-						seekTo: () => {},
+						getPlayerState: () => state,
+						pauseVideo: () => {
+							read();
+							state = 2;
+						},
+						playVideo: () => {
+							read();
+							state = 1;
+						},
+						seekTo: (seconds: number) => {
+							mediaTime = seconds;
+							timestamp = Date.now();
+						},
 						mute: () => {},
 						unMute: () => {},
-						setVolume: () => {}
+						setVolume: () => {},
+						getAvailablePlaybackRates: () => [0.5, 1, 1.5, 2],
+						setPlaybackRate: (next: number) => {
+							read();
+							rate = next;
+						}
 					};
 					activeVideoId.set('mock-video-id');
 					videoPlayerRef.set(mockPlayer);
+					setTimeout(() => {
+						if (get(videoPlayerRef) !== mockPlayer) return;
+						mockPlayer.seekTo(currentTimeSec);
+						mockPlayer.playVideo();
+						get(videoHandlers).onStateChange?.(1);
+					}, 500);
 				},
 				clearMockVideo: () => {
 					activeVideoId.set(null);
@@ -2867,6 +2760,15 @@
 		themeInitialized = true;
 
 		document.addEventListener('keydown', onBarPressed);
+		const cancelHiddenScore = () => {
+			if (document.hidden) cancelScoreGesture();
+		};
+		window.addEventListener('blur', cancelScoreGesture);
+		document.addEventListener('visibilitychange', cancelHiddenScore);
+		fullPlayerListenerCleanups.push(() => {
+			window.removeEventListener('blur', cancelScoreGesture);
+			document.removeEventListener('visibilitychange', cancelHiddenScore);
+		});
 
 		// --- Responsive scale and UI setup ---
 		const savedScale = tabScale;
@@ -2883,8 +2785,8 @@
 		}
 
 		// A width-changing resize (rotation, window resize) triggers a debounced
-		// relayout that clears the stale container width, recomputes the responsive
-		// scale from the live viewport and re-renders alphaTab (see FIX F).
+		// relayout that clears the stale container width, preserves the selected
+		// scale and re-renders alphaTab (see FIX F).
 		lastRelayoutWidth = window.innerWidth;
 		mountHandleResize = () => {
 			publishBarInset();
@@ -2930,9 +2832,13 @@
 			return;
 		}
 
-		// Don't capture keys when typing in inputs
-		const tag = (event.target as HTMLElement)?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+		const focused = event.target as HTMLElement | null;
+		if (focused?.isContentEditable || focused?.closest('input, textarea, select, [role="menu"]'))
+			return;
+		const slider = focused?.closest('[role="slider"]');
+		if (slider && slider !== range && event.code !== 'Escape') return;
+		if ((event.code === 'Space' || event.code === 'Enter') && focused?.closest('button, a')) return;
 
 		if (event.code === 'Space') {
 			event.preventDefault();
@@ -3048,10 +2954,12 @@
 	function returnPlayerHost() {
 		if (didReturnPlayerHost) return;
 		didReturnPlayerHost = true;
+		unsubscribePlayerApi?.();
+		unsubscribePlayerTarget?.();
+		cancelActiveDrag?.();
+		cancelProgressGesture();
+		cancelScoreGesture();
 		isFullPlayerView.set(false);
-		// Release the video-handler slot so the layout's VideoPlayer stops
-		// bouncing YT events into our (about-to-unmount) handlers.
-		videoHandlers.set({});
 
 		// Return the persistent player host to the layout's hidden anchor.
 		// alphaTab's audio runs in a Web Audio context that is NOT tied to the DOM
@@ -3110,6 +3018,9 @@
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		window.removeEventListener('orientationchange', handleOrientationChange);
 		clearTimeout(relayoutDebounceTimeout);
+		clearTimeout(scaleDebounceTimeout);
+		clearTimeout(seekDebounceTimeout);
+		clearTimeout(swipeIndicatorTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3126,7 +3037,7 @@
 		// Cleanup timers that may still be running
 		clearInterval(countdownInterval);
 		clearTimeout(longPressTimer);
-		clearInterval(videoSyncInterval);
+
 		clearTimeout(loadingTimeoutId);
 		// Restore body scroll in case we're destroyed while loading
 		document.body.style.overflow = '';
@@ -3246,7 +3157,6 @@
 			closeVideo();
 			return;
 		}
-		volumeBeforeVideo = volume;
 		// Default to video audio when selecting a video
 		audioSource.set('video');
 		activeVideoId.set(videoId);
@@ -3254,7 +3164,6 @@
 	}
 
 	function closeVideo() {
-		stopVideoSync();
 		activeVideoId.set(null);
 		const ytPlayer = $videoPlayerRef;
 		if (ytPlayer) {
@@ -3265,7 +3174,6 @@
 		videoPlayerRef.set(null);
 		// Restore tab audio
 		audioSource.set('tab');
-		volume = volumeBeforeVideo || 1;
 		if (api) api.masterVolume = volume;
 		showOffsetControl = false;
 	}
@@ -3274,74 +3182,20 @@
 	 *  with the tab timeline. Safe to call when no video is open (no-op).
 	 *  Also installs a short lock so the 200ms sync poller doesn't immediately
 	 *  drag the tab back to the video's still-settling old position. */
-	let userSeekLockUntil = 0;
 	function driveVideoSeek(tabMs: number) {
-		const ytPlayer = $videoPlayerRef;
-		if (!ytPlayer) return;
-		userSeekLockUntil = Date.now() + 600;
-		const videoSec = Math.max(0, tabMs / 1000 + ($videoSyncOffset || 0));
-		try {
-			ytPlayer.seekTo(videoSec, true);
-		} catch {}
-	}
-
-	/** YouTube supports a fixed set of playback rates. Snap tab speed to the
-	 *  nearest one that YT accepts. */
-	function ytPlaybackRate(tabSpeed: number): number {
-		const allowed = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-		let best = 1;
-		let bestDiff = Infinity;
-		for (const r of allowed) {
-			const d = Math.abs(r - tabSpeed);
-			if (d < bestDiff) {
-				bestDiff = d;
-				best = r;
-			}
-		}
-		return best;
-	}
-
-	// Tab speed → YouTube playback rate. Runs whenever speed changes.
-	$: if (browser && $videoPlayerRef) {
-		try {
-			$videoPlayerRef.setPlaybackRate(ytPlaybackRate(speed));
-		} catch {}
-	}
-
-	let videoSyncLock = false;
-	function handleVideoStateChange(state: number) {
-		if (videoSyncLock) return;
-		// YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
-		videoSyncLock = true;
-		if (state === 1 && !playing) {
-			// Video started playing - bypass delay, play tab immediately
-			playImmediate();
-		} else if (state === 2 && playing) {
-			clickPause();
-		} else if (state === 0) {
-			clickPause();
-		}
-		setTimeout(() => {
-			videoSyncLock = false;
-		}, 300);
+		seekSessionVideo(tabMs);
 	}
 
 	// After seeking, alphaTab may fire one last playerPositionChanged event
 	// with the OLD position before the seek completes. Suppress it briefly.
 	let seekDebounceTimeout: NodeJS.Timeout;
-	let skipVideoDriveOnce = false;
 	function seekDebounce() {
 		bindDuration = false;
 		clearTimeout(seekDebounceTimeout);
 		seekDebounceTimeout = setTimeout(() => {
 			bindDuration = true;
 		}, 100);
-		// Propagate the seek to the video unless it's the sync poller
-		// asking (which was itself driven by the video — would be a no-op echo).
-		if (skipVideoDriveOnce) {
-			skipVideoDriveOnce = false;
-			return;
-		}
+
 		if (duration > 0) {
 			driveVideoSeek((progress / 100) * duration);
 		}
@@ -3391,7 +3245,7 @@
 	function updateTrackVolume(trackIndex: number, volume: number) {
 		trackVolumes[trackIndex] = volume;
 		const track = tracks[trackIndex];
-		track.playbackInfo.volume = volume;
+		track.playbackInfo.volume = volume * 16;
 		api.changeTrackVolume([track], volume);
 	}
 
@@ -3464,7 +3318,7 @@
 	function resetAllVolumes() {
 		trackVolumes = trackVolumes.map(() => 1.0);
 		tracks.forEach((track, i) => {
-			track.playbackInfo.volume = 1.0;
+			track.playbackInfo.volume = 16;
 			api.changeTrackVolume([track], 1.0);
 		});
 	}
@@ -3473,16 +3327,6 @@
 	function progressChange() {
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
-
-		// Sync video seek (with offset from shared store)
-		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer && duration > 0) {
-			const tabTimeSec = (progress / 100) * (duration / 1000);
-			const videoSeekTime = tabTimeSec + $videoSyncOffset;
-			if (videoSeekTime >= 0) {
-				ytPlayer.seekTo(videoSeekTime, true);
-			}
-		}
 	}
 
 	function clickLooping() {
@@ -3691,7 +3535,10 @@
 		}
 
 		try {
-			const how = await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
+			const how = await shareLink(url.toString(), {
+				title: 'Tablatures',
+				dialogTitle: 'Share tab'
+			});
 			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
 		} catch {
 			toastStore.error('Failed to copy link');
@@ -3731,6 +3578,17 @@
 	// events at the finger position so the existing desktop drag-to-select
 	// flow runs unchanged. Quick taps scroll/swipe normally.
 	let scoreLongPressTimer: NodeJS.Timeout;
+	let cancelScoreSelection = () => {};
+	let scoreGestureCancelled = false;
+	function cancelScoreGesture() {
+		clearTimeout(scoreLongPressTimer);
+		scoreGestureCancelled = true;
+		cancelScoreSelection();
+		if (scoreLongPressActive) dispatchMouseAt('mouseup', touchStartX, touchStartY);
+		scoreLongPressActive = false;
+		gestureMultiTouch = true;
+		updateScoreSelection();
+	}
 	let scoreLongPressActive = false;
 	const SCORE_LONG_PRESS_MS = 400;
 	const SCORE_LONG_PRESS_MOVE_CANCEL_PX = 8;
@@ -3753,6 +3611,11 @@
 	function handleTouchStart(e: TouchEvent) {
 		if (!e.touches[0]) return;
 		gestureMultiTouch = e.touches.length > 1;
+		if (gestureMultiTouch) {
+			cancelScoreGesture();
+			return;
+		}
+		scoreGestureCancelled = false;
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		scoreLongPressActive = false;
@@ -3768,7 +3631,11 @@
 
 	function handleScoreTouchMove(e: TouchEvent) {
 		if (!e.touches[0]) return;
-		if (e.touches.length > 1) gestureMultiTouch = true;
+		if (e.touches.length > 1) {
+			cancelScoreGesture();
+			return;
+		}
+		if (gestureMultiTouch) return;
 		const x = e.touches[0].clientX;
 		const y = e.touches[0].clientY;
 		if (scoreLongPressActive) {
@@ -3790,6 +3657,7 @@
 
 	function handleTouchEnd(e: TouchEvent) {
 		clearTimeout(scoreLongPressTimer);
+		if (scoreGestureCancelled) return;
 		if (scoreLongPressActive && e.changedTouches[0]) {
 			dispatchMouseAt('mouseup', e.changedTouches[0].clientX, e.changedTouches[0].clientY);
 			scoreLongPressActive = false;
@@ -3887,9 +3755,7 @@
 <div
 	id="page"
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
-		{isFullscreen && native
-			? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black'
-			: 'h-full'}"
+		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
@@ -3919,6 +3785,7 @@
 		on:touchstart={handleTouchStart}
 		on:touchmove|nonpassive={handleScoreTouchMove}
 		on:touchend={handleTouchEnd}
+		on:touchcancel={cancelScoreGesture}
 		use:pinchZoom={{
 			getScale: () => tabScale,
 			setScale: setTabScaleFromPinch,
@@ -3931,8 +3798,9 @@
 		{#if apiError}
 			<div class="flex items-center justify-center min-h-[60vh]">
 				<div class="text-center">
-					<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
-						 aria-hidden="true">error_outline</i
+					<i
+						class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
+						aria-hidden="true">error_outline</i
 					>
 					<p class="text-neutral-600 dark:text-neutral-400 mb-4">{apiError}</p>
 					<button
@@ -4003,7 +3871,8 @@
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Loop on/off toggle -->
-				<button aria-label="Toggle loop"
+				<button
+					aria-label="Toggle loop"
 					class="p-1 rounded-full transition-all {loopEnabled
 						? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 						: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
@@ -4012,7 +3881,9 @@
 					}}
 					title={loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
 				>
-					<i class="material-icons !text-lg" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+					<i class="material-icons !text-lg" aria-hidden="true"
+						>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+					>
 				</button>
 
 				<!-- Play selection from start -->
@@ -4037,7 +3908,8 @@
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Clear selection -->
-				<button aria-label="Remove selection"
+				<button
+					aria-label="Remove selection"
 					class="p-1 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 					on:click={clearSheetSelection}
 					title="Remove selection [Esc]"
@@ -4054,9 +3926,11 @@
 					? 'right-4'
 					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
 			>
-				<div class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg">
-					<i class="material-icons !text-2xl"
-						 aria-hidden="true">{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
+				<div
+					class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg"
+				>
+					<i class="material-icons !text-2xl" aria-hidden="true"
+						>{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
 					>
 					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
 				</div>
@@ -4142,6 +4016,7 @@
 			on:touchstart|preventDefault={handleProgressBarTouchStart}
 			on:touchmove|preventDefault={handleProgressBarTouchMove}
 			on:touchend={handleProgressBarTouchEnd}
+			on:touchcancel={cancelProgressGesture}
 		>
 			<!-- Track background -->
 			<div class="absolute inset-0 bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
@@ -4225,14 +4100,18 @@
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Loop on/off -->
-					<button aria-label="Toggle loop"
+					<button
+						aria-label="Toggle loop"
+						aria-pressed={loopEnabled}
 						class="p-0.5 rounded-full transition-all {loopEnabled
 							? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 							: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 						on:click|stopPropagation={toggleLoopEnabled}
 						title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
 					>
-						<i class="material-icons !text-base" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+						<i class="material-icons !text-base" aria-hidden="true"
+							>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+						>
 					</button>
 
 					<!-- Play from A -->
@@ -4257,7 +4136,8 @@
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Remove -->
-					<button aria-label="Remove loop"
+					<button
+						aria-label="Remove loop"
 						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 						on:click|stopPropagation={clearLoopPoints}
 						title="Remove loop [Esc]"
@@ -4297,8 +4177,8 @@
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}"
-					 aria-hidden="true">{playing ? 'pause' : 'play_arrow'}</i
+				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}" aria-hidden="true"
+					>{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
@@ -4310,7 +4190,9 @@
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>skip_previous</i
+				>
 			</button>
 
 			<button
@@ -4321,7 +4203,9 @@
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>skip_next</i
+				>
 			</button>
 
 			<!-- Time display -->
@@ -4354,8 +4238,8 @@
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						 aria-hidden="true">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
 				{#if volumeHover}
@@ -4411,7 +4295,8 @@
 						<i
 							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
 								? 'rotate-180'
-								: ''}" aria-hidden="true">arrow_drop_down</i
+								: ''}"
+							aria-hidden="true">arrow_drop_down</i
 						>
 					</button>
 					{#each tracks as track, i}
@@ -4429,7 +4314,9 @@
 						>
 							<span class="flex-1 min-w-0 truncate">{track.name || `Track ${i + 1}`}</span>
 							{#if i === activeTrackIndex}
-								<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+								<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true"
+									>check</i
+								>
 							{/if}
 						</button>
 					{/each}
@@ -4457,7 +4344,8 @@
 					<i
 						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
 							? 'text-white/70'
-							: 'text-neutral-400'} {open ? 'rotate-180' : ''}" aria-hidden="true">arrow_drop_down</i
+							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
+						aria-hidden="true">arrow_drop_down</i
 					>
 				</button>
 				{#each speedOptions as s}
@@ -4475,7 +4363,9 @@
 					>
 						<span class="flex-1">{s}x</span>
 						{#if s === speedRounded}
-							<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+							<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true"
+								>check</i
+							>
 						{/if}
 					</button>
 				{/each}
@@ -4492,7 +4382,9 @@
 						title="Play video"
 						aria-label="Play video"
 					>
-						<i class="material-icons !text-2xl" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+						<i class="material-icons !text-2xl" aria-hidden="true"
+							>{hasActiveVideo ? 'videocam' : 'videocam_off'}</i
+						>
 					</button>
 
 					{#if showVideoDropdown}
@@ -4515,8 +4407,9 @@
 									>Play with video</span
 								>
 								{#if hasActiveVideo}
-									<button on:click={closeVideo} class="text-xs text-danger-400 hover:text-danger-500"
-										>Stop video</button
+									<button
+										on:click={closeVideo}
+										class="text-xs text-danger-400 hover:text-danger-500">Stop video</button
 									>
 								{/if}
 							</div>
@@ -4546,7 +4439,9 @@
 										<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 									</div>
 									{#if $activeVideoId === yt.videoId}
-										<i class="material-icons !text-sm text-violet-500" aria-hidden="true">playing_for_changes</i>
+										<i class="material-icons !text-sm text-violet-500" aria-hidden="true"
+											>playing_for_changes</i
+										>
 									{/if}
 								</button>
 							{/each}
@@ -4560,34 +4455,37 @@
 			     toggle lives in the settings panel there; the freed slot keeps the
 			     phone bar to the essentials (settings + fullscreen). -->
 			{#if !mobileBar}
-			{#if loopStartBar !== null && loopEndBar !== null}
-				<button
-					on:click={toggleLoopEnabled}
-					class="{compactBar
-						? 'p-1.5'
-						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+				{#if loopStartBar !== null && loopEndBar !== null}
+					<button
+						on:click={toggleLoopEnabled}
+						class="{compactBar
+							? 'p-1.5'
+							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
-					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
-						1}) [Esc to clear]"
-					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
-				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						 aria-hidden="true">{loopEnabled ? 'repeat_on' : 'repeat'}</i
+						title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
+							1}) [Esc to clear]"
+						aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 					>
-				</button>
-			{:else}
-				<button
-					on:click={clickLooping}
-					class="{isFullscreen
-						? 'p-1.5'
-						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+							>{loopEnabled ? 'repeat_on' : 'repeat'}</i
+						>
+					</button>
+				{:else}
+					<button
+						on:click={clickLooping}
+						class="{isFullscreen
+							? 'p-1.5'
+							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-					title="Loop [L] &middot; Drag on progress bar to set region"
-					aria-label="Toggle loop"
-				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">repeat</i>
-				</button>
-			{/if}
+						title="Loop [L] &middot; Drag on progress bar to set region"
+						aria-label="Toggle loop"
+						aria-pressed={!!api?.isLooping && scoreLoaded}
+					>
+						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+							>repeat</i
+						>
+					</button>
+				{/if}
 			{/if}
 
 			<!-- Compact transposed pill: only in fullscreen (where the metadata row
@@ -4616,7 +4514,9 @@
 					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
 					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">lyrics</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+						>lyrics</i
+					>
 				</button>
 			{/if}
 
@@ -4629,7 +4529,8 @@
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">tune</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">tune</i
+				>
 			</button>
 
 			<!-- Fullscreen: shown on every platform (item 10). On native the button
@@ -4645,8 +4546,8 @@
 				title="Fullscreen [F]"
 				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-					 aria-hidden="true">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
 			</button>
 
@@ -4658,7 +4559,9 @@
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>keyboard</i
+				>
 			</button>
 		</div>
 
@@ -4694,8 +4597,8 @@
 										? 'Both tab + video audio — click for tab only'
 										: 'Tab audio only — click for video'}
 							>
-								<i class="material-icons !text-lg"
-									 aria-hidden="true">{$audioSource === 'video'
+								<i class="material-icons !text-lg" aria-hidden="true"
+									>{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
@@ -4834,61 +4737,65 @@
 						<!-- Title / artist / tuning: hidden on the phone bar, which shows
 						     only the compact source pill below (mobile redesign 1b). -->
 						{#if !mobileBar}
-						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
-							<a
-								href="{base}/search?q={encodeURIComponent(songTitle)}"
-								class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-								title="Search other versions">{songTitle}</a
+							<h1
+								class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5"
 							>
-						</h1>
-						<!-- Subtitle + current-track chip share one horizontal line. The
+								<a
+									href="{base}/search?q={encodeURIComponent(songTitle)}"
+									class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+									title="Search other versions">{songTitle}</a
+								>
+							</h1>
+							<!-- Subtitle + current-track chip share one horizontal line. The
 						     prominent chip selects the track (opens the tracks panel); the
 						     tuning is demoted to muted text alongside the artist. -->
-						<div class="flex items-center gap-2 min-w-0">
-							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-								{#if currentArtistName}
-									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
-										<a
-											href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-											class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-											title="View artist page">{currentArtistName}</a
-										>
+							<div class="flex items-center gap-2 min-w-0">
+								<div
+									class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400"
+								>
+									{#if currentArtistName}
+										<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
+											<a
+												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
+												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+												title="View artist page">{currentArtistName}</a
+											>
+										</span>
+										<span class="flex-shrink-0 opacity-60">&middot;</span>
+									{/if}
+									<span class="truncate min-w-0 flex-1">
+										{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+											? ` \u00B7 ${totalBars} bars`
+											: ''}
 									</span>
-									<span class="flex-shrink-0 opacity-60">&middot;</span>
-								{/if}
-								<span class="truncate min-w-0 flex-1">
-									{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-										? ` \u00B7 ${totalBars} bars`
-										: ''}
-								</span>
+								</div>
+								<div class="flex-shrink-0">
+									<TuningChip
+										api={$playerApi}
+										{activeTrackIndex}
+										{tracks}
+										on:open={openTuningPanel}
+									/>
+								</div>
 							</div>
-							<div class="flex-shrink-0">
-								<TuningChip
-									api={$playerApi}
-									{activeTrackIndex}
-									{tracks}
-									on:open={openTuningPanel}
-								/>
-							</div>
-						</div>
-						<!-- Artist country + genre pills: desktop only. On mobile the row
+							<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
-						{#if artistInfo?.tags && artistInfo.tags.length > 0}
-							<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
-								{#if artistInfo.country}
-									<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
-										>{artistInfo.country}</span
-									>
-									<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
-								{/if}
-								{#each artistInfo.tags.slice(0, 4) as tag}
-									<span
-										class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
-										>{tag}</span
-									>
-								{/each}
-							</div>
-						{/if}
+							{#if artistInfo?.tags && artistInfo.tags.length > 0}
+								<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
+									{#if artistInfo.country}
+										<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
+											>{artistInfo.country}</span
+										>
+										<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
+									{/if}
+									{#each artistInfo.tags.slice(0, 4) as tag}
+										<span
+											class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+											>{tag}</span
+										>
+									{/each}
+								</div>
+							{/if}
 						{/if}
 						{#if hasVariants}
 							<!-- Version selector: browse and pick ANY version (grouped by
@@ -4898,7 +4805,13 @@
 								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
 									>Source:</span
 								>
-								<PopoverMenu placement="bottom" align="start" width={300} ariaLabel="Select version" let:close>
+								<PopoverMenu
+									placement="bottom"
+									align="start"
+									width={300}
+									ariaLabel="Select version"
+									let:close
+								>
 									<button
 										slot="trigger"
 										let:toggle
@@ -4920,11 +4833,14 @@
 											<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
 										{/if}
 										<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
-										<span class="text-neutral-400 dark:text-neutral-500">· {allVersions.length}</span>
+										<span class="text-neutral-400 dark:text-neutral-500"
+											>· {allVersions.length}</span
+										>
 										<i
 											class="material-icons !text-base text-neutral-400 transition-transform duration-150 {open
 												? 'rotate-180'
-												: ''}" aria-hidden="true">arrow_drop_down</i
+												: ''}"
+											aria-hidden="true">arrow_drop_down</i
 										>
 									</button>
 									{#each versionGroups as group}
@@ -4960,17 +4876,21 @@
 														>{v.title || `${gd.label} version ${i + 1}`}</span
 													>
 													{#if versionDetail(v)}
-														<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
+														<span
+															class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
 															>{versionDetail(v)}</span
 														>
 													{/if}
 												</span>
 												{#if active}
-													<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+													<i
+														class="material-icons !text-base text-violet-500 shrink-0"
+														aria-hidden="true">check</i
+													>
 												{:else}
 													<i
 														class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0"
-														 aria-hidden="true">play_arrow</i
+														aria-hidden="true">play_arrow</i
 													>
 												{/if}
 											</button>
@@ -5024,7 +4944,8 @@
 							/>
 						{/if}
 						{#if tabId && allPlaylists.length > 0}
-							<button aria-label="Add to playlist"
+							<button
+								aria-label="Add to playlist"
 								on:click={() => {
 									showPlaylistPicker = !showPlaylistPicker;
 								}}
@@ -5158,7 +5079,12 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={onLyricsButton}
 						>
-							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">lyrics</i>
+							<i
+								class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto'
+									? 'text-violet-500'
+									: 'text-neutral-500 dark:text-neutral-400'}"
+								aria-hidden="true">lyrics</i
+							>
 							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">
 								{lyricsAvailable ? 'Lyrics / subtitles' : 'Find lyrics online'}
 							</span>
@@ -5173,9 +5099,18 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={() => (showSettingsVideo = !showSettingsVideo)}
 						>
-							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
-							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Play along with video</span>
-							<i class="material-icons !text-base text-neutral-400" aria-hidden="true">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
+							<i
+								class="material-icons !text-xl {hasActiveVideo
+									? 'text-violet-500'
+									: 'text-neutral-500 dark:text-neutral-400'}"
+								aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i
+							>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+								>Play along with video</span
+							>
+							<i class="material-icons !text-base text-neutral-400" aria-hidden="true"
+								>{showSettingsVideo ? 'expand_less' : 'expand_more'}</i
+							>
 						</button>
 						{#if showSettingsVideo}
 							<div class="bg-neutral-50 dark:bg-neutral-800/40">
@@ -5189,20 +5124,32 @@
 								{/if}
 								{#each youtubeResults as yt}
 									<button
-										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId === yt.videoId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
+										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId ===
+										yt.videoId
+											? 'bg-violet-50 dark:bg-violet-900/20'
+											: ''}"
 										on:click={() => selectVideo(yt.videoId)}
 									>
-										<div class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700">
+										<div
+											class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700"
+										>
 											{#if yt.thumbnail}
 												<img src={yt.thumbnail} alt="" class="w-full h-full object-cover" />
 											{/if}
 										</div>
 										<div class="flex-1 min-w-0">
-											<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">{yt.title}</p>
+											<p
+												class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate"
+											>
+												{yt.title}
+											</p>
 											<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 										</div>
 										{#if $activeVideoId === yt.videoId}
-											<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+											<i
+												class="material-icons !text-base text-violet-500 shrink-0"
+												aria-hidden="true">check</i
+											>
 										{/if}
 									</button>
 								{/each}
@@ -5215,8 +5162,13 @@
 						on:click={clickShare}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">share</i>
-						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Share tab link</span>
+						<i
+							class="material-icons !text-xl text-neutral-500 dark:text-neutral-400"
+							aria-hidden="true">share</i
+						>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+							>Share tab link</span
+						>
 					</button>
 
 					<button
@@ -5224,8 +5176,13 @@
 						on:click={clickDownload}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">download</i>
-						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Download tab file</span>
+						<i
+							class="material-icons !text-xl text-neutral-500 dark:text-neutral-400"
+							aria-hidden="true">download</i
+						>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+							>Download tab file</span
+						>
 					</button>
 				</div>
 			{/if}
@@ -5277,7 +5234,8 @@
 				<!-- Circular countdown with +/- -->
 				<div class="flex items-center justify-center gap-5 mb-6">
 					<!-- Minus: restart with 1s less -->
-					<button aria-label="One second less"
+					<button
+						aria-label="One second less"
 						on:click={() => adjustCountdownTime(-1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second less (restarts)"
@@ -5315,7 +5273,8 @@
 						</svg>
 						<div class="absolute inset-0 flex items-center justify-center">
 							{#if countdownPaused}
-								<i class="material-icons !text-5xl text-violet-300" aria-hidden="true">play_arrow</i>
+								<i class="material-icons !text-5xl text-violet-300" aria-hidden="true">play_arrow</i
+								>
 							{:else}
 								<span class="text-5xl font-bold text-white tabular-nums"
 									>{Math.ceil(rest / 1000)}</span
@@ -5331,7 +5290,8 @@
 					</button>
 
 					<!-- Plus: restart with 1s more -->
-					<button aria-label="One second more"
+					<button
+						aria-label="One second more"
 						on:click={() => adjustCountdownTime(1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second more (restarts)"
@@ -5418,7 +5378,8 @@
 							Keyboard shortcuts
 						</h2>
 					</div>
-					<button aria-label="Close keyboard shortcuts"
+					<button
+						aria-label="Close keyboard shortcuts"
 						on:click={() => (showKeyboardShortcuts = false)}
 						class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 					>
@@ -5430,7 +5391,9 @@
 					{#each shortcutSections as section}
 						<div>
 							<div class="flex items-center gap-1.5 mb-2">
-								<i class="material-icons !text-sm text-violet-500" aria-hidden="true">{section.icon}</i>
+								<i class="material-icons !text-sm text-violet-500" aria-hidden="true"
+									>{section.icon}</i
+								>
 								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">
 									{section.title}
 								</h3>
@@ -5444,8 +5407,9 @@
 											class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300"
 											>{key}</kbd
 										>
-										<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
-											 aria-hidden="true">{icon}</i
+										<i
+											class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
+											aria-hidden="true">{icon}</i
 										>
 										<span class="text-sm text-neutral-600 dark:text-neutral-400">{desc}</span>
 									</div>

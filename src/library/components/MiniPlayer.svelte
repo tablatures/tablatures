@@ -3,12 +3,22 @@
 	import { base } from '$app/paths';
 	import { fadeInImage } from '../utils/fadeInImage';
 	import { goto } from '$app/navigation';
-	import { playerApi, playerState, updatePlayerState, activeVideoId, sourceVariants, queueStore, stepQueue, type SourceVariant } from '../utils/playerStore';
+	import {
+		playerApi,
+		playerState,
+		updatePlayerState,
+		activeVideoId,
+		sourceVariants,
+		queueStore,
+		stepQueue,
+		type SourceVariant
+	} from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { openTabById } from '../utils/openTab';
 	import { shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
 	import { horizontalSwipe } from '../utils/gestures';
+	import { engineToScoreMs } from '../utils/playerTiming';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import { placeholderArtwork } from '../utils/placeholder';
@@ -67,12 +77,19 @@
 			url.searchParams.set('tab', tabId);
 			if ($activeVideoId) url.searchParams.set('video', $activeVideoId);
 			if (state.duration > 0 && state.progress > 0) {
-				url.searchParams.set('t', String(Math.round((state.progress / 100) * (state.duration / 1000))));
+				url.searchParams.set(
+					't',
+					String(
+						Math.round(engineToScoreMs((state.progress / 100) * state.duration, state.speed) / 1000)
+					)
+				);
 			}
 			await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
 			// Brief visual feedback
 			shareJustCopied = true;
-			setTimeout(() => { shareJustCopied = false; }, 1500);
+			setTimeout(() => {
+				shareJustCopied = false;
+			}, 1500);
 		} catch {}
 	}
 
@@ -83,7 +100,8 @@
 	let artworkFetchGeneration = 0;
 
 	$: {
-		const tabKey = (state.title || currentTab?.title || '') + '|' + (state.artist || currentTab?.artist || '');
+		const tabKey =
+			(state.title || currentTab?.title || '') + '|' + (state.artist || currentTab?.artist || '');
 		if (tabKey !== lastFetchedTab && tabKey !== '|') {
 			lastFetchedTab = tabKey;
 			fetchMiniArtwork();
@@ -108,7 +126,10 @@
 		state.title || currentTab?.title || ''
 	);
 
-	$: currentTime = state.duration > 0 ? displayTime(Math.round((state.progress / 100) * state.duration / 1000)) : '00:00';
+	$: currentTime =
+		state.duration > 0
+			? displayTime(Math.round(((state.progress / 100) * state.duration) / 1000))
+			: '00:00';
 	$: totalTime = state.duration > 0 ? displayTime(Math.round(state.duration / 1000)) : '00:00';
 
 	$: variants = $sourceVariants;
@@ -173,17 +194,19 @@
 		if (switchingSource || variant.id === currentTab?.tabId) return;
 		switchingSource = true;
 		try {
-			await openTabById({
-				id: variant.id,
-				title: state.title || currentTab?.title || '',
-				artist: state.artist || currentTab?.artist || '',
-				source: variant.source
-			}, false);
+			await openTabById(
+				{
+					id: variant.id,
+					title: state.title || currentTab?.title || '',
+					artist: state.artist || currentTab?.artist || '',
+					source: variant.source
+				},
+				false
+			);
 		} finally {
 			switchingSource = false;
 		}
 	}
-
 </script>
 
 <div
@@ -193,7 +216,10 @@
 	<!-- Bleed the bar background a few pixels below its edge so a subpixel seam
 	     at the viewport bottom (fractional device-pixel rounding) does not show
 	     the page through. Off-screen and harmless when there is no seam. -->
-	<div class="absolute left-0 right-0 top-full h-[3px] bg-neutral-900 dark:bg-neutral-800" aria-hidden="true"></div>
+	<div
+		class="absolute left-0 right-0 top-full h-[3px] bg-neutral-900 dark:bg-neutral-800"
+		aria-hidden="true"
+	></div>
 
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
@@ -203,7 +229,12 @@
 	{/if}
 
 	<!-- Progress bar -->
-	<ProgressBar progress={state.progress} duration={state.duration} dark={true} on:seek={handleSeek} />
+	<ProgressBar
+		progress={state.progress}
+		duration={state.duration}
+		dark={true}
+		on:seek={handleSeek}
+	/>
 
 	<div
 		class="flex items-center px-2 sm:px-4 py-2.5 sm:py-3.5 gap-2 sm:gap-3"
@@ -230,15 +261,17 @@
 			on:click={togglePlayPause}
 			class="tap-press flex-shrink-0 flex items-center justify-center rounded-2xl w-14 h-14 sm:w-16 sm:h-16 transition-colors
 				{soundFontLoading
-					? 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
-					: 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-500/30'}"
+				? 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+				: 'bg-violet-500 text-white hover:bg-violet-600 shadow-md shadow-violet-500/30'}"
 			aria-label={state.playing ? 'Pause' : 'Play'}
 			disabled={soundFontLoading}
 		>
 			{#if soundFontLoading}
 				<LoadingScore size="xs" message="" />
 			{:else}
-				<i class="material-icons !text-3xl sm:!text-4xl" aria-hidden="true">{state.playing ? 'pause' : 'play_arrow'}</i>
+				<i class="material-icons !text-3xl sm:!text-4xl" aria-hidden="true"
+					>{state.playing ? 'pause' : 'play_arrow'}</i
+				>
 			{/if}
 		</button>
 
@@ -262,14 +295,24 @@
 			aria-label="Open full player"
 		>
 			{#if artworkUrl}
-				<img src={artworkUrl} alt="" use:fadeInImage={artworkUrl} class="w-9 h-9 sm:w-12 sm:h-12 rounded object-cover bg-neutral-700" on:error={(e) => { if (e.target instanceof HTMLElement) e.target.style.display='none'; }} />
+				<img
+					src={artworkUrl}
+					alt=""
+					use:fadeInImage={artworkUrl}
+					class="w-9 h-9 sm:w-12 sm:h-12 rounded object-cover bg-neutral-700"
+					on:error={(e) => {
+						if (e.target instanceof HTMLElement) e.target.style.display = 'none';
+					}}
+				/>
 			{:else}
 				<!-- Pastel generated tile (bar is always dark → use the dark variant). -->
 				<div
 					class="w-9 h-9 sm:w-12 sm:h-12 rounded flex items-center justify-center"
 					style="background: {thumbPlaceholder.bgDark}; color: {thumbPlaceholder.fgDark};"
 				>
-					<i class="material-icons !text-lg sm:!text-2xl opacity-90" aria-hidden="true">music_note</i>
+					<i class="material-icons !text-lg sm:!text-2xl opacity-90" aria-hidden="true"
+						>music_note</i
+					>
 				</div>
 			{/if}
 			<span
@@ -295,9 +338,17 @@
 					role="link"
 					tabindex="0"
 					class="hover:text-violet-400 hover:underline transition-colors cursor-pointer"
-					on:click|preventDefault|stopPropagation={() => goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
-					on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`); } }}
-				>{state.artist || currentTab?.artist || ''}</span>
+					on:click|preventDefault|stopPropagation={() =>
+						goto(`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`)}
+					on:keydown={(e) => {
+						if (e.key === 'Enter') {
+							e.preventDefault();
+							goto(
+								`${base}/artist/${encodeURIComponent(state.artist || currentTab?.artist || '')}`
+							);
+						}
+					}}>{state.artist || currentTab?.artist || ''}</span
+				>
 				{#if state.duration > 0}
 					<span class="text-neutral-500"> &middot; {currentTime} / {totalTime}</span>
 				{/if}
@@ -311,8 +362,8 @@
 					<button
 						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors
 							{variant.id === (currentTab?.tabId || '')
-								? 'bg-violet-500/20 border-violet-400 text-violet-300'
-								: 'border-neutral-600 text-neutral-500 hover:text-neutral-300 hover:border-neutral-400'}"
+							? 'bg-violet-500/20 border-violet-400 text-violet-300'
+							: 'border-neutral-600 text-neutral-500 hover:text-neutral-300 hover:border-neutral-400'}"
 						on:click|stopPropagation={() => switchToVariant(variant)}
 						disabled={switchingSource}
 						title="Switch to {getSourceLabel(variant.source)}"
@@ -333,11 +384,15 @@
 			{#if currentTab?.tabId}
 				<button
 					on:click|stopPropagation={copyShareLink}
-					class="tap-press hidden sm:flex items-center justify-center w-11 h-11 rounded-xl transition-colors hover:bg-white/10 {shareJustCopied ? 'text-green-400' : 'text-neutral-400 hover:text-white'}"
+					class="tap-press hidden sm:flex items-center justify-center w-11 h-11 rounded-xl transition-colors hover:bg-white/10 {shareJustCopied
+						? 'text-green-400'
+						: 'text-neutral-400 hover:text-white'}"
 					title={shareJustCopied ? 'Link copied!' : 'Copy share link'}
 					aria-label={shareJustCopied ? 'Link copied' : 'Copy share link'}
 				>
-					<i class="material-icons !text-xl" aria-hidden="true">{shareJustCopied ? 'check' : 'share'}</i>
+					<i class="material-icons !text-xl" aria-hidden="true"
+						>{shareJustCopied ? 'check' : 'share'}</i
+					>
 				</button>
 			{/if}
 
@@ -348,13 +403,15 @@
 				on:click|stopPropagation={() => dispatch('togglePreview')}
 				class="tap-press flex items-center justify-center w-11 h-11 rounded-xl transition-colors
 					{showPreview
-						? 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 hover:text-violet-200'
-						: 'text-neutral-400 hover:text-white hover:bg-white/10'}"
+					? 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 hover:text-violet-200'
+					: 'text-neutral-400 hover:text-white hover:bg-white/10'}"
 				aria-pressed={showPreview}
 				title={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 				aria-label={showPreview ? 'Hide tab preview' : 'Show tab preview'}
 			>
-				<i class="material-icons !text-xl" aria-hidden="true">{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i>
+				<i class="material-icons !text-xl" aria-hidden="true"
+					>{showPreview ? 'picture_in_picture' : 'picture_in_picture_alt'}</i
+				>
 			</button>
 
 			<!-- Expand to the full player -->

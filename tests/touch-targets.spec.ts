@@ -15,9 +15,13 @@ test.describe('touch targets', () => {
 		for (const name of [/Export to JSON/, /Import from JSON/, /Clear all data/]) {
 			const btn = page.getByRole('button', { name });
 			await expect(btn).toBeVisible();
-			const box = await btn.boundingBox();
-			expect(box, `boundingBox for ${name}`).not.toBeNull();
-			expect(box!.height).toBeGreaterThanOrEqual(FLOOR);
+			// Hydration can replace the visible SSR node before the measurement.
+			await expect
+				.poll(() => btn.evaluate((el) => el.getBoundingClientRect().height), {
+					message: `touch target height for ${name}`,
+					timeout: 10_000
+				})
+				.toBeGreaterThanOrEqual(FLOOR);
 		}
 	});
 

@@ -91,6 +91,7 @@
 		else handled = false;
 		if (handled) {
 			e.preventDefault();
+			e.stopPropagation();
 			onInput();
 		}
 	}

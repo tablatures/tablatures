@@ -15,12 +15,23 @@
 	import { toastStore } from '../../library/utils/toast';
 	import { historyStore } from '../../library/utils/history';
 	import { arrayBufferToBase64 } from '../../library/utils/utils';
-	import { activeVideoId, playerState, updatePlayerState, queueStore, playShellEl, playSheetInView, playSheetEnabled, playSheetOpen } from '../../library/utils/playerStore';
+	import {
+		activeVideoId,
+		playerState,
+		updatePlayerState,
+		queueStore,
+		playShellEl,
+		playSheetInView,
+		playSheetEnabled,
+		playSheetOpen
+	} from '../../library/utils/playerStore';
 	import { decodeTabFromUrl } from '../../library/utils/shareTab';
 	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
 	import Seo from '../../library/components/Seo.svelte';
+	import { scoreToEngineMs } from '../../library/utils/playerTiming';
 	import { pageTitle } from '../../library/utils/seo';
+	import { preferencesStore } from '../../library/utils/preferences';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 	const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -29,6 +40,7 @@
 	let tabUnsubscribe: Unsubscriber;
 	let currentTabId: string | undefined = undefined;
 	let loadingSharedTab = false;
+	let shareRestorationPending = browser && window.location.hash.startsWith('#tab=');
 	let sharedTabError = '';
 
 	let playerSettings = {
@@ -140,7 +152,7 @@
 	let lastEmbeddedB64: string | null = null;
 	let embedding = false;
 	async function syncImportedTabHash() {
-		if (!browser) return;
+		if (!browser || shareRestorationPending) return;
 		const hasId = !!currentTabId;
 		const b64 = currentTab?.fileAsB64;
 
@@ -177,7 +189,11 @@
 			// deterministic id from the hash payload so opening the same file
 			// twice collapses to one history entry.
 			const state = $playerState;
-			const title = currentTab?.title || state.title || currentTab?.fileName?.replace(/\.[^./]+$/, '') || 'Imported tab';
+			const title =
+				currentTab?.title ||
+				state.title ||
+				currentTab?.fileName?.replace(/\.[^./]+$/, '') ||
+				'Imported tab';
 			const artist = currentTab?.artist || state.artist || 'Unknown';
 			const digest = hash.slice(7, 19); // skip `#tab=1.` prefix, take 12 chars
 			const importedId = `local:${digest}`;
@@ -209,8 +225,8 @@
 		}
 	}
 
-	$: if (browser) {
-		currentTab?.fileAsB64, currentTabId;
+	$: if (browser && !shareRestorationPending) {
+		(currentTab?.fileAsB64, currentTabId);
 		syncImportedTabHash();
 	}
 
@@ -218,9 +234,13 @@
 		if (tab) {
 			playerSettings = {
 				volume: tab.volume ?? 1,
-				speed: tab.speed ?? 1,
-				metronome: tab.metronome ?? 0,
-				tabScale: tab.tabScale ?? 1.0,
+				speed: tab.speed ?? get(preferencesStore).defaultSpeed,
+				metronome: tab.metronome ?? get(preferencesStore).defaultMetronomeVolume,
+				tabScale:
+					tab.tabScale ??
+					(window.innerWidth < 768
+						? get(preferencesStore).tabScaleMobile
+						: get(preferencesStore).tabScaleDesktop),
 				delaying: tab.delaying ?? 0,
 				scrollOffset: tab.scrollOffset ?? 0
 			};
@@ -234,7 +254,7 @@
 
 	function handleSheetChanged(event: CustomEvent) {
 		const { title, artist } = event.detail;
-		playerSettings = { volume: 1, speed: 1, metronome: 0, tabScale: 1.0, delaying: 0, scrollOffset: 0 };
+		// Settings were resolved from this score before load; metadata must not reset them.
 		if (currentTab) {
 			// Only overwrite the stored title/artist when the newly loaded score
 			// actually carries them; otherwise keep whatever was resolved on open
@@ -334,7 +354,10 @@
 		if (rest.length === 0) return { source };
 		// Heuristic: first segment is artist, remaining segments are the title.
 		const titleize = (s: string) =>
-			s.split('-').join(' ').replace(/\b\w/g, (c) => c.toUpperCase());
+			s
+				.split('-')
+				.join(' ')
+				.replace(/\b\w/g, (c) => c.toUpperCase());
 		const artist = titleize(rest[0]);
 		const title = rest.length > 1 ? titleize(rest.slice(1).join(' ')) : '';
 		return { source, artist, title };
@@ -348,13 +371,17 @@
 			const buf = await decodeTabFromUrl(hash);
 			if (!buf) throw new Error('Shared tab link is invalid or malformed');
 			const b64 = arrayBufferToBase64(buf);
+			currentTabId = undefined;
+			lastEmbeddedB64 = b64;
 			tabStore.setTab({ fileAsB64: b64 });
 		} catch (err: any) {
+			currentTab = null;
 			console.error('Failed to decode shared tab from URL:', err);
 			sharedTabError = err?.message || 'Unable to load shared tab';
 			toastStore.error(sharedTabError);
 		} finally {
 			loadingSharedTab = false;
+			shareRestorationPending = false;
 		}
 	}
 
@@ -456,7 +483,7 @@
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId) {
 			currentTabId = sharedTabId;
-			fetchSharedTab(sharedTabId);
+			if (existingTab?.tabId !== sharedTabId || !existingTab.fileAsB64) fetchSharedTab(sharedTabId);
 		}
 
 		// Handle ?video= (restore YouTube video)
@@ -484,7 +511,7 @@
 					const state = $playerState;
 					if (state.scoreLoaded && state.duration > 0) {
 						clearInterval(seekInterval);
-						const pct = (timeSec / (state.duration / 1000)) * 100;
+						const pct = (scoreToEngineMs(timeSec * 1000, state.speed) / state.duration) * 100;
 						if (pct > 0 && pct < 100) {
 							import('../../library/utils/playerStore').then(({ getApi }) => {
 								const api = getApi();
@@ -503,7 +530,7 @@
 		// If no tab and no share link, redirect to search — unless a tab open is
 		// in flight (optimistic navigation), in which case we stay and show the
 		// loading state until the bytes arrive.
-		if (!existingTab && !sharedTabId && !get(pendingTabStore)) {
+		if (!existingTab && !sharedTabId && !hash.startsWith('#tab=') && !get(pendingTabStore)) {
 			goto(`${base}/`);
 		}
 
@@ -526,7 +553,12 @@
 	path="/play"
 />
 
-<Header showSearch={true} on:openTab={(e) => openTab(e.detail)} on:search={handleSearchFromPlay} on:input={handleSearchInputFromPlay} />
+<Header
+	showSearch={true}
+	on:openTab={(e) => openTab(e.detail)}
+	on:search={handleSearchFromPlay}
+	on:input={handleSearchInputFromPlay}
+/>
 
 {#if loadingSharedTab || opening}
 	<div class="flex items-center justify-center h-[calc(100dvh-var(--header-h))]">
@@ -534,11 +566,17 @@
 	</div>
 {:else if sharedTabError}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">error_outline</i>
+		<i
+			class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4"
+			aria-hidden="true">error_outline</i
+		>
 		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
 		<div class="flex gap-3 mt-2">
 			<button
-				on:click={() => { sharedTabError = ''; if (currentTabId) fetchSharedTab(currentTabId); }}
+				on:click={() => {
+					sharedTabError = '';
+					if (currentTabId) fetchSharedTab(currentTabId);
+				}}
 				class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
 			>
 				Try again
@@ -556,11 +594,7 @@
 	     playlist strip and recommendations live below the fold, revealed by
 	     scrolling past the sheet (the sheet scrolls internally first, then the
 	     page scroll takes over at its boundary). -->
-	<div
-		class="play-shell"
-		bind:this={shellEl}
-		on:scroll={onShellScroll}
-	>
+	<div class="play-shell" bind:this={shellEl} on:scroll={onShellScroll}>
 		<section class="play-sheet-section">
 			<TabViewer
 				{data}
@@ -583,7 +617,9 @@
 					</h2>
 					{#if $playerState.artist || currentTab?.artist}
 						<a
-							href="{base}/artist/{encodeURIComponent($playerState.artist || currentTab?.artist || '')}"
+							href="{base}/artist/{encodeURIComponent(
+								$playerState.artist || currentTab?.artist || ''
+							)}"
 							class="text-sm text-neutral-500 dark:text-neutral-400 hover:text-violet-500 hover:underline transition-colors"
 						>
 							{$playerState.artist || currentTab?.artist}
@@ -601,7 +637,7 @@
 					variant="list"
 					artist={$playerState.artist || currentTab?.artist || ''}
 					title={$playerState.title || currentTab?.title || ''}
-					currentTabId={currentTabId}
+					{currentTabId}
 					root={shellEl}
 				/>
 
@@ -616,8 +652,10 @@
 		<PlayerBottomSheet
 			title={$playerState.title || currentTab?.title || ''}
 			artist={$playerState.artist || currentTab?.artist || ''}
-			currentTabId={currentTabId}
-			artistHref="{base}/artist/{encodeURIComponent($playerState.artist || currentTab?.artist || '')}"
+			{currentTabId}
+			artistHref="{base}/artist/{encodeURIComponent(
+				$playerState.artist || currentTab?.artist || ''
+			)}"
 		/>
 	{/if}
 
@@ -635,7 +673,10 @@
 	{/if}
 {:else}
 	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
-		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">music_off</i>
+		<i
+			class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4"
+			aria-hidden="true">music_off</i
+		>
 		<p class="text-neutral-500 dark:text-neutral-400 mb-4">No tab loaded</p>
 		<a
 			href="{base}/"
@@ -678,7 +719,9 @@
 		color: white;
 		background: rgba(140, 82, 255, 0.95);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-		transition: background-color 0.15s, transform 0.1s;
+		transition:
+			background-color 0.15s,
+			transform 0.1s;
 	}
 	.play-jump-top:hover {
 		background: rgb(94, 23, 235);

@@ -18,6 +18,7 @@
  *   ?q=<query>    — search query, /search only (would pollute other routes)
  */
 
+import { engineToScoreMs } from './playerTiming';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { tabStore } from './store';
@@ -143,7 +144,9 @@ export function syncPlaybackTime(delayMs = 2000) {
 	timeSyncTimer = setTimeout(() => {
 		const st = get(playerState);
 		if (st.duration > 0 && st.progress > 0) {
-			const timeSec = Math.round((st.progress / 100) * (st.duration / 1000));
+			const timeSec = Math.round(
+				engineToScoreMs((st.progress / 100) * st.duration, st.speed) / 1000
+			);
 			updateUrlParams({ t: timeSec > 0 ? timeSec : null });
 		} else {
 			updateUrlParams({ t: null });

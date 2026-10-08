@@ -12,6 +12,7 @@ declare global {
 	namespace AlphaTab {
 		interface EventEmitter<T = void> {
 			on(callback: (args: T) => void): void;
+			off(callback: (args: T) => void): void;
 		}
 
 		interface PlayerStateChangedEvent {
@@ -19,6 +20,9 @@ declare global {
 		}
 
 		interface PlayerPositionChangedEvent {
+			currentTick: number;
+			endTick: number;
+			isSeek: boolean;
 			currentTime: number;
 			endTime: number;
 		}
@@ -97,6 +101,7 @@ declare global {
 		}
 
 		interface Api {
+			isLooping: boolean;
 			playerStateChanged: EventEmitter<PlayerStateChangedEvent>;
 			playerPositionChanged: EventEmitter<PlayerPositionChangedEvent>;
 			scoreLoaded: EventEmitter<Score>;

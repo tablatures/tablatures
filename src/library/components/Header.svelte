@@ -51,18 +51,23 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		const tag = (e.target as HTMLElement)?.tagName;
-		if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+		if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+		const focused = e.target as HTMLElement | null;
+		if (
+			focused?.isContentEditable ||
+			focused?.closest('input, textarea, select, [role="slider"], [role="menu"]')
+		)
+			return;
 
 		if (e.key === '/') {
 			e.preventDefault();
 			focusSearch();
 		} else if (e.key === 'g' || e.key === 'G') {
 			e.preventDefault();
-			tunerOpen.update(v => !v);
+			tunerOpen.update((v) => !v);
 		} else if (e.key === 'm' || e.key === 'M') {
 			e.preventDefault();
-			metronomeOpen.update(v => !v);
+			metronomeOpen.update((v) => !v);
 		}
 	}
 </script>
@@ -136,7 +141,7 @@
 			     and remain reachable from the home-page buttons (g/m shortcuts on
 			     desktop unaffected). -->
 			<button
-				on:click={() => tunerOpen.update(v => !v)}
+				on:click={() => tunerOpen.update((v) => !v)}
 				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$tunerOpen
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
@@ -149,7 +154,7 @@
 			</button>
 
 			<button
-				on:click={() => metronomeOpen.update(v => !v)}
+				on:click={() => metronomeOpen.update((v) => !v)}
 				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$metronomeOpen
 					? 'text-tool-600 bg-tool-50 dark:bg-tool-900/30 dark:text-tool-400'
@@ -170,7 +175,8 @@
 				title="Repertoire"
 				aria-label="Repertoire"
 			>
-				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">library_music</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">library_music</i
+				>
 				<span class="hidden lg:inline">Repertoire</span>
 			</a>
 			<a

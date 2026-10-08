@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { timingForApi, engineToScoreMs } from '$utils/playerTiming';
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 	import 'material-icons/iconfont/outlined.css';
@@ -7,7 +8,8 @@
 	import '@fontsource/ibm-plex-sans/600.css';
 	import '@fontsource/ibm-plex-sans/700.css';
 
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { createVideoSession } from '$utils/videoSession';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -31,6 +33,7 @@
 		audioSource,
 		beatCursorEl,
 		videoHandlers,
+		registerVideoSeek,
 		videoSyncOffset,
 		playSheetOpen
 	} from '../library/utils/playerStore';
@@ -71,6 +74,21 @@
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
 
+	let videoSession: ReturnType<typeof createVideoSession> | null = null;
+	$: if (browser && videoSession) {
+		($videoPlayerRef,
+			$audioSource,
+			$videoSyncOffset,
+			$playerState.masterVolume,
+			$playerState.speed);
+		videoSession.syncSettings();
+	}
+	onDestroy(() => {
+		videoSession?.dispose();
+		registerVideoSeek(null);
+		videoHandlers.set({});
+	});
+
 	// Centralized URL ↔ store sync.
 	// On first mount: read URL into stores so /play's initial render sees the URL's track etc.
 	// After that: whenever the relevant stores change, mirror them back to the URL.
@@ -101,44 +119,9 @@
 	$: playerHostClass =
 		!isOnPlay && showMiniPlayer && miniPreviewVisible ? 'player-host-mini' : 'player-host-hidden';
 
-	// --- Mini-mode video overlay controls ---
-	// TabViewer owns audio-source application when mounted (big player view).
-	// When not on /play we need to replicate it here so the mini-mode overlay
-	// buttons (audio toggle, sync offset) behave the same.
-	let miniVolumeBeforeMute = 1;
-	function applyAudioSourceMini(source: 'tab' | 'video' | 'both') {
-		const api = get(playerApi);
-		const yt = get(videoPlayerRef);
-		if (source === 'video') {
-			if (api) {
-				if ((api.masterVolume ?? 0) > 0) miniVolumeBeforeMute = api.masterVolume;
-				api.masterVolume = 0;
-			}
-			if (yt)
-				try {
-					yt.unMute();
-					yt.setVolume(100);
-				} catch {}
-		} else if (source === 'both') {
-			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt)
-				try {
-					yt.unMute();
-					yt.setVolume(100);
-				} catch {}
-		} else {
-			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt)
-				try {
-					yt.mute();
-				} catch {}
-		}
-	}
+	// Mini and full controls share the persistent session audio contract.
 	function toggleAudioSourceMini() {
 		audioSource.update((s) => (s === 'tab' ? 'video' : s === 'video' ? 'both' : 'tab'));
-	}
-	$: if (browser && !$isFullPlayerView && $activeVideoId) {
-		applyAudioSourceMini($audioSource);
 	}
 
 	function persistVideoOffset() {
@@ -165,7 +148,7 @@
 		if (!yt || st.duration <= 0) return;
 		try {
 			const videoTime = yt.getCurrentTime?.() || 0;
-			const tabTimeSec = (st.progress / 100) * (st.duration / 1000);
+			const tabTimeSec = engineToScoreMs((st.progress / 100) * st.duration, st.speed) / 1000;
 			videoSyncOffset.set(Math.round((videoTime - tabTimeSec) * 10) / 10);
 			persistVideoOffset();
 		} catch {}
@@ -182,7 +165,7 @@
 		const api = get(playerApi);
 		if (api)
 			try {
-				api.masterVolume = miniVolumeBeforeMute || 1;
+				api.masterVolume = get(playerState).masterVolume;
 			} catch {}
 		activeVideoId.set(null);
 		// Drop hover state so the tab-preview close button (revealed when the
@@ -308,6 +291,17 @@
 			}
 		});
 
+		videoSession = createVideoSession(api, {
+			video: () => get(videoPlayerRef),
+			offset: () => get(videoSyncOffset),
+			playing: () => get(playerState).playing,
+			loop: () => get(playerState).loop,
+			volume: () => get(playerState).masterVolume,
+			source: () => get(audioSource)
+		});
+		registerVideoSeek(videoSession.seek);
+		videoHandlers.set({ onStateChange: videoSession.onVideoState, onReady: videoSession.onReady });
+
 		// Basic event listeners for store sync
 		api.playerStateChanged.on((args) => {
 			updatePlayerState({ playing: args.state !== 0 });
@@ -316,7 +310,8 @@
 		api.playerPositionChanged.on((e) => {
 			updatePlayerState({
 				progress: 100 * (e.currentTime / e.endTime) || 0,
-				duration: e.endTime
+				duration: e.endTime,
+				currentBar: timingForApi(api)?.barAt(e.currentTick) ?? 0
 			});
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
@@ -353,6 +348,7 @@
 				artist: score.artist || tab?.artist || prev.artist || '',
 				scoreLoaded: true,
 				tracks: score.tracks,
+				scoreKey: get(loadedTabB64),
 				isRendering: false
 			});
 
@@ -389,8 +385,9 @@
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) {
 				const buffer = base64ToArrayBuffer(tab.fileAsB64);
 				configureImporterEncoding(api, buffer);
-				api.load(buffer);
 				loadedTabB64.set(tab.fileAsB64);
+				api.isLooping = false;
+				api.load(buffer);
 				resetScoreEdits(tab.fileAsB64);
 			}
 			// Resume playback if it was active before the soundfont change
@@ -535,12 +532,14 @@
 					isRendering: true,
 					playing: false,
 					progress: 0,
-					currentBar: 0
+					currentBar: 0,
+					loop: null
 				});
 				const buffer = base64ToArrayBuffer(currentTab.fileAsB64);
 				configureImporterEncoding(api, buffer);
-				api.load(buffer);
 				loadedTabB64.set(currentTab.fileAsB64);
+				api.isLooping = false;
+				api.load(buffer);
 				resetScoreEdits(currentTab.fileAsB64);
 			}
 		}
@@ -596,11 +595,7 @@
 	// silent switch), otherwise auto. Feature-guarded.
 	$: if (browser) {
 		setAudioSessionType(
-			$tunerOpen
-				? 'play-and-record'
-				: $playerState.playing || $metronomeOpen
-					? 'playback'
-					: 'auto'
+			$tunerOpen ? 'play-and-record' : $playerState.playing || $metronomeOpen ? 'playback' : 'auto'
 		);
 	}
 
@@ -902,8 +897,8 @@
 										? 'Both tab + video audio — click for tab only'
 										: 'Tab audio only — click for video'}
 							>
-								<i class="material-icons !text-lg"
-									 aria-hidden="true">{$audioSource === 'video'
+								<i class="material-icons !text-lg" aria-hidden="true"
+									>{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
