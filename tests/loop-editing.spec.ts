@@ -7,7 +7,7 @@ import { setupPlayPageWithTex } from './helpers/setup';
 
 const fixture = (name: string) => readFileSync(`tests/fixtures/player/${name}.tex`, 'utf8');
 
-test.use({ viewport: { width: 1680, height: 900 } });
+test.use({ viewport: { width: 1680, height: 900 }, trace: 'retain-on-failure' });
 
 async function settleScore(page: Page) {
 	await page.evaluate(() => document.fonts.ready.then(() => undefined));
@@ -64,6 +64,8 @@ async function barPoint(page: Page, index: number) {
 
 async function dragSheetControl(page: Page, title: string, targetBar: number) {
 	const handle = page.locator(`#loop-selection-overlay [title="${title}"]`);
+	await expect(handle).toBeVisible();
+	await settleScore(page);
 	const rect = await handle.boundingBox();
 	if (!rect) throw new Error(`Missing sheet control: ${title}`);
 	const target = await barPoint(page, targetBar);
