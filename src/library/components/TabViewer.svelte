@@ -1431,27 +1431,28 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
+		const origStartBar = loopStartBar;
 		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
 		const startMouseX = e.clientX;
-		// For score drag: record the time at the drag start point
-		const origDragTime = useScore ? mouseToTimeViaScore(e.clientX, e.clientY) : null;
+		// Sheet movement follows printed bars, independent of tempo and repeat visits.
+		const origDragBar = useScore ? mouseToBarViaScore(e.clientX, e.clientY, origStartBar) : null;
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
-			let timeDelta: number;
-			if (useScore && origDragTime !== null) {
-				const currentTime = mouseToTimeViaScore(me.clientX, me.clientY);
-				if (currentTime === null) return;
-				timeDelta = currentTime - origDragTime;
+			let newStartBar: number;
+			if (useScore) {
+				const currentBar = mouseToBarViaScore(me.clientX, me.clientY, origStartBar);
+				if (currentBar === null || origDragBar === null) return;
+				newStartBar = origStartBar + currentBar - origDragBar;
 			} else if (barRect && barRect.width) {
 				const dx = me.clientX - startMouseX;
-				timeDelta = (dx / barRect.width) * duration;
+				const timeDelta = (dx / barRect.width) * duration;
+				const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
+				newStartBar = msToBar(newMs);
 			} else {
 				return;
 			}
-			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
-			let newStartBar = msToBar(newMs);
 			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
 			if (newStartBar < 0) newStartBar = 0;
 			loopStartBar = newStartBar;
@@ -1468,9 +1469,10 @@
 		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
-	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
-	 *  This handles multi-line score layout correctly (uses both X and Y). */
-	function mouseToTimeViaScore(clientX: number, clientY: number): number | null {
+	/** Hit-test a printed bar without constraining it to the current playback range.
+	 * The floating move grip sits above the staff; project it onto its anchor row
+	 * when the pointer is outside the score, while retaining cross-row hit-testing. */
+	function mouseToBarViaScore(clientX: number, clientY: number, anchorBar?: number): number | null {
 		try {
 			const lookup = api?.renderer?.boundsLookup;
 			if (!lookup) return null;
@@ -1480,11 +1482,12 @@
 			// Convert client coords to player-host-relative coords
 			const x = clientX - hostRect.left;
 			const y = clientY - hostRect.top + (host.scrollTop || 0);
-			const beat = lookup.getBeatAtPos(x, y);
-			if (beat) {
-				const barIdx = beat.voice?.bar?.masterBar?.index ?? 0;
-				return barToMs(barIdx);
+			let beat = lookup.getBeatAtPos(x, y);
+			if (!beat && anchorBar !== undefined) {
+				const bounds = lookup.findMasterBarByIndex(anchorBar)?.realBounds;
+				if (bounds) beat = lookup.getBeatAtPos(x, bounds.y + bounds.h / 2);
 			}
+			return beat?.voice?.bar?.masterBar?.index ?? null;
 		} catch {}
 		return null;
 	}
@@ -1493,16 +1496,12 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
-			let time: number;
-			if (useScore) {
-				const t = mouseToTimeViaScore(e.clientX, e.clientY);
-				if (t === null) return;
-				time = t;
-			} else {
-				time = percentToTime(getProgressPercent(e.clientX));
-			}
+			const hitBar = useScore
+				? mouseToBarViaScore(e.clientX, e.clientY)
+				: msToBar(percentToTime(getProgressPercent(e.clientX)));
+			if (hitBar === null) return;
 			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const barIdx = Math.min(msToBar(time), maxBar);
+			const barIdx = Math.min(hitBar, maxBar);
 			if (edge === 'start') {
 				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
