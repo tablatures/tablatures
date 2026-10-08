@@ -4564,8 +4564,8 @@
 			 the rich overlay UI that sits on top of it while in big player view. -->
 		{#if hasActiveVideo && $activeVideoId && !isFullscreen}
 			<div
-				class="big-player-video-overlay fixed right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
-				style="bottom: calc(var(--player-bar-height) + 8px)"
+				class="big-player-video-overlay floating-video-box z-[76] rounded-xl overflow-hidden pointer-events-none"
+				style="--video-bar-inset: {$playerBarHeight}px"
 			>
 				<div class="relative w-full h-full">
 					<!-- Top controls overlay. No play/pause button here — YouTube's
@@ -4573,13 +4573,13 @@
 					     unstarted video, and once playback is going the tab bar's
 					     play button drives both sides. -->
 					<div
-						class="absolute top-0 left-0 right-0 flex items-center justify-between px-1 pb-1 pt-0 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+						class="absolute top-0 left-0 right-0 flex items-center justify-between p-1 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
 					>
 						<div class="flex items-center gap-1.5">
 							<!-- Audio source toggle (tab / video / both) -->
 							<button
 								on:click={toggleAudioSource}
-								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+								class="h-11 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
@@ -4598,7 +4598,7 @@
 											? 'headphones'
 											: 'music_note'}</i
 								>
-								<span
+								<span class="video-source-label"
 									>{$audioSource === 'video'
 										? 'Video'
 										: $audioSource === 'both'
@@ -4609,7 +4609,7 @@
 							<!-- Offset control toggle -->
 							<button
 								on:click={() => (showOffsetControl = !showOffsetControl)}
-								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+								class="h-11 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
 									{showOffsetControl
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
@@ -4623,7 +4623,7 @@
 						</div>
 						<button
 							on:click={closeVideo}
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-11 h-11 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
 							aria-label="Close video"
 						>
@@ -4648,7 +4648,7 @@
 									on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
 									use:sliderFill={videoOffset}
 									style="--range-track: rgba(255,255,255,0.2)"
-									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
+									class="range-fill min-w-0 flex-1 h-1 cursor-pointer appearance-none rounded-full
 									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>

@@ -35,6 +35,7 @@
 		videoHandlers,
 		registerVideoSeek,
 		videoSyncOffset,
+		playerBarHeight,
 		playSheetOpen
 	} from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
@@ -857,10 +858,11 @@
 		{#if $activeVideoId}
 			<div
 				class={$isFullPlayerView
-					? 'big-player-video-frame fixed bottom-[156px] right-4 z-[10] w-[340px] h-[220px] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
+					? 'big-player-video-frame floating-video-box z-[10] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
 					: showMiniPlayer && miniPreviewVisible
 						? 'mini-player-overlay pointer-events-auto overflow-hidden rounded-xl'
 						: 'fixed -left-[9999px] top-0 w-[340px] h-[220px] opacity-0 pointer-events-none'}
+				style="--video-bar-inset: {$playerBarHeight}px"
 			>
 				<VideoPlayer
 					videoId={$activeVideoId}
@@ -1139,12 +1141,33 @@
 		align-items: center;
 	}
 
-	/* Big-mode video frame — same treatment so 340x200 container has black
-	   letterbox bars top/bottom when the iframe is shorter than the box. */
-	:global(.big-player-video-frame) {
-		display: flex !important;
-		justify-content: center !important;
-		align-items: center !important;
+	/* The persistent iframe and full-view controls use the same viewport box.
+	   Fit a 16:9 video between the header and the measured transport, including
+	   short landscape windows. No independent offsets or iframe pixel sizes. */
+	:global(.floating-video-box) {
+		position: fixed;
+		right: max(16px, env(safe-area-inset-right));
+		bottom: calc(var(--video-bar-inset) + 8px);
+		width: min(
+			340px,
+			calc(100vw - 32px),
+			calc((100dvh - 56px - var(--video-bar-inset) - 16px) * 16 / 9)
+		);
+		aspect-ratio: 16 / 9;
+		container-type: inline-size;
+	}
+
+	:global(.big-player-video-frame > div),
+	:global(.big-player-video-frame iframe) {
+		display: block;
+		width: 100% !important;
+		height: 100% !important;
+	}
+
+	@container (max-width: 240px) {
+		:global(.video-source-label) {
+			display: none;
+		}
 	}
 
 	@media (max-width: 480px) {
@@ -1170,31 +1193,6 @@
 		.mini-player-overlay > div,
 		.mini-player-overlay iframe {
 			width: 100% !important;
-		}
-		/* Same treatment in the big (on /play) video frame + TabViewer's
-		   overlay-buttons wrapper so they line up and span the viewport. */
-		:global(.big-player-video-frame),
-		:global(.big-player-video-overlay) {
-			left: 0 !important;
-			right: 0 !important;
-			width: 100% !important;
-			border-radius: 0 !important;
-		}
-		/* Flex-center is a safety net: if YouTube's iframe keeps its own
-		   fixed width despite our width:100%, it's at least horizontally
-		   centered inside the full-width frame. */
-		:global(.big-player-video-frame) {
-			display: flex !important;
-			justify-content: center !important;
-			align-items: center !important;
-		}
-		:global(.big-player-video-frame) > div,
-		:global(.big-player-video-frame) iframe {
-			display: block !important;
-			width: 100% !important;
-			max-width: 100% !important;
-			margin-left: auto !important;
-			margin-right: auto !important;
 		}
 	}
 </style>
