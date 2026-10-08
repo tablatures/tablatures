@@ -100,6 +100,28 @@ test.describe('Loop Interactions', () => {
 	test('create loop by dragging on score sheet', async ({ page }) => {
 		await setupPlayPage(page);
 
+		// Audio readiness precedes the final render and initial smooth cursor scroll.
+		// A drag uses fixed viewport coordinates, so wait for the sheet to settle.
+		await page.evaluate(() => document.fonts.ready.then(() => undefined));
+		let previousLayout = '',
+			stableReads = 0;
+		await expect
+			.poll(
+				async () => {
+					const layout = await page.evaluate(() =>
+						JSON.stringify({
+							bars: (window as any).__testApi.getBarPositions(),
+							host: document.querySelector('#player-host')?.getBoundingClientRect().toJSON()
+						})
+					);
+					stableReads = layout === previousLayout ? stableReads + 1 : 0;
+					previousLayout = layout;
+					return stableReads;
+				},
+				{ message: 'score geometry settles before drag', intervals: [100], timeout: 10_000 }
+			)
+			.toBeGreaterThanOrEqual(5);
+
 		const barPositions = await page.evaluate(() => {
 			const api = (window as any).__testApi;
 			return api ? api.getBarPositions() : [];
@@ -136,12 +158,13 @@ test.describe('Loop Interactions', () => {
 
 		await dragScoreLoop(page, startX, startY, endX, endY);
 
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() !== null,
-			{ timeout: 8000 }
-		);
-		const bounds = await getTestApi<any>(page, 'getLoopBounds');
-		expect(bounds).not.toBeNull();
+		await expect
+			.poll(() => getTestApi<any>(page, 'getLoopBounds'))
+			.toEqual({
+				startBar: startBar.index,
+				endBar: endBar.index,
+				enabled: true
+			});
 	});
 
 	// --- Test 13: Clear loop (Escape key) ---
