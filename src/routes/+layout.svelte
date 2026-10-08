@@ -112,9 +112,11 @@
 		$playerState.progress;
 		syncPlaybackTime();
 	}
-	$: showMiniPlayer = !!currentTab?.fileAsB64 && !isOnPlay;
+	$: showMiniPlayer = !!currentTab?.fileAsB64 && !isOnPlay && $playerState.playing;
 
-	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
+	let miniPreviewVisible = false;
+	// A preview is an explicit choice for the current playback outside the full view.
+	$: if (!showMiniPlayer) miniPreviewVisible = false;
 	let miniHovered = false;
 	$: playerHostClass =
 		!isOnPlay && showMiniPlayer && miniPreviewVisible ? 'player-host-mini' : 'player-host-hidden';
@@ -560,17 +562,6 @@
 		resetPlayerState();
 		loadedTabB64.set(null);
 		resetScoreEdits(null);
-	}
-
-	// Sync miniPreviewVisible with the showMiniPlayerPreview preference
-	$: if (browser) {
-		const prefs = get(preferencesStore);
-		miniPreviewVisible = prefs.showMiniPlayerPreview;
-	}
-
-	// When miniPreviewVisible changes, persist back to preferences
-	$: if (browser && miniPreviewVisible !== undefined) {
-		preferencesStore.update((p) => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
 	}
 
 	// When a video becomes active, default to playing the YouTube audio

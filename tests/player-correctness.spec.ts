@@ -66,7 +66,9 @@ test.describe('Unit 1 — musical position', () => {
 });
 
 test.describe('Unit 2 — session lifecycle', () => {
-	test('whole-song loop remains enabled across settings and mini adoption', async ({ page }) => {
+	test('whole-song loop remains enabled across settings and paused catalogue browsing', async ({
+		page
+	}) => {
 		await setupPlayPageWithTex(page, fixture('repeat'));
 		const toggle = page.getByRole('button', { name: 'Toggle loop', exact: true });
 		await toggle.click();
@@ -75,13 +77,13 @@ test.describe('Unit 2 — session lifecycle', () => {
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
-		await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
+		await page.goBack();
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 		await toggle.click();
 		await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 	});
 	for (const enabled of [true, false]) {
-		test(`full/mini round trip retains ${enabled ? 'enabled' : 'disabled'} loop`, async ({
+		test(`full/catalogue round trip retains ${enabled ? 'enabled' : 'disabled'} loop`, async ({
 			page
 		}) => {
 			await setupPlayPageWithTex(page, fixture('repeat'));
@@ -96,7 +98,7 @@ test.describe('Unit 2 — session lifecycle', () => {
 			for (let round = 0; round < 3; round++) {
 				await page.getByRole('link', { name: 'Home', exact: true }).click();
 				await expect(page).toHaveURL(/\/(?:\?.*)?$/);
-				await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
+				await page.goBack();
 				await expect(page).toHaveURL(/\/play/);
 				await expect
 					.poll(() => page.evaluate(() => (window as any).__testApi.getFullViewListenerCount()))
@@ -133,11 +135,14 @@ test.describe('Unit 3 — persistent video transport', () => {
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.getByRole('button', { name: 'Pause', exact: true }).click();
-		const paused = await page.getByRole('progressbar').getAttribute('aria-valuenow');
-		await page.waitForTimeout(1500);
-		expect(await page.getByRole('progressbar').getAttribute('aria-valuenow')).toBe(paused);
-		await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
+		await expect(page.getByRole('progressbar')).toHaveCount(0);
+		await page.goBack();
 		await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+		const paused = await page.evaluate(() => (window as any).__testApi.getNativePosition());
+		await page.waitForTimeout(1500);
+		expect(await page.evaluate(() => (window as any).__testApi.getNativePosition())).toEqual(
+			paused
+		);
 		await page.evaluate(() => (window as any).__testApi.clearMockVideo());
 	});
 });
@@ -215,7 +220,8 @@ test.describe('Unit 4 — gain and preferences', () => {
 		expect(await page.evaluate(() => (window as any).__testApi.getTrackMutes())).toEqual([true]);
 		await expect(page.getByRole('dialog', { name: 'Metronome', exact: true })).not.toBeVisible();
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
-		await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
+		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+		await page.goBack();
 		await expect(page).toHaveURL(/\/play/);
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getFullViewListenerCount()))

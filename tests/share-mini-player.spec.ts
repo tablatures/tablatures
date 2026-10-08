@@ -39,7 +39,9 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 	await page.waitForTimeout(1000);
 
 	// Client-side nav off /play so the mini player + preview appear.
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 	await page.waitForTimeout(800);
 
 	const preview = page.locator('.player-host-mini');
@@ -63,7 +65,9 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 
 	// PiP toggle + expand-to-full are ≥44px directly.
 	for (const name of [/Hide tab preview|Show tab preview/, /Open full player/]) {
-		const btn = page.getByRole(name.source.includes('Open full') ? 'link' : 'button', { name }).last();
+		const btn = page
+			.getByRole(name.source.includes('Open full') ? 'link' : 'button', { name })
+			.last();
 		const box = await btn.boundingBox();
 		expect(box, `box for ${name}`).not.toBeNull();
 		expect(box!.height).toBeGreaterThanOrEqual(44);
@@ -93,7 +97,9 @@ test('mini player PiP toggle hides the preview but keeps the track loaded', asyn
 	await waitForScoreLoaded(page);
 	await page.waitForTimeout(800);
 
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 	await page.waitForTimeout(600);
 
 	// Preview visible.
@@ -114,7 +120,9 @@ test('mini player X quits the tab: the bar unloads', async ({ page }) => {
 	await waitForScoreLoaded(page);
 	await page.waitForTimeout(800);
 
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 	await page.waitForTimeout(600);
 
 	const bar = page.locator('.fixed.bottom-0.z-\\[80\\]').first();

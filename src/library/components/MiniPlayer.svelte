@@ -25,7 +25,7 @@
 	import ProgressBar from './ProgressBar.svelte';
 	import LoadingScore from './LoadingScore.svelte';
 
-	export let showPreview = true;
+	export let showPreview = false;
 	const dispatch = createEventDispatcher();
 
 	$: state = $playerState;
