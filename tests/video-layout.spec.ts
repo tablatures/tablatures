@@ -17,10 +17,13 @@ async function expectAlignedVideo(page: Page) {
 	await expect
 		.poll(() =>
 			page.evaluate(() => {
-				const frame = document.querySelector('.big-player-video-frame')!;
-				const overlay = document.querySelector('.big-player-video-overlay')!;
-				const iframe = frame.querySelector('iframe')!;
-				const bar = document.querySelector('[aria-label="Playback controls"]')!;
+				const frame = document.querySelector('.big-player-video-frame');
+				const overlay = document.querySelector('.big-player-video-overlay');
+				const iframe = frame?.querySelector('iframe');
+				const bar = document.querySelector('[aria-label="Playback controls"]');
+				// The /play URL can settle before Svelte has moved the retained iframe
+				// out of the mini player. Poll the complete geometry once it mounts.
+				if (!frame || !overlay || !iframe || !bar) return null;
 				const f = frame.getBoundingClientRect(),
 					o = overlay.getBoundingClientRect();
 				const i = iframe.getBoundingClientRect(),
