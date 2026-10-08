@@ -3,7 +3,7 @@ import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { tabStore, pendingTabStore, type TabVersion } from './store';
 import { historyStore } from './history';
-import { sourceVariants, updatePlayerState, clearQueue } from './playerStore';
+import { sourceVariants, clearQueue } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
@@ -75,7 +75,11 @@ export async function openTabById(
 	// Prefer the embedded hash payload for file-imported history entries;
 	// they have no catalog record to download from.
 	if (tab.hashPayload) {
-		return openTabFromHash(tab.hashPayload, { title: tab.title, artist: tab.artist, source: tab.source }, navigate);
+		return openTabFromHash(
+			tab.hashPayload,
+			{ title: tab.title, artist: tab.artist, source: tab.source },
+			navigate
+		);
 	}
 	if (!browser || !tab.id) return false;
 
@@ -110,9 +114,9 @@ export async function openTabById(
 			artist: tab.artist,
 			source: tab.source
 		});
-		// Optimistic title/artist so the player chrome shows the right name while
-		// the score renders; alphaTab's scoreLoaded overrides with file metadata.
-		updatePlayerState({ title: tab.title || '', artist: tab.artist || '' });
+		// The pending store names the requested score. The persistent player's
+		// metadata still belongs to the score that is playing until new bytes load;
+		// a failed download must not rename that retained score or its video.
 		goto(`${base}/play`);
 	}
 
@@ -190,7 +194,6 @@ export async function openTabById(
 	}
 }
 
-
 /** One representative (most complete) version per source, for the source pills. */
 function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVariant[] {
 	const bySource = new Map<string, TabVersion>();
@@ -205,4 +208,3 @@ function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVa
 		trackCount: v.trackCount ?? undefined
 	}));
 }
-
