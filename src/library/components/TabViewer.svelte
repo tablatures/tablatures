@@ -510,26 +510,38 @@
 
 	// Auto-follow cursor: follows by default, stops if user scrolls away, resumes when scrolled back
 	let autoFollow = true;
-	let userScrolling = false;
 	let scrollCheckTimeout: NodeJS.Timeout;
 	let autoFollowDisengagedAt = 0;
+	let cursorFollowFrame = 0;
+	let cursorFollowObserver: MutationObserver | undefined;
+	let unsubscribeCursorFollow: (() => void) | undefined;
+
+	function scheduleCursorFollow() {
+		if (cursorFollowFrame || !autoFollow) return;
+		// Follow the placed DOM cursor rather than alphaTab's earlier playback
+		// position event. This also covers paused seeks and score reflow.
+		cursorFollowFrame = requestAnimationFrame(() => {
+			cursorFollowFrame = 0;
+			if (!didReturnPlayerHost && autoFollow && !isRendering) alignCursorInViewport();
+		});
+	}
 
 	function reEnableAutoFollow() {
 		autoFollow = true;
 		autoFollowDisengagedAt = 0;
-		// Scroll to current cursor position
+		alignCursorInViewport();
+	}
+
+	function alignCursorInViewport() {
 		const el = get(beatCursorEl);
 		if (!el) return;
-		const containerRect = target?.getBoundingClientRect();
-		const elRect = el.getBoundingClientRect();
-		if (!target || !containerRect) return;
-		const scrollTop =
-			target.scrollTop +
-			(elRect.top - containerRect.top) -
-			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = page ?? window;
-		if (!scrollElement) return;
-		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+		// The desktop console sits beside the score. Its height does not reduce
+		// the sheet viewport; use the actual scroller and sticky header instead.
+		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const viewportTop = Math.max(page?.getBoundingClientRect().top ?? 0, headerBottom);
+		const currentTop = page ? page.scrollTop : window.scrollY;
+		const delta = el.getBoundingClientRect().top - (viewportTop + 24);
+		(page ?? window).scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
 	}
 
 	// Speed selector computed values
@@ -1932,19 +1944,21 @@
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
-	function handleUserScrollIntent() {
+	function handleUserScrollIntent(event: Event) {
+		// The console owns its own scrolling; bubbling wheel/touch events there
+		// are not an instruction to stop following the sheet.
+		if (event.target instanceof Node && settings?.contains(event.target)) return;
 		if (autoFollow) {
 			autoFollow = false;
 			autoFollowDisengagedAt = Date.now();
 		}
 	}
 
-	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
+	// Check for re-engagement once scrolling settles. Physical scroll intent
+	// disables autoFollow; programmatic smooth scrolling must not drop updates.
 	function handleScroll() {
-		userScrolling = true;
 		clearTimeout(scrollCheckTimeout);
 		scrollCheckTimeout = setTimeout(() => {
-			userScrolling = false;
 			checkCursorVisibility();
 		}, 150);
 	}
@@ -1967,24 +1981,7 @@
 	}
 
 	function scrollToCursor() {
-		// Use the shared cursor element reference (the same one the auto-follow
-		// scroll uses) rather than an alphaTab private field, which is not
-		// exposed by the vendored build.
-		const el = get(beatCursorEl);
-		if (!el) return;
-		const scrollElement = page ?? window;
-		// Land the cursor a clear gap below the sticky header so it is never
-		// hidden behind it. Compute the delta from the cursor's current viewport
-		// position; this works whether the scroller is the window or the
-		// fullscreen page.
-		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-		const settingsH =
-			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
-		const desiredTop = headerBottom + settingsH + 24;
-		const currentTop = page ? page.scrollTop : window.scrollY;
-		const delta = el.getBoundingClientRect().top - desiredTop;
-		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
-		autoFollow = true;
+		reEnableAutoFollow();
 	}
 
 	$: if (api && tracks.length > 0 && scoreLoaded) {
@@ -2221,24 +2218,6 @@
 		};
 		listen(apiRef.playerPositionChanged, onPosition);
 
-		// Auto-scroll cursor
-		const onPositionScroll = (e: any) => {
-			if (!autoFollow || userScrolling) return;
-			const el = get(beatCursorEl);
-			if (!el) return;
-			const containerRect = target?.getBoundingClientRect();
-			const elRect = el.getBoundingClientRect();
-			if (!target || !containerRect) return;
-			const scrollTop =
-				target.scrollTop +
-				(elRect.top - containerRect.top) -
-				(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-			const scrollElement = page ?? window;
-			if (!scrollElement) return;
-			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
-		};
-		listen(apiRef.playerPositionChanged, onPositionScroll);
-
 		// Player state
 		const onState = (args: { state: number }) => {
 			playing = args.state !== 0;
@@ -2267,7 +2246,10 @@
 		const onRenderEnd = () => {
 			isRendering = false;
 			requestAnimationFrame(() => {
-				if (api) updateScoreSelection();
+				if (api) {
+					updateScoreSelection();
+					scheduleCursorFollow();
+				}
 			});
 		};
 		listen(apiRef.renderFinished, onRenderEnd);
@@ -2811,6 +2793,15 @@
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
+		unsubscribeCursorFollow = beatCursorEl.subscribe((el) => {
+			cursorFollowObserver?.disconnect();
+			if (!el) return;
+			// alphaTab writes the beat cursor's transform when it places or
+			// animates it. Rebind whenever rendering replaces the cursor element.
+			cursorFollowObserver = new MutationObserver(scheduleCursorFollow);
+			cursorFollowObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+			scheduleCursorFollow();
+		});
 
 		mountObserver = new IntersectionObserver(
 			([entry]) => {
@@ -2953,6 +2944,10 @@
 	function returnPlayerHost() {
 		if (didReturnPlayerHost) return;
 		didReturnPlayerHost = true;
+		unsubscribeCursorFollow?.();
+		cursorFollowObserver?.disconnect();
+		cancelAnimationFrame(cursorFollowFrame);
+		cursorFollowFrame = 0;
 		unsubscribePlayerApi?.();
 		unsubscribePlayerTarget?.();
 		cancelActiveDrag?.();
@@ -5015,7 +5010,7 @@
 		<aside
 			bind:this={settings}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
-				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
+				? 'z-[45] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
 				: 'z-[110] inset-0 pt-safe pb-safe'}"
 			style={isLargeScreen
 				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'

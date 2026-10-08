@@ -225,7 +225,7 @@ test.describe('Unit 4 — gain and preferences', () => {
 		await expect(page).toHaveURL(/\/play/);
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getFullViewListenerCount()))
-			.toBe(12);
+			.toBe(11);
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getTrackVolumes()))
 			.toEqual([0.5]);
