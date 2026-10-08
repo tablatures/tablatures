@@ -41,6 +41,13 @@
 	$: dot = polar(valueAngle);
 
 	let dragging = false;
+	let activePointer: number | null = null;
+	let dragMode: 'ring' | 'pending' | 'horizontal' | 'vertical' = 'pending';
+	let centerX = 0;
+	let centerY = 0;
+	let centerDeadZone = 0;
+	let lastAngle = 0;
+	let dragFraction = 0;
 	let startX = 0;
 	let startY = 0;
 	let startValue = 0;
@@ -51,29 +58,72 @@
 	}
 
 	function onPointerDown(e: PointerEvent) {
+		if (activePointer !== null || !e.isPrimary || e.button !== 0) return;
+		const target = e.currentTarget as HTMLElement;
+		const rect = target.getBoundingClientRect();
+		centerX = rect.left + rect.width / 2;
+		centerY = rect.top + rect.height / 2;
+		centerDeadZone = rect.width / 6;
+		// The arc is rotary; grabbing the centre keeps the familiar straight drag.
+		dragMode =
+			Math.hypot(e.clientX - centerX, e.clientY - centerY) >= rect.width / 4 ? 'ring' : 'pending';
+		activePointer = e.pointerId;
 		dragging = true;
 		startX = e.clientX;
 		startY = e.clientY;
 		startValue = value;
+		if (dragMode === 'ring') {
+			lastAngle = pointerAngle(e);
+			dragFraction = Math.min(1, Math.max(0, (lastAngle - START) / SWEEP));
+			setFraction(dragFraction);
+		}
+		target.focus({ preventScroll: true });
 		try {
-			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+			target.setPointerCapture(e.pointerId);
 		} catch {
 			// best effort
 		}
 		e.preventDefault();
 	}
 
-	function onPointerMove(e: PointerEvent) {
-		if (!dragging) return;
-		// Drag like a bar: right or up increases, left or down decreases.
-		// ~180px covers the whole range.
-		const combined = e.clientX - startX - (e.clientY - startY);
-		value = clampSnap(startValue + (combined / 180) * (max - min));
+	function pointerAngle(e: PointerEvent) {
+		return (Math.atan2(e.clientX - centerX, centerY - e.clientY) * 180) / Math.PI;
+	}
+
+	function setFraction(f: number) {
+		const next = clampSnap(min + f * (max - min));
+		if (next === value) return;
+		value = next;
 		onInput();
 	}
 
+	function onPointerMove(e: PointerEvent) {
+		if (e.pointerId !== activePointer) return;
+		if (dragMode === 'ring') {
+			// Ignore the centre, where tiny movements have an unstable angle.
+			if (Math.hypot(e.clientX - centerX, e.clientY - centerY) < centerDeadZone) return;
+			const angle = pointerAngle(e);
+			// Unwrap the bottom seam, then clamp instead of jumping max to min.
+			const delta = ((angle - lastAngle + 540) % 360) - 180;
+			lastAngle = angle;
+			dragFraction = Math.min(1, Math.max(0, dragFraction + delta / SWEEP));
+			setFraction(dragFraction);
+		} else {
+			const dx = e.clientX - startX;
+			const dy = startY - e.clientY;
+			if (dragMode === 'pending') {
+				if (Math.max(Math.abs(dx), Math.abs(dy)) < 3) return;
+				// Lock the intended axis so diagonal drift cannot cancel the drag.
+				dragMode = Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical';
+			}
+			const delta = dragMode === 'horizontal' ? dx : dy;
+			setFraction((startValue - min) / (max - min) + delta / 120);
+		}
+	}
+
 	function onPointerUp(e: PointerEvent) {
-		if (!dragging) return;
+		if (e.pointerId !== activePointer) return;
+		activePointer = null;
 		dragging = false;
 		try {
 			(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -112,13 +162,16 @@
 		aria-valuemax={max}
 		aria-valuenow={value}
 		aria-valuetext={format(value)}
-		title="{label}: {format(value)} — drag left/right, double click to reset"
+		title="{label}: {format(
+			value
+		)} — turn the ring, or drag the centre right/up; double click to reset"
 		class="relative w-12 h-12 rounded-full touch-none focus:outline-none group
 			{dragging ? 'cursor-grabbing' : 'cursor-grab'}"
 		on:pointerdown={onPointerDown}
 		on:pointermove={onPointerMove}
 		on:pointerup={onPointerUp}
 		on:pointercancel={onPointerUp}
+		on:lostpointercapture={onPointerUp}
 		on:keydown={onKeyDown}
 		on:dblclick={reset}
 	>
