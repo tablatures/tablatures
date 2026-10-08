@@ -12,6 +12,7 @@ async function openPracticeSession(page: Page) {
 		localStorage.setItem('user-preferences', JSON.stringify({ showMiniPlayerPreview: true }));
 	});
 	await setupSearchPage(page);
+	await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
 	const settings = new at.Settings();
 	const importer = new at.importer.AlphaTexImporter();
 	importer.initFromString(readFileSync('tests/fixtures/player/repeat.tex', 'utf8'), settings);
@@ -35,6 +36,7 @@ async function openPracticeSession(page: Page) {
 }
 
 async function expectRetainedSession(page: Page) {
+	await expect(page).toHaveURL(/\/play/);
 	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 	await expect
 		.poll(() =>
@@ -55,9 +57,7 @@ for (const viewport of [
 ]) {
 	test.describe(`catalogue playback at ${viewport.width}px`, () => {
 		test.use({ viewport });
-		test('paused browsing hides both overlays and Continue restores the session', async ({
-			page
-		}) => {
+		test('paused browsing leaves only Play and Continue restores the session', async ({ page }) => {
 			await openPracticeSession(page);
 			const before = await page.evaluate(() => (window as any).__catalogueApi.timePosition);
 			await page.getByRole('link', { name: 'Home', exact: true }).click();
@@ -65,6 +65,8 @@ for (const viewport of [
 			await expect(page.getByRole('link', { name: 'Open full player' })).toHaveCount(0);
 			await expect(page.locator('.player-host-mini')).toHaveCount(0);
 			await expect(page.getByRole('progressbar')).toHaveCount(0);
+			await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+			await expect(page.getByRole('button', { name: 'Show tab preview' })).toHaveCount(0);
 			await page
 				.locator('section[aria-labelledby="continue-heading"]')
 				.getByRole('button', { name: /^Play / })
@@ -74,7 +76,7 @@ for (const viewport of [
 			expect(await page.evaluate(() => (window as any).__catalogueApi.timePosition)).toBe(before);
 		});
 
-		test('playing browsing is compact; preview is opt-in and Pause hides both overlays', async ({
+		test('playing browsing is compact; preview is opt-in and Pause leaves only Play', async ({
 			page
 		}) => {
 			await openPracticeSession(page);
@@ -100,12 +102,42 @@ for (const viewport of [
 			await expect(page.getByRole('progressbar')).toHaveCount(0);
 			await expect(page.locator('.player-host-mini')).toHaveCount(0);
 			await expect(page.getByRole('link', { name: 'Open full player' })).toHaveCount(0);
+			await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 			const paused = await page.evaluate(() => (window as any).__catalogueApi.timePosition);
 			await page.waitForTimeout(500);
 			expect(await page.evaluate(() => (window as any).__catalogueApi.timePosition)).toBe(paused);
 			await page.goBack();
 			await expectRetainedSession(page);
 			expect(await page.evaluate(() => (window as any).__catalogueApi.timePosition)).toBe(paused);
+		});
+
+		test('paused Play resumes the retained practice session on the catalogue', async ({ page }) => {
+			await openPracticeSession(page);
+			const before = await page.evaluate(() => (window as any).__catalogueApi.timePosition);
+			await page.getByRole('link', { name: 'Home', exact: true }).click();
+			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+			const resume = page.getByRole('button', { name: 'Play', exact: true });
+			await expect(resume).toHaveAttribute('title', /Resume/);
+			const box = await resume.boundingBox();
+			expect(box!.width).toBeGreaterThanOrEqual(44);
+			expect(box!.height).toBeGreaterThanOrEqual(44);
+			// Keyboard activation must work without routing or creating a new engine.
+			await resume.focus();
+			await page.keyboard.press('Space');
+			await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+			await expect(page.locator('.player-host-mini')).toHaveCount(0);
+			await expect
+				.poll(() => page.evaluate(() => (window as any).__catalogueApi.timePosition))
+				.toBeGreaterThan(before);
+			await expect
+				.poll(() => page.evaluate(() => (window as any).__catalogueApi.playbackRange))
+				.toMatchObject({ startTick: 3840, endTick: 15360 });
+			await page.getByRole('button', { name: 'Pause', exact: true }).click();
+			await expect(resume).toBeVisible();
+			await expect(page.getByRole('progressbar')).toHaveCount(0);
+			await page.goBack();
+			await expectRetainedSession(page);
 		});
 	});
 }

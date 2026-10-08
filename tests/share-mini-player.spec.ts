@@ -134,4 +134,5 @@ test('mini player X quits the tab: the bar unloads', async ({ page }) => {
 
 	await expect(bar).toHaveCount(0);
 	await expect(page.locator('.player-host-mini')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
 });

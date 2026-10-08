@@ -44,6 +44,7 @@
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import { configureImporterEncoding } from '../library/utils/lyrics';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
+	import ResumePlaybackButton from '../library/components/ResumePlaybackButton.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
 	import Metronome from '../library/components/Metronome.svelte';
@@ -112,7 +113,8 @@
 		$playerState.progress;
 		syncPlaybackTime();
 	}
-	$: showMiniPlayer = !!currentTab?.fileAsB64 && !isOnPlay && $playerState.playing;
+	$: hasCatalogueSession = !!currentTab?.fileAsB64 && !isOnPlay;
+	$: showMiniPlayer = hasCatalogueSession && $playerState.playing;
 
 	let miniPreviewVisible = false;
 	// A preview is an explicit choice for the current playback outside the full view.
@@ -1063,6 +1065,8 @@
 			showPreview={miniPreviewVisible}
 			on:togglePreview={() => (miniPreviewVisible = !miniPreviewVisible)}
 		/>
+	{:else if hasCatalogueSession}
+		<ResumePlaybackButton />
 	{/if}
 
 	<!-- Toast notifications -->

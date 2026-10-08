@@ -115,7 +115,7 @@ test.describe('Unit 2 — session lifecycle', () => {
 });
 
 test.describe('Unit 3 — persistent video transport', () => {
-	test('half-speed small seek and mini pause control advancing media', async ({ page }) => {
+	test('half-speed seek and catalogue pause/resume control advancing media', async ({ page }) => {
 		await setupPlayPageWithTex(page, fixture('long-score'));
 		await page.getByRole('button', { name: '1x', exact: true }).click();
 		await page.getByRole('menuitem', { name: '0.5x', exact: true }).click();
@@ -132,12 +132,30 @@ test.describe('Unit 3 — persistent video transport', () => {
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getProgress()))
 			.toBeGreaterThan(51);
+		await page.evaluate(() => {
+			(window as any).__videoResumeApi = (window as any).__testApi.getApi();
+		});
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.getByRole('button', { name: 'Pause', exact: true }).click();
 		await expect(page.getByRole('progressbar')).toHaveCount(0);
+		const beforeResume = await page.evaluate(() => (window as any).__videoResumeApi.timePosition);
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+		await expect
+			.poll(() => page.evaluate(() => (window as any).__videoResumeApi.timePosition))
+			.toBeGreaterThan(beforeResume);
+		await page.getByRole('button', { name: 'Pause', exact: true }).click();
+		await expect(page.getByRole('progressbar')).toHaveCount(0);
 		await page.goBack();
+		await expect(page).toHaveURL(/\/play/);
 		await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+		await expect
+			.poll(() =>
+				page.evaluate(() => (window as any).__testApi.getApi() === (window as any).__videoResumeApi)
+			)
+			.toBe(true);
 		const paused = await page.evaluate(() => (window as any).__testApi.getNativePosition());
 		await page.waitForTimeout(1500);
 		expect(await page.evaluate(() => (window as any).__testApi.getNativePosition())).toEqual(
