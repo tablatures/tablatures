@@ -6,11 +6,11 @@ import { setupMockYouTube } from './helpers/youtube';
 
 test.use({ trace: 'retain-on-failure' });
 
-function scoreBytes(title: string, bars: number) {
+function scoreBytes(title: string, bars: number, artist = 'Pearl Jam') {
 	const settings = new at.Settings();
 	const importer = new at.importer.AlphaTexImporter();
 	importer.initFromString(
-		`\\title "${title}" \\artist "Pearl Jam" \\tempo 120 \\instrument 25 . ` +
+		`\\title "${title}" \\artist "${artist}" \\tempo 120 \\instrument 25 . ` +
 			Array.from({ length: bars }, () => ':4 3.3 3.3 3.3 3.3').join(' | '),
 		settings
 	);
@@ -130,17 +130,21 @@ for (const entry of ['recommendation', 'autocomplete', 'catalogue']) {
 	}
 }
 
-test('a failed score switch retains the playing score metadata', async ({ page }) => {
+test('a failed replacement clears the previous score and video, and can retry', async ({
+	page
+}) => {
 	await setupMockApi(page);
 	await setupMockYouTube(page);
-	await page.route('**/api/download/*', (route) =>
-		route.request().url().endsWith('/jingle')
-			? route.fulfill({
-					body: scoreBytes('Jingle Bells', 12),
+	let failing = true;
+	await page.route('**/api/download/*', (route) => {
+		const replacement = route.request().url().endsWith('/unavailable-doors');
+		return replacement && failing
+			? route.fulfill({ status: 429, body: 'Rate limited' })
+			: route.fulfill({
+					body: scoreBytes(replacement ? 'These Doors' : 'Jingle Bells', replacement ? 8 : 12),
 					contentType: 'application/octet-stream'
-				})
-			: route.fulfill({ status: 503, body: 'Unavailable' })
-	);
+				});
+	});
 	const results = [
 		{
 			id: 'unavailable-doors',
@@ -156,40 +160,110 @@ test('a failed score switch retains the playing score metadata', async ({ page }
 		);
 	await page.goto('/play?tab=jingle');
 	await waitForScoreLoaded(page);
-	await page.evaluate(() => {
-		(window as any).__failedSwitchApi = (window as any).__testApi.getApi();
-		(window as any).__testApi.setMockVideo(0, 120);
-	});
+	await page.evaluate(() => (window as any).__testApi.setMockVideo(0, 120));
 	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
-	const videoFrameId = await page.locator('.big-player-video-frame iframe').getAttribute('id');
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('link', { name: 'Home', exact: true }).click();
-	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
-	const download = page.waitForResponse(
-		(response) => response.url().endsWith('/unavailable-doors') && response.status() === 503
-	);
 	await page.getByRole('button', { name: 'Play These Doors by Pearl Jam', exact: true }).click();
-	await download;
-	await expect(page).toHaveURL(/\/play/);
-	await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toBeVisible();
-	await expect
-		.poll(() => page.evaluate(() => (window as any).__testApi?.getApi()?.score?.title))
-		.toBe('Jingle Bells');
-
+	await expect(
+		page
+			.getByText('Too many requests. Please wait a moment and try again.', { exact: true })
+			.first()
+	).toBeVisible();
+	await expect(page.getByText("You're offline", { exact: true })).toHaveCount(0);
+	await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toHaveCount(0);
+	await expect(page.locator('.big-player-video-frame iframe')).toHaveCount(0);
+	expect(await page.evaluate(() => sessionStorage.getItem('currentTab'))).toBeNull();
+	failing = false;
+	await page.getByRole('button', { name: 'Try again', exact: true }).click();
+	await waitForScoreLoaded(page);
 	await expect(
 		page
 			.getByRole('toolbar', { name: 'Playback controls' })
-			.getByRole('heading', { name: 'Jingle Bells', exact: true })
+			.getByRole('heading', { name: 'These Doors', exact: true })
 	).toBeVisible();
-	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
-	await expect(page.locator('.big-player-video-frame iframe')).toHaveAttribute('id', videoFrameId!);
-	expect(
-		await page.evaluate(
-			() => (window as any).__testApi.getApi() === (window as any).__failedSwitchApi
-		)
-	).toBe(true);
-	await expect.poll(() => page.evaluate(() => (window as any).__testApi.getTotalBars())).toBe(12);
+	await expect.poll(() => page.evaluate(() => (window as any).__testApi.getTotalBars())).toBe(8);
 });
+
+for (const title of ['Imported Song', '']) {
+	test(`importing ${title || 'an untitled file'} replaces all player metadata`, async ({
+		page
+	}) => {
+		await setupMockApi(page);
+		await page.route('**/api/download/*', (route) =>
+			route.fulfill({ body: scoreBytes('These Doors', 8), contentType: 'application/octet-stream' })
+		);
+		await page.goto('/play?tab=doors');
+		await waitForScoreLoaded(page);
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.locator('input[type="file"]').setInputFiles({
+			name: 'My practice.gp',
+			mimeType: 'application/octet-stream',
+			buffer: scoreBytes(title, 12, title ? 'Pearl Jam' : '')
+		});
+		await waitForScoreLoaded(page);
+		await expect(
+			page
+				.getByRole('toolbar', { name: 'Playback controls' })
+				.getByRole('heading', { name: title || 'My practice', exact: true })
+		).toBeVisible();
+		await expect.poll(() => page.evaluate(() => (window as any).__testApi.getTotalBars())).toBe(12);
+		await expect(page.getByRole('heading', { name: 'These Doors', exact: true })).toHaveCount(0);
+	});
+}
+
+for (const lateFailure of [false, true]) {
+	test(`an import supersedes a pending download even when it later ${lateFailure ? 'fails' : 'succeeds'}`, async ({
+		page
+	}) => {
+		await setupMockApi(page);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let finished!: () => void;
+		const done = new Promise<void>((resolve) => {
+			finished = resolve;
+		});
+		await page.route('**/api/download/*', async (route) => {
+			await gate;
+			await route.fulfill(
+				lateFailure
+					? { status: 503 }
+					: { body: scoreBytes('Late Song', 8), contentType: 'application/octet-stream' }
+			);
+			finished();
+		});
+		await page.goto('/');
+		// Trigger the same public loader used by result clicks without awaiting its download.
+		await page.evaluate(async () => {
+			const path = '/src/library/utils/openTab.ts';
+			const { openTabById } = await import(path);
+			void openTabById({ id: 'late', title: 'Late Song' });
+		});
+		await expect(page).toHaveURL(/\/play/);
+		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.locator('input[type="file"]').setInputFiles({
+			name: 'winner.gp',
+			mimeType: 'application/octet-stream',
+			buffer: scoreBytes('Imported Winner', 12)
+		});
+		await waitForScoreLoaded(page);
+		release();
+		await done;
+		await page.waitForTimeout(200);
+		await expect(
+			page
+				.getByRole('toolbar', { name: 'Playback controls' })
+				.getByRole('heading', { name: 'Imported Winner', exact: true })
+		).toBeVisible();
+		await expect(
+			page.getByText('The tab service is unavailable. Please try again later.', { exact: true })
+		).toHaveCount(0);
+		await expect.poll(() => page.evaluate(() => (window as any).__testApi.getTotalBars())).toBe(12);
+	});
+}
 
 test('catalogue score switching with video stays aligned after returning to the full player', async ({
 	page

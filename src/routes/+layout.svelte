@@ -19,8 +19,9 @@
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { toastStore } from '../library/utils/toast';
-	import { tabStore } from '../library/utils/store';
-	import { validateFile, fileToBase64 } from '../library/utils/upload';
+	import { scoreMetadata, tabStore, pendingTabStore } from '../library/utils/store';
+	import { validateFile } from '../library/utils/upload';
+	import { openTabFile } from '../library/utils/openTab';
 	import {
 		playerApi,
 		playerTarget,
@@ -109,7 +110,7 @@
 		urlHydrated = true;
 	});
 	$: if (urlHydrated && browser) {
-		($tabStore, $activeVideoId, $playerState.activeTrackIndex);
+		($tabStore, $pendingTabStore, $activeVideoId, $playerState.activeTrackIndex);
 		syncStableUrlFromState();
 	}
 	$: if (urlHydrated && browser) {
@@ -223,13 +224,7 @@
 			return;
 		}
 
-		try {
-			const fileAsB64 = await fileToBase64(file);
-			tabStore.setTab({ fileAsB64, fileName: file.name, source: 'upload' });
-			goto(base + '/play');
-		} catch {
-			toastStore.error('Failed to read the file.');
-		}
+		await openTabFile(file);
 	}
 
 	// --- Persistent alphaTab API management ---
@@ -313,10 +308,12 @@
 
 		// Basic event listeners for store sync
 		api.playerStateChanged.on((args) => {
+			if (!get(tabStore)?.fileAsB64) return;
 			updatePlayerState({ playing: args.state !== 0 });
 		});
 
 		api.playerPositionChanged.on((e) => {
+			if (!get(tabStore)?.fileAsB64 || !get(playerState).scoreLoaded) return;
 			updatePlayerState({
 				progress: 100 * (e.currentTime / e.endTime) || 0,
 				duration: e.endTime,
@@ -346,15 +343,10 @@
 		});
 
 		api.scoreLoaded.on((score) => {
-			// Don't clobber existing metadata with a blank when the loaded file has
-			// no embedded title/artist (common for Songsterr/GP exports). Fall back
-			// to the tab store (set from catalog metadata on open) and then to the
-			// current state so tuning changes and variant switches keep the label.
 			const tab = get(tabStore);
-			const prev = get(playerState);
+			if (!tab?.fileAsB64 || tab.fileAsB64 !== get(loadedTabB64)) return;
 			updatePlayerState({
-				title: score.title || tab?.title || prev.title || '',
-				artist: score.artist || tab?.artist || prev.artist || '',
+				...scoreMetadata(score, tab),
 				scoreLoaded: true,
 				tracks: score.tracks,
 				scoreKey: get(loadedTabB64),
@@ -421,6 +413,16 @@
 
 		api.error?.on((error) => {
 			console.error('AlphaTab error:', error);
+			const tab = get(tabStore);
+			if (tab?.fileAsB64 && !get(playerState).scoreLoaded) {
+				const token = tabStore.beginLoad({
+					id: tab.tabId,
+					title: tab.title || tab.fileName,
+					artist: tab.artist,
+					source: tab.source
+				});
+				tabStore.failLoad(token, 'This tab could not be read. Try another file or version.');
+			}
 		});
 
 		playerApi.set(api);

@@ -18,7 +18,6 @@
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { lockBodyScroll } from '../../library/utils/scrollLock';
-	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
@@ -26,7 +25,6 @@
 	import { searchLocalTabs } from '../../library/data/localSearch';
 	import EmptyState from '../../library/components/EmptyState.svelte';
 	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
-	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import { playlistStore } from '../../library/utils/playlists';
 	import type { PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
@@ -668,27 +666,7 @@
 		// If ?tab= is in URL, load that tab into the store (for mini player)
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
-			// Offline-first: reopen from the on-device store with no network.
-			const stored = await loadStoredTabBytes(sharedTabId);
-			if (stored && stored.byteLength > 0) {
-				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
-			} else {
-				try {
-					const response = await fetchWithTimeout(
-						`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
-						{},
-						10000
-					);
-					if (response.ok) {
-						const arrayBuffer = await response.arrayBuffer();
-						if (arrayBuffer && arrayBuffer.byteLength > 0) {
-							const base64 = arrayBufferToBase64(arrayBuffer);
-							tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
-							void persistTabBytes({ id: sharedTabId }, new Uint8Array(arrayBuffer), 'history');
-						}
-					}
-				} catch {}
-			}
+			await openTabById({ id: sharedTabId, title: '' }, false, { silent: true });
 		}
 
 		// Test API health

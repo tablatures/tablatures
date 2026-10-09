@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { tabStore, type TabVersion } from '../utils/store';
@@ -67,6 +68,7 @@
 
 	async function fetchVersions(artist: string, title: string) {
 		if (!SEARCH_API_BASE_URL) return;
+		const scoreKey = get(tabStore)?.fileAsB64;
 		try {
 			const resp = await cachedFetch(
 				`${SEARCH_API_BASE_URL}/api/versions?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
@@ -74,6 +76,7 @@
 			);
 			if (!resp.ok) return;
 			const data = await resp.json();
+			if (!scoreKey || get(tabStore)?.fileAsB64 !== scoreKey) return;
 			if (Array.isArray(data.versions)) {
 				versions = data.versions;
 				// Light up the per-source pills (TabViewer/MiniPlayer) too

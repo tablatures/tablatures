@@ -10,7 +10,7 @@
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
-	import { tabStore, type TabVersion } from '../utils/store';
+	import { scoreMetadata, tabStore, type TabVersion } from '../utils/store';
 	import {
 		playerApi,
 		playerTarget,
@@ -437,7 +437,7 @@
 
 	// Clean song title from the player state (falls back to the joined string
 	// only if the store has not populated yet). Avoids splitting "title - artist".
-	$: songTitle = $playerState.title || title;
+	$: songTitle = ($playerState.scoreKey === data.fileAsB64 ? $playerState.title : '') || title;
 
 	// Artist metadata
 	let artistImage: string | null = null;
@@ -708,7 +708,12 @@
 
 	// Keep loading state in sync with global playerState store
 	// This prevents getting stuck if scoreLoaded fires in the layout before our listener is attached
-	$: if (browser && $playerState.scoreLoaded && !scoreLoaded) {
+	$: if (
+		browser &&
+		$playerState.scoreLoaded &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		!scoreLoaded
+	) {
 		scoreLoaded = true;
 		isRendering = false;
 	}
@@ -718,13 +723,28 @@
 	// Sync title/artist + tracks from global playerState. This covers the case where
 	// scoreLoaded fires in the layout before TabViewer's own listener is attached
 	// (e.g. shared-tab URL flow) — otherwise title stays "<no sheet loaded>" forever.
-	$: if (browser && $playerState.title && title === '<no sheet loaded>') {
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.title &&
+		title === '<no sheet loaded>'
+	) {
 		title = [$playerState.title, $playerState.artist].filter(Boolean).join(' - ') || title;
 	}
-	$: if (browser && $playerState.tracks?.length > 0 && tracks.length === 0) {
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.tracks?.length > 0 &&
+		tracks.length === 0
+	) {
 		tracks = $playerState.tracks;
 	}
-	$: if (browser && $playerState.totalBars > 0 && totalBars === 0) {
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.totalBars > 0 &&
+		totalBars === 0
+	) {
 		totalBars = $playerState.totalBars;
 	}
 
@@ -2175,14 +2195,12 @@
 
 		// Score loaded (detailed handler for full player)
 		const onScoreLoaded = (score: any) => {
-			const scoreLabel = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
-			// Files without embedded metadata yield an empty label; keep the label
-			// resolved on open (store) instead of blanking the header/variant title.
 			const tab = get(tabStore);
-			const fallbackLabel = [tab?.title, tab?.artist].filter((s) => Boolean(s)).join(' - ');
-			const newTitle = scoreLabel || fallbackLabel;
-			const isNewSheet = !!newTitle && title !== newTitle;
-			if (newTitle) title = newTitle;
+			if (!tab?.fileAsB64 || tab.fileAsB64 !== data.fileAsB64) return;
+			const metadata = scoreMetadata(score, tab);
+			const newTitle = [metadata.title, metadata.artist].filter(Boolean).join(' - ');
+			const isNewSheet = title !== newTitle;
+			title = newTitle;
 			tracks = score.tracks;
 			scoreLoaded = true;
 			isRendering = false;
@@ -2195,7 +2213,7 @@
 			}
 
 			if (isNewSheet) {
-				dispatch('sheetChanged', { title: score.title, artist: score.artist });
+				dispatch('sheetChanged', metadata);
 				autoFollow = true;
 				cursorFollowTop = null;
 				// Scroll to top when a new tab is loaded (the sheet is always its
@@ -2206,7 +2224,8 @@
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
 					setTimeout(() => {
 						try {
-							apiRef.playPause();
+							if (apiRef.score === score && get(tabStore)?.fileAsB64 === data.fileAsB64)
+								apiRef.playPause();
 						} catch {}
 					}, 200);
 				}
@@ -2491,20 +2510,21 @@
 			const state = get(playerState);
 			soundFontLoaded = state.soundFontLoaded;
 			soundFontProgress = state.soundFontProgress;
-			scoreLoaded = state.scoreLoaded;
-			if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
-			if (state.tracks.length > 0) tracks = state.tracks;
-			if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
-				// Accept any non-negative index; bounds check happens once tracks load.
-				activeTrackIndex = state.activeTrackIndex;
+			if (state.scoreKey === data.fileAsB64) {
+				scoreLoaded = state.scoreLoaded;
+				if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
+				if (state.tracks.length > 0) tracks = state.tracks;
+				if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
+					// Accept any non-negative index; bounds check happens once tracks load.
+					activeTrackIndex = state.activeTrackIndex;
+				}
+				if (state.totalBars > 0) totalBars = state.totalBars;
+				playing = state.playing;
+				progress = state.progress;
+				duration = state.duration;
+				currentBar = state.currentBar;
+				if (state.scoreLoaded) restoreScoreSession(api.score);
 			}
-			if (state.totalBars > 0) totalBars = state.totalBars;
-			playing = state.playing;
-			progress = state.progress;
-			duration = state.duration;
-			currentBar = state.currentBar;
-			if (state.scoreLoaded && state.scoreKey === data.fileAsB64) restoreScoreSession(api.score);
-
 			// IMPORTANT: Do NOT call api.render() during adoption.
 			// The rendering surface is already populated from the previous render.
 			// Calling render() corrupts the player's audio state (NaN position, 0 voices).
@@ -2996,20 +3016,10 @@
 			} catch {}
 		}
 
-		// Save current state to the store (for MiniPlayer to display)
-		updatePlayerState({
-			playing,
-			progress,
-			duration,
-			title: title !== '<no sheet loaded>' ? title.split(' - ')[0] || '' : '',
-			artist: title !== '<no sheet loaded>' ? title.split(' - ').slice(1).join(' - ') || '' : '',
-			scoreLoaded,
-			currentBar,
-			totalBars,
-			tracks,
-			activeTrackIndex,
-			videoWasPlaying: videoIsPlaying
-		});
+		// The layout owns score metadata and transport state. Only save the
+		// view's selection/video hint, and only while these bytes still own it.
+		if (get(tabStore)?.fileAsB64 === data.fileAsB64 && get(playerState).scoreKey === data.fileAsB64)
+			updatePlayerState({ activeTrackIndex, videoWasPlaying: videoIsPlaying });
 
 		// Clean up full player listeners
 		fullPlayerListenerCleanups.forEach((fn) => fn());

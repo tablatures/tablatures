@@ -9,11 +9,7 @@
 	import Seo from '../library/components/Seo.svelte';
 	import { tabStore } from '../library/utils/store';
 	import { openTabById } from '../library/utils/openTab';
-	import { arrayBufferToBase64 } from '../library/utils/utils';
-	import { loadStoredTabBytes, persistTabBytes } from '../library/data/tabBytes';
 	import { websiteJsonLd } from '../library/utils/seo';
-
-	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
 	function handleSearch(e: CustomEvent<string>) {
 		const q = e.detail?.trim();
@@ -32,23 +28,7 @@
 		// If ?tab= in URL, load tab for mini player
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
-			// Offline-first: reopen from the on-device store with no network.
-			const stored = await loadStoredTabBytes(sharedTabId);
-			if (stored && stored.byteLength > 0) {
-				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
-				return;
-			}
-			if (!SEARCH_API_BASE_URL) return;
-			try {
-				const resp = await fetch(`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`, { signal: AbortSignal.timeout(10000) });
-				if (resp.ok) {
-					const buf = await resp.arrayBuffer();
-					if (buf.byteLength > 0) {
-						tabStore.setTab({ fileAsB64: arrayBufferToBase64(buf), tabId: sharedTabId });
-						void persistTabBytes({ id: sharedTabId }, new Uint8Array(buf), 'history');
-					}
-				}
-			} catch {}
+			await openTabById({ id: sharedTabId, title: '' }, false, { silent: true });
 		}
 	});
 </script>
@@ -59,13 +39,21 @@
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 
-<main id="main-content" class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
+<main
+	id="main-content"
+	class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]"
+>
 	<HomeFeed {openTab} />
 </main>
 
 <!-- Minimal footer -->
 <div class="text-center py-6 text-xs text-neutral-400 dark:text-neutral-600">
-	<a href="https://github.com/tablatures/tablatures" target="_blank" rel="noopener" class="hover:text-violet-500 transition-colors">
+	<a
+		href="https://github.com/tablatures/tablatures"
+		target="_blank"
+		rel="noopener"
+		class="hover:text-violet-500 transition-colors"
+	>
 		Open Source
 	</a>
 </div>

@@ -28,58 +28,89 @@ export interface TabData {
 	delaying?: number;
 	scrollOffset?: number;
 }
+/** The requested replacement owns loading and failure UI until its bytes arrive. */
+export interface PendingTab {
+	id?: string;
+	title?: string;
+	artist?: string;
+	source?: string;
+	error?: string;
+}
+export const pendingTabStore = writable<PendingTab | null>(null);
+
 function createTabStore() {
 	const { subscribe, set } = writable<TabData | null>(null);
+	let current: TabData | null = null;
+	let revision = 0;
+	function publish(tab: TabData | null) {
+		current = tab;
+		if (browser) {
+			if (tab) sessionStorage.setItem('currentTab', JSON.stringify(tab));
+			else sessionStorage.removeItem('currentTab');
+		}
+		set(tab);
+	}
+	function clearTab() {
+		revision++;
+		pendingTabStore.set(null);
+		publish(null);
+	}
+	function setTab(tab: TabData) {
+		revision++;
+		publish(tab);
+		pendingTabStore.set(null);
+	}
 	return {
 		subscribe,
-		setTab: (tabData: TabData) => {
-			if (browser) {
-				sessionStorage.setItem('currentTab', JSON.stringify(tabData));
-			}
-			set(tabData);
+		setTab,
+		clearTab,
+		// A replacement immediately releases the previous score. Every async
+		// entry point must commit with this token, so late results cannot win.
+		beginLoad(meta: PendingTab): number {
+			clearTab();
+			pendingTabStore.set(meta);
+			return revision;
 		},
-		updateSettings: (settings: Partial<TabData>) => {
-			const current = browser ? JSON.parse(sessionStorage.getItem('currentTab') || '{}') : {};
-			const updated = { ...current, ...settings };
-			if (browser) {
-				sessionStorage.setItem('currentTab', JSON.stringify(updated));
-			}
-			set(updated);
+		isCurrentLoad: (token: number) => token === revision,
+		commitLoad(token: number, tab: TabData): boolean {
+			if (token !== revision) return false;
+			setTab(tab);
+			return true;
 		},
-		loadTab: (): TabData | null => {
+		failLoad(token: number, error: string): boolean {
+			if (token !== revision) return false;
+			pendingTabStore.update((pending) => ({ ...pending, error }));
+			return true;
+		},
+		updateSettings(settings: Partial<TabData>) {
+			// A departing viewer may flush settings after a replacement starts.
+			// Never recreate a cleared session from that cleanup.
+			if (current?.fileAsB64) publish({ ...current, ...settings });
+		},
+		loadTab(): TabData | null {
+			if (current) return current;
 			if (browser) {
 				const stored = sessionStorage.getItem('currentTab');
 				if (stored) {
-					const tabData = JSON.parse(stored);
-					set(tabData);
-					return tabData;
+					current = JSON.parse(stored);
+					set(current);
 				}
 			}
-			return null;
-		},
-		clearTab: () => {
-			if (browser) {
-				sessionStorage.removeItem('currentTab');
-			}
-			set(null);
+			return current;
 		}
 	};
 }
 
 export const tabStore = createTabStore();
 
-/**
- * Optimistic "a tab is being opened" signal. Set with the list item's known
- * metadata the instant an open is requested so /play can navigate immediately
- * and show its loading state (LoadingScore) while the bytes resolve in the
- * background. Cleared once the bytes land in `tabStore` — or on failure, so the
- * spinner never sticks.
- */
-export interface PendingTab {
-	id?: string;
-	title?: string;
-	artist?: string;
-	source?: string;
+/** Metadata belongs to these bytes, never to the previous player session. */
+export function scoreMetadata(score: { title?: string; artist?: string }, tab: TabData | null) {
+	return {
+		title:
+			score.title?.trim() ||
+			tab?.title?.trim() ||
+			tab?.fileName?.replace(/\.[^./]+$/, '') ||
+			'Imported tab',
+		artist: score.artist?.trim() || tab?.artist?.trim() || ''
+	};
 }
-
-export const pendingTabStore = writable<PendingTab | null>(null);

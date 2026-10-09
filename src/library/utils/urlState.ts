@@ -21,7 +21,7 @@
 import { engineToScoreMs } from './playerTiming';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
-import { tabStore } from './store';
+import { tabStore, pendingTabStore } from './store';
 import { activeVideoId, playerState, updatePlayerState } from './playerStore';
 
 export interface LoopUrlState {
@@ -129,7 +129,7 @@ export function syncStableUrlFromState() {
 	const vid = get(activeVideoId);
 	const st = get(playerState);
 	updateUrlParams({
-		tab: tab?.tabId || null,
+		tab: tab?.tabId || get(pendingTabStore)?.id || null,
 		video: vid || null,
 		track: st.activeTrackIndex > 0 ? st.activeTrackIndex : null
 	});

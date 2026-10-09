@@ -16,7 +16,8 @@
 	import { favoriteArtistsStore } from '../utils/favoriteArtists';
 	import { tabStore } from '../utils/store';
 	import { playlistStore } from '../utils/playlists';
-	import { SUPPORTED_TYPES, validateFile, fileToBase64 } from '../utils/upload';
+	import { SUPPORTED_TYPES, validateFile } from '../utils/upload';
+	import { openTabFile } from '../utils/openTab';
 	import { fetchArtworkBatch } from '../utils/artwork';
 	import { cachedFetch, TTL_HOME_FEED, isFromCache, isOfflineErrorLike } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
@@ -466,15 +467,7 @@
 	async function processFile(selectedFile: File) {
 		const validationError = validateFile(selectedFile);
 		if (validationError) return;
-		try {
-			const cleanBase64 = await fileToBase64(selectedFile);
-			tabStore.setTab({
-				fileAsB64: cleanBase64,
-				fileName: selectedFile.name,
-				source: 'upload'
-			});
-			await goto(`${base}/play`);
-		} catch {}
+		await openTabFile(selectedFile);
 	}
 
 	async function handleDrop(e: DragEvent) {
