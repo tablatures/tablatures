@@ -1,17 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupMockApi } from './helpers/mock-api';
 import { setupPlayPage } from './helpers/setup';
-import { waitForScoreLoaded } from './helpers/wait';
 
-// Gestures (UX round 5). Two round-5-specific gestures are driven end-to-end
-// here with synthetic touch events (deterministic, no CDP flakiness):
-//   - pull-to-refresh (Phase 3a) fires a real refetch at the threshold and its
-//     floating indicator becomes active;
-//   - the horizontal drag on the score seeks ±10s (Phase 1c).
-// Pinch-zoom / double-tap-reset math lives behind the @use-gesture library; its
-// pure wiring (applyPinch/clampScale/isDoubleTap) is covered by the fast unit
-// suite (src/library/utils/gestures.test.ts) rather than a flaky 2-finger CDP
-// pinch here.
+// Pull-to-refresh remains an explicit gesture on catalogue pages. Score
+// touch navigation must not scrub playback; real scrolling/pinch and WebKit
+// coverage live in mobile-score-gestures.spec.ts.
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -112,7 +105,8 @@ test('a partial pull released below the threshold cancels — no refetch', async
 		);
 		const node = disc?.parentElement;
 		if (!node) return;
-		const mkTouch = (y: number) => new Touch({ identifier: 1, target: node, clientX: 100, clientY: y });
+		const mkTouch = (y: number) =>
+			new Touch({ identifier: 1, target: node, clientX: 100, clientY: y });
 		const fire = (type: string, y: number, ended = false) =>
 			node.dispatchEvent(
 				new TouchEvent(type, {
@@ -139,9 +133,8 @@ test('a partial pull released below the threshold cancels — no refetch', async
 });
 
 /**
- * Synthesize a horizontal swipe on the score surface. dx < 0 (swipe left) seeks
- * +10s; dx > 0 (swipe right) seeks −10s. Fired synchronously so the 400ms
- * long-press timer never trips (that path is for loop selection).
+ * Synthesize a horizontal swipe to verify the removed seek shortcut cannot
+ * claim native sheet panning.
  */
 async function swipeScore(page: Page, dx: number): Promise<void> {
 	await page.evaluate((dx) => {
@@ -149,8 +142,7 @@ async function swipeScore(page: Page, dx: number): Promise<void> {
 		if (!el) throw new Error('score surface not found');
 		const startX = 250;
 		const y = 300;
-		const mkTouch = (x: number) =>
-			new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+		const mkTouch = (x: number) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
 		el.dispatchEvent(
 			new TouchEvent('touchstart', {
 				bubbles: true,
@@ -172,31 +164,11 @@ async function swipeScore(page: Page, dx: number): Promise<void> {
 	}, dx);
 }
 
-test('a horizontal swipe on the score seeks ±10s', async ({ page }) => {
+test('horizontal score swipes preserve the playback position', async ({ page }) => {
 	await setupPlayPage(page);
-	await waitForScoreLoaded(page);
-	await page.waitForTimeout(500);
-
-	const duration = await page.evaluate(() => (window as any).__testApi.getDuration());
-	expect(duration).toBeGreaterThan(0);
-	const posMs = () =>
-		page.evaluate(() => {
-			const api = (window as any).__testApi;
-			return (api.getProgress() / 100) * api.getDuration();
-		});
-
-	// Start at 0. Swipe left → forward ~10s (clamped to the clip length).
-	expect(await posMs()).toBeLessThan(1000);
+	const position = () => page.evaluate(() => (window as any).__testApi.getNativePosition().ms);
+	const before = await position();
 	await swipeScore(page, -120);
-	await page.waitForTimeout(200);
-	const forward = await posMs();
-	const expectedForward = Math.min(10000, duration);
-	expect(Math.abs(forward - expectedForward)).toBeLessThan(1500);
-
-	// Swipe right → back ~10s → clamps to 0.
 	await swipeScore(page, 120);
-	await page.waitForTimeout(200);
-	const back = await posMs();
-	expect(back).toBeLessThan(forward);
-	expect(back).toBeLessThan(1500);
+	expect(await position()).toBeCloseTo(before, 0);
 });

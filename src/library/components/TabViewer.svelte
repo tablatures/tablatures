@@ -508,10 +508,8 @@
 		fetchMetadata(title);
 	}
 
-	// Auto-follow cursor: follows by default, stops if user scrolls away, resumes when scrolled back
+	// Follow by default; manual scrolling disengages until an explicit seek or Back to cursor.
 	let autoFollow = true;
-	let scrollCheckTimeout: NodeJS.Timeout;
-	let autoFollowDisengagedAt = 0;
 	let cursorFollowFrame = 0;
 	let cursorFollowObserver: MutationObserver | undefined;
 	let unsubscribeCursorFollow: (() => void) | undefined;
@@ -528,7 +526,6 @@
 
 	function reEnableAutoFollow() {
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
 		alignCursorInViewport();
 	}
 
@@ -1581,7 +1578,6 @@
 		api.player.timePosition = (pct / 100) * duration;
 		seekDebounce();
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
 	}
 
 	function pbBeginGesture(clientX: number) {
@@ -1950,35 +1946,12 @@
 		if (event.target instanceof Node && settings?.contains(event.target)) return;
 		if (autoFollow) {
 			autoFollow = false;
-			autoFollowDisengagedAt = Date.now();
 		}
 	}
 
-	// Check for re-engagement once scrolling settles. Physical scroll intent
-	// disables autoFollow; programmatic smooth scrolling must not drop updates.
-	function handleScroll() {
-		clearTimeout(scrollCheckTimeout);
-		scrollCheckTimeout = setTimeout(() => {
-			checkCursorVisibility();
-		}, 150);
-	}
-
-	function checkCursorVisibility() {
-		if (autoFollow) return;
-		// Don't re-engage within 1s of disengaging
-		if (Date.now() - autoFollowDisengagedAt < 1000) return;
-
-		const el = get(beatCursorEl);
-		if (!el) return;
-		const elRect = el.getBoundingClientRect();
-		const viewportHeight = page ? page.clientHeight : window.innerHeight;
-		const top = page?.getBoundingClientRect().top ?? 0;
-		const grabBottom = top + viewportHeight * 0.15;
-
-		if (elRect.top >= top && elRect.top <= grabBottom) {
-			autoFollow = true;
-		}
-	}
+	// Manual browsing stays under the user's control until Back to cursor or
+	// an explicit seek. A visible cursor during momentum scroll is not consent
+	// to resume automatic following.
 
 	function scrollToCursor() {
 		reEnableAutoFollow();
@@ -2086,16 +2059,52 @@
 		relayoutForViewport(true);
 	}
 
-	// Pinch-zoom handlers (see gestures.ts). Two-finger pinch drives the same
-	// tabScale → api.settings.display.scale path as the settings slider; a
-	// double-tap resets to the responsive default.
+	// Pinch uses the same persisted scale as the console; score taps and scrolls
+	// never reset it. Reset remains an explicit action on the Scale control.
+	let pinchingScore = false;
+	let pinchStartScale = tabScale;
+	let pinchLazyLoading: boolean | undefined;
+	function startScorePinch(origin: [number, number]) {
+		pinchingScore = true;
+		pinchStartScale = tabScale;
+		if (api) {
+			// Preview can move a touched canvas outside the viewport. Keep alphaTab
+			// from detaching that touch target through its lazy-loading observer.
+			const core = api.settings.core;
+			pinchLazyLoading = core.enableLazyLoading;
+			core.enableLazyLoading = false;
+		}
+		clearTimeout(scaleDebounceTimeout);
+		if (target) {
+			const rect = target.getBoundingClientRect();
+			target.style.transformOrigin = `${origin[0] - rect.left}px ${origin[1] - rect.top}px`;
+			target.style.willChange = 'transform';
+		}
+	}
+
 	function setTabScaleFromPinch(scale: number) {
 		tabScale = scale;
-		updateTabScale();
+		// Rendering alphaTab here replaces the rendered touch target and cuts off the
+		// gesture. Preview without changing DOM; lay out the final scale on release.
+		if (target && pinchingScore) target.style.transform = `scale(${scale / pinchStartScale})`;
 	}
-	function resetTabScale() {
-		tabScale = getResponsiveScale();
+
+	function endScorePinch() {
+		if (!pinchingScore) return;
+		pinchingScore = false;
+		if (api && pinchLazyLoading !== undefined) {
+			const core = api.settings.core;
+			core.enableLazyLoading = pinchLazyLoading;
+		}
+		pinchLazyLoading = undefined;
+		if (target) {
+			target.style.transform = '';
+			target.style.transformOrigin = '';
+			target.style.willChange = '';
+		}
 		updateTabScale();
+		clearTimeout(scaleDebounceTimeout);
+		api?.render();
 	}
 
 	// Create proper alphaTab Color instances for theme settings
@@ -2140,7 +2149,6 @@
 		api.player.timePosition = ms;
 		seekDebounce();
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
 	}
 
 	// Store references for cleanup
@@ -2179,7 +2187,6 @@
 			if (isNewSheet) {
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
 				autoFollow = true;
-				autoFollowDisengagedAt = 0;
 				// Scroll to top when a new tab is loaded (the sheet is always its
 				// own scroller now — window/page fallback covers SSR edge cases).
 				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
@@ -2792,7 +2799,6 @@
 		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
-		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 		unsubscribeCursorFollow = beatCursorEl.subscribe((el) => {
 			cursorFollowObserver?.disconnect();
 			if (!el) return;
@@ -2943,6 +2949,7 @@
 
 	function returnPlayerHost() {
 		if (didReturnPlayerHost) return;
+		endScorePinch();
 		didReturnPlayerHost = true;
 		unsubscribeCursorFollow?.();
 		cursorFollowObserver?.disconnect();
@@ -3014,7 +3021,6 @@
 		clearTimeout(relayoutDebounceTimeout);
 		clearTimeout(scaleDebounceTimeout);
 		clearTimeout(seekDebounceTimeout);
-		clearTimeout(swipeIndicatorTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3025,8 +3031,6 @@
 		clearTimeout(hideTimeout);
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
-		mountScrollTarget?.removeEventListener('scroll', handleScroll);
-		clearTimeout(scrollCheckTimeout);
 
 		// Cleanup timers that may still be running
 		clearInterval(countdownInterval);
@@ -3404,11 +3408,9 @@
 		// Rebind scroll listeners to the correct target (window vs page element)
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
-		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
-		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
@@ -3539,157 +3541,16 @@
 		}
 	}
 
-	// --- Horizontal drag on the score = seek ±10s (was: track switching) ---
-	let touchStartX = 0;
-	let touchStartY = 0;
-	// The flash overlay reports the applied seek ('+10s' / '-10s') rather than a
-	// raw direction so the label reads naturally regardless of gesture direction.
-	let swipeIndicator: '+10s' | '-10s' | null = null;
-	let swipeIndicatorTimeout: NodeJS.Timeout;
-	const SWIPE_THRESHOLD = 50;
-	const SEEK_STEP_SECONDS = 10;
-	// True once a second finger joins the gesture (pinch-zoom) — suppresses the
-	// seek so zooming never scrubs the playhead.
-	let gestureMultiTouch = false;
-
-	/** Seek forward/back by a number of seconds, clamped to [0, duration]. */
-	function seekBySeconds(deltaSec: number) {
-		if (!api || !duration) return;
-		const curMs = (progress / 100) * duration;
-		const newMs = Math.max(0, Math.min(duration, curMs + deltaSec * 1000));
-		progress = (newMs / duration) * 100;
-		api.player.timePosition = newMs;
-		seekDebounce();
-		autoFollow = true;
-		autoFollowDisengagedAt = 0;
-	}
-
-	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
-	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
-	// loop creation on desktop via mouse events, but it doesn't react to
-	// raw touch events on mobile. We bridge that by starting a long-press
-	// timer on touchstart and, when it fires, dispatching synthetic mouse
-	// events at the finger position so the existing desktop drag-to-select
-	// flow runs unchanged. Quick taps scroll/swipe normally.
-	let scoreLongPressTimer: NodeJS.Timeout;
+	// Touch owns native sheet scrolling and pinch zoom. Loop selection remains
+	// on alphaTab's mouse path; synthesizing mouse drags from held touches stole
+	// slow scrolling gestures and fought the browser's momentum scrolling.
 	let cancelScoreSelection = () => {};
 	let scoreGestureCancelled = false;
 	function cancelScoreGesture() {
-		clearTimeout(scoreLongPressTimer);
+		endScorePinch();
 		scoreGestureCancelled = true;
 		cancelScoreSelection();
-		if (scoreLongPressActive) dispatchMouseAt('mouseup', touchStartX, touchStartY);
-		scoreLongPressActive = false;
-		gestureMultiTouch = true;
 		updateScoreSelection();
-	}
-	let scoreLongPressActive = false;
-	const SCORE_LONG_PRESS_MS = 400;
-	const SCORE_LONG_PRESS_MOVE_CANCEL_PX = 8;
-
-	function dispatchMouseAt(type: 'mousedown' | 'mousemove' | 'mouseup', x: number, y: number) {
-		const target = document.elementFromPoint(x, y);
-		if (!target) return;
-		const evt = new MouseEvent(type, {
-			bubbles: true,
-			cancelable: true,
-			view: window,
-			button: 0,
-			buttons: type === 'mouseup' ? 0 : 1,
-			clientX: x,
-			clientY: y
-		});
-		target.dispatchEvent(evt);
-	}
-
-	function handleTouchStart(e: TouchEvent) {
-		if (!e.touches[0]) return;
-		gestureMultiTouch = e.touches.length > 1;
-		if (gestureMultiTouch) {
-			cancelScoreGesture();
-			return;
-		}
-		scoreGestureCancelled = false;
-		touchStartX = e.touches[0].clientX;
-		touchStartY = e.touches[0].clientY;
-		scoreLongPressActive = false;
-		const pressX = touchStartX;
-		const pressY = touchStartY;
-		clearTimeout(scoreLongPressTimer);
-		scoreLongPressTimer = setTimeout(() => {
-			scoreLongPressActive = true;
-			hapticTap();
-			dispatchMouseAt('mousedown', pressX, pressY);
-		}, SCORE_LONG_PRESS_MS);
-	}
-
-	function handleScoreTouchMove(e: TouchEvent) {
-		if (!e.touches[0]) return;
-		if (e.touches.length > 1) {
-			cancelScoreGesture();
-			return;
-		}
-		if (gestureMultiTouch) return;
-		const x = e.touches[0].clientX;
-		const y = e.touches[0].clientY;
-		if (scoreLongPressActive) {
-			// Active selection — block the browser's native scroll so the
-			// finger drag extends the loop instead of panning the page, and
-			// forward movement so alphaTab extends the drag-preview.
-			e.preventDefault();
-			dispatchMouseAt('mousemove', x, y);
-			return;
-		}
-		// Pre-fire: cancel the hold on meaningful movement so page scroll
-		// and horizontal swipe still work.
-		const dx = Math.abs(x - touchStartX);
-		const dy = Math.abs(y - touchStartY);
-		if (dx > SCORE_LONG_PRESS_MOVE_CANCEL_PX || dy > SCORE_LONG_PRESS_MOVE_CANCEL_PX) {
-			clearTimeout(scoreLongPressTimer);
-		}
-	}
-
-	function handleTouchEnd(e: TouchEvent) {
-		clearTimeout(scoreLongPressTimer);
-		if (scoreGestureCancelled) return;
-		if (scoreLongPressActive && e.changedTouches[0]) {
-			dispatchMouseAt('mouseup', e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-			scoreLongPressActive = false;
-			// Consume the event so the swipe-to-change-track logic below
-			// doesn't also trigger from the same gesture.
-			return;
-		}
-		// Suppress seek during a pinch-zoom (two fingers) so zooming never scrubs.
-		if (gestureMultiTouch) {
-			gestureMultiTouch = false;
-			return;
-		}
-		if (!e.changedTouches[0]) return;
-		const dx = e.changedTouches[0].clientX - touchStartX;
-		const dy = e.changedTouches[0].clientY - touchStartY;
-
-		// Only a clearly-horizontal swipe seeks; a mostly-vertical drag scrolls
-		// the sheet and must be left alone.
-		if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
-
-		// Swipe left → forward, swipe right → back (matches natural "drag the
-		// timeline" feel: pulling content left advances playback).
-		if (dx < 0) {
-			seekBySeconds(SEEK_STEP_SECONDS);
-			showSeekFlash('+10s');
-		} else {
-			seekBySeconds(-SEEK_STEP_SECONDS);
-			showSeekFlash('-10s');
-		}
-		hapticTap();
-	}
-
-	function showSeekFlash(label: '+10s' | '-10s') {
-		swipeIndicator = label;
-		clearTimeout(swipeIndicatorTimeout);
-		swipeIndicatorTimeout = setTimeout(() => {
-			swipeIndicator = null;
-		}, 800);
 	}
 
 	// Playback status text for screen readers
@@ -3769,21 +3630,16 @@
 		{/if}
 	</div>
 
-	<!-- AlphaTab rendering surface (the "video" - comes FIRST). touchmove
-	     is marked `nonpassive` so the conditional preventDefault() inside
-	     the handler can actually block the browser's native scroll once
-	     the long-press selection becomes active. -->
+	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
 	<div
 		class="relative"
 		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
-		on:touchstart={handleTouchStart}
-		on:touchmove|nonpassive={handleScoreTouchMove}
-		on:touchend={handleTouchEnd}
-		on:touchcancel={cancelScoreGesture}
+		on:touchstart|passive={handleUserScrollIntent}
 		use:pinchZoom={{
 			getScale: () => tabScale,
 			setScale: setTabScaleFromPinch,
-			onReset: resetTabScale,
+			onStart: startScorePinch,
+			onEnd: endScorePinch,
 			min: SCALE_MIN,
 			max: SCALE_MAX,
 			haptic: hapticTap
@@ -3910,24 +3766,6 @@
 				>
 					<i class="material-icons !text-lg" aria-hidden="true">delete_outline</i>
 				</button>
-			</div>
-		{/if}
-
-		<!-- Seek flash: brief "+10s"/"-10s" overlay when a horizontal drag seeks -->
-		{#if swipeIndicator}
-			<div
-				class="fixed top-1/2 {swipeIndicator === '+10s'
-					? 'right-4'
-					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
-			>
-				<div
-					class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg"
-				>
-					<i class="material-icons !text-2xl" aria-hidden="true"
-						>{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
-					>
-					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
-				</div>
 			</div>
 		{/if}
 

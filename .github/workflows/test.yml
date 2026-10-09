@@ -41,10 +41,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-playwright-chromium-webkit-${{ steps.pw.outputs.version }}
 
-      - name: Install Chromium (with system deps)
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Chromium and WebKit (with system deps)
+        run: pnpm exec playwright install --with-deps chromium webkit
 
       - name: Type-check
         run: pnpm check
