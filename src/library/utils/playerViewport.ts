@@ -5,6 +5,10 @@ export function playerViewport(node: HTMLElement, active: boolean) {
 	function measure() {
 		node.style.setProperty('--play-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
 		node.style.setProperty('--play-viewport-top', `${viewport?.offsetTop ?? 0}px`);
+		node.style.setProperty(
+			'--play-viewport-bottom',
+			`${Math.max(0, window.innerHeight - (viewport?.height ?? window.innerHeight) - (viewport?.offsetTop ?? 0))}px`
+		);
 	}
 	function update(enabled: boolean) {
 		if (enabled === listening) return;
@@ -22,6 +26,7 @@ export function playerViewport(node: HTMLElement, active: boolean) {
 			window.removeEventListener('resize', measure);
 			node.style.removeProperty('--play-viewport-height');
 			node.style.removeProperty('--play-viewport-top');
+			node.style.removeProperty('--play-viewport-bottom');
 		}
 	}
 	update(active);

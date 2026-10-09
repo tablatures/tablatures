@@ -813,6 +813,7 @@
 <body
 	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
 >
+	<div use:playerViewport={isOnPlay} class:play-main={isOnPlay}>
 	<a
 		href="#main-content"
 		class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[600] focus:px-4 focus:py-2 focus:bg-violet-500 focus:text-white focus:rounded-lg"
@@ -1058,8 +1059,7 @@
 	     matches the one app.css and the preview host already use. -->
 	<main
 		id="main-content"
-		use:playerViewport={isOnPlay}
-		class="{isOnPlay ? 'play-main' : 'animate-fade-in min-h-dvh'} {showMiniPlayer
+		class="{isOnPlay ? '' : 'animate-fade-in min-h-dvh'} {showMiniPlayer
 			? miniPreviewVisible
 				? 'pb-[calc(var(--mini-bar-height,76px)+min(50dvh,270px))] sm:pb-[var(--mini-bar-height,76px)]'
 				: 'pb-[var(--mini-bar-height,76px)]'
@@ -1102,6 +1102,7 @@
 			{/each}
 		</div>
 	{/if}
+	</div>
 </body>
 
 <style>
@@ -1162,11 +1163,11 @@
 	:global(.floating-video-box) {
 		position: fixed;
 		right: max(16px, env(safe-area-inset-right));
-		bottom: calc(var(--video-bar-inset) + 8px);
+		bottom: calc(var(--play-viewport-bottom, 0px) + var(--video-bar-inset) + 8px);
 		width: min(
 			340px,
 			calc(100vw - 32px),
-			calc((100dvh - 56px - var(--video-bar-inset) - 16px) * 16 / 9)
+			calc((var(--play-viewport-height, 100dvh) - 56px - var(--video-bar-inset) - 16px) * 16 / 9)
 		);
 		aspect-ratio: 16 / 9;
 		container-type: inline-size;

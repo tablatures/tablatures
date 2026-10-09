@@ -54,6 +54,19 @@ async function expectAlignedVideo(page: Page) {
 						const r = button.getBoundingClientRect();
 						return r.top >= f.top && r.bottom <= f.bottom && r.left >= f.left && r.right <= f.right;
 					}),
+					iconsFit: buttons.every((button) => {
+						const icon = button.querySelector('.material-icons');
+						if (!icon) return true;
+						const i = icon.getBoundingClientRect(),
+							r = button.getBoundingClientRect();
+						return (
+							i.top >= r.top &&
+							i.bottom <= r.bottom &&
+							i.left >= r.left &&
+							i.right <= r.right &&
+							Math.abs((i.top + i.bottom - r.top - r.bottom) / 2) < 1
+						);
+					}),
 					closeClickable: (() => {
 						const close = overlay.querySelector('[aria-label="Close video"]')!;
 						const r = close.getBoundingClientRect();
@@ -68,6 +81,7 @@ async function expectAlignedVideo(page: Page) {
 			inViewport: true,
 			iframeFits: true,
 			buttonsInside: true,
+			iconsFit: true,
 			closeClickable: true
 		});
 }

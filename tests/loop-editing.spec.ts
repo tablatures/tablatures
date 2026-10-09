@@ -291,3 +291,25 @@ test.describe('touch timeline editing', () => {
 		await cdp.detach();
 	});
 });
+
+test('sheet loop menu contains and centers every icon', async ({ page }) => {
+	await arrangeLoop(page, 'repeat', 1, 3);
+	const menu = page.locator('#loop-selection-overlay [title="Loop ON"]').locator('..');
+	await expect(menu).toBeVisible();
+	const icons = await menu.locator('.material-icons').evaluateAll((elements) =>
+		elements.map((element) => {
+			const icon = element.getBoundingClientRect();
+			const control = element.parentElement!.getBoundingClientRect();
+			return {
+				inside:
+					icon.top >= control.top &&
+					icon.bottom <= control.bottom &&
+					icon.left >= control.left &&
+					icon.right <= control.right,
+				centered: Math.abs((icon.top + icon.bottom - control.top - control.bottom) / 2) < 1
+			};
+		})
+	);
+	expect(icons).toHaveLength(4);
+	expect(icons.every((icon) => icon.inside && icon.centered)).toBe(true);
+});

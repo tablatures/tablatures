@@ -1110,13 +1110,17 @@
 				const menuBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
 				const divColor = isDark ? '#444' : '#e5e5e5';
 				const iconColor = isDark ? '#888' : '#999';
-				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+
+				const controlStyle =
+					'display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;padding:0;line-height:1;';
+				const iconStyle =
+					'display:block;font-size:16px;line-height:1;width:16px;height:16px;flex-shrink:0;';
 
 				// Drag handle
 				const dragHandle = document.createElement('div');
-				dragHandle.style.cssText = `cursor:grab;color:${isDark ? '#555' : '#ccc'};padding:0 2px;`;
-				dragHandle.innerHTML =
-					'<i class="material-icons" style="font-size:14px;" aria-hidden="true">drag_indicator</i>';
+				dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
+				dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
 				dragHandle.title = 'Drag to move loop';
 				dragHandle.addEventListener('mousedown', (e) => {
 					e.preventDefault();
@@ -1132,8 +1136,8 @@
 
 				// Loop toggle
 				const loopBtn = document.createElement('button');
-				loopBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
-				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
+				loopBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
+				loopBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
 				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
 				loopBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1143,9 +1147,8 @@
 
 				// Play from A
 				const playBtn = document.createElement('button');
-				playBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				playBtn.innerHTML =
-					'<i class="material-icons" style="font-size:16px;" aria-hidden="true">play_circle</i>';
+				playBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				playBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">play_circle</i>`;
 				playBtn.title = 'Play from start';
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1167,9 +1170,8 @@
 
 				// Delete
 				const delBtn = document.createElement('button');
-				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				delBtn.innerHTML =
-					'<i class="material-icons" style="font-size:16px;" aria-hidden="true">delete_outline</i>';
+				delBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				delBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">delete_outline</i>`;
 				delBtn.title = 'Remove loop [Esc]';
 				delBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -4433,13 +4435,13 @@
 					     unstarted video, and once playback is going the tab bar's
 					     play button drives both sides. -->
 					<div
-						class="absolute top-0 left-0 right-0 flex items-center justify-between p-1 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+						class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-2 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
 					>
-						<div class="flex items-center gap-1.5">
+						<div class="flex items-center gap-1.5 min-w-0">
 							<!-- Audio source toggle (tab / video / both) -->
 							<button
 								on:click={toggleAudioSource}
-								class="h-11 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+								class="h-11 min-w-11 shrink-0 px-3 leading-none rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
@@ -4451,7 +4453,7 @@
 										? 'Both tab + video audio — click for tab only'
 										: 'Tab audio only — click for video'}
 							>
-								<i class="material-icons !text-lg" aria-hidden="true"
+								<i class="material-icons !text-lg !leading-none block shrink-0" aria-hidden="true"
 									>{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
@@ -4469,13 +4471,15 @@
 							<!-- Offset control toggle -->
 							<button
 								on:click={() => (showOffsetControl = !showOffsetControl)}
-								class="h-11 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+								class="h-11 min-w-11 shrink-0 px-3 leading-none rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center justify-center gap-1.5
 									{showOffsetControl
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
 							>
-								<i class="material-icons !text-lg" aria-hidden="true">sync</i>
+								<i class="material-icons !text-lg !leading-none block shrink-0" aria-hidden="true"
+									>sync</i
+								>
 								{#if videoOffset !== 0}
 									<span>{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s</span>
 								{/if}
@@ -4483,11 +4487,13 @@
 						</div>
 						<button
 							on:click={closeVideo}
-							class="w-11 h-11 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-11 h-11 shrink-0 leading-none flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
 							aria-label="Close video"
 						>
-							<i class="material-icons !text-xl" aria-hidden="true">close</i>
+							<i class="material-icons !text-xl !leading-none block shrink-0" aria-hidden="true"
+								>close</i
+							>
 						</button>
 					</div>
 
