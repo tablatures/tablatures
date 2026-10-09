@@ -21,6 +21,8 @@
 	import { toastStore } from '../library/utils/toast';
 	import { scoreMetadata, tabStore, pendingTabStore } from '../library/utils/store';
 	import { validateFile } from '../library/utils/upload';
+	import { historyStore } from '../library/utils/history';
+	import { persistTabBytes } from '../library/data/tabBytes';
 	import { openTabFile } from '../library/utils/openTab';
 	import {
 		playerApi,
@@ -345,13 +347,42 @@
 		api.scoreLoaded.on((score) => {
 			const tab = get(tabStore);
 			if (!tab?.fileAsB64 || tab.fileAsB64 !== get(loadedTabB64)) return;
+			const metadata = scoreMetadata(score, tab);
+			tabStore.updateSettings(metadata);
 			updatePlayerState({
-				...scoreMetadata(score, tab),
+				...metadata,
 				scoreLoaded: true,
 				tracks: score.tracks,
 				scoreKey: get(loadedTabB64),
 				isRendering: false
 			});
+
+			// Record only a successfully parsed score, with its resolved metadata.
+			// Keeping the byte cache and Continue card here also avoids persisting
+			// invalid downloads or an empty title from a shared URL.
+			if (tab.tabId) {
+				const previous = get(historyStore).find((item) => item.id === tab.tabId);
+				historyStore.addToHistory({
+					...previous,
+					id: tab.tabId,
+					...metadata,
+					source: tab.source || previous?.source || '',
+					album: tab.album || previous?.album,
+					type: tab.type || previous?.type
+				});
+				void persistTabBytes(
+					{
+						id: tab.tabId,
+						...metadata,
+						source: tab.source || previous?.source,
+						sourceUrl: tab.sourceUrl,
+						album: tab.album || previous?.album,
+						type: tab.type || previous?.type
+					},
+					new Uint8Array(base64ToArrayBuffer(tab.fileAsB64)),
+					'history'
+				);
+			}
 
 			// Compute total bars
 			if (score.tracks?.length > 0) {
@@ -810,10 +841,11 @@
 	</script>
 </svelte:head>
 
-<body
+<div
+	use:playerViewport={isOnPlay}
+	class:play-main={isOnPlay}
 	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
 >
-	<div use:playerViewport={isOnPlay} class:play-main={isOnPlay}>
 	<a
 		href="#main-content"
 		class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[600] focus:px-4 focus:py-2 focus:bg-violet-500 focus:text-white focus:rounded-lg"
@@ -1102,8 +1134,7 @@
 			{/each}
 		</div>
 	{/if}
-	</div>
-</body>
+</div>
 
 <style>
 	.play-main {

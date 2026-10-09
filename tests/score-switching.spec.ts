@@ -108,6 +108,11 @@ for (const entry of ['recommendation', 'autocomplete', 'catalogue']) {
 				if (entry === 'catalogue') {
 					await page.getByRole('link', { name: 'Home', exact: true }).click();
 					await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+					await expect(
+						page
+							.getByRole('region', { name: 'Continue' })
+							.getByRole('button', { name: 'Play These Doors by Pearl Jam', exact: true })
+					).toBeVisible();
 					await page
 						.getByRole('button', { name: 'Play Jingle Bells by Pearl Jam', exact: true })
 						.click();
@@ -334,16 +339,82 @@ test('an unreadable imported file cannot expose the previously loaded score', as
 	await page.goto('/play?tab=test-tab');
 	await waitForScoreLoaded(page);
 	await page.getByRole('link', { name: 'Home', exact: true }).click();
-	await page
-		.locator('input[type="file"]')
-		.setInputFiles({
-			name: 'broken.gp',
-			mimeType: 'application/octet-stream',
-			buffer: Buffer.from('not a Guitar Pro file')
-		});
+	await page.locator('input[type="file"]').setInputFiles({
+		name: 'broken.gp',
+		mimeType: 'application/octet-stream',
+		buffer: Buffer.from('not a Guitar Pro file')
+	});
 	await expect(
 		page.getByText('This tab could not be read. Try another file or version.', { exact: true })
 	).toBeVisible();
 	await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toHaveCount(0);
 	expect(await page.evaluate(() => sessionStorage.getItem('currentTab'))).toBeNull();
+});
+
+test('a shared URL records parsed metadata in Continue and preserves it after reload', async ({
+	page
+}) => {
+	await setupMockApi(page);
+	await page.route('**/api/download/*', (route) =>
+		route.fulfill({ body: scoreBytes('Shared Song', 8), contentType: 'application/octet-stream' })
+	);
+	await page.goto('/play?tab=shared');
+	await waitForScoreLoaded(page);
+	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	const entry = page
+		.getByRole('region', { name: 'Continue' })
+		.getByRole('button', { name: 'Play Shared Song by Pearl Jam', exact: true });
+	await expect(entry).toBeVisible();
+	await page.reload();
+	await expect(entry).toBeVisible();
+});
+
+test('browser Back to the same imported share URL preserves the practice session', async ({
+	page
+}) => {
+	await setupMockApi(page);
+	await page.route('**/api/random?*', (route) =>
+		route.fulfill({
+			json: {
+				results: [{ id: 'test-tab', title: 'Test Song', artist: 'Test Artist', source: 'test' }],
+				total: 1,
+				page: 1,
+				totalPages: 1
+			}
+		})
+	);
+	await page.goto('/');
+	await page
+		.getByRole('button', { name: 'Play Test Song by Test Artist', exact: true })
+		.waitFor({ state: 'visible' });
+	await page.locator('input[type="file"]').setInputFiles({
+		name: 'practice.gp',
+		mimeType: 'application/octet-stream',
+		buffer: scoreBytes('Imported Practice', 12)
+	});
+	await waitForScoreLoaded(page);
+	await expect(page).toHaveURL(/#tab=1\./);
+	await page.evaluate(() => {
+		const api = (window as any).__testApi.getApi();
+		(window as any).__importedScore = api.score;
+		(window as any).__testApi.setLoop(1, 3);
+		api.player.timePosition = 2500;
+	});
+	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+	await page.goBack();
+	await waitForScoreLoaded(page);
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => (window as any).__testApi.getApi()?.score === (window as any).__importedScore
+			)
+		)
+		.toBe(true);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
+		.toEqual({ startBar: 1, endBar: 3, enabled: true });
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getApi().player.timePosition))
+		.toBeGreaterThan(2000);
 });

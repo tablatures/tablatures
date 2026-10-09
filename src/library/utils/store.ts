@@ -12,6 +12,10 @@ export interface TabVersion {
 }
 
 export interface TabData {
+	/** Exact share URL identity, so returning to an imported score can resume it. */
+	hashPayload?: string;
+	type?: string;
+	sourceUrl?: string | null;
 	fileAsB64?: string;
 	source?: string;
 	title?: string;

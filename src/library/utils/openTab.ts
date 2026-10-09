@@ -1,13 +1,13 @@
 import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { tabStore, type TabVersion } from './store';
-import { historyStore } from './history';
 import { sourceVariants, clearQueue } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
-import { loadStoredTabBytes, persistTabBytes } from '../data/tabBytes';
+import { loadStoredTabBytes } from '../data/tabBytes';
 import { fileToBase64 } from './upload';
 
 const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
@@ -24,7 +24,11 @@ export async function openTabFromHash(
 	navigate: boolean = true
 ): Promise<boolean> {
 	if (!browser) return false;
-	clearQueue();
+	const current = get(tabStore);
+	if (current?.fileAsB64 && current.hashPayload === hashPayload) {
+		if (navigate) void goto(`${base}/play`);
+		return true;
+	}
 	const token = tabStore.beginLoad(meta);
 	sourceVariants.set([]);
 	if (navigate) void goto(`${base}/play`);
@@ -33,6 +37,7 @@ export async function openTabFromHash(
 		if (!buf) throw new Error('Share link data is invalid.');
 		const b64 = arrayBufferToBase64(buf);
 		const applied = tabStore.commitLoad(token, {
+			hashPayload,
 			fileAsB64: b64,
 			source: meta.source || 'upload',
 			title: meta.title,
@@ -48,7 +53,8 @@ export async function openTabFromHash(
 
 /**
  * Download and open a tab by its ID.
- * Adds to history, sets the tab store, and optionally navigates to /play.
+ * Sets the requested bytes and optionally navigates to /play. The layout
+ * records history and offline bytes only after alphaTab accepts the score.
  */
 export async function openTabById(
 	tab: {
@@ -86,6 +92,11 @@ export async function openTabById(
 		);
 	}
 	if (!browser || !tab.id) return false;
+	const current = get(tabStore);
+	if (current?.fileAsB64 && current.tabId === tab.id) {
+		if (navigate) void goto(`${base}/play`);
+		return true;
+	}
 
 	const token = tabStore.beginLoad(tab);
 	sourceVariants.set([]);
@@ -95,6 +106,8 @@ export async function openTabById(
 		const applied = tabStore.commitLoad(token, {
 			fileAsB64: arrayBufferToBase64(arrayBuffer),
 			tabId: tab.id,
+			type: tab.type,
+			sourceUrl: tab.sourceUrl,
 			source: tab.source,
 			title: tab.title,
 			artist: tab.artist,
@@ -103,14 +116,7 @@ export async function openTabById(
 		});
 		if (!applied) return false;
 		sourceVariants.set(tab.variants?.length ? bestPerSource(tab.variants) : []);
-		historyStore.addToHistory({
-			id: tab.id,
-			title: tab.title,
-			artist: tab.artist || 'Unknown',
-			source: tab.source || '',
-			type: tab.type,
-			album: tab.album
-		});
+
 		return true;
 	};
 
@@ -140,21 +146,6 @@ export async function openTabById(
 		if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
 
 		if (!applyToStores(arrayBuffer)) return false;
-
-		// Persist for offline reopen (LRU-evicted by the storage budget).
-		void persistTabBytes(
-			{
-				id: tab.id,
-				title: tab.title,
-				artist: tab.artist,
-				album: tab.album,
-				source: tab.source,
-				sourceUrl: tab.sourceUrl,
-				type: tab.type
-			},
-			new Uint8Array(arrayBuffer),
-			'history'
-		);
 
 		return true;
 	} catch (err: any) {

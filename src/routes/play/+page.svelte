@@ -17,6 +17,7 @@
 		activeVideoId,
 		playerState,
 		queueStore,
+		clearQueue,
 		playShellEl,
 		playSheetInView,
 		playSheetEnabled,
@@ -145,7 +146,7 @@
 	let lastEmbeddedB64: string | null = null;
 	let embedding = false;
 	async function syncImportedTabHash() {
-		if (!browser || shareRestorationPending) return;
+		if (!browser || shareRestorationPending || get(pendingTabStore)) return;
 		const hasId = !!currentTabId;
 		const b64 = currentTab?.fileAsB64;
 
@@ -176,6 +177,7 @@
 			url.hash = hash;
 			window.history.replaceState(window.history.state, '', url.toString());
 			lastEmbeddedB64 = b64;
+			tabStore.updateSettings({ hashPayload: hash });
 
 			// Register this file-imported tab in history so the user can
 			// re-open it later without needing the original file. We derive a
@@ -294,6 +296,7 @@
 	}
 
 	async function loadTabFromHash(hash: string) {
+		if (get(tabStore)?.hashPayload !== hash) clearQueue();
 		try {
 			const opened = await openTabFromHash(
 				hash,
