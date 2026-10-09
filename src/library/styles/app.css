@@ -669,3 +669,27 @@
 	font-size: 34px;
 	overflow: visible !important;
 }
+
+/* Layout contracts: these apply to both prerendered HTML and the hydrated app. */
+html { scrollbar-gutter: stable; }
+.material-icons, .material-icons-outlined {
+ width: 1em;
+ height: 1em;
+ flex-shrink: 0;
+ overflow: hidden;
+ vertical-align: middle;
+}
+/* Shared by real cards, skeletons and offscreen feed cells. */
+.tab-card-title { height: 2.5em; line-height: 1.25; }
+.tab-card-artist { height: 1rem; line-height: 1rem; }
+
+/* A blocked icon font eventually exposes its ligature as fallback text. Keep
+   its reserved box, but only paint the glyph after that particular face loads. */
+.material-icons, .material-icons-outlined { visibility: hidden; }
+.material-icons-loaded .material-icons { visibility: visible; }
+.material-icons-outlined-loaded .material-icons-outlined { visibility: visible; }
+
+#page, .play-shell, .sheet-body { scrollbar-gutter: stable; }
+
+/* Animated dots occupy their final width throughout the animation. */
+.animate-ellipsis { display: inline-block; width: 1em; }

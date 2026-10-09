@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+	import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
@@ -289,7 +289,7 @@
 	// Is the bar's bottom (metadata) row on screen? It carries the sheet's grab
 	// handle; when it isn't there (landscape phones) the handle floats in the
 	// bar's bottom padding instead.
-	$: metadataRowVisible = scoreLoaded && !isFullscreen && !isMobileLandscape;
+	$: metadataRowVisible = !isFullscreen && !isMobileLandscape;
 	// Landscape phones sit right against the display edges (and the notch), so the
 	// bar gets a little gutter on top of the safe-area insets.
 	$: barSideGutter = isMobileLandscape ? 10 : 0;
@@ -371,12 +371,14 @@
 	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
 	// box below the screen. The mobile bottom sheet insets its content by this so
 	// the last row clears the controls (see playerBarHeight).
-	function publishBarInset() {
+	async function publishBarInset(_scoreLoaded?: boolean) {
+		// Score loading moves the sticky bar even when its own height is unchanged.
+		await tick();
 		if (!browser || !barEl) return;
 		const top = barEl.getBoundingClientRect().top;
 		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
 	}
-	$: if (browser && barEl && barHeight) publishBarInset();
+	$: if (browser && barEl && barHeight) publishBarInset(scoreLoaded);
 	// True while the mobile below-fold sheet has travelled up over the player. The
 	// chrome that floats just above the bar then has to get out of its way: the
 	// karaoke lyrics strip hides, and the progress bar's touch area (which
@@ -3633,6 +3635,7 @@
 
 <div
 	id="page"
+	data-layout-region="player"
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
@@ -3820,7 +3823,7 @@
 	     Suppressed (not unmounted, so its fetched lyrics survive) while the mobile
 	     bottom sheet covers the score: it floats above the sheet and would sit on
 	     top of the playlist. -->
-	<LyricsBar api={$playerApi} suppressed={sheetCoversScore} />
+	<LyricsBar api={$playerApi} suppressed={sheetCoversScore || !scoreLoaded || barHeight === 0} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style). The mobile bottom sheet
@@ -3845,6 +3848,7 @@
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
+		data-layout-region="player-controls"
 	>
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
@@ -4077,7 +4081,7 @@
 				on:mouseleave={() => (volumeHover = false)}
 			>
 				<button
-					class="{isFullscreen
+					class="{compactBar
 						? 'p-1.5'
 						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{volume === 0
@@ -4129,13 +4133,13 @@
 			     chips, shown on every screen size (the track label folds to an icon
 			     on phones) so mobile users can switch track and speed without opening
 			     the settings panel. Each opens a shared PopoverMenu. -->
-			{#if tracks.length > 1}
 				<PopoverMenu placement="top" align="end" width={240} ariaLabel="Select track" let:close>
 					<button
 						slot="trigger"
 						let:toggle
 						let:open
 						on:click={toggle}
+						disabled={tracks.length <= 1}
 						class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
 							{open
 							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
@@ -4145,11 +4149,11 @@
 						aria-expanded={open}
 					>
 						<i class="material-icons !text-lg" aria-hidden="true">queue_music</i>
-						<span class="hidden sm:inline max-w-[8rem] truncate"
+						<span class="hidden sm:inline w-[3rem] lg:w-[8rem] truncate"
 							>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
 						>
 						<i
-							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
+							class="material-icons !text-lg max-[359px]:!hidden text-neutral-400 transition-transform duration-150 {open
 								? 'rotate-180'
 								: ''}"
 							aria-hidden="true">arrow_drop_down</i
@@ -4177,7 +4181,6 @@
 						</button>
 					{/each}
 				</PopoverMenu>
-			{/if}
 
 			<PopoverMenu placement="top" align="end" width={130} ariaLabel="Playback speed" let:close>
 				<button
@@ -4195,10 +4198,10 @@
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
-					<i class="material-icons !text-base" aria-hidden="true">speed</i>
+					<i class="material-icons !text-base max-[359px]:!hidden" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
-						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
+						class="material-icons !text-lg max-[359px]:!hidden transition-transform duration-150 {speedIsCustom
 							? 'text-white/70'
 							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
 						aria-hidden="true">arrow_drop_down</i
@@ -4229,10 +4232,11 @@
 
 			<!-- Video picker button (desktop/tablet bar only; on phones it moves
 			     into the settings panel) -->
-			{#if youtubeResults.length > 0 && !mobileBar}
+			{#if !mobileBar}
 				<div class="relative">
 					<button
 						on:click={() => (showVideoDropdown = !showVideoDropdown)}
+						disabled={youtubeResults.length === 0}
 						class="p-2.5 rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
@@ -4357,9 +4361,10 @@
 				/>
 			{/if}
 
-			{#if scoreLoaded && !mobileBar}
+			{#if !mobileBar}
 				<button
 					on:click={onLyricsButton}
+					disabled={!scoreLoaded}
 					class="{compactBar
 						? 'p-1.5'
 						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
@@ -4500,7 +4505,7 @@
 					<!-- Enhanced offset control panel -->
 					{#if showOffsetControl}
 						<div
-							class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
+							class="absolute top-14 bottom-0 left-0 right-0 overflow-y-auto bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
 						>
 							<!-- Slider for coarse adjustment -->
 							<div class="flex items-center gap-2">
@@ -4578,10 +4583,11 @@
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
 					<!-- Album artwork or artist image (hidden on the phone bar) -->
-					{#if (songArtwork || artistImage || cachedThumbArtwork) && !mobileBar}
+					{#if !mobileBar}
 						<div
 							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
+							{#if songArtwork || artistImage || cachedThumbArtwork}
 							<img
 								src={songArtwork || artistImage || cachedThumbArtwork}
 								alt=""
@@ -4591,6 +4597,7 @@
 									if (e.target instanceof HTMLElement) e.target.style.display = 'none';
 								}}
 							/>
+							{/if}
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
@@ -4629,7 +4636,7 @@
 											: ''}
 									</span>
 								</div>
-								<div class="flex-shrink-0">
+								<div class="flex-shrink-0 w-[14rem] max-w-[45%] h-8 flex items-center justify-end">
 									<TuningChip
 										api={$playerApi}
 										{activeTrackIndex}
@@ -4640,8 +4647,8 @@
 							</div>
 							<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
-							{#if artistInfo?.tags && artistInfo.tags.length > 0}
-								<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
+							<div class="player-artist-tags hidden sm:flex items-center gap-1.5 mt-1 h-5 overflow-hidden whitespace-nowrap">
+								{#if artistInfo?.tags && artistInfo.tags.length > 0}
 									{#if artistInfo.country}
 										<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
 											>{artistInfo.country}</span
@@ -4654,8 +4661,8 @@
 											>{tag}</span
 										>
 									{/each}
-								</div>
 							{/if}
+							</div>
 						{/if}
 						{#if hasVariants}
 							<!-- Version selector: browse and pick ANY version (grouped by
@@ -5338,6 +5345,10 @@
 </div>
 
 <style>
+	@media (max-height: 400px) {
+		.player-artist-tags { display: none; }
+	}
+
 	/* P4-local touch-target treatment (P3 owns the global `.tap-target`; this
 	   plan owns TabViewer, so it applies the equivalent here and P3 never edits
 	   this file). Every control button in this component gets a ~48dp touch

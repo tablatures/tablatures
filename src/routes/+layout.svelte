@@ -3,12 +3,25 @@
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 	import 'material-icons/iconfont/outlined.css';
-	import '@fontsource/ibm-plex-sans/400.css';
-	import '@fontsource/ibm-plex-sans/500.css';
-	import '@fontsource/ibm-plex-sans/600.css';
-	import '@fontsource/ibm-plex-sans/700.css';
+	import '$styles/fonts.css';
+	import textFont400 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2?url';
+	import textFont500 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2?url';
+	import textFont600 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2?url';
+	import textFont700 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2?url';
 
 	import { onMount, onDestroy } from 'svelte';
+	import { observeLayoutStability } from '$utils/layoutStability';
+	onMount(observeLayoutStability);
+	onMount(() => {
+		for (const [face, className] of [
+			['Material Icons', 'material-icons-loaded'],
+			['Material Icons Outlined', 'material-icons-outlined-loaded']
+		]) {
+			document.fonts.load(`24px "${face}"`).then((fonts) => {
+				if (fonts.length) document.documentElement.classList.add(className);
+			}).catch(() => {});
+		}
+	});
 	import { createVideoSession } from '$utils/videoSession';
 	import { createPlayerCursor } from '$utils/playerCursor';
 	import { playerViewport } from '$utils/playerViewport';
@@ -827,6 +840,11 @@
 />
 
 <svelte:head>
+	<link rel="preload" href={textFont400} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont500} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont600} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont700} as="font" type="font/woff2" crossorigin="anonymous" />
+
 	<title>Tablatures</title>
 
 	<script>
@@ -1091,6 +1109,7 @@
 	     matches the one app.css and the preview host already use. -->
 	<main
 		id="main-content"
+		data-layout-region="app"
 		class="{isOnPlay ? '' : 'animate-fade-in min-h-dvh'} {showMiniPlayer
 			? miniPreviewVisible
 				? 'pb-[calc(var(--mini-bar-height,76px)+min(50dvh,270px))] sm:pb-[var(--mini-bar-height,76px)]'

@@ -112,6 +112,7 @@
 		if (url.startsWith('http://')) return 'https://' + url.slice(7);
 		return url;
 	}
+	let resolvingQuery = true;
 	let loading = false;
 	let loadStartTs = 0;
 	let error = '';
@@ -657,6 +658,7 @@
 	}
 
 	onMount(async () => {
+		resolvingQuery = false;
 		const initialQuery = $page.url.searchParams.get('q') || '';
 		if (initialQuery) {
 			query = initialQuery;
@@ -695,15 +697,9 @@
 	on:openTab={handleOpenTab}
 />
 
-<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
+<main id="main-content" data-layout-region="search" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
 	<PullToRefresh on:refresh={handlePullRefresh}>
-	{#if loading && currentPage === 1 && !tabs.length}
-		<!-- Loading -->
-		<div class="flex items-center justify-center h-[calc(100dvh-var(--header-h))]">
-			<LoadingScore messages={['Searching local database', 'Fetching from sources']} size="lg" />
-		</div>
-
-	{:else if error}
+	{#if error}
 		<!-- Error -->
 		<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">error_outline</i>
@@ -716,10 +712,11 @@
 			</button>
 		</div>
 
-	{:else if tabs.length > 0}
+	{:else if resolvingQuery || loading || tabs.length > 0}
+		<div class="search-artists" data-layout-region="search-artists">
 		<!-- Artist hero cards (when search matches artists) -->
-		{#if artistHeroesLoading && artistHeroes.length === 0}
-			<div class="flex gap-3 overflow-x-auto py-3 px-1">
+		{#if resolvingQuery || loading || (artistHeroesLoading && artistHeroes.length === 0)}
+			<div class="flex gap-3 overflow-x-auto py-3 px-1 h-full">
 				{#each Array(3) as _}
 					<div class="flex-shrink-0 w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<div class="flex items-center gap-3 px-4 py-3">
@@ -752,7 +749,7 @@
 				{/each}
 			</div>
 		{:else if artistHeroes.length > 0}
-			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+			<div class="flex h-full gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 				{#each artistHeroes as hero}
 					<div class="flex-shrink-0 snap-start w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<!-- Top: image + name + follow -->
@@ -818,17 +815,18 @@
 					</div>
 				{/each}
 			</div>
+		{:else}
+			<div class="h-full flex flex-col justify-center px-3"><h1 class="text-xl font-semibold">Search results</h1><p class="text-sm text-neutral-500 mt-2">Tabs matching “{query}”</p></div>
 		{/if}
 
+		</div>
 		<!-- Results -->
 		<div class="py-3">
-			{#if artistHeroes.length === 0}
 				<p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3">
 					{tabs.length} result{tabs.length !== 1 ? 's' : ''}{#if hasMorePages || loadingMore}…{/if}
 				</p>
-			{/if}
 
-			<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50">
+			<div class="search-rows divide-y divide-neutral-100 dark:divide-neutral-800/50" data-layout-region="search-results">
 				{#each tabs as tab}
 					<ResultCard
 						id={tab.id}
@@ -848,7 +846,7 @@
 				{/each}
 
 				<!-- Skeleton rows while more results stream in from live sources -->
-				{#if searchingMore}
+				{#if resolvingQuery || loading || searchingMore}
 					{#each Array(6) as _}
 						<SkeletonCard />
 					{/each}
@@ -980,3 +978,8 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+ .search-artists { height: 184px; overflow: hidden; }
+ .search-rows { min-height: calc(100dvh - var(--header-h) - 236px); }
+</style>

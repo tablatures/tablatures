@@ -262,7 +262,9 @@
 	): Promise<number> {
 		let ep = endpoint;
 		if (firstBatch) {
-			ep = ep.replace(/limit=\d+/, `limit=${firstBatch}`).replace(/count=\d+/, `count=${firstBatch}`);
+			ep = ep
+				.replace(/limit=\d+/, `limit=${firstBatch}`)
+				.replace(/count=\d+/, `count=${firstBatch}`);
 		}
 		let res: Response;
 		try {
@@ -367,17 +369,20 @@
 	}
 
 	async function fetchMore() {
-		if (loadingFeed || exhausted) return;
+		if (loadingFeed || exhausted || (offline && feedTabs.length === 0)) return;
 		// Throttle: don't fetch more often than MIN_FETCH_INTERVAL_MS.
 		// Crucially, a throttled call RESCHEDULES itself instead of dying -
 		// otherwise the initial viewport-fill loop stalls after one batch.
 		const now = Date.now();
 		if (now - lastFetchAt < MIN_FETCH_INTERVAL_MS) {
 			if (!throttleRetryTimer) {
-				throttleRetryTimer = setTimeout(() => {
-					throttleRetryTimer = null;
-					fetchMore();
-				}, MIN_FETCH_INTERVAL_MS - (now - lastFetchAt) + 20);
+				throttleRetryTimer = setTimeout(
+					() => {
+						throttleRetryTimer = null;
+						fetchMore();
+					},
+					MIN_FETCH_INTERVAL_MS - (now - lastFetchAt) + 20
+				);
 			}
 			return;
 		}
@@ -530,106 +535,13 @@
 		showNewInlinePlaylist = false;
 	}
 
-	// Continue items (recent history) — count depends on grid width and Import size
-	let gridEl: HTMLDivElement | undefined;
-	let gridCols = 6; // sensible default until measured
-	/** Import layout mode:
-	 *  'full'   — mobile viewport, col-span-full aspect-square
-	 *  'card'   — 2-3 cols, 1 card-sized cell
-	 *  'medium' — 4-5 cols, 2×2 square
-	 *  'big'    — 6+ cols, 3×2 rectangle
-	 */
-	let importLayout: 'full' | 'card' | 'medium' | 'big' = 'full';
-	let gridResizeObserver: ResizeObserver | undefined;
-
+	// Continue stays one bounded, horizontally scrollable row at every data phase.
+	$: recentItems = effectiveHistory.slice(0, 12);
+	let historyReady = false;
+	let gridCols = 6;
 	function measureLayout() {
-		if (typeof window === 'undefined') return;
-		// Measure actual column count from the grid element
-		if (gridEl) {
-			const cs = getComputedStyle(gridEl);
-			const cols = cs.gridTemplateColumns.split(' ').filter((v) => v && v !== '0px').length;
-			if (cols > 0) gridCols = cols;
-		}
-		// Touch-first devices (coarse pointer / no hover) can't drag-drop a file,
-		// so the Import tile must ALWAYS be the compact button — never the
-		// drop zone. Gating on input capability rather than the measured column
-		// count also fixes a race where a late ResizeObserver/resize callback
-		// (fired before the grid had settled) flipped the mobile tile back to the
-		// drop zone. Width still drives the desktop layouts below.
-		const coarse =
-			typeof window.matchMedia === 'function' &&
-			(window.matchMedia('(pointer: coarse)').matches ||
-				!window.matchMedia('(hover: hover)').matches);
-
-		// Layout decision based on input capability + viewport + measured cols:
-		// - touch device OR really small (< 480px): Import full-width button row
-		// - 7+ cols: Import 3×2 (big)
-		// - 5-6 cols: Import 2×2 (medium)
-		// - otherwise (≈ 480-780px / just past mobile): Import is a single card
-		//   so the Welcome panel can sit beside it on the same row
-		const w = window.innerWidth;
-		if (coarse || w < 480) importLayout = 'full';
-		else if (gridCols >= 7) importLayout = 'big';
-		else if (gridCols >= 5) importLayout = 'medium';
-		else importLayout = 'card';
+		if (feedGridEl) gridCols = getComputedStyle(feedGridEl).gridTemplateColumns.split(' ').length;
 	}
-
-	/** Max "card slots" available for Continue items (excluding the Import tile itself). */
-	$: maxCardSlots = (() => {
-		if (importLayout === 'full') {
-			// Mobile: Import takes row 1 full width. Allow up to 3 rows of cards below.
-			return 3 * gridCols;
-		}
-		if (importLayout === 'card') {
-			// 2-3 cols: Import is 1 card cell. 2 rows of content; Import occupies 1 slot.
-			return 2 * gridCols - 1;
-		}
-		if (importLayout === 'medium') {
-			// 4-6 cols: Import is 2×2. Cards fill (cols-2) × 2 slots alongside + a full row below.
-			return 2 * Math.max(1, gridCols - 2) + gridCols;
-		}
-		// big (7+ cols): Import is 3×2. Cards fill (cols-3) × 2 slots alongside.
-		return 2 * Math.max(1, gridCols - 3);
-	})();
-
-	/** Reserve slots for See-all. At card layout reserve an extra one so See-all isn't squeezed. */
-	$: reservedSlots = importLayout === 'card' ? 2 : 1;
-
-	/** Compute how many recent cards to show so See-all lands on the last filled row.
-	 *  When (visible + 1 See-all) doesn't fill the last row cleanly, drop one card so it does.
-	 *  Full (mobile) layout intentionally skips the row-alignment shrink so users
-	 *  still see several rows of Continue on small phones. */
-	$: visibleRecentCount = (() => {
-		const history = effectiveHistory.length;
-		const cap = Math.max(1, maxCardSlots - reservedSlots);
-		return Math.min(history, cap);
-	})();
-	$: recentItems = effectiveHistory.slice(0, visibleRecentCount);
-	$: remainingCount = Math.max(0, effectiveHistory.length - recentItems.length);
-
-	/** Cells alongside Import in rows 1-2 (i.e. the "Continue area" adjacent
-	 *  to the Import tile). Used to decide whether the full onboarding panel
-	 *  should take over or the history cards can fill the area on their own. */
-	$: alongsideSlots = (() => {
-		if (importLayout === 'big') return Math.max(0, (gridCols - 3) * 2);
-		if (importLayout === 'medium') return Math.max(0, (gridCols - 2) * 2);
-		if (importLayout === 'card') return Math.max(0, gridCols - 1);
-		return 0; // 'full' (mobile): grid flows naturally, no alongside area
-	})();
-
-	/** Show the full onboarding panel (heading + pills) whenever there aren't
-	 *  enough recent cards to fill the Continue area alongside Import. Covers
-	 *  both "no history" and "some history but not enough to fill rows 1-2". */
-	$: showOnboardingPanel = mounted
-		&& importLayout !== 'full'
-		&& alongsideSlots > 0
-		&& recentItems.length + 1 < alongsideSlots;
-
-	/** When history is completely empty, the panel fills both rows of the
-	 *  Continue area. When there are some history items (but still not
-	 *  enough to fill two rows), the panel takes only row 1 so the cards can
-	 *  slot into row 2 directly below it. */
-	$: panelRowSpan = recentItems.length === 0 ? 2 : 1;
 	let recentArtwork: Record<string, string> = {};
 	let recentArtworkFetched = false;
 	let recentArtworkLoading = false;
@@ -641,57 +553,11 @@
 			recentArtworkLoading = false;
 		});
 	}
-	// Pick a thumbnail for the "See all history" card — first artwork we have
-	$: seeAllThumb = (() => {
-		for (const item of recentItems) {
-			if (recentArtwork[item.id]) return recentArtwork[item.id];
-		}
-		return '';
-	})();
 
-	/** Becomes true after first client-side render tick — controls skeleton prefill for Continue. */
-	let mounted = false;
-
-	// --- Feed rendering: keep the last visible row full ---
-	// When idle (not loading, not exhausted) we crop the feed to whole rows so
-	// the trailing partial row doesn't leave a ragged edge. The cropped items
-	// stay in feedTabs and re-appear as soon as the next batch arrives to
-	// complete them into a full row.
-	$: feedFullRowCount = gridCols > 0 ? Math.floor(feedTabs.length / gridCols) * gridCols : feedTabs.length;
-	$: feedPartialCount = feedTabs.length - feedFullRowCount;
-
-	// Skeleton visibility with hysteresis: ON instantly when a fetch or
-	// artwork batch starts, OFF only after the feed has been idle for a
-	// moment. The fill loop alternates active/idle every second (fetch ->
-	// artwork resolves -> 100ms rearm -> next fetch); gating the block on
-	// the instantaneous state made every skeleton unmount and remount each
-	// cycle, which read as the whole grid flashing.
-	let showSkeletons = true;
-	let skeletonOffTimer: ReturnType<typeof setTimeout> | null = null;
-	$: {
-		const active = (loadingFeed || artworkLoadingIds.size > 0) && !exhausted;
-		if (active) {
-			if (skeletonOffTimer) {
-				clearTimeout(skeletonOffTimer);
-				skeletonOffTimer = null;
-			}
-			showSkeletons = true;
-		} else if (showSkeletons && !skeletonOffTimer) {
-			skeletonOffTimer = setTimeout(
-				() => {
-					skeletonOffTimer = null;
-					showSkeletons = false;
-				},
-				exhausted ? 0 : 600
-			);
-		}
-	}
-
-	$: visibleFeedTabs =
-		exhausted || showSkeletons || feedFullRowCount === 0
-			? feedTabs
-			: feedTabs.slice(0, feedFullRowCount);
-
+	// Once a slot has appeared, keep it. Replacing skeletons must never remove
+	// already-painted cards or collapse the bottom of a short/partial batch.
+	let feedSlots = 24;
+	$: feedSlots = Math.max(feedSlots, feedTabs.length + (loadingFeed ? 12 : 0));
 	// Loading row visibility (item 28). The raw `loadingFeed` flag drops to false
 	// in the sub-second gaps between fill-loop iterations (the 100ms self-rearm and
 	// the 400ms throttle retry), which made the row blink in and out. Latch it ON
@@ -718,17 +584,12 @@
 		}
 	}
 
-	// Skeleton count during loading: fill out the partial row first, then add
-	// one more row for the upcoming batch. Caps at 3 rows so we don't render
-	// a wall of shimmer on fast networks.
-	$: feedSkeletonCount = (() => {
-		if (feedTabs.length === 0) return Math.max(12, 2 * gridCols);
-		const completePartial = feedPartialCount > 0 ? gridCols - feedPartialCount : 0;
-		return Math.min(3 * gridCols, Math.max(gridCols, completePartial + gridCols));
-	})();
-
 	onMount(() => {
-		mounted = true;
+		historyStore.ready
+			.finally(() => {
+				historyReady = true;
+			})
+			.catch(() => {});
 		// Measure the grid before the first fetch so firstBatch is sized to the
 		// real column count.
 		measureLayout();
@@ -755,19 +616,10 @@
 		// safety net for a user parked at the very bottom, where a spent IO
 		// intersection plus a satisfied self-rearm could otherwise stall the feed.
 		window.addEventListener('scroll', onScrollSettle, { passive: true });
-
-		// Measure grid columns (for dynamic Continue card count) + watch for resize
-		measureLayout();
-		if (typeof ResizeObserver !== 'undefined' && gridEl) {
-			gridResizeObserver = new ResizeObserver(measureLayout);
-			gridResizeObserver.observe(gridEl);
-		}
-		window.addEventListener('resize', measureLayout);
 	});
 
 	onDestroy(() => {
 		if (observer) observer.disconnect();
-		if (gridResizeObserver) gridResizeObserver.disconnect();
 		if (coldStartTimer) clearTimeout(coldStartTimer);
 		if (throttleRetryTimer) clearTimeout(throttleRetryTimer);
 		if (artworkIdleHandle !== null && typeof window !== 'undefined') {
@@ -779,9 +631,7 @@
 		}
 		if (scrollEndTimer) clearTimeout(scrollEndTimer);
 		if (loadingRowOffTimer) clearTimeout(loadingRowOffTimer);
-		if (skeletonOffTimer) clearTimeout(skeletonOffTimer);
 		if (typeof window !== 'undefined') {
-			window.removeEventListener('resize', measureLayout);
 			window.removeEventListener('scroll', onScrollSettle);
 		}
 	});
@@ -792,461 +642,252 @@
 </script>
 
 <PullToRefresh on:refresh={refreshFeed}>
-<div class="py-6 space-y-8">
-	<!-- Top section: unified grid with Continue cards + Import at top-right -->
-	<section aria-labelledby="continue-heading">
-		<!-- Heading row — mirrors the content grid so Import/Continue labels align with their tiles -->
-		{#if importLayout === 'full'}
-			<!-- < 480px: just the Import heading above the grid. The Continue
-			     heading slides into the grid below the Import tile, right
-			     above the Welcome panel / recent cards. -->
-			<div class="mb-3 flex items-center gap-2">
-				<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
-					>upload_file</i
-				>
-				<h2 class="text-xl font-bold text-neutral-900 dark:text-neutral-100">Import</h2>
-			</div>
-		{:else}
-			<!-- Desktop: grid headings aligned with Import tile width and Continue cards area -->
-			<div
-				class="grid gap-3 sm:gap-4 mb-3 items-end responsive-tab-grid"
-			>
-				<!-- Import heading spans Import's col count -->
-				<h2
-					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
-					style={importLayout === 'card'
-						? 'grid-column: 1 / 2;'
-						: importLayout === 'medium'
-							? 'grid-column: 1 / 3;'
-							: 'grid-column: 1 / 4;'}
-				>
+	<div class="py-6 space-y-8">
+		<div class="home-start" data-layout-region="home-continue">
+			<section aria-labelledby="import-heading">
+				<h2 id="import-heading" class="text-xl font-bold mb-3 flex items-center gap-2">
 					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
 						>upload_file</i
-					>
-					<span>Import</span>
+					>Import
 				</h2>
-				<!-- Continue heading starts right after Import — shown at every state
-					 (empty, partial, or full) so the grid layout stays consistent. -->
-				<h2
-					id="continue-heading"
-					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
-					style={importLayout === 'card'
-						? 'grid-column: 2 / -1;'
-						: importLayout === 'medium'
-							? 'grid-column: 3 / -1;'
-							: 'grid-column: 4 / -1;'}
+				<button
+					class="import-drop w-full rounded-xl border-2 border-dashed border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 hover:border-violet-400 flex flex-col items-center justify-center gap-3"
+					on:click={() => fileInput.click()}
+					on:dragenter={handleDragEnter}
+					on:dragleave={handleDragLeave}
+					on:dragover={handleDragOver}
+					on:drop={handleDrop}
+					class:ring-2={dragActive}
+					aria-label="Upload tablature file"
 				>
+					<i class="material-icons !text-5xl text-violet-500" aria-hidden="true">upload_file</i>
+					<span class="font-semibold">{dragActive ? 'Drop it' : 'Drop a file'}</span>
+					<span class="text-xs text-neutral-500">or browse · {SUPPORTED_TYPES.join(', ')}</span>
+				</button>
+				<button
+					class="import-compact w-full items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold"
+					on:click={() => fileInput.click()}
+					aria-label="Upload tablature file"
+					><i class="material-icons !text-xl" aria-hidden="true">upload_file</i>Import a tab</button
+				>
+				<div class="mt-2 grid grid-cols-2 gap-2">
+					<button
+						class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-sm"
+						on:click={() => tunerOpen.set(true)}
+						aria-label="Open tuner"
+						><i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+							>compass_calibration</i
+						>Tuner</button
+					>
+					<button
+						class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-sm"
+						on:click={() => metronomeOpen.set(true)}
+						aria-label="Open metronome"
+						><i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
+							>graphic_eq</i
+						>Metronome</button
+					>
+				</div>
+				<input
+					bind:this={fileInput}
+					on:change={handleFileSelect}
+					type="file"
+					accept={SUPPORTED_TYPES.join(',')}
+					class="hidden"
+				/>
+			</section>
+			<section class="min-w-0" aria-labelledby="continue-heading">
+				<h2 id="continue-heading" class="text-xl font-bold mb-3 flex items-center gap-2">
 					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
 						>play_circle</i
-					>
-					<span>Continue</span>
+					>Continue
 				</h2>
-			</div>
-		{/if}
-
-		<div
-			bind:this={gridEl}
-			class="grid gap-3 sm:gap-4 responsive-tab-grid"
-			style="grid-auto-flow: dense;"
-		>
-			<!-- Import tile — placed first; CSS spans it across breakpoints:
-				 mobile: col-span-full aspect-square (full-width row at top)
-				 sm-lg: col-span-1 (one card cell, height auto-matches row)
-				 lg+: col-span-2 row-span-2 at top-right
-			-->
-			<div
-				class="flex flex-col w-full group rounded-xl"
-				style={importLayout === 'big'
-					? 'grid-column: 1 / 4; grid-row: 1 / 3;'
-					: importLayout === 'medium'
-						? 'grid-column: 1 / 3; grid-row: 1 / 3;'
-						: importLayout === 'full'
-							? 'grid-column: 1 / -1;'
-							: ''}
-			>
-				{#if importLayout === 'full'}
-					<!-- Mobile: touch has no drag-drop and the full-width square card
-					     wasted vertical space, so use one compact full-width button,
-					     with the practice-tool overlays as secondary buttons below. -->
-					<button
-						on:click={() => fileInput.click()}
-						class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold shadow-sm transition-colors hover:bg-violet-600 active:scale-[0.99]"
-						aria-label="Upload tablature file"
-					>
-						<i class="material-icons !text-xl" aria-hidden="true">upload_file</i>
-						<span>Import a tab</span>
-					</button>
-					<div class="mt-2 grid grid-cols-2 gap-2">
-						<button
-							on:click={() => tunerOpen.set(true)}
-							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
-							aria-label="Open tuner"
-						>
-							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
-								>compass_calibration</i
+				<div class="continue-pane">
+					{#if !historyReady}
+						<div class="continue-cards" aria-label="Loading recent tabs" aria-busy="true">
+							{#each Array(12) as _}<SkeletonTabCard />{/each}
+						</div>
+					{:else if recentItems.length > 0}
+						<div class="continue-cards">
+							{#each recentItems as item (item.id)}
+								<TabCard
+									id={item.id}
+									title={item.title}
+									artist={item.artist}
+									album={item.album || ''}
+									source={item.source}
+									type={item.type || ''}
+									artworkUrl={recentArtwork[item.id] || ''}
+									artworkLoading={recentArtworkLoading && !recentArtwork[item.id]}
+									onClick={() => openTab(item)}
+									onAddToPlaylist={() => openPlaylistPicker(item)}
+								/>
+							{/each}
+							<a
+								href="{base}/repertoire?view=history"
+								class="rounded-xl bg-violet-100 dark:bg-violet-900/30 flex flex-col items-center justify-center text-violet-600 dark:text-violet-300"
+								aria-label="See all history — {$historyStore.length} tabs"
+								><i class="material-icons !text-4xl" aria-hidden="true">more_horiz</i>Full history<span
+									class="text-xs mt-1">{$historyStore.length} tabs total</span
+								></a
 							>
-							<span>Tuner</span>
-						</button>
-						<button
-							on:click={() => metronomeOpen.set(true)}
-							class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-100 text-sm font-medium shadow-sm transition-colors hover:border-tool-400 dark:hover:border-tool-600 hover:bg-tool-50 dark:hover:bg-neutral-800 active:scale-[0.99]"
-							aria-label="Open metronome"
-						>
-							<i class="material-icons-outlined !text-lg text-tool-500" aria-hidden="true"
-								>graphic_eq</i
-							>
-							<span>Metronome</span>
-						</button>
-					</div>
-				{:else}
-					<div
-						class="flex flex-col flex-1 min-h-0 w-full cursor-pointer
-							focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black rounded-xl"
-						on:dragenter={handleDragEnter}
-						on:dragleave={handleDragLeave}
-						on:dragover={handleDragOver}
-						on:drop={handleDrop}
-						on:click={() => fileInput.click()}
-						on:keydown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								e.preventDefault();
-								fileInput.click();
-							}
-						}}
-						role="button"
-						tabindex="0"
-						aria-label="Upload tablature file"
-					>
-						<!-- Drop zone: aspect-square normally; stretches to fill 2-row cell when Import is 2×2 (big) -->
+						</div>
+					{:else}
 						<div
-							class="relative rounded-xl border-2 border-dashed transition-color
-								{importLayout === 'big' || importLayout === 'medium' ? 'flex-1' : 'aspect-square'}
-								{dragActive
-								? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20 ring-2 ring-violet-300 dark:ring-violet-700'
-								: 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 group-hover:border-violet-400 dark:group-hover:border-violet-600 group-hover:bg-violet-50/60 dark:group-hover:bg-violet-900/10'}"
+							class="welcome-panel h-full rounded-xl bg-gradient-to-br from-violet-100 via-violet-50 to-white dark:from-violet-900/40 dark:via-violet-950/30 dark:to-neutral-900 p-5 sm:p-6 flex flex-col justify-between gap-3"
 						>
-							<div class="h-full flex flex-col items-center justify-center text-center px-3 gap-1">
-								<p
-									class="text-sm lg:text-lg font-semibold text-neutral-900 dark:text-neutral-100 leading-tight"
-								>
-									{dragActive ? 'Drop it' : 'Drop a file'}
-								</p>
-								<div
-									class="w-12 h-12 lg:w-20 lg:h-20 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center transition-all group-hover:scale-105 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/40"
-								>
-									<i
-										class="material-icons !text-3xl lg:!text-5xl text-violet-500 dark:text-violet-400"
-										aria-hidden="true"
-									>
-										{dragActive ? 'file_download' : 'upload_file'}
-									</i>
-								</div>
-								<p class="text-xs lg:text-sm text-neutral-500 dark:text-neutral-400 lg:mt-1">
-									or <span class="text-violet-500 dark:text-violet-400 font-medium underline"
-										>browse</span
-									>
+							<div>
+								<p class="text-xl sm:text-2xl font-bold">Welcome to Tablatures</p>
+								<p class="text-sm text-neutral-600 dark:text-neutral-300 mt-2 max-w-prose">
+									Tabs you play will show up here so you can pick up where you left off. Search the
+									catalog, tune your guitar, or import a file to get started.
 								</p>
 							</div>
+							<div class="flex gap-2">
+								<a
+									href="{base}/search"
+									class="rounded-full bg-violet-500 text-white px-4 py-2 text-sm">Search</a
+								><a
+									href="{base}/repertoire"
+									class="rounded-full border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm"
+									>Repertoire</a
+								>
+							</div>
 						</div>
+					{/if}
+				</div>
+			</section>
+		</div>
 
-						<!-- Text area below (matches TabCard title/artist area so row heights align) -->
-						<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
-							<p
-								class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
-							>
-								Import a tab
-							</p>
-							<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-								{SUPPORTED_TYPES.join(', ')}
-							</p>
-						</div>
-					</div>
-				{/if}
+		<!-- One continuous deduplicated feed -->
+		<section class="relative" aria-labelledby="feed-heading" data-layout-region="home-feed">
+			<div class="flex items-end justify-between mb-3">
+				<h2
+					id="feed-heading"
+					class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
+				>
+					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
+						>recommend</i
+					>
+					<span>Recommended for you</span>
+				</h2>
 			</div>
 
-			<!-- Mobile (<480px): Continue heading sits inside the grid below the
-			     Import tile, above the Welcome panel / recent cards. -->
-			{#if importLayout === 'full'}
-				<div id="continue-heading" class="col-span-full flex items-center gap-2 mt-2">
-					<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true"
-						>play_circle</i
-					>
-					<h2 class="text-xl font-bold text-neutral-900 dark:text-neutral-100">Continue</h2>
-				</div>
-			{/if}
-
-			<!-- Welcome / onboarding panel. When history is completely empty it
-				 fills rows 1-2 of the Continue area. When there are a few
-				 history items but not enough to fill the area, it takes only
-				 row 1 so cards flow in row 2 directly beneath it. -->
-			{#if showOnboardingPanel || (mounted && importLayout === 'full' && recentItems.length === 0)}
-				<div
-					class="h-full min-h-0 {(importLayout === 'big' || importLayout === 'medium') && panelRowSpan === 2
-						? 'sm:min-h-[395px]'
-						: (importLayout === 'big' || importLayout === 'medium')
-							? 'sm:min-h-[190px]'
-							: 'sm:min-h-[210px]'} rounded-xl overflow-hidden bg-gradient-to-br from-violet-100 via-violet-50 to-white dark:from-violet-900/40 dark:via-violet-950/30 dark:to-neutral-900 flex flex-col justify-between p-5 sm:p-6 gap-5"
-					style={importLayout === 'big'
-						? `grid-column: 4 / -1; grid-row: 1 / ${1 + panelRowSpan};`
-						: importLayout === 'medium'
-							? `grid-column: 3 / -1; grid-row: 1 / ${1 + panelRowSpan};`
-							: importLayout === 'card'
-								? 'grid-column: 2 / -1;'
-								: 'grid-column: 1 / -1;'}
-				>
-					<div class="min-w-0">
-						<p
-							class="text-lg sm:text-xl lg:text-2xl font-bold text-neutral-900 dark:text-neutral-50 leading-tight"
-						>
-							Welcome to Tablatures
-						</p>
-						<p
-							class="text-xs sm:text-sm lg:text-base text-neutral-700 dark:text-neutral-300 mt-1.5 max-w-prose"
-						>
-							Tabs you play will show up here so you can pick up where you left off. For now, search
-							the catalog, tune your guitar, or drop a file to get started.
-						</p>
-					</div>
-					<!-- Pills row — compact sizing keeps all three on a single line at
-						 narrow card-layout widths; sm:/lg: ramps them up on bigger screens. -->
-					<div class="flex flex-nowrap gap-1.5 sm:gap-2 overflow-hidden">
-						<a
-							href="{base}/search"
-							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-violet-500 hover:bg-violet-600 text-white text-xs sm:text-sm font-medium whitespace-nowrap shadow-sm hover:shadow transition-all active:scale-95"
-						>
-							<i class="material-icons-outlined !text-base sm:!text-lg" aria-hidden="true">search</i>
-							<span>Search</span>
-						</a>
-						<button
-							type="button"
-							on:click={() => tunerOpen.set(true)}
-							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-white dark:bg-neutral-900 hover:bg-violet-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm font-medium whitespace-nowrap border border-neutral-200 dark:border-neutral-700 shadow-sm hover:border-violet-300 dark:hover:border-violet-700 transition-all active:scale-95"
-						>
-							<i class="material-icons-outlined !text-base sm:!text-lg text-violet-500" aria-hidden="true"
-								>compass_calibration</i
-							>
-							<span>Tuner</span>
-						</button>
-						<a
-							href="{base}/repertoire"
-							class="inline-flex items-center gap-1 sm:gap-2 px-2.5 py-1.5 sm:px-4 sm:py-2.5 rounded-full bg-white dark:bg-neutral-900 hover:bg-violet-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-100 text-xs sm:text-sm font-medium whitespace-nowrap border border-neutral-200 dark:border-neutral-700 shadow-sm hover:border-violet-300 dark:hover:border-violet-700 transition-all active:scale-95"
-						>
-							<i class="material-icons-outlined !text-base sm:!text-lg text-violet-500" aria-hidden="true"
-								>library_music</i
-							>
-							<span>Repertoire</span>
-						</a>
-					</div>
-				</div>
-			{/if}
-
-			<!-- Continue recent items (or skeleton prefill during cold-start) -->
-			{#if !mounted}
-				{#each Array(Math.max(3, maxCardSlots)) as _}
-					<SkeletonTabCard />
-				{/each}
-			{:else}
-				{#each recentItems as item}
-					<TabCard
-						id={item.id}
-						title={item.title}
-						artist={item.artist}
-						album={item.album || ''}
-						source={item.source}
-						type={item.type || ''}
-						artworkUrl={recentArtwork[item.id] || ''}
-						artworkLoading={recentArtworkLoading && !recentArtwork[item.id]}
-						onClick={() => openTab(item)}
-						onAddToPlaylist={() => openPlaylistPicker(item)}
-					/>
-				{/each}
-			{/if}
-
-			<!-- "X more / See all" card -->
-			{#if recentItems.length > 0}
-				<a
-					href="{base}/repertoire?view=history"
-					class="group flex flex-col w-full rounded-xl overflow-hidden focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black transition-transform duration-150 active:scale-[0.98]"
-					aria-label="See all history — {$historyStore.length} tabs"
-				>
-					<div
-						class="relative w-full aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-violet-500 to-violet-700 dark:from-violet-600 dark:to-violet-800 flex items-center justify-center"
-					>
-						{#if seeAllThumb}
-							<img
-								src={seeAllThumb}
-								alt=""
-								use:fadeInImage={seeAllThumb}
-								class="absolute inset-0 w-full h-full object-cover opacity-40 blur-sm"
-							/>
-						{/if}
-						<div class="relative z-10 flex flex-col items-center gap-1 text-white">
-							<i class="material-icons !text-4xl sm:!text-5xl" aria-hidden="true">more_horiz</i>
-							{#if remainingCount > 0}
-								<span class="text-base sm:text-lg font-bold">{remainingCount} more</span>
-							{:else}
-								<span class="text-sm font-semibold">See all</span>
-							{/if}
-						</div>
-					</div>
-					<div class="pt-2 pb-1 px-0.5 w-full min-w-0">
-						<p
-							class="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors"
-						>
-							Full history
-						</p>
-						<p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-							{$historyStore.length}
-							{$historyStore.length === 1 ? 'tab' : 'tabs'} total
-						</p>
-					</div>
-				</a>
-			{/if}
-
-		</div>
-
-		<input
-			bind:this={fileInput}
-			on:change={handleFileSelect}
-			type="file"
-			accept={SUPPORTED_TYPES.join(',')}
-			class="hidden"
-		/>
-	</section>
-
-	<!-- One continuous deduplicated feed -->
-	<section aria-labelledby="feed-heading">
-		<div class="flex items-end justify-between mb-3">
-			<h2
-				id="feed-heading"
-				class="text-lg sm:text-xl font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2"
-			>
-				<i class="material-icons-outlined !text-xl text-violet-500" aria-hidden="true">recommend</i>
-				<span>Recommended for you</span>
-			</h2>
-		</div>
-
-		<!-- Cold-start micro-easter-egg: the backend can nap between sessions, so
+			<!-- Cold-start micro-easter-egg: the backend can nap between sessions, so
 		     if the first batch is slow we say we're "tuning up" instead of looking
 		     frozen. Session-scoped, shows at most once. -->
-		{#if showColdStart && feedTabs.length === 0}
-			<div
-				class="flex items-center justify-center gap-3 py-6 mb-2 rounded-xl bg-violet-50/60 dark:bg-violet-900/10 animate-fade-in"
-				aria-live="polite"
-			>
-				<i class="material-icons-outlined !text-2xl text-violet-500 tuning-peg" aria-hidden="true"
-					>compass_calibration</i
+			{#if showColdStart && feedTabs.length === 0}
+				<div
+					class="absolute top-12 inset-x-0 z-10 flex items-center justify-center gap-3 py-6 rounded-xl bg-violet-50/95 dark:bg-violet-950/95 animate-fade-in"
+					aria-live="polite"
 				>
-				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
-					Tuning up your recommendations<span class="animate-ellipsis"></span>
-				</span>
-			</div>
-		{/if}
+					<i class="material-icons-outlined !text-2xl text-violet-500 tuning-peg" aria-hidden="true"
+						>compass_calibration</i
+					>
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400">
+						Tuning up your recommendations<span class="animate-ellipsis"></span>
+					</span>
+				</div>
+			{/if}
 
-		{#if feedTabs.length === 0 && !loadingFeed && offline}
-			<!-- Offline with nothing cached: offline state with a working retry. -->
-			<EmptyState
-				icon="cloud_off"
-				tone="offline"
-				title="You're offline"
-				description="Reconnect to load your recommendations."
-				onRetry={refreshFeed}
-				size="compact"
-			/>
-		{:else if feedTabs.length === 0 && !loadingFeed && requestError}
-			<EmptyState icon="error_outline" title={requestError} onRetry={refreshFeed} size="compact" />
-		{:else if feedTabs.length === 0 && !loadingFeed && exhausted}
-			<!-- Truly empty + exhausted: show nothing-to-show state -->
-			<div
-				class="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-neutral-50 dark:bg-neutral-900/50"
-			>
-				<i
-					class="material-icons !text-4xl text-neutral-300 dark:text-neutral-700 mb-2"
-					aria-hidden="true">explore</i
+			{#if feedTabs.length === 0 && !loadingFeed && offline}
+				<!-- Offline with nothing cached: offline state with a working retry. -->
+				<EmptyState
+					icon="cloud_off"
+					tone="offline"
+					title="You're offline"
+					description="Reconnect to load your recommendations."
+					onRetry={refreshFeed}
+					size="compact"
+				/>
+			{:else if feedTabs.length === 0 && !loadingFeed && requestError}
+				<EmptyState icon="error_outline" title={requestError} onRetry={refreshFeed} size="compact" />
+			{:else if feedTabs.length === 0 && !loadingFeed && exhausted}
+				<!-- Truly empty + exhausted: show nothing-to-show state -->
+				<div
+					class="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-neutral-50 dark:bg-neutral-900/50"
 				>
-				<p class="text-sm text-neutral-500 dark:text-neutral-400">No tabs to show right now</p>
-			</div>
-		{:else}
-			<div
-				bind:this={feedGridEl}
-				class="grid gap-3 sm:gap-4 responsive-tab-grid"
-			>
-				{#each visibleFeedTabs as tab (tab.id)}
-					<!-- feed-cell: content-visibility:auto skips layout/paint for
-					     off-screen cards (cheap virtualization, 5c); the intrinsic
-					     size reserves each cell's height so nothing reflows and
-					     scrollbars stay stable. -->
-					<div class="feed-cell">
-						<TabCard
-							id={tab.id}
-							title={tab.title}
-							artist={tab.artist}
-							album={tab.album}
-							source={tab.source}
-							type={tab.type}
-							artworkUrl={feedArtwork[tab.id] || ''}
-							artistImage={tab.artistImage || ''}
-							artworkLoading={artworkLoadingIds.has(tab.id)}
-							onClick={() => openTab(tab)}
-							onAddToPlaylist={() => openPlaylistPicker(tab)}
-						/>
-					</div>
-				{/each}
-
-				<!-- Skeleton placeholders: shown while fetching or while any
-				     artwork is still loading. Count fills out the partial
-				     trailing row first and then adds a full row for the
-				     upcoming batch — so the grid never ends on a ragged edge. -->
-				{#if showSkeletons}
-					{#each Array(feedSkeletonCount) as _}
-						<SkeletonTabCard />
+					<i
+						class="material-icons !text-4xl text-neutral-300 dark:text-neutral-700 mb-2"
+						aria-hidden="true">explore</i
+					>
+					<p class="text-sm text-neutral-500 dark:text-neutral-400">No tabs to show right now</p>
+				</div>
+			{:else}
+				<div bind:this={feedGridEl} class="grid gap-3 sm:gap-4 responsive-tab-grid">
+					{#each Array(feedSlots) as _, index (index)}
+						{@const tab = feedTabs[index]}
+						<div class="feed-cell">
+							{#if tab}
+								<TabCard
+									id={tab.id}
+									title={tab.title}
+									artist={tab.artist}
+									album={tab.album}
+									source={tab.source}
+									type={tab.type}
+									artworkUrl={feedArtwork[tab.id] || ''}
+									artistImage={tab.artistImage || ''}
+									artworkLoading={artworkLoadingIds.has(tab.id)}
+									onClick={() => openTab(tab)}
+									onAddToPlaylist={() => openPlaylistPicker(tab)}
+								/>
+							{:else}
+								<div
+									style:visibility={(loadingFeed || artworkLoadingIds.size > 0) && !exhausted
+										? 'visible'
+										: 'hidden'}
+								>
+									<SkeletonTabCard />
+								</div>
+							{/if}
+						</div>
 					{/each}
-				{/if}
-			</div>
-		{/if}
+				</div>
+			{/if}
 
-		<!-- Loading row (item 28): sits below the bottom-most row and stays visible
+			<!-- Loading row (item 28): sits below the bottom-most row and stays visible
 		     for as long as ANY feed fetch is in flight — including the brief gaps
 		     between fill-loop iterations — so scrolling to the very end never looks
 		     like loading silently stopped. -->
-		{#if showLoadingRow && feedTabs.length > 0}
-			<div
-				class="flex items-center justify-center gap-3 py-8"
-				aria-live="polite"
-				data-testid="feed-loading-row"
-			>
-				<LoadingScore size="sm" message="" />
-				<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
-					>Loading more tabs…</span
+			{#if showLoadingRow && feedTabs.length > 0}
+				<div
+					class="flex items-center justify-center gap-3 py-8"
+					aria-live="polite"
+					data-testid="feed-loading-row"
 				>
-			</div>
-		{/if}
+					<LoadingScore size="sm" message="" />
+					<span class="text-sm font-medium text-neutral-600 dark:text-neutral-400"
+						>Loading more tabs…</span
+					>
+				</div>
+			{/if}
 
-		<!-- Offline but we have cached recommendations: keep them, note it below. -->
-		{#if offline && feedTabs.length > 0}
-			<OfflineNotice
-				onRetry={refreshFeed}
-				message="You're offline — showing your last recommendations. Reconnect for fresh picks."
-			/>
-		{/if}
+			<!-- Offline but we have cached recommendations: keep them, note it below. -->
+			{#if offline && feedTabs.length > 0}
+				<OfflineNotice
+					onRetry={refreshFeed}
+					message="You're offline — showing your last recommendations. Reconnect for fresh picks."
+				/>
+			{/if}
 
-		<!-- Infinite-scroll sentinel -->
-		{#if !exhausted}
-			<div bind:this={sentinelEl} class="h-10 mt-4" aria-hidden="true"></div>
-		{:else}
-			<div class="flex flex-col items-center gap-3 py-8">
-				<p class="text-xs text-neutral-500 dark:text-neutral-400">You've reached the end.</p>
-				<button
-					on:click={resetAndRetry}
-					class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg border border-violet-300 dark:border-violet-700 text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
-				>
-					<i class="material-icons !text-sm" aria-hidden="true">refresh</i>
-					Load more
-				</button>
-			</div>
-		{/if}
-	</section>
-</div>
+			<!-- Infinite-scroll sentinel -->
+			{#if !exhausted}
+				<div bind:this={sentinelEl} class="h-10 mt-4" aria-hidden="true"></div>
+			{:else}
+				<div class="flex flex-col items-center gap-3 py-8">
+					<p class="text-xs text-neutral-500 dark:text-neutral-400">You've reached the end.</p>
+					<button
+						on:click={resetAndRetry}
+						class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg border border-violet-300 dark:border-violet-700 text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+					>
+						<i class="material-icons !text-sm" aria-hidden="true">refresh</i>
+						Load more
+					</button>
+				</div>
+			{/if}
+		</section>
+	</div>
 </PullToRefresh>
 
 <!-- Playlist picker modal -->
@@ -1335,18 +976,53 @@
 		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
 	}
 
-	/* Cheap virtualization for the recommendation feed (5c): the browser skips
-	   layout + paint for cards outside the viewport (plus a buffer) while the
-	   intrinsic size keeps each cell's box reserved, so scrolling a long feed
-	   stays smooth and the scroll position never jumps. ~130px thumbnail + title
-	   ≈ 190px; the height auto-corrects once a card is rendered. */
-	.feed-cell {
-		content-visibility: auto;
-		contain-intrinsic-size: auto 190px;
+	.home-start {
+		display: grid;
+		grid-template-columns: 240px minmax(0, 1fr);
+		gap: 24px;
 	}
-	@media (min-width: 1024px) {
-		.feed-cell {
-			contain-intrinsic-size: auto 210px;
+	.import-drop {
+		height: 190px;
+	}
+	.import-compact {
+		display: none;
+	}
+	.continue-pane {
+		height: calc(170px + 4.0625rem + 5px);
+		overflow: hidden;
+	}
+	.continue-cards {
+		display: grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 170px;
+		gap: 16px;
+		height: 100%;
+		overflow-x: auto;
+		overflow-y: hidden;
+		padding-bottom: 5px;
+	}
+	.feed-cell {
+		position: relative;
+		content-visibility: auto;
+		contain-intrinsic-size: auto none;
+		aspect-ratio: 1;
+		padding-bottom: 4.0625rem;
+		box-sizing: content-box;
+		min-width: 0;
+	}
+	.feed-cell > :global(*) {
+		position: absolute;
+		inset: 0;
+	}
+	@media (max-width: 767px), (pointer: coarse), (hover: none) {
+		.home-start {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.import-drop {
+			display: none;
+		}
+		.import-compact {
+			display: flex;
 		}
 	}
 

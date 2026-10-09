@@ -13,7 +13,8 @@
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
 		"test:unit": "vitest run",
-		"test:e2e": "playwright test"
+		"test:e2e": "playwright test",
+		"test:layout": "playwright test --config playwright.layout.config.ts"
 	},
 	"devDependencies": {
 		"@capacitor-community/keep-awake": "^8.0.1",

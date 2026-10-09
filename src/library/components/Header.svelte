@@ -80,6 +80,7 @@
 />
 
 <header
+	data-layout-region="header"
 	class="pt-safe sticky top-0 z-[100] bg-white dark:bg-black border-b border-neutral-300 dark:border-neutral-700 transition-shadow duration-200 {scrolled
 		? 'shadow-sm'
 		: ''}"
