@@ -87,12 +87,18 @@
 >
 	<!-- Taller on small screens (72px) with larger targets so fingers don't
 	     misclick the top bar; back to 56px from sm up. -->
-	<div class="flex items-center h-[4.5rem] sm:h-14 px-4 gap-1 sm:gap-3">
-		<!-- Left: logo. Equal-weight flex-1 with the right actions so the search
-		     bar between them lands in the true horizontal center of the header. -->
+	<div
+		class="header-row flex items-center h-[4.5rem] sm:h-14 px-4 gap-1 sm:gap-3"
+		class:has-search={showSearch}
+	>
+		<!-- Reserve each side's actual content width before allocating the search. -->
 		<div class="flex items-center flex-1 min-w-0">
 			<!-- Logo (always visible, including name on mobile) -->
-			<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">
+			<a
+				href="{base}/"
+				class="flex items-center gap-1 flex-shrink-0 min-[360px]:pr-6"
+				aria-label="Home"
+			>
 				<img
 					src="{base}/logos/icon.svg"
 					width="28"
@@ -109,8 +115,7 @@
 			</a>
 		</div>
 
-		<!-- Center: search bar (desktop). Shrinks to fit; the equal flex-1 sides
-		     keep it centered and prevent it from ever overlapping logo/buttons. -->
+		<!-- Center: search shrinks between the intrinsic logo and action columns. -->
 		{#if showSearch}
 			<div class="hidden md:flex justify-center min-w-0 w-full max-w-2xl">
 				<SearchBar
@@ -213,3 +218,15 @@
 		</div>
 	{/if}
 </header>
+
+<style>
+	@media (min-width: 768px) {
+		.header-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.header-row.has-search {
+			grid-template-columns: minmax(max-content, 1fr) minmax(0, 42rem) minmax(max-content, 1fr);
+		}
+	}
+</style>

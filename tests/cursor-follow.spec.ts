@@ -111,6 +111,14 @@ test('paused seeking and panel reflow keep the selected bar in view', async ({ p
 	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 });
 
+test('an explicit paused seek to the first bar still follows the cursor', async ({ page }) => {
+	await openScore(page);
+	await seekToPercent(page, 0);
+	await expect.poll(() => page.evaluate(() => (window as any).__testApi.getCurrentBar())).toBe(0);
+	await expectCursorVisible(page);
+	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+});
+
 test('opening, resizing and closing the dock keeps the playing cursor visible', async ({
 	page
 }) => {

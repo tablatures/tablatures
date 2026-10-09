@@ -280,9 +280,10 @@
 	// Mobile landscape phones should auto-collapse the transport row to the
 	// fullscreen-style compact layout so the bar doesn't eat half the screen.
 	// Desktops and tablets (height > 500px) keep the normal layout.
-	let isMobileLandscape = false;
+	let isMobileLandscape =
+		browser && window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
 	// Narrow phones get the denser transport row too, not just fullscreen/landscape
-	let isSmallScreen = false;
+	let isSmallScreen = browser && window.matchMedia('(max-width: 480px)').matches;
 	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
@@ -302,7 +303,8 @@
 	let showSettingsVideo = false;
 	// At lg+ the settings panel becomes a docked split-view console instead of a
 	// bottom sheet, and the score reflows into the remaining width.
-	let isLargeScreen = false;
+	let isLargeScreen =
+		browser && window.matchMedia('(min-width: 976px) and (orientation: landscape)').matches;
 	$: showConsole = showSettings && isLargeScreen;
 
 	// User-resizable width for the docked console (null = default clamp).
@@ -389,6 +391,7 @@
 	// The bar advertises the sheet drag only where the sheet exists, only while it
 	// holds something worth pulling up, and never while it is already open.
 	$: showSheetHint = $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen;
+	$: reserveSheetHint = $playSheetEnabled && !isFullscreen;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -513,13 +516,27 @@
 
 	// Follow by default; manual scrolling disengages until an explicit seek or Back to cursor.
 	let autoFollow = true;
+	let followAtStart = false;
+	let followScoreKey: string | null = null;
+	$: if (requestedScoreKey !== followScoreKey) {
+		followScoreKey = requestedScoreKey;
+		followAtStart = false;
+	}
+	$: if (playing) followAtStart = true;
 	let cursorFollowFrame = 0;
 	let cursorFollowTop: number | null = null;
 	let cursorFollowObserver: MutationObserver | undefined;
 	let unsubscribeCursorFollow: (() => void) | undefined;
 
 	function scheduleCursorFollow() {
-		if (cursorFollowFrame || !autoFollow) return;
+		// A freshly opened, paused score starts at its top. Following the first
+		// cursor during loading scrolls the placeholder (or animates a refresh).
+		if (
+			cursorFollowFrame ||
+			!autoFollow ||
+			isLoading ||
+			(!playing && progress === 0 && !followAtStart)
+		) return;
 		// Follow the placed DOM cursor rather than alphaTab's earlier playback
 		// position event. This also covers paused seeks and score reflow.
 		cursorFollowFrame = requestAnimationFrame(() => {
@@ -531,10 +548,12 @@
 	function reEnableAutoFollow() {
 		autoFollow = true;
 		cursorFollowTop = null;
+		followAtStart = true;
 		alignCursorInViewport();
 	}
 
 	function alignCursorInViewport() {
+		if (isLoading) return;
 		const el = get(beatCursorEl);
 		if (!el) return;
 		// The desktop console sits beside the score. Its height does not reduce
@@ -687,10 +706,16 @@
 
 	// The score has its own reserved viewport; parsing alone is too early to
 	// reveal it. Keep the same placeholder through download, audio and rendering.
+	$: requestedScoreKey = data.fileAsB64 || (browser && window.history?.state?.base64) || null;
+	$: scoreMatchesRequest = !!requestedScoreKey && $playerState.scoreKey === requestedScoreKey;
 	$: isLoading =
-		(pending || (hasSheet && (!scoreLoaded || !$playerState.scoreRendered))) &&
+		(pending || (hasSheet && (!scoreLoaded || !scoreMatchesRequest || !$playerState.scoreRendered))) &&
 		!apiError &&
 		!loadingTimedOut;
+	$: if (browser && isLoading && page) resetLoadingScroll(page);
+	function resetLoadingScroll(viewport: HTMLElement) {
+		viewport.scrollTo({ top: 0, behavior: 'instant' });
+	}
 
 	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
 	// This prevents the user from being permanently stuck on the loading screen
@@ -715,6 +740,7 @@
 		scoreLoaded = true;
 		isRendering = false;
 	}
+	$: if (browser && !$playerState.scoreLoaded && scoreLoaded) scoreLoaded = false;
 	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
 		soundFontLoaded = true;
 	}
@@ -1607,6 +1633,7 @@
 		api.player.timePosition = (pct / 100) * duration;
 		seekDebounce();
 		autoFollow = true;
+		followAtStart = true;
 	}
 
 	function pbBeginGesture(clientX: number) {
@@ -1970,6 +1997,7 @@
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
 	function handleUserScrollIntent(event: Event) {
+		if (isLoading) return;
 		// The console owns its own scrolling; bubbling wheel/touch events there
 		// are not an instruction to stop following the sheet.
 		if (event.target instanceof Node && settings?.contains(event.target)) return;
@@ -1987,7 +2015,7 @@
 		reEnableAutoFollow();
 	}
 
-	$: if (api && tracks.length > 0 && scoreLoaded) {
+	$: if (api && tracks.length > 0 && scoreLoaded && scoreMatchesRequest && !pending) {
 		const track = tracks[activeTrackIndex] || tracks[0];
 		if (track) {
 			api.renderTracks([track]);
@@ -2179,6 +2207,7 @@
 		api.player.timePosition = ms;
 		seekDebounce();
 		autoFollow = true;
+		followAtStart = true;
 	}
 
 	// Store references for cleanup
@@ -2218,7 +2247,7 @@
 				cursorFollowTop = null;
 				// Scroll to top when a new tab is loaded (the sheet is always its
 				// own scroller now — window/page fallback covers SSR edge cases).
-				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
+				(page ?? window).scrollTo({ top: 0, behavior: 'instant' });
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
@@ -3632,6 +3661,7 @@
 <div
 	id="page"
 	data-layout-region="player"
+	class:loading-view={isLoading}
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
@@ -3657,6 +3687,7 @@
 	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
 	<div
 		class="relative"
+		class:score-loading={isLoading}
 		aria-busy={!!isLoading}
 		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart|passive={handleUserScrollIntent}
@@ -3714,6 +3745,9 @@
 		{/if}
 
 		<div
+			class:opacity-0={isLoading}
+			class:pointer-events-none={isLoading}
+			aria-hidden={isLoading}
 			class="relative z-0 {hasSheet && (scoreLoaded || loadingTimedOut)
 				? 'min-h-[500px] pt-4'
 				: 'min-h-1 opacity-0'}"
@@ -3798,7 +3832,7 @@
 		     the metadata row that sits above the transport bar. Only shown while
 		     the sheet section owns the /play view (item 14): once the user scrolls
 		     into the below-fold details, the shell's "back to top" arrow takes over. -->
-		{#if scoreLoaded && !autoFollow && $playSheetInView}
+		{#if scoreLoaded && !isLoading && !autoFollow && $playSheetInView}
 			<div
 				class="fixed -translate-x-1/2 z-[55]"
 				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
@@ -4782,20 +4816,24 @@
 					     here"; tapping it opens the sheet too. Both flanking blocks are
 					     `flex-1 basis-0`, which is what keeps the handle in the middle
 					     regardless of how wide the source label is. -->
-					{#if showSheetHint}
-						<button
-							class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
-							on:click={() => playSheetOpen.set(true)}
-							aria-label="Show what's up next"
-							title="Up next"
-						>
-							<span class="sheet-hint-grip" aria-hidden="true"></span>
-							<span class="sheet-hint-label">Up next</span>
-						</button>
+					{#if reserveSheetHint}
+						<div class="w-[68px] flex justify-center flex-shrink-0 self-center">
+							{#if showSheetHint}
+								<button
+									class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+									on:click={() => playSheetOpen.set(true)}
+									aria-label="Show what's up next"
+									title="Up next"
+								>
+									<span class="sheet-hint-grip" aria-hidden="true"></span>
+									<span class="sheet-hint-label">Up next</span>
+								</button>
+							{/if}
+						</div>
 					{/if}
 
 					<div
-						class="flex items-center gap-0.5 sm:gap-1 {showSheetHint
+						class="flex items-center gap-0.5 sm:gap-1 {reserveSheetHint
 							? 'flex-1 basis-0 justify-end'
 							: 'flex-shrink-0'}"
 					>
@@ -5342,6 +5380,16 @@
 </div>
 
 <style>
+	.loading-view {
+		overflow-y: hidden;
+		overscroll-behavior-y: contain;
+	}
+	.score-loading {
+		/* Keep the old renderer mounted but clip its retained height while a
+		   different score is pending. The placeholder owns exactly one viewport. */
+		height: calc(100% - var(--player-bar-height, 0px));
+		overflow: hidden;
+	}
 	@media (max-height: 400px) {
 		.player-artist-tags { display: none; }
 	}

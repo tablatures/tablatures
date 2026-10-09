@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import {
 	gate,
 	installLayoutObserver,
@@ -277,6 +278,171 @@ for (const viewport of [
 				await expectNoLayoutShifts(page, testInfo);
 			});
 		}
+
+		test('player: back then open another score never exposes the retained canvas', async ({
+			page
+		}, testInfo) => {
+			const hold = await mock(page);
+			Object.values(hold).forEach((resource) => resource.release());
+			const second = gate();
+			await page.route('**/api/download/layout-2', async (route) => {
+				await second.promise;
+				// A distinct score key, with the same valid long GP5 fixture.
+				await route.fulfill({
+					body: Buffer.concat([readFileSync('tests/fixtures/test-tab.gp5'), Buffer.from([0])])
+				});
+			});
+			await page.goto('/');
+			await page
+				.getByRole('button', { name: `Play ${tabs[1].title} by Test Artist`, exact: true })
+				.first()
+				.click();
+			await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
+			await expect(page.locator('#player-host canvas').first()).toBeVisible();
+			await page.locator('#page').evaluate((el) => el.scrollTo({ top: 300 }));
+			await page.goBack();
+			await page
+				.getByRole('button', { name: `Play ${tabs[2].title} by Test Artist`, exact: true })
+				.first()
+				.click();
+			const skeleton = page.getByTestId('score-skeleton');
+			await expect(skeleton).toBeVisible();
+			await painted(page);
+			const viewportBox = (await page.locator('#page').boundingBox())!;
+			const placeholder = (await skeleton.boundingBox())!;
+			const controls = (await page
+				.getByRole('toolbar', { name: 'Playback controls' })
+				.boundingBox())!;
+			expect(placeholder.y).toBe(viewportBox.y);
+			expect(placeholder.y + placeholder.height).toBeGreaterThanOrEqual(controls.y);
+			expect(
+				await page
+					.locator('#player-host')
+					.evaluate((el) => el.checkVisibility({ checkOpacity: true }))
+			).toBe(false);
+			// Scrolling must not uncover the old score below the placeholder.
+			await page.mouse.move(viewportBox.x + 40, viewportBox.y + 80);
+			await page.mouse.wheel(0, 350);
+			await painted(page);
+			expect(await page.locator('#page').evaluate((el) => el.scrollTop)).toBe(0);
+			await expect(page.getByRole('button', { name: 'Back to cursor' })).toHaveCount(0);
+			await page.evaluate(() => {
+				(window as any).__layoutTest.entries = [];
+			});
+			second.release();
+			await expect(skeleton).toHaveCount(0);
+			await expect(page.locator('#player-host canvas').first()).toBeVisible();
+			await page.waitForTimeout(500);
+			expect(
+				await page
+					.locator('#player-host')
+					.evaluate((el) => el.checkVisibility({ checkOpacity: true }))
+			).toBe(true);
+			expect(await page.locator('#page').evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(
+				true
+			);
+			await expectNoLayoutShifts(page, testInfo);
+		});
+
+		test('player: refreshing a retained score has no entrance or startup scroll motion', async ({
+			page
+		}, testInfo) => {
+			const hold = await mock(page);
+			Object.values(hold).forEach((resource) => resource.release());
+			await page.goto('/');
+			await page
+				.getByRole('button', { name: `Play ${tabs[1].title} by Test Artist`, exact: true })
+				.first()
+				.click();
+			await expect(page.locator('#player-host canvas').first()).toBeVisible();
+			await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
+			const recommendations = gate();
+			for (const pattern of ['**/api/recommendations?*', '**/api/random?*']) {
+				await page.route(pattern, async (route) => {
+					await recommendations.promise;
+					// Reload cancels the first document's pending request.
+					await route
+						.fulfill({ json: { results: tabs.slice(0, 2), total: 2, page: 1, totalPages: 1 } })
+						.catch(() => {});
+				});
+			}
+			await page.addInitScript(() => {
+				const samples: { header: number; scroll: number | null; scoreVisible: boolean }[] = [];
+				(window as any).__refreshFrames = samples;
+				const start = performance.now();
+				function sample() {
+					const header = document.querySelector('header');
+					const viewport = document.querySelector('#page');
+					if (header)
+						samples.push({
+							header: header.getBoundingClientRect().top,
+							scroll: viewport?.scrollTop ?? null,
+							scoreVisible:
+								!!document.querySelector('#player-host canvas') &&
+								!document.querySelector('[data-testid="score-skeleton"]')
+						});
+					if (performance.now() - start < 5000) requestAnimationFrame(sample);
+				}
+				requestAnimationFrame(sample);
+			});
+			// Slow JS enough to expose first-frame responsive-state races.
+			const session = await page.context().newCDPSession(page);
+			await session.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+			await page.reload({ waitUntil: 'domcontentloaded' });
+			await expect(page.locator('#player-host canvas').first()).toBeVisible();
+			await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
+			recommendations.release();
+			if (viewport.isMobile && (viewport.width < 768 || viewport.height < 500)) {
+				await expect(
+					page.getByRole('button', { name: "Show what's up next", exact: true })
+				).toBeVisible();
+			}
+			await page.waitForTimeout(1000);
+			const frames = await page.evaluate(() => (window as any).__refreshFrames);
+			await testInfo.attach('refresh-frames.json', {
+				body: JSON.stringify(frames),
+				contentType: 'application/json'
+			});
+			expect(frames.length).toBeGreaterThan(2);
+			expect([...new Set(frames.map((frame: any) => frame.header))]).toEqual([0]);
+			expect(frames.some((frame: any) => frame.scoreVisible)).toBe(true);
+			expect([
+				...new Set(
+					frames.filter((frame: any) => frame.scoreVisible).map((frame: any) => frame.scroll)
+				)
+			]).toEqual([0]);
+			await expectNoLayoutShifts(page, testInfo);
+		});
+	});
+}
+
+for (const width of [768, 800, 975, 1023, 1024, 1100, 1280, 1536]) {
+	test(`header ${width}px: search and navigation never overlap`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 800 });
+		await installLayoutObserver(page);
+		const hold = await mock(page);
+		await page.goto('/play?tab=test-tab', { waitUntil: 'domcontentloaded' });
+		async function assertSeparated() {
+			const header = page.locator('header');
+			const search = (await header.getByRole('combobox').boundingBox())!;
+			const logo = (await header.getByRole('link', { name: 'Home', exact: true }).boundingBox())!;
+			expect(search.x).toBeGreaterThanOrEqual(logo.x + logo.width);
+			expect(search.width).toBeGreaterThan(150);
+			for (const label of ['Tuner', 'Metronome', 'Repertoire', 'Settings', 'Toggle theme']) {
+				const action = (await header.getByLabel(label, { exact: true }).boundingBox())!;
+				expect(action.x, `${label} must not cover the search field`).toBeGreaterThanOrEqual(
+					search.x + search.width
+				);
+				expect(action.x + action.width).toBeLessThanOrEqual(width);
+			}
+		}
+		await page.waitForTimeout(250);
+		await assertSeparated();
+		Object.values(hold).forEach((resource) => resource.release());
+		await expect(page.locator('#player-host canvas').first()).toBeVisible();
+		await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
+		await assertSeparated();
+		await expectNoLayoutShifts(page, testInfo);
 	});
 }
 

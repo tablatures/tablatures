@@ -86,7 +86,7 @@
 	// free-scroll below-fold the user is happy with.
 	const SHEET_MEDIA_QUERY =
 		'(max-width: 767px), (orientation: landscape) and (max-height: 500px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px)';
-	let useSheet = false;
+	let useSheet = browser && window.matchMedia(SHEET_MEDIA_QUERY).matches;
 	let sheetMql: MediaQueryList | null = null;
 	function syncUseSheet() {
 		if (sheetMql) useSheet = sheetMql.matches;

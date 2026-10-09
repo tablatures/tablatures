@@ -18,6 +18,14 @@ merges (including new versions), late artist profiles, artwork and font loading,
 score loading, scrolling offscreen feed cells into view, empty/offline/error states,
 and repertoire/settings/playlist startup. Six viewports include a 320px phone, phone portrait, phone landscape, tablet,
 desktop and a wide desktop. Player checks also reject horizontal toolbar overflow.
+Player journeys also go back to the catalog and open another score while its
+download is held. They reject a visible retained canvas, a scrolled-away skeleton
+and loading-stage motion. Refresh checks sample animation frames, since entrance
+transforms and programmatic scrolling are not reported as native layout shifts.
+Refresh runs with 4× CPU throttling and delays recommendations until after the
+score appears, exposing responsive startup and late “Up next” control races.
+Header checks cover eight widths from 768px to 1536px, including both sides of the
+1024px navigation-label breakpoint, and reject overlap before and after fonts load.
 
 The browser observer starts **before application scripts**. Failures attach the
 score, source regions, old/new rectangles and a Playwright trace. Another test
@@ -57,6 +65,14 @@ fix the underlying geometry instead of increasing a threshold or adding retries.
   rather than the earlier file-parsed event. The overlay is capped to the visible
   score height, including short landscape screens, and leaves the header and
   controls visible. Its small activity indicator respects reduced motion.
+- A pending score is identified by its bytes, not by the previous player's
+  loaded flag. The retained renderer stays transparent and clipped to the score
+  viewport while loading, with its scroll reset and input disabled. A fresh
+  paused score starts at its top; playback and explicit seeks enable following.
+- The player route has no translated entrance animation. Header columns reserve
+  the logo and navigation's actual widths before allocating space to search.
+- The player chooses its responsive mode before its first client render. The
+  phone's “Up next” control keeps its slot while recommendations are pending.
 - Scrolling surfaces reserve their scrollbar gutter. Text fonts are preloaded with
   `font-display: optional`: a slow font can leave the first view in the system
   fallback, but cannot swap under readable content. Icon boxes reserve one glyph;
