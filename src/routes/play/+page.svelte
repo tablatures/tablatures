@@ -460,7 +460,7 @@
 			</a>
 		</div>
 	</div>
-{:else if hasTab || loadingSharedTab || opening}
+{:else if hasTab || shareRestorationPending || opening}
 	<!-- YouTube-style layout: the sheet + player bar fill the first screen; the
 	     playlist strip and recommendations live below the fold, revealed by
 	     scrolling past the sheet (the sheet scrolls internally first, then the
@@ -469,7 +469,7 @@
 		<section class="play-sheet-section">
 			<TabViewer
 				{data}
-				pending={loadingSharedTab || opening}
+				pending={shareRestorationPending || opening}
 				tabId={currentTabId}
 				{initialTrackIndex}
 				{playerSettings}
