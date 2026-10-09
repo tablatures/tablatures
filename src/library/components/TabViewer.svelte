@@ -39,7 +39,7 @@
 	import { shareUrl } from '../utils/shareUrl';
 	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
-	import LoadingScore from '$components/LoadingScore.svelte';
+	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import LyricsBar from '$components/LyricsBar.svelte';
@@ -185,6 +185,7 @@
 	let settingsLoaded = false;
 
 	export let data: { fileAsB64?: string };
+	export let pending = false;
 	export let tabId: string | undefined = undefined;
 	export let initialTrackIndex: number | undefined = undefined;
 	export let playerSettings: {
@@ -684,24 +685,19 @@
 		saveSettings();
 	}
 
-	// Loading state: true when showing loading overlay
-	$: isLoading = hasSheet && !scoreLoaded && !apiError && !loadingTimedOut;
-
-	// Disable body scroll while loading to keep the overlay centered
-	$: if (browser) {
-		if (isLoading) {
-			document.body.style.overflow = 'hidden';
-		} else {
-			document.body.style.overflow = '';
-		}
-	}
+	// The score has its own reserved viewport; parsing alone is too early to
+	// reveal it. Keep the same placeholder through download, audio and rendering.
+	$: isLoading =
+		(pending || (hasSheet && (!scoreLoaded || !$playerState.scoreRendered))) &&
+		!apiError &&
+		!loadingTimedOut;
 
 	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
 	// This prevents the user from being permanently stuck on the loading screen
-	$: if (browser && hasSheet && !scoreLoaded && !apiError) {
+	$: if (browser && hasSheet && !pending && (!scoreLoaded || !$playerState.scoreRendered) && !apiError) {
 		clearTimeout(loadingTimeoutId);
 		loadingTimeoutId = setTimeout(() => {
-			if (!scoreLoaded && !apiError) {
+			if ((!scoreLoaded || !get(playerState).scoreRendered) && !apiError) {
 				console.warn('Loading timed out after 30s — dismissing loading overlay');
 				loadingTimedOut = true;
 			}
@@ -751,7 +747,7 @@
 	}
 
 	// Reset timeout flag when a new score actually loads
-	$: if (scoreLoaded) {
+	$: if (scoreLoaded && $playerState.scoreRendered) {
 		loadingTimedOut = false;
 		clearTimeout(loadingTimeoutId);
 	}
@@ -3639,6 +3635,7 @@
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
+	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
 		? '52px'
@@ -3660,6 +3657,7 @@
 	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
 	<div
 		class="relative"
+		aria-busy={!!isLoading}
 		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart|passive={handleUserScrollIntent}
 		use:pinchZoom={{
@@ -3703,17 +3701,16 @@
 				</div>
 			</div>
 		{:else if isLoading}
-			<div
-				class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm"
-			>
-				{#if !soundFontLoaded}
-					<LoadingScore progress={soundFontProgress} message="Preparing audio engine" size="lg" />
-				{:else if isRendering}
-					<LoadingScore message="Rendering tablature" size="lg" />
-				{:else}
-					<LoadingScore message="Loading tablature" size="lg" />
-				{/if}
-			</div>
+			<ScoreSkeleton
+				message={pending
+					? 'Loading tablature'
+					: !soundFontLoaded
+						? 'Preparing audio engine'
+						: !scoreLoaded
+							? 'Loading tablature'
+							: 'Rendering tablature'}
+				progress={!pending && !soundFontLoaded ? soundFontProgress : -1}
+			/>
 		{/if}
 
 		<div
@@ -3823,7 +3820,7 @@
 	     Suppressed (not unmounted, so its fetched lyrics survive) while the mobile
 	     bottom sheet covers the score: it floats above the sheet and would sit on
 	     top of the playlist. -->
-	<LyricsBar api={$playerApi} suppressed={sheetCoversScore || !scoreLoaded || barHeight === 0} />
+	<LyricsBar api={$playerApi} suppressed={sheetCoversScore || isLoading || !scoreLoaded || barHeight === 0} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style). The mobile bottom sheet
@@ -3842,7 +3839,7 @@
 		bind:this={barEl}
 		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
-			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
+			{(!pending && scoreLoaded) || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: calc(env(safe-area-inset-left) + {barSideGutter}px); padding-right: calc(env(safe-area-inset-right) + {barSideGutter}px)"
 		role="toolbar"

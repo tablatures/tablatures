@@ -365,6 +365,7 @@
 			updatePlayerState({
 				...metadata,
 				scoreLoaded: true,
+				scoreRendered: false,
 				tracks: score.tracks,
 				scoreKey: get(loadedTabB64),
 				isRendering: false
@@ -453,6 +454,12 @@
 			updatePlayerState({ isRendering: false });
 			// Re-query cursor element on every render (still avoids per-frame DOM queries)
 			beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
+		});
+
+		api.postRenderFinished?.on(() => {
+			// Parsing completes before the renderer has laid out the score. Keep
+			// its placeholder until the surface is ready, including on route return.
+			if (api.score) updatePlayerState({ scoreRendered: true });
 		});
 
 		api.error?.on((error) => {
@@ -584,6 +591,7 @@
 				} catch {}
 				updatePlayerState({
 					scoreLoaded: false,
+					scoreRendered: false,
 					isRendering: true,
 					playing: false,
 					progress: 0,

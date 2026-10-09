@@ -25,7 +25,6 @@
 	} from '../../library/utils/playerStore';
 	import { openTabById, openTabFromHash } from '../../library/utils/openTab';
 	import { persistTabBytes } from '../../library/data/tabBytes';
-	import LoadingScore from '../../library/components/LoadingScore.svelte';
 	import Seo from '../../library/components/Seo.svelte';
 	import { scoreToEngineMs } from '../../library/utils/playerTiming';
 	import { pageTitle } from '../../library/utils/seo';
@@ -435,13 +434,7 @@
 	on:input={handleSearchInputFromPlay}
 />
 
-{#if opening}
-	<div
-		class="flex items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
-	>
-		<LoadingScore message="Loading tablature" size="lg" />
-	</div>
-{:else if sharedTabError}
+{#if sharedTabError}
 	<div
 		class="flex flex-col items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
 	>
@@ -467,7 +460,7 @@
 			</a>
 		</div>
 	</div>
-{:else if hasTab}
+{:else if hasTab || loadingSharedTab || opening}
 	<!-- YouTube-style layout: the sheet + player bar fill the first screen; the
 	     playlist strip and recommendations live below the fold, revealed by
 	     scrolling past the sheet (the sheet scrolls internally first, then the
@@ -476,6 +469,7 @@
 		<section class="play-sheet-section">
 			<TabViewer
 				{data}
+				pending={loadingSharedTab || opening}
 				tabId={currentTabId}
 				{initialTrackIndex}
 				{playerSettings}

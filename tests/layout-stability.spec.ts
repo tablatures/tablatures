@@ -211,6 +211,13 @@ for (const viewport of [
 				page
 			}, testInfo) => {
 				const hold = await mock(page);
+				const audio = gate();
+				if (journey.name === 'player') {
+					await page.route('**/soundfont/*.sf3', async (route) => {
+						await audio.promise;
+						await route.continue();
+					});
+				}
 				await page.addInitScript(() => {
 					localStorage.setItem(
 						'favorites',
@@ -221,11 +228,35 @@ for (const viewport of [
 				});
 				await page.goto(journey.url, { waitUntil: 'domcontentloaded' });
 				await painted(page);
-				if (journey.name === 'player') await page.waitForTimeout(3000); // Exercise loading copy/dots through a full animation cycle.
+				const skeleton = page.getByTestId('score-skeleton');
+				const toolbar = page.getByRole('toolbar', { name: 'Playback controls' });
+				let controlsBefore;
+				let statusBefore;
+				if (journey.name === 'player') {
+					await expect(skeleton).toBeVisible();
+					await expect(skeleton).toContainText('Loading tablature');
+					await expect(toolbar).toBeVisible();
+					await page.waitForTimeout(300); // Finish the route's entrance transform.
+					controlsBefore = await toolbar.boundingBox();
+					statusBefore = await skeleton.getByRole('status').boundingBox();
+					const scoreBox = (await skeleton.boundingBox())!;
+					expect(scoreBox.y).toBeGreaterThanOrEqual(56);
+					// The toolbar's 1px top border overlays the score edge.
+					expect(scoreBox.y + scoreBox.height).toBeLessThanOrEqual(controlsBefore!.y + 1);
+					await page.waitForTimeout(3000);
+				}
 				hold.data.release();
 				if (journey.name === 'player') {
+					await expect(skeleton).toContainText('Preparing audio engine');
+					expect(await skeleton.getByRole('status').boundingBox()).toEqual(statusBefore);
+					audio.release();
+					// The file is parsed while document fonts are still gated. The
+					// skeleton must survive this gap until the first render finishes.
+					await expect(skeleton).toContainText('Rendering tablature');
+					expect(await skeleton.getByRole('status').boundingBox()).toEqual(statusBefore);
 					hold.fonts.release(); // alphaTab waits on document.fonts.ready before rendering.
 					await expect(page.locator('#player-host canvas').first()).toBeAttached();
+					await expect(skeleton).toHaveCount(0);
 				} else if (journey.name === 'artist')
 					await expect(page.getByRole('heading', { name: 'Popular tabs' })).toBeVisible();
 				else if (journey.name === 'repertoire')
@@ -240,7 +271,7 @@ for (const viewport of [
 				await page.evaluate(() => document.fonts.ready);
 				await page.waitForTimeout(1000);
 				if (journey.name === 'player') {
-					const toolbar = page.getByRole('toolbar', { name: 'Playback controls' });
+					expect(await toolbar.boundingBox()).toEqual(controlsBefore);
 					expect(await toolbar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 				}
 				await expectNoLayoutShifts(page, testInfo);

@@ -51,6 +51,12 @@ fix the underlying geometry instead of increasing a threshold or adding retries.
 - Loading messages, percentage rows and animated dots reserve their final space.
 - Player controls, metadata artwork, tuning and enrichment rows have space before
   score/network data arrives. Lyrics wait for the first toolbar measurement.
+- The score uses a static staff/tab skeleton inside its viewport, with a fixed
+  status box through download, audio preparation and rendering. The persistent
+  renderer stays mounted; its `postRenderFinished` event ends the placeholder,
+  rather than the earlier file-parsed event. The overlay is capped to the visible
+  score height, including short landscape screens, and leaves the header and
+  controls visible. Its small activity indicator respects reduced motion.
 - Scrolling surfaces reserve their scrollbar gutter. Text fonts are preloaded with
   `font-display: optional`: a slow font can leave the first view in the system
   fallback, but cannot swap under readable content. Icon boxes reserve one glyph;

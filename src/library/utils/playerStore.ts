@@ -7,6 +7,8 @@ export interface PlayerState {
 	title: string;
 	artist: string;
 	scoreLoaded: boolean;
+	/** The first layout of the current score has reached the rendering surface. */
+	scoreRendered: boolean;
 	soundFontLoaded: boolean;
 	soundFontProgress: number;
 	currentBar: number;
@@ -28,6 +30,7 @@ const DEFAULT_STATE: PlayerState = {
 	title: '',
 	artist: '',
 	scoreLoaded: false,
+	scoreRendered: false,
 	soundFontLoaded: false,
 	soundFontProgress: 0,
 	currentBar: 0,

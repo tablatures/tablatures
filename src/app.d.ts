@@ -111,6 +111,7 @@ declare global {
 			soundFontLoaded: EventEmitter;
 			renderStarted?: EventEmitter;
 			renderFinished?: EventEmitter;
+			postRenderFinished?: EventEmitter;
 			error?: EventEmitter<unknown>;
 			settings: {
 				display: { resources: DisplayResources };
