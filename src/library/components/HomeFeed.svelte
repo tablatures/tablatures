@@ -17,9 +17,9 @@
 	import { tabStore } from '../utils/store';
 	import { playlistStore } from '../utils/playlists';
 	import { SUPPORTED_TYPES, validateFile } from '../utils/upload';
-	import { openTabFile } from '../utils/openTab';
+	import { downloadError, openTabFile } from '../utils/openTab';
 	import { fetchArtworkBatch } from '../utils/artwork';
-	import { cachedFetch, TTL_HOME_FEED, isFromCache, isOfflineErrorLike } from '../data/cachedFetch';
+	import { cachedFetch, TTL_HOME_FEED, isOfflineResponse, isOfflineErrorLike } from '../data/cachedFetch';
 	import { tunerOpen } from '../utils/tuner';
 	import { metronomeOpen } from '../utils/metronome';
 	import { debugEmptyContinue } from '../utils/debug';
@@ -46,6 +46,7 @@
 	let exhausted = false;
 	/** True when the last fetch fell back to cache or failed with no network. */
 	let offline = false;
+	let requestError = '';
 	/** Consecutive empty fetches — if too many, stop trying */
 	let emptyFetchesInARow = 0;
 
@@ -181,6 +182,7 @@
 		lastFetchAt = 0;
 		nextPoolIndex = 0;
 		offline = false;
+		requestError = '';
 		// Pull-to-refresh is an explicit refresh: force the network (bypass cache).
 		await primeFirstPaint(true);
 	}
@@ -274,9 +276,15 @@
 			if (isOfflineErrorLike(err)) offline = true;
 			return 0;
 		}
-		if (!res.ok) return 0;
-		// Fresh network response clears the flag; a stale cache hit keeps it set.
-		offline = isFromCache(res);
+		if (!res.ok) {
+			offline = false;
+			requestError = downloadError(res.status);
+			exhausted = true;
+			return 0;
+		}
+		// Only an unreachable network should display the offline notice.
+		offline = isOfflineResponse(res);
+		if (res.headers.get('x-original-status') === '429') exhausted = true;
 		const data = await res.json();
 
 		let incoming: any[];
@@ -1145,6 +1153,8 @@
 				onRetry={refreshFeed}
 				size="compact"
 			/>
+		{:else if feedTabs.length === 0 && !loadingFeed && requestError}
+			<EmptyState icon="error_outline" title={requestError} onRetry={refreshFeed} size="compact" />
 		{:else if feedTabs.length === 0 && !loadingFeed && exhausted}
 			<!-- Truly empty + exhausted: show nothing-to-show state -->
 			<div

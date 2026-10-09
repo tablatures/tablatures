@@ -15,7 +15,7 @@
 	import EmptyState from '$components/EmptyState.svelte';
 	import OfflineNotice from '$components/OfflineNotice.svelte';
 	import Seo from '$components/Seo.svelte';
-	import { openTabById } from '$utils/openTab';
+	import { downloadError, openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
 	import { playlistStore } from '$utils/playlists';
@@ -28,7 +28,7 @@
 	import { inViewport } from '$utils/inViewport';
 	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
 	import { cacheArtistImage, getCachedArtistObjectUrl } from '$utils/artworkCache';
-	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isFromCache, isOfflineErrorLike } from '../../../library/data/cachedFetch';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isOfflineResponse, isOfflineErrorLike } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -73,6 +73,7 @@
 	let loading = true;
 	let notFound = false;
 	let offline = false;
+	let requestError = '';
 	let info: ArtistInfo | null = null;
 	let topTabs: TabItem[] = [];
 	let similarArtists: Array<{ name: string; image: string | null; genre: string | null; tabCount: number }> = [];
@@ -180,6 +181,7 @@
 		loading = true;
 		notFound = false;
 		offline = false;
+		requestError = '';
 		info = null;
 		topTabs = [];
 		similarArtists = [];
@@ -196,12 +198,12 @@
 				forceRefresh: force
 			});
 			if (!resp.ok) {
-				notFound = true;
+				if (resp.status === 404) notFound = true;
+				else requestError = downloadError(resp.status);
 				return;
 			}
-			// A cached fallback means we couldn't reach the network — still show
-			// the artist but flag offline so the notice appears below.
-			offline = isFromCache(resp);
+			// A cached HTTP error response does not imply an offline connection.
+			offline = isOfflineResponse(resp);
 			const data = await resp.json();
 			info = data.artist;
 			topTabs = data.topTabs || [];
@@ -222,7 +224,7 @@
 			// Offline with no cached copy: show the offline state (with retry),
 			// not the "artist not found" state.
 			if (isOfflineErrorLike(err)) offline = true;
-			else notFound = true;
+			else requestError = 'Unable to load this artist. Please try again.';
 		} finally {
 			loading = false;
 		}
@@ -551,6 +553,8 @@
 		description={`Reconnect to load ${artistName}.`}
 		onRetry={handlePullRefresh}
 	/>
+{:else if requestError && !info}
+	<EmptyState icon="error_outline" title={requestError} onRetry={handlePullRefresh} />
 {:else if notFound}
 	<div class="flex flex-col items-center justify-center py-24">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">person_off</i>
