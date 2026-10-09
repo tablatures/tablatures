@@ -744,14 +744,13 @@
 	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
 		soundFontLoaded = true;
 	}
-	// Sync title/artist + tracks from global playerState. This covers the case where
-	// scoreLoaded fires in the layout before TabViewer's own listener is attached
-	// (e.g. shared-tab URL flow) — otherwise title stays "<no sheet loaded>" forever.
+	// The persistent API can parse a replacement before this view receives its
+	// new props. Adopt that score's metadata and tracks even in a retained view.
 	$: if (
 		browser &&
 		$playerState.scoreKey === data.fileAsB64 &&
 		$playerState.title &&
-		title === '<no sheet loaded>'
+		title !== [$playerState.title, $playerState.artist].filter(Boolean).join(' - ')
 	) {
 		title = [$playerState.title, $playerState.artist].filter(Boolean).join(' - ') || title;
 	}
@@ -759,7 +758,7 @@
 		browser &&
 		$playerState.scoreKey === data.fileAsB64 &&
 		$playerState.tracks?.length > 0 &&
-		tracks.length === 0
+		tracks !== $playerState.tracks
 	) {
 		tracks = $playerState.tracks;
 	}
@@ -767,7 +766,7 @@
 		browser &&
 		$playerState.scoreKey === data.fileAsB64 &&
 		$playerState.totalBars > 0 &&
-		totalBars === 0
+		totalBars !== $playerState.totalBars
 	) {
 		totalBars = $playerState.totalBars;
 	}
@@ -2017,7 +2016,10 @@
 
 	$: if (api && tracks.length > 0 && scoreLoaded && scoreMatchesRequest && !pending) {
 		const track = tracks[activeTrackIndex] || tracks[0];
-		if (track) {
+		// renderTracks adopts the track's score, so a retained track must never
+		// overwrite a replacement parsed before this view receives its new props.
+		if (track && track.score === api.score) {
+			restoreScoreSession(api.score);
 			api.renderTracks([track]);
 		}
 	}
@@ -4651,16 +4653,18 @@
 								<div
 									class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400"
 								>
-									{#if currentArtistName}
-										<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
+									<span class="relative min-w-0 w-40 max-w-[55%] flex-shrink-0">
+										{#if currentArtistName}
 											<a
 												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
 												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
 												title="View artist page">{currentArtistName}</a
 											>
-										</span>
-										<span class="flex-shrink-0 opacity-60">&middot;</span>
-									{/if}
+										{/if}
+									</span>
+									<span class="flex-shrink-0 opacity-60" class:invisible={!currentArtistName}
+										>&middot;</span
+									>
 									<span class="truncate min-w-0 flex-1">
 										{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
 											? ` \u00B7 ${totalBars} bars`
@@ -4837,14 +4841,16 @@
 							? 'flex-1 basis-0 justify-end'
 							: 'flex-shrink-0'}"
 					>
-						{#if tabId}
-							<FavoriteButton
-								id={tabId}
-								title={$playerState.title || title}
-								artist={$playerState.artist || currentArtistName}
-								variant="plain"
-							/>
-						{/if}
+						<div class="w-[30px] sm:w-9 flex-shrink-0">
+							{#if tabId}
+								<FavoriteButton
+									id={tabId}
+									title={$playerState.title || title}
+									artist={$playerState.artist || currentArtistName}
+									variant="plain"
+								/>
+							{/if}
+						</div>
 						{#if tabId && allPlaylists.length > 0}
 							<button
 								aria-label="Add to playlist"
