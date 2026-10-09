@@ -54,17 +54,19 @@ function createHistoryStore() {
 	const store = writable<HistoryItem[]>(seedFromLegacy());
 	const { subscribe, set, update } = store;
 
-	// Hydrate from the database once it is ready (authoritative over the seed).
-	if (browser) {
-		dataReady
-			.then(async () => {
-				const rows = await tabsRepo.listHistory(MAX_ITEMS);
-				set(rows.map(rowToItem));
-			})
-			.catch(() => {});
-	}
+	// Callers that paint an ordered list must wait for the authoritative rows,
+	// not just dataReady: the repository read finishes after that bootstrap signal.
+	const ready = browser
+		? dataReady
+				.then(async () => {
+					const rows = await tabsRepo.listHistory(MAX_ITEMS);
+					set(rows.map(rowToItem));
+				})
+				.catch(() => {})
+		: Promise.resolve();
 
 	return {
+		ready,
 		subscribe,
 		addToHistory: (item: Omit<HistoryItem, 'viewedAt'>) => {
 			const viewedAt = Date.now();

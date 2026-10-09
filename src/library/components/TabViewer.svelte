@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { base } from '$app/paths';
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+	import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
+	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
+	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
-	import { tabStore, type TabVersion } from '../utils/store';
+	import { scoreMetadata, tabStore, type TabVersion } from '../utils/store';
 	import {
 		playerApi,
 		playerTarget,
@@ -18,8 +20,8 @@
 		audioSource,
 		videoSyncOffset,
 		isTransitioning,
-		setMasterVolumeDebounced,
 		beatCursorEl,
+		seekSessionVideo,
 		videoHandlers,
 		playShellEl,
 		playSheetInView,
@@ -37,14 +39,19 @@
 	import { shareUrl } from '../utils/shareUrl';
 	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
-	import LoadingScore from '$components/LoadingScore.svelte';
+	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
 	import LyricsBar from '$components/LyricsBar.svelte';
 	import TuningChip from '$components/TuningChip.svelte';
 	import PopoverMenu from '$components/PopoverMenu.svelte';
 	import FavoriteButton from '$components/FavoriteButton.svelte';
-	import { lyricsStore, toggleLyricsBar, findLyricsOnline, hasAnyLyrics } from '../utils/lyricsStore';
+	import {
+		lyricsStore,
+		toggleLyricsBar,
+		findLyricsOnline,
+		hasAnyLyrics
+	} from '../utils/lyricsStore';
 	import { TUNING_PRESETS, midiToNoteName } from '$utils/tunings';
 	import { scoreEdits } from '$utils/scoreEdits';
 	import { activeVideoId, videoPlayerRef } from '../utils/playerStore';
@@ -178,6 +185,7 @@
 	let settingsLoaded = false;
 
 	export let data: { fileAsB64?: string };
+	export let pending = false;
 	export let tabId: string | undefined = undefined;
 	export let initialTrackIndex: number | undefined = undefined;
 	export let playerSettings: {
@@ -200,6 +208,12 @@
 
 	// Use props instead of local variables
 	let { volume, speed, metronome, tabScale, delaying, scrollOffset } = playerSettings;
+
+	let settingsScoreKey = data?.fileAsB64;
+	$: if (data?.fileAsB64 && settingsScoreKey !== data.fileAsB64) {
+		settingsScoreKey = data.fileAsB64;
+		({ volume, speed, metronome, tabScale, delaying, scrollOffset } = playerSettings);
+	}
 
 	$: if (browser) {
 		dispatch('settingsChanged', {
@@ -266,9 +280,10 @@
 	// Mobile landscape phones should auto-collapse the transport row to the
 	// fullscreen-style compact layout so the bar doesn't eat half the screen.
 	// Desktops and tablets (height > 500px) keep the normal layout.
-	let isMobileLandscape = false;
+	let isMobileLandscape =
+		browser && window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
 	// Narrow phones get the denser transport row too, not just fullscreen/landscape
-	let isSmallScreen = false;
+	let isSmallScreen = browser && window.matchMedia('(max-width: 480px)').matches;
 	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
@@ -276,7 +291,7 @@
 	// Is the bar's bottom (metadata) row on screen? It carries the sheet's grab
 	// handle; when it isn't there (landscape phones) the handle floats in the
 	// bar's bottom padding instead.
-	$: metadataRowVisible = scoreLoaded && !isFullscreen && !isMobileLandscape;
+	$: metadataRowVisible = !isFullscreen && !isMobileLandscape;
 	// Landscape phones sit right against the display edges (and the notch), so the
 	// bar gets a little gutter on top of the safe-area insets.
 	$: barSideGutter = isMobileLandscape ? 10 : 0;
@@ -288,7 +303,8 @@
 	let showSettingsVideo = false;
 	// At lg+ the settings panel becomes a docked split-view console instead of a
 	// bottom sheet, and the score reflows into the remaining width.
-	let isLargeScreen = false;
+	let isLargeScreen =
+		browser && window.matchMedia('(min-width: 976px) and (orientation: landscape)').matches;
 	$: showConsole = showSettings && isLargeScreen;
 
 	// User-resizable width for the docked console (null = default clamp).
@@ -358,12 +374,14 @@
 	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
 	// box below the screen. The mobile bottom sheet insets its content by this so
 	// the last row clears the controls (see playerBarHeight).
-	function publishBarInset() {
+	async function publishBarInset(_scoreLoaded?: boolean) {
+		// Score loading moves the sticky bar even when its own height is unchanged.
+		await tick();
 		if (!browser || !barEl) return;
 		const top = barEl.getBoundingClientRect().top;
 		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
 	}
-	$: if (browser && barEl && barHeight) publishBarInset();
+	$: if (browser && barEl && barHeight) publishBarInset(scoreLoaded);
 	// True while the mobile below-fold sheet has travelled up over the player. The
 	// chrome that floats just above the bar then has to get out of its way: the
 	// karaoke lyrics strip hides, and the progress bar's touch area (which
@@ -373,6 +391,7 @@
 	// The bar advertises the sheet drag only where the sheet exists, only while it
 	// holds something worth pulling up, and never while it is already open.
 	$: showSheetHint = $playSheetEnabled && $playSheetHasContent && !$playSheetOpen && !isFullscreen;
+	$: reserveSheetHint = $playSheetEnabled && !isFullscreen;
 
 	let showTrackMixer = false;
 	let trackVolumes: number[] = [];
@@ -398,6 +417,24 @@
 	let loopEndBar: number | null = null;
 	let loopEnabled = true;
 	let loopSyncKey = '';
+	let loopRestored = false;
+	let pendingUrlLoop = browser ? readUrlState().loop : undefined;
+	let adoptedScore: any = null;
+
+	function restoreScoreSession(score: any) {
+		if (!score || score === adoptedScore) return;
+		adoptedScore = score;
+		const shared = get(playerState).loop;
+		const region = pendingUrlLoop && pendingUrlLoop.endBar < totalBars ? pendingUrlLoop : shared;
+		pendingUrlLoop = undefined;
+		loopStartBar = region?.startBar ?? null;
+		loopEndBar = region?.endBar ?? null;
+		loopEnabled = region?.enabled ?? true;
+		trackVolumes = score.tracks.map((t: any) => t.playbackInfo.volume / 16);
+		trackMutes = score.tracks.map((t: any) => !!t.playbackInfo.isMute);
+		trackSolos = score.tracks.map((t: any) => !!t.playbackInfo.isSolo);
+		loopRestored = true;
+	}
 
 	// Loop drag state
 	let isDraggingLoop = false;
@@ -406,7 +443,7 @@
 
 	// Clean song title from the player state (falls back to the joined string
 	// only if the store has not populated yet). Avoids splitting "title - artist".
-	$: songTitle = $playerState.title || title;
+	$: songTitle = ($playerState.scoreKey === data.fileAsB64 ? $playerState.title : '') || title;
 
 	// Artist metadata
 	let artistImage: string | null = null;
@@ -477,28 +514,62 @@
 		fetchMetadata(title);
 	}
 
-	// Auto-follow cursor: follows by default, stops if user scrolls away, resumes when scrolled back
+	// Follow by default; manual scrolling disengages until an explicit seek or Back to cursor.
 	let autoFollow = true;
-	let userScrolling = false;
-	let scrollCheckTimeout: NodeJS.Timeout;
-	let autoFollowDisengagedAt = 0;
+	let followAtStart = false;
+	let followScoreKey: string | null = null;
+	$: if (requestedScoreKey !== followScoreKey) {
+		followScoreKey = requestedScoreKey;
+		followAtStart = false;
+	}
+	$: if (playing) followAtStart = true;
+	let cursorFollowFrame = 0;
+	let cursorFollowTop: number | null = null;
+	let cursorFollowObserver: MutationObserver | undefined;
+	let unsubscribeCursorFollow: (() => void) | undefined;
+
+	function scheduleCursorFollow() {
+		// A freshly opened, paused score starts at its top. Following the first
+		// cursor during loading scrolls the placeholder (or animates a refresh).
+		if (
+			cursorFollowFrame ||
+			!autoFollow ||
+			isLoading ||
+			(!playing && progress === 0 && !followAtStart)
+		) return;
+		// Follow the placed DOM cursor rather than alphaTab's earlier playback
+		// position event. This also covers paused seeks and score reflow.
+		cursorFollowFrame = requestAnimationFrame(() => {
+			cursorFollowFrame = 0;
+			if (!didReturnPlayerHost && autoFollow && !isRendering) alignCursorInViewport();
+		});
+	}
 
 	function reEnableAutoFollow() {
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
-		// Scroll to current cursor position
+		cursorFollowTop = null;
+		followAtStart = true;
+		alignCursorInViewport();
+	}
+
+	function alignCursorInViewport() {
+		if (isLoading) return;
 		const el = get(beatCursorEl);
 		if (!el) return;
-		const containerRect = target?.getBoundingClientRect();
-		const elRect = el.getBoundingClientRect();
-		if (!target || !containerRect) return;
-		const scrollTop =
-			target.scrollTop +
-			(elRect.top - containerRect.top) -
-			(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-		const scrollElement = page ?? window;
-		if (!scrollElement) return;
-		scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
+		// The desktop console sits beside the score. Its height does not reduce
+		// the sheet viewport; use the actual scroller and sticky header instead.
+		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const viewportTop = Math.max(page?.getBoundingClientRect().top ?? 0, headerBottom);
+		const currentTop = page ? page.scrollTop : window.scrollY;
+		const delta = el.getBoundingClientRect().top - (viewportTop + 24);
+		const top = Math.max(0, Math.round(currentTop + delta));
+		// Cursor transforms change on every beat, including horizontal animation.
+		// Restarting smooth scroll to the same fractional position makes the staff
+		// jitter on mobile. Scroll once per new row or layout, with pixel tolerance.
+		if (cursorFollowTop !== null && Math.abs(top - cursorFollowTop) <= 1) return;
+		cursorFollowTop = top;
+		if (Math.abs(top - currentTop) <= 1) return;
+		(page ?? window).scrollTo({ top, behavior: 'smooth' });
 	}
 
 	// Speed selector computed values
@@ -519,7 +590,6 @@
 
 	// Video player state
 	let showVideoDropdown = false;
-	let volumeBeforeVideo = 1;
 	$: hasActiveVideo = $activeVideoId !== null;
 
 	// Video sync offset (seconds) - stored per video+tab combo, shared via store
@@ -567,7 +637,7 @@
 		if (!ytPlayer || !api || !duration) return;
 		try {
 			const videoTime = ytPlayer.getCurrentTime?.() || 0;
-			const tabTimeSec = (progress / 100) * (duration / 1000);
+			const tabTimeSec = engineToScoreMs((progress / 100) * duration, speed) / 1000;
 			const newOffset = videoTime - tabTimeSec;
 			setVideoOffset(Math.round(newOffset * 10) / 10);
 		} catch {}
@@ -578,127 +648,11 @@
 		const current = $audioSource;
 		const next = current === 'tab' ? 'video' : current === 'video' ? 'both' : 'tab';
 		audioSource.set(next);
-		applyAudioSource(next);
 	}
 
-	function applyAudioSource(source: 'tab' | 'video' | 'both') {
-		const ytPlayer = $videoPlayerRef;
-		if (source === 'video') {
-			// Mute tab, unmute video
-			if (api) api.masterVolume = 0;
-			if (ytPlayer)
-				try {
-					ytPlayer.unMute();
-					ytPlayer.setVolume(100);
-				} catch {}
-		} else if (source === 'both') {
-			// Keep tab volume at user's setting AND unmute video
-			if (api) api.masterVolume = volume;
-			if (ytPlayer)
-				try {
-					ytPlayer.unMute();
-					ytPlayer.setVolume(100);
-				} catch {}
-		} else {
-			// Restore tab volume, mute video
-			if (api) api.masterVolume = volume;
-			if (ytPlayer)
-				try {
-					ytPlayer.mute();
-				} catch {}
-		}
-	}
+	// Offset storage belongs to the score UI; playback synchronization lives in layout.
+	$: if (hasActiveVideo && $activeVideoId) loadVideoOffset();
 
-	// Apply audio source when video is selected/changes
-	$: if (hasActiveVideo && $videoPlayerRef) {
-		applyAudioSource($audioSource);
-	}
-
-	// Video progress sync interval
-	let videoSyncInterval: NodeJS.Timeout;
-
-	function startVideoSync() {
-		stopVideoSync();
-		videoSyncInterval = setInterval(() => {
-			const ytPlayer = $videoPlayerRef;
-			if (!ytPlayer || !api || !duration) return;
-			// Don't read video time while YouTube is still settling a seek we
-			// just issued — the old position would fight the user's drag.
-			if (Date.now() < userSeekLockUntil) return;
-			// Only pull from video when it is actively playing. When paused
-			// the video's time is frozen and would drag the tab back to that
-			// stale position every 200ms, blocking user progress-bar seeks.
-			try {
-				const ytState = ytPlayer.getPlayerState?.();
-				if (ytState !== 1) return;
-			} catch {
-				return;
-			}
-
-			// The video is playing; make sure the tab is playing too (muted, since
-			// the video is the audio source) so its cursor animates smoothly rather
-			// than lurching on each 200ms sync tick. api.play() is idempotent, so
-			// this is a no-op once playback is running.
-			if (!playing) {
-				try {
-					api.play();
-				} catch {}
-				return;
-			}
-
-			try {
-				const videoTime = ytPlayer.getCurrentTime?.() || 0;
-				const videoDuration = ytPlayer.getDuration?.() || 0;
-				if (videoDuration <= 0) return;
-
-				// Sync alphaTab position to video (with offset)
-				const adjustedVideoTime = videoTime - $videoSyncOffset;
-				const tabDurationSec = duration / 1000;
-				if (tabDurationSec <= 0) return;
-
-				const targetProgress = (adjustedVideoTime / tabDurationSec) * 100;
-
-				// When a loop is active, clamp video sync to loop boundaries
-				if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
-					const lr = loopRangeMs();
-					if (lr) {
-						const loopStartPct = (lr.startMs / duration) * 100;
-						const loopEndPct = (lr.endMs / duration) * 100;
-						// If video time falls outside the loop range, seek video back to loop start
-						if (targetProgress < loopStartPct - 1 || targetProgress > loopEndPct + 1) {
-							const loopStartSec = lr.startMs / 1000 + $videoSyncOffset;
-							try {
-								ytPlayer.seekTo(loopStartSec, true);
-							} catch {}
-						}
-					}
-					return;
-				}
-
-				const clampedProgress = Math.max(0, Math.min(100, targetProgress));
-
-				// Sync if difference > 0.5% for tighter coupling
-				if (Math.abs(clampedProgress - progress) > 0.5) {
-					progress = clampedProgress;
-					api.player.timePosition = (progress / 100) * duration;
-					skipVideoDriveOnce = true;
-					seekDebounce();
-				}
-			} catch {}
-		}, 200); // 200ms polling for smoother sync
-	}
-
-	function stopVideoSync() {
-		clearInterval(videoSyncInterval);
-	}
-
-	// Start/stop sync when video state changes
-	$: if (hasActiveVideo && $activeVideoId) {
-		loadVideoOffset();
-		startVideoSync();
-	} else {
-		stopVideoSync();
-	}
 	let selectionPopoverX = 0;
 	let selectionPopoverY = 0;
 	let selectionStartBeat: any = null;
@@ -729,12 +683,6 @@
 			const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
 			if (!stored) return;
 			const parsed = JSON.parse(stored);
-			if (typeof parsed.volume === 'number') volume = parsed.volume;
-			if (typeof parsed.speed === 'number') speed = parsed.speed;
-			if (typeof parsed.metronome === 'number') metronome = parsed.metronome;
-			if (typeof parsed.delaying === 'number') delaying = parsed.delaying;
-			if (typeof parsed.tabScale === 'number') tabScale = parsed.tabScale;
-			if (typeof parsed.activeTrackIndex === 'number') activeTrackIndex = parsed.activeTrackIndex;
 			if (typeof parsed.consoleWidth === 'number') consoleWidth = parsed.consoleWidth;
 		} catch {
 			// ignore parse errors
@@ -756,24 +704,25 @@
 		saveSettings();
 	}
 
-	// Loading state: true when showing loading overlay
-	$: isLoading = hasSheet && !scoreLoaded && !apiError && !loadingTimedOut;
-
-	// Disable body scroll while loading to keep the overlay centered
-	$: if (browser) {
-		if (isLoading) {
-			document.body.style.overflow = 'hidden';
-		} else {
-			document.body.style.overflow = '';
-		}
+	// The score has its own reserved viewport; parsing alone is too early to
+	// reveal it. Keep the same placeholder through download, audio and rendering.
+	$: requestedScoreKey = data.fileAsB64 || (browser && window.history?.state?.base64) || null;
+	$: scoreMatchesRequest = !!requestedScoreKey && $playerState.scoreKey === requestedScoreKey;
+	$: isLoading =
+		(pending || (hasSheet && (!scoreLoaded || !scoreMatchesRequest || !$playerState.scoreRendered))) &&
+		!apiError &&
+		!loadingTimedOut;
+	$: if (browser && isLoading && page) resetLoadingScroll(page);
+	function resetLoadingScroll(viewport: HTMLElement) {
+		viewport.scrollTo({ top: 0, behavior: 'instant' });
 	}
 
 	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
 	// This prevents the user from being permanently stuck on the loading screen
-	$: if (browser && hasSheet && !scoreLoaded && !apiError) {
+	$: if (browser && hasSheet && !pending && (!scoreLoaded || !$playerState.scoreRendered) && !apiError) {
 		clearTimeout(loadingTimeoutId);
 		loadingTimeoutId = setTimeout(() => {
-			if (!scoreLoaded && !apiError) {
+			if ((!scoreLoaded || !get(playerState).scoreRendered) && !apiError) {
 				console.warn('Loading timed out after 30s — dismissing loading overlay');
 				loadingTimedOut = true;
 			}
@@ -782,28 +731,48 @@
 
 	// Keep loading state in sync with global playerState store
 	// This prevents getting stuck if scoreLoaded fires in the layout before our listener is attached
-	$: if (browser && $playerState.scoreLoaded && !scoreLoaded) {
+	$: if (
+		browser &&
+		$playerState.scoreLoaded &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		!scoreLoaded
+	) {
 		scoreLoaded = true;
 		isRendering = false;
 	}
+	$: if (browser && !$playerState.scoreLoaded && scoreLoaded) scoreLoaded = false;
 	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
 		soundFontLoaded = true;
 	}
-	// Sync title/artist + tracks from global playerState. This covers the case where
-	// scoreLoaded fires in the layout before TabViewer's own listener is attached
-	// (e.g. shared-tab URL flow) — otherwise title stays "<no sheet loaded>" forever.
-	$: if (browser && $playerState.title && title === '<no sheet loaded>') {
+	// The persistent API can parse a replacement before this view receives its
+	// new props. Adopt that score's metadata and tracks even in a retained view.
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.title &&
+		title !== [$playerState.title, $playerState.artist].filter(Boolean).join(' - ')
+	) {
 		title = [$playerState.title, $playerState.artist].filter(Boolean).join(' - ') || title;
 	}
-	$: if (browser && $playerState.tracks?.length > 0 && tracks.length === 0) {
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.tracks?.length > 0 &&
+		tracks !== $playerState.tracks
+	) {
 		tracks = $playerState.tracks;
 	}
-	$: if (browser && $playerState.totalBars > 0 && totalBars === 0) {
+	$: if (
+		browser &&
+		$playerState.scoreKey === data.fileAsB64 &&
+		$playerState.totalBars > 0 &&
+		totalBars !== $playerState.totalBars
+	) {
 		totalBars = $playerState.totalBars;
 	}
 
 	// Reset timeout flag when a new score actually loads
-	$: if (scoreLoaded) {
+	$: if (scoreLoaded && $playerState.scoreRendered) {
 		loadingTimedOut = false;
 		clearTimeout(loadingTimeoutId);
 	}
@@ -820,12 +789,12 @@
 		const currentBarIdx = msToBar(currentTime);
 		if (point === 'A') {
 			loopStartBar = currentBarIdx;
-			if (loopEndBar !== null && loopEndBar <= currentBarIdx) {
+			if (loopEndBar !== null && loopEndBar < currentBarIdx) {
 				loopEndBar = null;
 			}
 		} else {
 			loopEndBar = currentBarIdx;
-			if (loopStartBar !== null && loopStartBar >= currentBarIdx) {
+			if (loopStartBar !== null && loopStartBar > currentBarIdx) {
 				loopStartBar = null;
 			}
 		}
@@ -886,147 +855,52 @@
 
 	/** Convert bar index range to expanded (playback) tick range.
 	 *  Finds the smallest contiguous range across all occurrences of startBar/endBar
-	 *  in the expanded sequence. Prefers later occurrences when spans tie
-	 *  (e.g. alternate endings). */
-	function barToExpandedRange(
-		startBar: number,
-		endBar: number
-	): { startTick: number; endTick: number } | null {
-		if (!api) return null;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return null;
-			// Find all occurrences of endBar in the expanded sequence
-			const endOccurrences: number[] = [];
-			for (let i = 0; i < entries.length; i++) {
-				if (entries[i].masterBar.index === endBar) endOccurrences.push(i);
-			}
-			if (endOccurrences.length === 0) return null;
-			// For each endBar occurrence (first-to-last), find the closest preceding startBar.
-			// Pick the pair with the smallest range. By iterating first-to-last, earlier
-			// occurrences win ties — avoids "teleporting" playback to a later repeat pass
-			// when the user loops bars within a simple repeat section.
-			let bestStart = -1;
-			let bestEnd = -1;
-			let bestSpan = Infinity;
-			for (let e = 0; e < endOccurrences.length; e++) {
-				const endIdx = endOccurrences[e];
-				for (let i = endIdx; i >= 0; i--) {
-					if (entries[i].masterBar.index === startBar) {
-						const span = endIdx - i;
-						if (span < bestSpan) {
-							bestStart = i;
-							bestEnd = endIdx;
-							bestSpan = span;
-						}
-						break;
-					}
-				}
-			}
-			if (bestStart === -1) return null;
-			const expandedStart = entries[bestStart].start;
-			const expandedEnd = entries[bestEnd].end;
-			if (expandedEnd > expandedStart) {
-				return { startTick: expandedStart, endTick: expandedEnd };
-			}
-		} catch (e) {
-			console.warn('barToExpandedRange error:', e);
-		}
-		return null;
+	 *  in the expanded sequence. Earliest occurrences win equal spans. */
+	function barToExpandedRange(startBar: number, endBar: number) {
+		return timingForApi(api)?.range(startBar, endBar) ?? null;
 	}
 
-	/** Get ms start/end for the current loop range, consistent with playback. */
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
-		if (loopStartBar === null || loopEndBar === null || !api || !duration || duration <= 0)
-			return null;
-		const range = barToExpandedRange(loopStartBar, loopEndBar);
-		if (!range) return null;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries?.length) return null;
-			const total = entries[entries.length - 1].end;
-			if (total <= 0) return null;
-			return {
-				startMs: (range.startTick / total) * duration,
-				endMs: (range.endTick / total) * duration
-			};
-		} catch {
-			return null;
-		}
+		if (loopStartBar === null || loopEndBar === null) return null;
+		const timing = timingForApi(api);
+		const range = timing?.range(loopStartBar, loopEndBar);
+		return range && timing
+			? {
+					startMs: timing.tickToMs(range.startTick, api.playbackSpeed),
+					endMs: timing.tickToMs(range.endTick, api.playbackSpeed)
+				}
+			: null;
 	}
 
-	/** Get ms position for a bar's start (last occurrence for repeated bars) */
+	/** Sheet actions use the same repeat visit as the regional loop. */
 	function barToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return -1;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return -1;
-			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return -1;
-			let found = false;
-			let expandedTick = 0;
-			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) {
-					expandedTick = entry.start;
-					found = true;
-				}
-			}
-			if (!found) {
-				console.warn(`barToMs: bar index ${barIdx} not found in MidiTickLookup`);
-				return -1;
-			}
-			return (expandedTick / totalExpanded) * duration;
-		} catch (e) {
-			console.warn('barToMs error:', e);
-		}
-		return -1;
+		const timing = timingForApi(api);
+		const range =
+			loopStartBar !== null && loopEndBar !== null
+				? timing?.range(loopStartBar, loopEndBar)
+				: timing?.range(barIdx, barIdx);
+		const visit = timing?.visits.find(
+			(v) =>
+				v.masterBar.index === barIdx &&
+				(!range || (v.start >= range.startTick && v.end <= range.endTick))
+		);
+		return visit && timing ? timing.tickToMs(visit.start, api.playbackSpeed) : -1;
 	}
 
-	/** Get ms position for a bar's end (last occurrence for repeated bars) */
 	function barEndToMs(barIdx: number): number {
-		if (!api || !duration || duration <= 0) return -1;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return -1;
-			const totalExpanded = entries[entries.length - 1].end;
-			if (totalExpanded <= 0) return -1;
-			let found = false;
-			let expandedEnd = 0;
-			for (const entry of entries) {
-				if (entry.masterBar.index === barIdx) {
-					expandedEnd = entry.end;
-					found = true;
-				}
-			}
-			if (!found) {
-				console.warn(`barEndToMs: bar index ${barIdx} not found in MidiTickLookup`);
-				return -1;
-			}
-			return (expandedEnd / totalExpanded) * duration;
-		} catch (e) {
-			console.warn('barEndToMs error:', e);
-		}
-		return 0;
+		const timing = timingForApi(api);
+		const startMs = barToMs(barIdx);
+		const visit = timing?.visits.find(
+			(v) =>
+				v.masterBar.index === barIdx &&
+				Math.abs(timing.tickToMs(v.start, api.playbackSpeed) - startMs) < 0.01
+		);
+		return visit && timing ? timing.tickToMs(visit.end, api.playbackSpeed) : -1;
 	}
 
-	/** Convert ms position to bar index (snaps to bar boundary) */
 	function msToBar(ms: number): number {
-		if (!api || !duration || duration <= 0) return 0;
-		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries || entries.length === 0) return 0;
-			const totalExpanded = entries[entries.length - 1].end;
-			const expandedTick = (ms / duration) * totalExpanded;
-			for (const entry of entries) {
-				if (expandedTick >= entry.start && expandedTick < entry.end) {
-					return entry.masterBar.index;
-				}
-			}
-			return entries[entries.length - 1].masterBar.index;
-		} catch (e) {
-			console.warn('msToBar error:', e);
-		}
-		return 0;
+		const timing = timingForApi(api);
+		return timing?.barAt(timing.msToTick(ms, api.playbackSpeed)) ?? 0;
 	}
 
 	/** Span of masterBar indices played on the timeline between two ms
@@ -1044,8 +918,10 @@
 			if (!entries?.length) return null;
 			const total = entries[entries.length - 1].end;
 			if (total <= 0) return null;
-			const lo = (Math.min(msA, msB) / duration) * total;
-			const hi = (Math.max(msA, msB) / duration) * total;
+			const timing = timingForApi(api);
+			if (!timing) return null;
+			const lo = timing.msToTick(Math.min(msA, msB), api.playbackSpeed);
+			const hi = timing.msToTick(Math.max(msA, msB), api.playbackSpeed);
 			let minBar = Infinity;
 			let maxBar = -Infinity;
 			for (const e of entries) {
@@ -1070,15 +946,21 @@
 			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
 				const range = barToExpandedRange(loopStartBar, loopEndBar);
 				if (range && range.endTick > range.startTick) {
-					api.playbackRange = range;
+					if (
+						api.playbackRange?.startTick !== range.startTick ||
+						api.playbackRange?.endTick !== range.endTick
+					)
+						api.playbackRange = range;
 					api.isLooping = true;
 				} else {
 					api.playbackRange = null;
 					api.isLooping = false;
 				}
 			} else {
-				api.playbackRange = null;
-				api.isLooping = false;
+				if (api.playbackRange) api.playbackRange = null;
+				// A disabled region stops looping; absent bounds leave the whole-song
+				// toggle owned by the persistent engine.
+				if (loopStartBar !== null || loopEndBar !== null) api.isLooping = false;
 			}
 		} catch {}
 	}
@@ -1251,13 +1133,17 @@
 				const menuBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
 				const divColor = isDark ? '#444' : '#e5e5e5';
 				const iconColor = isDark ? '#888' : '#999';
-				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+
+				const controlStyle =
+					'display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;padding:0;line-height:1;';
+				const iconStyle =
+					'display:block;font-size:16px;line-height:1;width:16px;height:16px;flex-shrink:0;';
 
 				// Drag handle
 				const dragHandle = document.createElement('div');
-				dragHandle.style.cssText = `cursor:grab;color:${isDark ? '#555' : '#ccc'};padding:0 2px;`;
-				dragHandle.innerHTML =
-					'<i class="material-icons" style="font-size:14px;" aria-hidden="true">drag_indicator</i>';
+				dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
+				dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
 				dragHandle.title = 'Drag to move loop';
 				dragHandle.addEventListener('mousedown', (e) => {
 					e.preventDefault();
@@ -1273,8 +1159,8 @@
 
 				// Loop toggle
 				const loopBtn = document.createElement('button');
-				loopBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
-				loopBtn.innerHTML = `<i class="material-icons" style="font-size:16px;" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
+				loopBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
+				loopBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
 				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
 				loopBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1284,8 +1170,8 @@
 
 				// Play from A
 				const playBtn = document.createElement('button');
-				playBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				playBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">play_circle</i>';
+				playBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				playBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">play_circle</i>`;
 				playBtn.title = 'Play from start';
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1307,8 +1193,8 @@
 
 				// Delete
 				const delBtn = document.createElement('button');
-				delBtn.style.cssText = `padding:2px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
-				delBtn.innerHTML = '<i class="material-icons" style="font-size:16px;" aria-hidden="true">delete_outline</i>';
+				delBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
+				delBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">delete_outline</i>`;
 				delBtn.title = 'Remove loop [Esc]';
 				delBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
@@ -1321,11 +1207,14 @@
 
 			// Update scrollbar minimap indicator
 			if (merged.length > 0) {
-				const docHeight = document.documentElement.scrollHeight;
-				const viewportH = window.innerHeight;
+				const docHeight = page?.scrollHeight ?? document.documentElement.scrollHeight;
+				const viewportH = page?.clientHeight ?? window.innerHeight;
 				const host = document.getElementById('player-host');
 				if (host && docHeight > 0) {
-					const hostTop = host.getBoundingClientRect().top + window.scrollY;
+					const hostTop =
+						host.getBoundingClientRect().top -
+						(page?.getBoundingClientRect().top ?? 0) +
+						(page?.scrollTop ?? window.scrollY);
 					const selTop = hostTop + merged[0].y;
 					const selBottom = hostTop + merged[merged.length - 1].y + merged[merged.length - 1].h;
 					// Map page position to viewport-relative position (like a scrollbar)
@@ -1362,12 +1251,15 @@
 
 	// React to loop changes: sync playbackRange and update score selection
 	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}`;
-	$: if (api && scoreLoaded && duration > 0 && loopSyncKey) {
+	$: if (api && scoreLoaded && loopRestored && duration > 0 && loopSyncKey) {
 		syncPlaybackRange();
 		updateScoreSelection();
 	}
 	// Persist the loop region in the URL so it survives reloads / shared links.
-	$: if (browser && scoreLoaded && loopSyncKey) {
+	$: if (browser && scoreLoaded && loopRestored && loopSyncKey) {
+		updatePlayerState({
+			loop: { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
+		});
 		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled);
 	}
 
@@ -1442,6 +1334,56 @@
 		showSelectionPopover = true;
 	}
 
+	let cancelActiveDrag: (() => void) | null = null;
+	function startDocumentDrag(moveType: string, endType: string, onMove: any, onEnd: any) {
+		cancelActiveDrag?.();
+		const original = { start: loopStartBar, end: loopEndBar, enabled: loopEnabled };
+		const cleanup = () => {
+			document.removeEventListener(moveType, move);
+			document.removeEventListener(endType, end);
+			document.removeEventListener('touchcancel', cancel);
+			window.removeEventListener('blur', cancel);
+			document.removeEventListener('visibilitychange', visibility);
+			cancelActiveDrag = null;
+		};
+		const cancel = () => {
+			cleanup();
+			cancelProgressGesture();
+			loopStartBar = original.start;
+			loopEndBar = original.end;
+			loopEnabled = original.enabled;
+			updateScoreSelection();
+		};
+		const visibility = () => {
+			if (document.hidden) cancel();
+		};
+		const move = (event: any) => {
+			if (event.touches && event.touches.length !== 1) {
+				cancel();
+				return;
+			}
+			onMove(event);
+		};
+		const end = (event: any) => {
+			cleanup();
+			onEnd(event);
+		};
+		cancelActiveDrag = cancel;
+		document.addEventListener(moveType, move, { passive: true });
+		document.addEventListener(endType, end);
+		document.addEventListener('touchcancel', cancel);
+		window.addEventListener('blur', cancel);
+		document.addEventListener('visibilitychange', visibility);
+	}
+	function cancelProgressGesture() {
+		pbTouchActive = false;
+		clearTimeout(longPressTimer);
+		pbLoopCreating = false;
+		pbScrubbing = false;
+		isDraggingLoop = false;
+		bindDuration = true;
+	}
+
 	// Drag the entire loop region (move both start and end together)
 	function startLoopDrag(e: MouseEvent) {
 		if (loopStartBar === null || loopEndBar === null || !duration) return;
@@ -1479,8 +1421,7 @@
 			document.removeEventListener('mouseup', onUp);
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function clearSheetSelection() {
@@ -1527,7 +1468,7 @@
 				return;
 			}
 			// Inside the loop region - drag to move
-			if (mouseX > startX + EDGE_THRESHOLD_PX && mouseX < endX - EDGE_THRESHOLD_PX) {
+			if (loopEnabled && mouseX > startX + EDGE_THRESHOLD_PX && mouseX < endX - EDGE_THRESHOLD_PX) {
 				e.preventDefault();
 				startLoopMoveDrag(e);
 				return;
@@ -1545,8 +1486,7 @@
 			pbEndGesture(me.clientX);
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
@@ -1554,27 +1494,28 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
+		const origStartBar = loopStartBar;
 		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
 		const startMouseX = e.clientX;
-		// For score drag: record the time at the drag start point
-		const origDragTime = useScore ? mouseToTimeViaScore(e.clientX, e.clientY) : null;
+		// Sheet movement follows printed bars, independent of tempo and repeat visits.
+		const origDragBar = useScore ? mouseToBarViaScore(e.clientX, e.clientY, origStartBar) : null;
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
-			let timeDelta: number;
-			if (useScore && origDragTime !== null) {
-				const currentTime = mouseToTimeViaScore(me.clientX, me.clientY);
-				if (currentTime === null) return;
-				timeDelta = currentTime - origDragTime;
+			let newStartBar: number;
+			if (useScore) {
+				const currentBar = mouseToBarViaScore(me.clientX, me.clientY, origStartBar);
+				if (currentBar === null || origDragBar === null) return;
+				newStartBar = origStartBar + currentBar - origDragBar;
 			} else if (barRect && barRect.width) {
 				const dx = me.clientX - startMouseX;
-				timeDelta = (dx / barRect.width) * duration;
+				const timeDelta = (dx / barRect.width) * duration;
+				const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
+				newStartBar = msToBar(newMs);
 			} else {
 				return;
 			}
-			const newMs = Math.max(0, Math.min(duration, origStartMs + timeDelta));
-			let newStartBar = msToBar(newMs);
 			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
 			if (newStartBar < 0) newStartBar = 0;
 			loopStartBar = newStartBar;
@@ -1588,13 +1529,13 @@
 			isDraggingLoop = false;
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
-	/** Convert mouse event clientX/clientY to time using alphaTab's boundsLookup.
-	 *  This handles multi-line score layout correctly (uses both X and Y). */
-	function mouseToTimeViaScore(clientX: number, clientY: number): number | null {
+	/** Hit-test a printed bar without constraining it to the current playback range.
+	 * The floating move grip sits above the staff; project it onto its anchor row
+	 * when the pointer is outside the score, while retaining cross-row hit-testing. */
+	function mouseToBarViaScore(clientX: number, clientY: number, anchorBar?: number): number | null {
 		try {
 			const lookup = api?.renderer?.boundsLookup;
 			if (!lookup) return null;
@@ -1604,11 +1545,12 @@
 			// Convert client coords to player-host-relative coords
 			const x = clientX - hostRect.left;
 			const y = clientY - hostRect.top + (host.scrollTop || 0);
-			const beat = lookup.getBeatAtPos(x, y);
-			if (beat) {
-				const barIdx = beat.voice?.bar?.masterBar?.index ?? 0;
-				return barToMs(barIdx);
+			let beat = lookup.getBeatAtPos(x, y);
+			if (!beat && anchorBar !== undefined) {
+				const bounds = lookup.findMasterBarByIndex(anchorBar)?.realBounds;
+				if (bounds) beat = lookup.getBeatAtPos(x, bounds.y + bounds.h / 2);
 			}
+			return beat?.voice?.bar?.masterBar?.index ?? null;
 		} catch {}
 		return null;
 	}
@@ -1617,16 +1559,12 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
-			let time: number;
-			if (useScore) {
-				const t = mouseToTimeViaScore(e.clientX, e.clientY);
-				if (t === null) return;
-				time = t;
-			} else {
-				time = percentToTime(getProgressPercent(e.clientX));
-			}
+			const hitBar = useScore
+				? mouseToBarViaScore(e.clientX, e.clientY)
+				: msToBar(percentToTime(getProgressPercent(e.clientX)));
+			if (hitBar === null) return;
 			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const barIdx = Math.min(msToBar(time), maxBar);
+			const barIdx = Math.min(hitBar, maxBar);
 			if (edge === 'start') {
 				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
 			} else {
@@ -1646,8 +1584,7 @@
 			}
 		};
 
-		document.addEventListener('mousemove', onMove);
-		document.addEventListener('mouseup', onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
 	}
 
 	function handleProgressBarHover(event: MouseEvent) {
@@ -1695,7 +1632,7 @@
 		api.player.timePosition = (pct / 100) * duration;
 		seekDebounce();
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
+		followAtStart = true;
 	}
 
 	function pbBeginGesture(clientX: number) {
@@ -1748,11 +1685,7 @@
 		if (pbLoopCreating) {
 			pbLoopCreating = false;
 			isDraggingLoop = false;
-			// Discard a zero-length loop — a hold with no drag shouldn't leave a
-			// single-bar selection behind.
-			if (loopStartBar !== null && loopEndBar !== null && loopEndBar - loopStartBar < 1) {
-				clearLoopPoints();
-			}
+
 			return;
 		}
 		if (pbScrubbing) {
@@ -1780,8 +1713,15 @@
 	// that point the progress bar ignores the rest of the gesture so the finger
 	// can't scrub or seed a loop on its way up.
 	let pbSuppressed = false;
+	let pbTouchActive = false;
 
 	function handleProgressBarTouchStart(event: TouchEvent) {
+		pbTouchActive = event.touches.length === 1;
+		if (event.touches.length !== 1) {
+			cancelActiveDrag?.();
+			cancelProgressGesture();
+			return;
+		}
 		pbSuppressed = false;
 		if (!range || !duration || !event.touches[0]) return;
 		const rect = range.getBoundingClientRect();
@@ -1800,7 +1740,7 @@
 				startLoopEdgeDragTouch(event, 'end');
 				return;
 			}
-			if (x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
+			if (loopEnabled && x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
 				startLoopMoveDragTouch(event);
 				return;
 			}
@@ -1810,6 +1750,12 @@
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
+		if (event.touches.length !== 1) {
+			pbTouchActive = false;
+			cancelActiveDrag?.();
+			cancelProgressGesture();
+			return;
+		}
 		if (pbSuppressed) return;
 		const t = event.touches[0];
 		if (!range || !duration || !t) return;
@@ -1823,6 +1769,9 @@
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
+		if (!pbTouchActive) return;
+		pbTouchActive = false;
+		if (isDraggingLoop && !pbLoopCreating) return;
 		if (pbSuppressed) {
 			pbSuppressed = false;
 			clearTimeout(longPressTimer);
@@ -1856,8 +1805,7 @@
 			document.removeEventListener('touchend', onEnd);
 			isDraggingLoop = false;
 		};
-		document.addEventListener('touchmove', onMove, { passive: true });
-		document.addEventListener('touchend', onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
@@ -1888,8 +1836,7 @@
 			document.removeEventListener('touchend', onEnd);
 			isDraggingLoop = false;
 		};
-		document.addEventListener('touchmove', onMove, { passive: true });
-		document.addEventListener('touchend', onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
 	}
 
 	// Legacy mouse touch handler (kept for backward compat)
@@ -1943,7 +1890,9 @@
 		if (!barGesturePending || !barFromScrubZone) return false;
 		const dy = t.clientY - barTouchStartY;
 		const dx = t.clientX - barTouchStartX;
-		return Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO;
+		return (
+			Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO
+		);
 	}
 
 	/** Drive the outer view by a vertical delta: on phones the finger moves the
@@ -2046,76 +1995,48 @@
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
-	function handleUserScrollIntent() {
+	function handleUserScrollIntent(event: Event) {
+		if (isLoading) return;
+		// The console owns its own scrolling; bubbling wheel/touch events there
+		// are not an instruction to stop following the sheet.
+		if (event.target instanceof Node && settings?.contains(event.target)) return;
 		if (autoFollow) {
 			autoFollow = false;
-			autoFollowDisengagedAt = Date.now();
+			cursorFollowTop = null;
 		}
 	}
 
-	// Track scroll position for re-engagement check and to block auto-scroll during user interaction
-	function handleScroll() {
-		userScrolling = true;
-		clearTimeout(scrollCheckTimeout);
-		scrollCheckTimeout = setTimeout(() => {
-			userScrolling = false;
-			checkCursorVisibility();
-		}, 150);
-	}
-
-	function checkCursorVisibility() {
-		if (autoFollow) return;
-		// Don't re-engage within 1s of disengaging
-		if (Date.now() - autoFollowDisengagedAt < 1000) return;
-
-		const el = get(beatCursorEl);
-		if (!el) return;
-		const elRect = el.getBoundingClientRect();
-		const viewportHeight = page ? page.clientHeight : window.innerHeight;
-		const grabBottom = viewportHeight * 0.15;
-
-		if (elRect.top >= 0 && elRect.top <= grabBottom) {
-			autoFollow = true;
-		}
-	}
+	// Manual browsing stays under the user's control until Back to cursor or
+	// an explicit seek. A visible cursor during momentum scroll is not consent
+	// to resume automatic following.
 
 	function scrollToCursor() {
-		// Use the shared cursor element reference (the same one the auto-follow
-		// scroll uses) rather than an alphaTab private field, which is not
-		// exposed by the vendored build.
-		const el = get(beatCursorEl);
-		if (!el) return;
-		const scrollElement = page ?? window;
-		// Land the cursor a clear gap below the sticky header so it is never
-		// hidden behind it. Compute the delta from the cursor's current viewport
-		// position; this works whether the scroller is the window or the
-		// fullscreen page.
-		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-		const settingsH =
-			showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0;
-		const desiredTop = headerBottom + settingsH + 24;
-		const currentTop = page ? page.scrollTop : window.scrollY;
-		const delta = el.getBoundingClientRect().top - desiredTop;
-		scrollElement.scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
-		autoFollow = true;
+		reEnableAutoFollow();
 	}
 
-	$: if (api && tracks.length > 0 && scoreLoaded) {
+	$: if (api && tracks.length > 0 && scoreLoaded && scoreMatchesRequest && !pending) {
 		const track = tracks[activeTrackIndex] || tracks[0];
-		if (track) {
+		// renderTracks adopts the track's score, so a retained track must never
+		// overwrite a replacement parsed before this view receives its new props.
+		if (track && track.score === api.score) {
+			restoreScoreSession(api.score);
 			api.renderTracks([track]);
 		}
 	}
 
-	$: if (api) {
-		// Debounce volume changes to avoid synth worker rebuffering on every slider tick
-		if ($audioSource === 'tab' || !hasActiveVideo) {
-			setMasterVolumeDebounced(api, volume);
-		}
+	$: if (hasActiveVideo && $videoPlayerRef) {
+		const rates: number[] = $videoPlayerRef.getAvailablePlaybackRates?.() ?? [];
+		if (rates.length)
+			speed = rates.reduce(
+				(best, rate) => (Math.abs(rate - speed) < Math.abs(best - speed) ? rate : best),
+				rates[0]
+			);
 	}
 	$: if (api) {
-		api.playbackSpeed = speed;
+		if (api.playbackSpeed !== speed) api.playbackSpeed = speed;
+		updatePlayerState({ speed, masterVolume: volume });
 	}
+
 	$: if (api) {
 		api.metronomeVolume = metronome;
 	}
@@ -2124,13 +2045,6 @@
 		const end = Math.round(duration / 1000);
 		const now = Math.round(progress * 0.01 * end);
 		current = `${displayTime(now)} / ${displayTime(end)}`;
-	}
-
-	// Initialize track states when tracks load
-	$: if (tracks.length > 0 && trackVolumes.length === 0) {
-		trackVolumes = tracks.map(() => 1.0);
-		trackMutes = tracks.map(() => false);
-		trackSolos = tracks.map(() => false);
 	}
 
 	// Responsive scale based on screen size and user preferences
@@ -2165,8 +2079,8 @@
 	// at, and the responsive-scale recompute alone doesn't fire a re-render when
 	// the scale bucket is unchanged (portrait and landscape phones are both
 	// < 768px). We fix it by, on a debounced orientationchange / width-changing
-	// resize, clearing any stale explicit width on the layout container, recomputing
-	// the responsive scale from the LIVE viewport width, and forcing alphaTab to
+	// resize, clearing any stale explicit width on the layout container, preserving
+	// the selected scale, and forcing alphaTab to
 	// relayout with api.render() so the score, cursor and our top/bottom bars all
 	// re-expand to the current width together.
 	let lastRelayoutWidth = browser ? window.innerWidth : 0;
@@ -2192,15 +2106,9 @@
 				document.getElementById('player-host');
 			if (host) host.style.width = '100%';
 			if (target) target.style.width = '100%';
-			// Recompute the responsive scale from the current viewport width.
-			const newScale = getResponsiveScale();
-			if (Math.abs(newScale - tabScale) > 0.01) {
-				tabScale = newScale;
-				try {
-					api.settings.display.scale = tabScale;
-					api.updateSettings();
-				} catch {}
-			}
+			// Relayout changes geometry, while the user-selected notation scale persists.
+			api.settings.display.scale = tabScale;
+			api.updateSettings();
 			// Force a full relayout at the current container width.
 			try {
 				api.render();
@@ -2211,16 +2119,52 @@
 		relayoutForViewport(true);
 	}
 
-	// Pinch-zoom handlers (see gestures.ts). Two-finger pinch drives the same
-	// tabScale → api.settings.display.scale path as the settings slider; a
-	// double-tap resets to the responsive default.
+	// Pinch uses the same persisted scale as the console; score taps and scrolls
+	// never reset it. Reset remains an explicit action on the Scale control.
+	let pinchingScore = false;
+	let pinchStartScale = tabScale;
+	let pinchLazyLoading: boolean | undefined;
+	function startScorePinch(origin: [number, number]) {
+		pinchingScore = true;
+		pinchStartScale = tabScale;
+		if (api) {
+			// Preview can move a touched canvas outside the viewport. Keep alphaTab
+			// from detaching that touch target through its lazy-loading observer.
+			const core = api.settings.core;
+			pinchLazyLoading = core.enableLazyLoading;
+			core.enableLazyLoading = false;
+		}
+		clearTimeout(scaleDebounceTimeout);
+		if (target) {
+			const rect = target.getBoundingClientRect();
+			target.style.transformOrigin = `${origin[0] - rect.left}px ${origin[1] - rect.top}px`;
+			target.style.willChange = 'transform';
+		}
+	}
+
 	function setTabScaleFromPinch(scale: number) {
 		tabScale = scale;
-		updateTabScale();
+		// Rendering alphaTab here replaces the rendered touch target and cuts off the
+		// gesture. Preview without changing DOM; lay out the final scale on release.
+		if (target && pinchingScore) target.style.transform = `scale(${scale / pinchStartScale})`;
 	}
-	function resetTabScale() {
-		tabScale = getResponsiveScale();
+
+	function endScorePinch() {
+		if (!pinchingScore) return;
+		pinchingScore = false;
+		if (api && pinchLazyLoading !== undefined) {
+			const core = api.settings.core;
+			core.enableLazyLoading = pinchLazyLoading;
+		}
+		pinchLazyLoading = undefined;
+		if (target) {
+			target.style.transform = '';
+			target.style.transformOrigin = '';
+			target.style.willChange = '';
+		}
 		updateTabScale();
+		clearTimeout(scaleDebounceTimeout);
+		api?.render();
 	}
 
 	// Create proper alphaTab Color instances for theme settings
@@ -2256,13 +2200,16 @@
 	// Seek by bar
 	function seekByBars(delta: number) {
 		if (!api || totalBars === 0) return;
-		const newBar = Math.max(0, Math.min(totalBars - 1, currentBar + delta));
-		const newProgress = ((newBar + 0.5) / totalBars) * 100;
-		progress = newProgress;
-		api.player.timePosition = (progress / 100) * duration;
+		const timing = timingForApi(api);
+		if (!timing) return;
+		const tick = timing.msToTick((progress / 100) * duration, api.playbackSpeed);
+		const nextVisit = Math.max(0, Math.min(timing.visits.length - 1, timing.visitAt(tick) + delta));
+		const ms = timing.tickToMs(timing.visits[nextVisit].start, api.playbackSpeed);
+		progress = duration > 0 ? (ms / duration) * 100 : 0;
+		api.player.timePosition = ms;
 		seekDebounce();
 		autoFollow = true;
-		autoFollowDisengagedAt = 0;
+		followAtStart = true;
 	}
 
 	// Store references for cleanup
@@ -2273,16 +2220,18 @@
 		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
 
+		const listen = (emitter: any, handler: (...args: any[]) => void) => {
+			fullPlayerListenerCleanups.push(subscribePlayerEvent(apiRef, emitter, handler));
+		};
+
 		// Score loaded (detailed handler for full player)
 		const onScoreLoaded = (score: any) => {
-			const scoreLabel = [score.title, score.artist].filter((s: string) => Boolean(s)).join(' - ');
-			// Files without embedded metadata yield an empty label; keep the label
-			// resolved on open (store) instead of blanking the header/variant title.
 			const tab = get(tabStore);
-			const fallbackLabel = [tab?.title, tab?.artist].filter((s) => Boolean(s)).join(' - ');
-			const newTitle = scoreLabel || fallbackLabel;
-			const isNewSheet = !!newTitle && title !== newTitle;
-			if (newTitle) title = newTitle;
+			if (!tab?.fileAsB64 || tab.fileAsB64 !== data.fileAsB64) return;
+			const metadata = scoreMetadata(score, tab);
+			const newTitle = [metadata.title, metadata.artist].filter(Boolean).join(' - ');
+			const isNewSheet = title !== newTitle;
+			title = newTitle;
 			tracks = score.tracks;
 			scoreLoaded = true;
 			isRendering = false;
@@ -2295,18 +2244,19 @@
 			}
 
 			if (isNewSheet) {
-				dispatch('sheetChanged', { title: score.title, artist: score.artist });
+				dispatch('sheetChanged', metadata);
 				autoFollow = true;
-				autoFollowDisengagedAt = 0;
+				cursorFollowTop = null;
 				// Scroll to top when a new tab is loaded (the sheet is always its
 				// own scroller now — window/page fallback covers SSR edge cases).
-				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
+				(page ?? window).scrollTo({ top: 0, behavior: 'instant' });
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
 					setTimeout(() => {
 						try {
-							apiRef.playPause();
+							if (apiRef.score === score && get(tabStore)?.fileAsB64 === data.fileAsB64)
+								apiRef.playPause();
 						} catch {}
 					}, 200);
 				}
@@ -2316,64 +2266,31 @@
 				activeTrackIndex = 0;
 			}
 
-			// Restore a loop region carried in the URL (once, when no loop is set yet)
-			if (loopStartBar === null && loopEndBar === null) {
-				const { loop } = readUrlState();
-				if (loop && loop.endBar < totalBars) {
-					loopStartBar = loop.startBar;
-					loopEndBar = loop.endBar;
-					loopEnabled = loop.enabled;
-				}
-			}
+			restoreScoreSession(score);
 
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
-		apiRef.scoreLoaded.on(onScoreLoaded);
+		listen(apiRef.scoreLoaded, onScoreLoaded);
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
 			if (bindDuration) {
-				const prev = progress;
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
-				// A jump of >2% between position events is not natural playback —
-				// it's a seek (e.g. alphaTab's built-in beat click). Propagate it
-				// to the video so the sync poller doesn't undo the user's click.
-				if (Math.abs(progress - prev) > 2 && duration > 0) {
-					driveVideoSeek(e.currentTime);
-				}
 			}
 			if (totalBars > 0 && duration > 0) {
-				currentBar = Math.floor((e.currentTime / e.endTime) * totalBars);
+				currentBar = timingForApi(apiRef)?.barAt(e.currentTick) ?? msToBar(e.currentTime);
 				currentBar = Math.max(0, Math.min(totalBars - 1, currentBar));
 			}
 		};
-		apiRef.playerPositionChanged.on(onPosition);
-
-		// Auto-scroll cursor
-		const onPositionScroll = (e: any) => {
-			if (!autoFollow || userScrolling) return;
-			const el = get(beatCursorEl);
-			if (!el) return;
-			const containerRect = target?.getBoundingClientRect();
-			const elRect = el.getBoundingClientRect();
-			if (!target || !containerRect) return;
-			const scrollTop =
-				target.scrollTop +
-				(elRect.top - containerRect.top) -
-				(showSettings && controlsVisible ? (settings?.getBoundingClientRect()?.height ?? 0) : 0);
-			const scrollElement = page ?? window;
-			if (!scrollElement) return;
-			scrollElement.scrollTo({ top: scrollTop, behavior: 'smooth' });
-		};
-		apiRef.playerPositionChanged.on(onPositionScroll);
+		listen(apiRef.playerPositionChanged, onPosition);
 
 		// Player state
 		const onState = (args: { state: number }) => {
 			playing = args.state !== 0;
 		};
-		apiRef.playerStateChanged.on(onState);
+		listen(apiRef.playerStateChanged, onState);
 
 		// Error
 		const onError = (error: Error) => {
@@ -2381,36 +2298,43 @@
 			apiError = error.message || 'Failed to load tablature';
 			scoreLoaded = false;
 		};
-		apiRef.error.on(onError);
+		listen(apiRef.error, onError);
 
 		// Render events
 		const onRenderStart = () => {
 			isRendering = true;
+			cursorFollowTop = null;
 			const tracksSet = new Set();
 			apiRef.tracks.forEach((t: any) => tracksSet.add(t.index));
 			tracks.forEach((trackItem) => {
 				if (tracksSet.has(trackItem.index)) activeTrackIndex = trackItem.index;
 			});
 		};
-		apiRef.renderStarted.on(onRenderStart);
+		listen(apiRef.renderStarted, onRenderStart);
 
 		const onRenderEnd = () => {
 			isRendering = false;
+			requestAnimationFrame(() => {
+				if (api) {
+					updateScoreSelection();
+					scheduleCursorFollow();
+				}
+			});
 		};
-		apiRef.renderFinished?.on(onRenderEnd);
+		listen(apiRef.renderFinished, onRenderEnd);
 
 		// SoundFont progress (might already be loaded)
 		if (apiRef.soundFontLoad) {
 			const onSfLoad = (e: any) => {
 				if (e.total > 0) soundFontProgress = Math.round((e.loaded / e.total) * 100);
 			};
-			apiRef.soundFontLoad.on(onSfLoad);
+			listen(apiRef.soundFontLoad, onSfLoad);
 		}
 
 		const onSfLoaded = () => {
 			soundFontLoaded = true;
 		};
-		apiRef.soundFontLoaded.on(onSfLoaded);
+		listen(apiRef.soundFontLoaded, onSfLoaded);
 
 		// --- Sheet selection via alphaTab beat events ---
 		// During drag: show a lightweight preview overlay (no loop state changes).
@@ -2419,6 +2343,10 @@
 
 		let scoreDragStartBeat: any = null;
 		let scoreDragging = false;
+		cancelScoreSelection = () => {
+			scoreDragStartBeat = null;
+			scoreDragging = false;
+		};
 
 		/** Show a lightweight preview overlay during score drag (no state changes) */
 		function showDragPreview(startBeat: any, endBeat: any) {
@@ -2489,19 +2417,21 @@
 		}
 
 		const onBeatMouseDown = (beat: any) => {
+			scoreGestureCancelled = false;
 			scoreDragStartBeat = beat;
 			scoreDragging = false;
 		};
-		apiRef.beatMouseDown.on(onBeatMouseDown);
+		listen(apiRef.beatMouseDown, onBeatMouseDown);
 
 		const onBeatMouseMove = (beat: any) => {
 			if (!scoreDragStartBeat || beat === scoreDragStartBeat) return;
 			scoreDragging = true;
 			showDragPreview(scoreDragStartBeat, beat);
 		};
-		apiRef.beatMouseMove.on(onBeatMouseMove);
+		listen(apiRef.beatMouseMove, onBeatMouseMove);
 
 		const onBeatMouseUp = (beat: any) => {
+			if (scoreGestureCancelled || !scoreDragStartBeat) return;
 			if (!scoreDragging) {
 				// Single click - clear loop
 				if (loopStartBar !== null || loopEndBar !== null) {
@@ -2533,7 +2463,7 @@
 			scoreDragStartBeat = null;
 			scoreDragging = false;
 		};
-		apiRef.beatMouseUp.on(onBeatMouseUp);
+		listen(apiRef.beatMouseUp, onBeatMouseUp);
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -2588,6 +2518,66 @@
 		if (smallScreenMql) isSmallScreen = smallScreenMql.matches;
 	}
 
+	let unsubscribePlayerApi: (() => void) | undefined;
+	let unsubscribePlayerTarget: (() => void) | undefined;
+	function adoptPersistentApi(nextApi: any) {
+		// --- Adopt persistent alphaTab API from layout ---
+		if (!nextApi || nextApi === api || didReturnPlayerHost) return;
+		api = nextApi;
+		const playerHostEl = get(playerTarget);
+
+		// Reparent the persistent player host into our container. Web Audio context
+		// is independent of the DOM element's position, so we can move without
+		// pausing — playback continues seamlessly and we sidestep autoplay-policy
+		// issues that would otherwise silently kill programmatic resumes.
+		if (playerHostEl && target) {
+			isTransitioning.set(true);
+			target.appendChild(playerHostEl);
+			isTransitioning.set(false);
+		}
+
+		if (api) {
+			// Sync state from the shared API
+			const state = get(playerState);
+			soundFontLoaded = state.soundFontLoaded;
+			soundFontProgress = state.soundFontProgress;
+			if (state.scoreKey === data.fileAsB64) {
+				scoreLoaded = state.scoreLoaded;
+				if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
+				if (state.tracks.length > 0) tracks = state.tracks;
+				if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
+					// Accept any non-negative index; bounds check happens once tracks load.
+					activeTrackIndex = state.activeTrackIndex;
+				}
+				if (state.totalBars > 0) totalBars = state.totalBars;
+				playing = state.playing;
+				progress = state.progress;
+				duration = state.duration;
+				currentBar = state.currentBar;
+				if (state.scoreLoaded) restoreScoreSession(api.score);
+			}
+			// IMPORTANT: Do NOT call api.render() during adoption.
+			// The rendering surface is already populated from the previous render.
+			// Calling render() corrupts the player's audio state (NaN position, 0 voices).
+			// Only update the scale setting - it will be applied on next natural render.
+			if (api.settings?.display) {
+				api.settings.display.scale = tabScale;
+				api.updateSettings();
+			}
+
+			// Add detailed event listeners for the full player view
+			setupFullPlayerListeners(api);
+
+			// Reapply theme after adoption — the API's resource colors may be stale
+			// if the theme was toggled on a non-player page (no TabViewer mounted to
+			// react to themeStore changes). Defer one frame so adoption settles before
+			// the render call.
+			requestAnimationFrame(() => {
+				if (api) updateAlphaTabTheme(theme);
+			});
+		}
+	}
+
 	onMount(async () => {
 		// Restore saved settings
 		loadSettings();
@@ -2612,91 +2602,14 @@
 		}
 		isFullPlayerView.set(true);
 
-		// Register our video handlers so the layout's persistent VideoPlayer
-		// (the single YT iframe that survives route changes) can notify us.
-		videoHandlers.set({
-			onStateChange: handleVideoStateChange,
-			onReady: () => {
-				startVideoSync();
-				const st = get(playerState);
-				const yt = get(videoPlayerRef);
-				// If the user just attached a video while the tab is already
-				// playing, jump the video to the tab's current time (accounting
-				// for the sync offset) and start it so both tracks line up the
-				// moment the iframe is ready.
-				if (yt && st.playing && st.duration > 0) {
-					const tabSec = (st.progress / 100) * (st.duration / 1000);
-					const videoSec = Math.max(0, tabSec + (get(videoSyncOffset) || 0));
-					userSeekLockUntil = Date.now() + 600;
-					try {
-						yt.seekTo(videoSec, true);
-					} catch {}
-					try {
-						yt.playVideo();
-					} catch {}
-					updatePlayerState({ videoWasPlaying: false });
-					return;
-				}
-				if (st.videoWasPlaying) {
-					try {
-						yt?.playVideo();
-					} catch {}
-					updatePlayerState({ videoWasPlaying: false });
-				}
+		unsubscribePlayerApi = playerApi.subscribe(adoptPersistentApi);
+		unsubscribePlayerTarget = playerTarget.subscribe((host) => {
+			if (host && target && !didReturnPlayerHost && host.parentElement !== target) {
+				isTransitioning.set(true);
+				target.appendChild(host);
+				isTransitioning.set(false);
 			}
 		});
-
-		// --- Adopt persistent alphaTab API from layout ---
-		api = get(playerApi);
-		const playerHostEl = get(playerTarget);
-
-		// Reparent the persistent player host into our container. Web Audio context
-		// is independent of the DOM element's position, so we can move without
-		// pausing — playback continues seamlessly and we sidestep autoplay-policy
-		// issues that would otherwise silently kill programmatic resumes.
-		if (playerHostEl && target) {
-			isTransitioning.set(true);
-			target.appendChild(playerHostEl);
-			isTransitioning.set(false);
-		}
-
-		if (api) {
-			// Sync state from the shared API
-			const state = get(playerState);
-			soundFontLoaded = state.soundFontLoaded;
-			soundFontProgress = state.soundFontProgress;
-			scoreLoaded = state.scoreLoaded;
-			if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
-			if (state.tracks.length > 0) tracks = state.tracks;
-			if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
-				// Accept any non-negative index; bounds check happens once tracks load.
-				activeTrackIndex = state.activeTrackIndex;
-			}
-			if (state.totalBars > 0) totalBars = state.totalBars;
-			playing = state.playing;
-			progress = state.progress;
-			duration = state.duration;
-
-			// IMPORTANT: Do NOT call api.render() during adoption.
-			// The rendering surface is already populated from the previous render.
-			// Calling render() corrupts the player's audio state (NaN position, 0 voices).
-			// Only update the scale setting - it will be applied on next natural render.
-			if (api.settings?.display) {
-				api.settings.display.scale = tabScale;
-				api.updateSettings();
-			}
-
-			// Add detailed event listeners for the full player view
-			setupFullPlayerListeners(api);
-
-			// Reapply theme after adoption — the API's resource colors may be stale
-			// if the theme was toggled on a non-player page (no TabViewer mounted to
-			// react to themeStore changes). Defer one frame so adoption settles before
-			// the render call.
-			requestAnimationFrame(() => {
-				if (api) updateAlphaTabTheme(theme);
-			});
-		}
 
 		// --- Test API bridge (dev mode only) ---
 		if (import.meta.env.DEV) {
@@ -2713,6 +2626,8 @@
 				},
 				isPlaying: () => playing,
 				getCurrentBar: () => currentBar,
+				getNativePosition: () => ({ tick: api.tickPosition, ms: api.timePosition }),
+				getFullViewListenerCount: () => getViewSubscriptionCount(get(playerApi)),
 				getTotalBars: () => totalBars,
 				getScale: () => ({ apiScale: api?.settings?.display?.scale, tabScale }),
 				getSpeed: () => speed,
@@ -2735,19 +2650,48 @@
 					}
 				},
 				setMockVideo: (currentTimeSec: number, durationSec: number) => {
+					let mediaTime = currentTimeSec,
+						state = 2,
+						rate = 1,
+						timestamp = Date.now();
+					const read = () => {
+						if (state === 1) mediaTime += ((Date.now() - timestamp) / 1000) * rate;
+						timestamp = Date.now();
+						return mediaTime;
+					};
 					const mockPlayer = {
-						getCurrentTime: () => currentTimeSec,
+						getCurrentTime: read,
 						getDuration: () => durationSec,
-						getPlayerState: () => 1,
-						pauseVideo: () => {},
-						playVideo: () => {},
-						seekTo: () => {},
+						getPlayerState: () => state,
+						pauseVideo: () => {
+							read();
+							state = 2;
+						},
+						playVideo: () => {
+							read();
+							state = 1;
+						},
+						seekTo: (seconds: number) => {
+							mediaTime = seconds;
+							timestamp = Date.now();
+						},
 						mute: () => {},
 						unMute: () => {},
-						setVolume: () => {}
+						setVolume: () => {},
+						getAvailablePlaybackRates: () => [0.5, 1, 1.5, 2],
+						setPlaybackRate: (next: number) => {
+							read();
+							rate = next;
+						}
 					};
 					activeVideoId.set('mock-video-id');
 					videoPlayerRef.set(mockPlayer);
+					setTimeout(() => {
+						if (get(videoPlayerRef) !== mockPlayer) return;
+						mockPlayer.seekTo(currentTimeSec);
+						mockPlayer.playVideo();
+						get(videoHandlers).onStateChange?.(1);
+					}, 500);
 				},
 				clearMockVideo: () => {
 					activeVideoId.set(null);
@@ -2867,6 +2811,15 @@
 		themeInitialized = true;
 
 		document.addEventListener('keydown', onBarPressed);
+		const cancelHiddenScore = () => {
+			if (document.hidden) cancelScoreGesture();
+		};
+		window.addEventListener('blur', cancelScoreGesture);
+		document.addEventListener('visibilitychange', cancelHiddenScore);
+		fullPlayerListenerCleanups.push(() => {
+			window.removeEventListener('blur', cancelScoreGesture);
+			document.removeEventListener('visibilitychange', cancelHiddenScore);
+		});
 
 		// --- Responsive scale and UI setup ---
 		const savedScale = tabScale;
@@ -2883,8 +2836,8 @@
 		}
 
 		// A width-changing resize (rotation, window resize) triggers a debounced
-		// relayout that clears the stale container width, recomputes the responsive
-		// scale from the live viewport and re-renders alphaTab (see FIX F).
+		// relayout that clears the stale container width, preserves the selected
+		// scale and re-renders alphaTab (see FIX F).
 		lastRelayoutWidth = window.innerWidth;
 		mountHandleResize = () => {
 			publishBarInset();
@@ -2909,7 +2862,15 @@
 		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
-		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
+		unsubscribeCursorFollow = beatCursorEl.subscribe((el) => {
+			cursorFollowObserver?.disconnect();
+			if (!el) return;
+			// alphaTab writes the beat cursor's transform when it places or
+			// animates it. Rebind whenever rendering replaces the cursor element.
+			cursorFollowObserver = new MutationObserver(scheduleCursorFollow);
+			cursorFollowObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+			scheduleCursorFollow();
+		});
 
 		mountObserver = new IntersectionObserver(
 			([entry]) => {
@@ -2930,9 +2891,13 @@
 			return;
 		}
 
-		// Don't capture keys when typing in inputs
-		const tag = (event.target as HTMLElement)?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+		const focused = event.target as HTMLElement | null;
+		if (focused?.isContentEditable || focused?.closest('input, textarea, select, [role="menu"]'))
+			return;
+		const slider = focused?.closest('[role="slider"]');
+		if (slider && slider !== range && event.code !== 'Escape') return;
+		if ((event.code === 'Space' || event.code === 'Enter') && focused?.closest('button, a')) return;
 
 		if (event.code === 'Space') {
 			event.preventDefault();
@@ -3047,11 +3012,18 @@
 
 	function returnPlayerHost() {
 		if (didReturnPlayerHost) return;
+		endScorePinch();
 		didReturnPlayerHost = true;
+		unsubscribeCursorFollow?.();
+		cursorFollowObserver?.disconnect();
+		cancelAnimationFrame(cursorFollowFrame);
+		cursorFollowFrame = 0;
+		unsubscribePlayerApi?.();
+		unsubscribePlayerTarget?.();
+		cancelActiveDrag?.();
+		cancelProgressGesture();
+		cancelScoreGesture();
 		isFullPlayerView.set(false);
-		// Release the video-handler slot so the layout's VideoPlayer stops
-		// bouncing YT events into our (about-to-unmount) handlers.
-		videoHandlers.set({});
 
 		// Return the persistent player host to the layout's hidden anchor.
 		// alphaTab's audio runs in a Web Audio context that is NOT tied to the DOM
@@ -3075,20 +3047,10 @@
 			} catch {}
 		}
 
-		// Save current state to the store (for MiniPlayer to display)
-		updatePlayerState({
-			playing,
-			progress,
-			duration,
-			title: title !== '<no sheet loaded>' ? title.split(' - ')[0] || '' : '',
-			artist: title !== '<no sheet loaded>' ? title.split(' - ').slice(1).join(' - ') || '' : '',
-			scoreLoaded,
-			currentBar,
-			totalBars,
-			tracks,
-			activeTrackIndex,
-			videoWasPlaying: videoIsPlaying
-		});
+		// The layout owns score metadata and transport state. Only save the
+		// view's selection/video hint, and only while these bytes still own it.
+		if (get(tabStore)?.fileAsB64 === data.fileAsB64 && get(playerState).scoreKey === data.fileAsB64)
+			updatePlayerState({ activeTrackIndex, videoWasPlaying: videoIsPlaying });
 
 		// Clean up full player listeners
 		fullPlayerListenerCleanups.forEach((fn) => fn());
@@ -3110,6 +3072,8 @@
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		window.removeEventListener('orientationchange', handleOrientationChange);
 		clearTimeout(relayoutDebounceTimeout);
+		clearTimeout(scaleDebounceTimeout);
+		clearTimeout(seekDebounceTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3120,13 +3084,11 @@
 		clearTimeout(hideTimeout);
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
-		mountScrollTarget?.removeEventListener('scroll', handleScroll);
-		clearTimeout(scrollCheckTimeout);
 
 		// Cleanup timers that may still be running
 		clearInterval(countdownInterval);
 		clearTimeout(longPressTimer);
-		clearInterval(videoSyncInterval);
+
 		clearTimeout(loadingTimeoutId);
 		// Restore body scroll in case we're destroyed while loading
 		document.body.style.overflow = '';
@@ -3246,7 +3208,6 @@
 			closeVideo();
 			return;
 		}
-		volumeBeforeVideo = volume;
 		// Default to video audio when selecting a video
 		audioSource.set('video');
 		activeVideoId.set(videoId);
@@ -3254,7 +3215,6 @@
 	}
 
 	function closeVideo() {
-		stopVideoSync();
 		activeVideoId.set(null);
 		const ytPlayer = $videoPlayerRef;
 		if (ytPlayer) {
@@ -3265,7 +3225,6 @@
 		videoPlayerRef.set(null);
 		// Restore tab audio
 		audioSource.set('tab');
-		volume = volumeBeforeVideo || 1;
 		if (api) api.masterVolume = volume;
 		showOffsetControl = false;
 	}
@@ -3274,74 +3233,20 @@
 	 *  with the tab timeline. Safe to call when no video is open (no-op).
 	 *  Also installs a short lock so the 200ms sync poller doesn't immediately
 	 *  drag the tab back to the video's still-settling old position. */
-	let userSeekLockUntil = 0;
 	function driveVideoSeek(tabMs: number) {
-		const ytPlayer = $videoPlayerRef;
-		if (!ytPlayer) return;
-		userSeekLockUntil = Date.now() + 600;
-		const videoSec = Math.max(0, tabMs / 1000 + ($videoSyncOffset || 0));
-		try {
-			ytPlayer.seekTo(videoSec, true);
-		} catch {}
-	}
-
-	/** YouTube supports a fixed set of playback rates. Snap tab speed to the
-	 *  nearest one that YT accepts. */
-	function ytPlaybackRate(tabSpeed: number): number {
-		const allowed = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-		let best = 1;
-		let bestDiff = Infinity;
-		for (const r of allowed) {
-			const d = Math.abs(r - tabSpeed);
-			if (d < bestDiff) {
-				bestDiff = d;
-				best = r;
-			}
-		}
-		return best;
-	}
-
-	// Tab speed → YouTube playback rate. Runs whenever speed changes.
-	$: if (browser && $videoPlayerRef) {
-		try {
-			$videoPlayerRef.setPlaybackRate(ytPlaybackRate(speed));
-		} catch {}
-	}
-
-	let videoSyncLock = false;
-	function handleVideoStateChange(state: number) {
-		if (videoSyncLock) return;
-		// YT.PlayerState: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
-		videoSyncLock = true;
-		if (state === 1 && !playing) {
-			// Video started playing - bypass delay, play tab immediately
-			playImmediate();
-		} else if (state === 2 && playing) {
-			clickPause();
-		} else if (state === 0) {
-			clickPause();
-		}
-		setTimeout(() => {
-			videoSyncLock = false;
-		}, 300);
+		seekSessionVideo(tabMs);
 	}
 
 	// After seeking, alphaTab may fire one last playerPositionChanged event
 	// with the OLD position before the seek completes. Suppress it briefly.
 	let seekDebounceTimeout: NodeJS.Timeout;
-	let skipVideoDriveOnce = false;
 	function seekDebounce() {
 		bindDuration = false;
 		clearTimeout(seekDebounceTimeout);
 		seekDebounceTimeout = setTimeout(() => {
 			bindDuration = true;
 		}, 100);
-		// Propagate the seek to the video unless it's the sync poller
-		// asking (which was itself driven by the video — would be a no-op echo).
-		if (skipVideoDriveOnce) {
-			skipVideoDriveOnce = false;
-			return;
-		}
+
 		if (duration > 0) {
 			driveVideoSeek((progress / 100) * duration);
 		}
@@ -3391,7 +3296,7 @@
 	function updateTrackVolume(trackIndex: number, volume: number) {
 		trackVolumes[trackIndex] = volume;
 		const track = tracks[trackIndex];
-		track.playbackInfo.volume = volume;
+		track.playbackInfo.volume = volume * 16;
 		api.changeTrackVolume([track], volume);
 	}
 
@@ -3464,7 +3369,7 @@
 	function resetAllVolumes() {
 		trackVolumes = trackVolumes.map(() => 1.0);
 		tracks.forEach((track, i) => {
-			track.playbackInfo.volume = 1.0;
+			track.playbackInfo.volume = 16;
 			api.changeTrackVolume([track], 1.0);
 		});
 	}
@@ -3473,16 +3378,6 @@
 	function progressChange() {
 		api.player.timePosition = (progress / 100) * duration;
 		seekDebounce();
-
-		// Sync video seek (with offset from shared store)
-		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer && duration > 0) {
-			const tabTimeSec = (progress / 100) * (duration / 1000);
-			const videoSeekTime = tabTimeSec + $videoSyncOffset;
-			if (videoSeekTime >= 0) {
-				ytPlayer.seekTo(videoSeekTime, true);
-			}
-		}
 	}
 
 	function clickLooping() {
@@ -3566,11 +3461,9 @@
 		// Rebind scroll listeners to the correct target (window vs page element)
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
-		mountScrollTarget?.removeEventListener('scroll', handleScroll);
 		mountScrollTarget = page ?? window;
 		mountScrollTarget.addEventListener('wheel', handleUserScrollIntent, { passive: true });
 		mountScrollTarget.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
-		mountScrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 	}
 
 	// --- Simplified auto-hide logic (Task 4) ---
@@ -3691,143 +3584,26 @@
 		}
 
 		try {
-			const how = await shareLink(url.toString(), { title: 'Tablatures', dialogTitle: 'Share tab' });
+			const how = await shareLink(url.toString(), {
+				title: 'Tablatures',
+				dialogTitle: 'Share tab'
+			});
 			toastStore.success(how === 'shared' ? 'Shared!' : 'Link copied!');
 		} catch {
 			toastStore.error('Failed to copy link');
 		}
 	}
 
-	// --- Horizontal drag on the score = seek ±10s (was: track switching) ---
-	let touchStartX = 0;
-	let touchStartY = 0;
-	// The flash overlay reports the applied seek ('+10s' / '-10s') rather than a
-	// raw direction so the label reads naturally regardless of gesture direction.
-	let swipeIndicator: '+10s' | '-10s' | null = null;
-	let swipeIndicatorTimeout: NodeJS.Timeout;
-	const SWIPE_THRESHOLD = 50;
-	const SEEK_STEP_SECONDS = 10;
-	// True once a second finger joins the gesture (pinch-zoom) — suppresses the
-	// seek so zooming never scrubs the playhead.
-	let gestureMultiTouch = false;
-
-	/** Seek forward/back by a number of seconds, clamped to [0, duration]. */
-	function seekBySeconds(deltaSec: number) {
-		if (!api || !duration) return;
-		const curMs = (progress / 100) * duration;
-		const newMs = Math.max(0, Math.min(duration, curMs + deltaSec * 1000));
-		progress = (newMs / duration) * 100;
-		api.player.timePosition = newMs;
-		seekDebounce();
-		autoFollow = true;
-		autoFollowDisengagedAt = 0;
-	}
-
-	// --- Long-press-and-drag selection on the alphaTab score (mobile). ---
-	// alphaTab's beatMouseDown/Move/Up wiring (in onMount) already drives
-	// loop creation on desktop via mouse events, but it doesn't react to
-	// raw touch events on mobile. We bridge that by starting a long-press
-	// timer on touchstart and, when it fires, dispatching synthetic mouse
-	// events at the finger position so the existing desktop drag-to-select
-	// flow runs unchanged. Quick taps scroll/swipe normally.
-	let scoreLongPressTimer: NodeJS.Timeout;
-	let scoreLongPressActive = false;
-	const SCORE_LONG_PRESS_MS = 400;
-	const SCORE_LONG_PRESS_MOVE_CANCEL_PX = 8;
-
-	function dispatchMouseAt(type: 'mousedown' | 'mousemove' | 'mouseup', x: number, y: number) {
-		const target = document.elementFromPoint(x, y);
-		if (!target) return;
-		const evt = new MouseEvent(type, {
-			bubbles: true,
-			cancelable: true,
-			view: window,
-			button: 0,
-			buttons: type === 'mouseup' ? 0 : 1,
-			clientX: x,
-			clientY: y
-		});
-		target.dispatchEvent(evt);
-	}
-
-	function handleTouchStart(e: TouchEvent) {
-		if (!e.touches[0]) return;
-		gestureMultiTouch = e.touches.length > 1;
-		touchStartX = e.touches[0].clientX;
-		touchStartY = e.touches[0].clientY;
-		scoreLongPressActive = false;
-		const pressX = touchStartX;
-		const pressY = touchStartY;
-		clearTimeout(scoreLongPressTimer);
-		scoreLongPressTimer = setTimeout(() => {
-			scoreLongPressActive = true;
-			hapticTap();
-			dispatchMouseAt('mousedown', pressX, pressY);
-		}, SCORE_LONG_PRESS_MS);
-	}
-
-	function handleScoreTouchMove(e: TouchEvent) {
-		if (!e.touches[0]) return;
-		if (e.touches.length > 1) gestureMultiTouch = true;
-		const x = e.touches[0].clientX;
-		const y = e.touches[0].clientY;
-		if (scoreLongPressActive) {
-			// Active selection — block the browser's native scroll so the
-			// finger drag extends the loop instead of panning the page, and
-			// forward movement so alphaTab extends the drag-preview.
-			e.preventDefault();
-			dispatchMouseAt('mousemove', x, y);
-			return;
-		}
-		// Pre-fire: cancel the hold on meaningful movement so page scroll
-		// and horizontal swipe still work.
-		const dx = Math.abs(x - touchStartX);
-		const dy = Math.abs(y - touchStartY);
-		if (dx > SCORE_LONG_PRESS_MOVE_CANCEL_PX || dy > SCORE_LONG_PRESS_MOVE_CANCEL_PX) {
-			clearTimeout(scoreLongPressTimer);
-		}
-	}
-
-	function handleTouchEnd(e: TouchEvent) {
-		clearTimeout(scoreLongPressTimer);
-		if (scoreLongPressActive && e.changedTouches[0]) {
-			dispatchMouseAt('mouseup', e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-			scoreLongPressActive = false;
-			// Consume the event so the swipe-to-change-track logic below
-			// doesn't also trigger from the same gesture.
-			return;
-		}
-		// Suppress seek during a pinch-zoom (two fingers) so zooming never scrubs.
-		if (gestureMultiTouch) {
-			gestureMultiTouch = false;
-			return;
-		}
-		if (!e.changedTouches[0]) return;
-		const dx = e.changedTouches[0].clientX - touchStartX;
-		const dy = e.changedTouches[0].clientY - touchStartY;
-
-		// Only a clearly-horizontal swipe seeks; a mostly-vertical drag scrolls
-		// the sheet and must be left alone.
-		if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dy) > Math.abs(dx)) return;
-
-		// Swipe left → forward, swipe right → back (matches natural "drag the
-		// timeline" feel: pulling content left advances playback).
-		if (dx < 0) {
-			seekBySeconds(SEEK_STEP_SECONDS);
-			showSeekFlash('+10s');
-		} else {
-			seekBySeconds(-SEEK_STEP_SECONDS);
-			showSeekFlash('-10s');
-		}
-		hapticTap();
-	}
-
-	function showSeekFlash(label: '+10s' | '-10s') {
-		swipeIndicator = label;
-		clearTimeout(swipeIndicatorTimeout);
-		swipeIndicatorTimeout = setTimeout(() => {
-			swipeIndicator = null;
-		}, 800);
+	// Touch owns native sheet scrolling and pinch zoom. Loop selection remains
+	// on alphaTab's mouse path; synthesizing mouse drags from held touches stole
+	// slow scrolling gestures and fought the browser's momentum scrolling.
+	let cancelScoreSelection = () => {};
+	let scoreGestureCancelled = false;
+	function cancelScoreGesture() {
+		endScorePinch();
+		scoreGestureCancelled = true;
+		cancelScoreSelection();
+		updateScoreSelection();
 	}
 
 	// Playback status text for screen readers
@@ -3886,11 +3662,12 @@
 
 <div
 	id="page"
+	data-layout-region="player"
+	class:loading-view={isLoading}
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
-		{isFullscreen && native
-			? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black'
-			: 'h-full'}"
+		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
+	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
 		? '52px'
@@ -3909,20 +3686,18 @@
 		{/if}
 	</div>
 
-	<!-- AlphaTab rendering surface (the "video" - comes FIRST). touchmove
-	     is marked `nonpassive` so the conditional preventDefault() inside
-	     the handler can actually block the browser's native scroll once
-	     the long-press selection becomes active. -->
+	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
 	<div
 		class="relative"
+		class:score-loading={isLoading}
+		aria-busy={!!isLoading}
 		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
-		on:touchstart={handleTouchStart}
-		on:touchmove|nonpassive={handleScoreTouchMove}
-		on:touchend={handleTouchEnd}
+		on:touchstart|passive={handleUserScrollIntent}
 		use:pinchZoom={{
 			getScale: () => tabScale,
 			setScale: setTabScaleFromPinch,
-			onReset: resetTabScale,
+			onStart: startScorePinch,
+			onEnd: endScorePinch,
 			min: SCALE_MIN,
 			max: SCALE_MAX,
 			haptic: hapticTap
@@ -3931,8 +3706,9 @@
 		{#if apiError}
 			<div class="flex items-center justify-center min-h-[60vh]">
 				<div class="text-center">
-					<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
-						 aria-hidden="true">error_outline</i
+					<i
+						class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4"
+						aria-hidden="true">error_outline</i
 					>
 					<p class="text-neutral-600 dark:text-neutral-400 mb-4">{apiError}</p>
 					<button
@@ -3958,20 +3734,22 @@
 				</div>
 			</div>
 		{:else if isLoading}
-			<div
-				class="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm"
-			>
-				{#if !soundFontLoaded}
-					<LoadingScore progress={soundFontProgress} message="Preparing audio engine" size="lg" />
-				{:else if isRendering}
-					<LoadingScore message="Rendering tablature" size="lg" />
-				{:else}
-					<LoadingScore message="Loading tablature" size="lg" />
-				{/if}
-			</div>
+			<ScoreSkeleton
+				message={pending
+					? 'Loading tablature'
+					: !soundFontLoaded
+						? 'Preparing audio engine'
+						: !scoreLoaded
+							? 'Loading tablature'
+							: 'Rendering tablature'}
+				progress={!pending && !soundFontLoaded ? soundFontProgress : -1}
+			/>
 		{/if}
 
 		<div
+			class:opacity-0={isLoading}
+			class:pointer-events-none={isLoading}
+			aria-hidden={isLoading}
 			class="relative z-0 {hasSheet && (scoreLoaded || loadingTimedOut)
 				? 'min-h-[500px] pt-4'
 				: 'min-h-1 opacity-0'}"
@@ -4003,7 +3781,8 @@
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Loop on/off toggle -->
-				<button aria-label="Toggle loop"
+				<button
+					aria-label="Toggle loop"
 					class="p-1 rounded-full transition-all {loopEnabled
 						? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 						: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
@@ -4012,7 +3791,9 @@
 					}}
 					title={loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
 				>
-					<i class="material-icons !text-lg" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+					<i class="material-icons !text-lg" aria-hidden="true"
+						>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+					>
 				</button>
 
 				<!-- Play selection from start -->
@@ -4037,7 +3818,8 @@
 				<div class="w-px h-5 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 				<!-- Clear selection -->
-				<button aria-label="Remove selection"
+				<button
+					aria-label="Remove selection"
 					class="p-1 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 					on:click={clearSheetSelection}
 					title="Remove selection [Esc]"
@@ -4047,28 +3829,12 @@
 			</div>
 		{/if}
 
-		<!-- Seek flash: brief "+10s"/"-10s" overlay when a horizontal drag seeks -->
-		{#if swipeIndicator}
-			<div
-				class="fixed top-1/2 {swipeIndicator === '+10s'
-					? 'right-4'
-					: 'left-4'} transform -translate-y-1/2 z-[200] pointer-events-none animate-fade-in"
-			>
-				<div class="flex items-center gap-1.5 bg-violet-500/85 text-white rounded-full px-4 py-2.5 shadow-lg">
-					<i class="material-icons !text-2xl"
-						 aria-hidden="true">{swipeIndicator === '+10s' ? 'forward_10' : 'replay_10'}</i
-					>
-					<span class="text-sm font-semibold tabular-nums">{swipeIndicator}</span>
-				</div>
-			</div>
-		{/if}
-
 		<!-- Floating "scroll to cursor" button — visible when scrolled away
 		     from cursor. Lifted higher on narrow portrait phones so it clears
 		     the metadata row that sits above the transport bar. Only shown while
 		     the sheet section owns the /play view (item 14): once the user scrolls
 		     into the below-fold details, the shell's "back to top" arrow takes over. -->
-		{#if scoreLoaded && !autoFollow && $playSheetInView}
+		{#if scoreLoaded && !isLoading && !autoFollow && $playSheetInView}
 			<div
 				class="fixed -translate-x-1/2 z-[55]"
 				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
@@ -4090,7 +3856,7 @@
 	     Suppressed (not unmounted, so its fetched lyrics survive) while the mobile
 	     bottom sheet covers the score: it floats above the sheet and would sit on
 	     top of the playlist. -->
-	<LyricsBar api={$playerApi} suppressed={sheetCoversScore} />
+	<LyricsBar api={$playerApi} suppressed={sheetCoversScore || isLoading || !scoreLoaded || barHeight === 0} />
 
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- Controls bar (below the rendering, YouTube-style). The mobile bottom sheet
@@ -4109,12 +3875,13 @@
 		bind:this={barEl}
 		bind:clientHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
-			{scoreLoaded || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
+			{(!pending && scoreLoaded) || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
 		style="padding-bottom: calc(env(safe-area-inset-bottom) + 20px); padding-left: calc(env(safe-area-inset-left) + {barSideGutter}px); padding-right: calc(env(safe-area-inset-right) + {barSideGutter}px)"
 		role="toolbar"
 		tabindex="0"
 		aria-label="Playback controls"
+		data-layout-region="player-controls"
 	>
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
@@ -4142,6 +3909,7 @@
 			on:touchstart|preventDefault={handleProgressBarTouchStart}
 			on:touchmove|preventDefault={handleProgressBarTouchMove}
 			on:touchend={handleProgressBarTouchEnd}
+			on:touchcancel={cancelProgressGesture}
 		>
 			<!-- Track background -->
 			<div class="absolute inset-0 bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
@@ -4225,14 +3993,18 @@
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Loop on/off -->
-					<button aria-label="Toggle loop"
+					<button
+						aria-label="Toggle loop"
+						aria-pressed={loopEnabled}
 						class="p-0.5 rounded-full transition-all {loopEnabled
 							? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 							: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 						on:click|stopPropagation={toggleLoopEnabled}
 						title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
 					>
-						<i class="material-icons !text-base" aria-hidden="true">{loopEnabled ? 'loop' : 'sync_disabled'}</i>
+						<i class="material-icons !text-base" aria-hidden="true"
+							>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+						>
 					</button>
 
 					<!-- Play from A -->
@@ -4257,7 +4029,8 @@
 					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
 					<!-- Remove -->
-					<button aria-label="Remove loop"
+					<button
+						aria-label="Remove loop"
 						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
 						on:click|stopPropagation={clearLoopPoints}
 						title="Remove loop [Esc]"
@@ -4297,8 +4070,8 @@
 				title={playing ? 'Pause [Space]' : 'Play [Space]'}
 				aria-label={playing ? 'Pause' : 'Play'}
 			>
-				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}"
-					 aria-hidden="true">{playing ? 'pause' : 'play_arrow'}</i
+				<i class="material-icons {compactBar ? '!text-2xl' : '!text-3xl'}" aria-hidden="true"
+					>{playing ? 'pause' : 'play_arrow'}</i
 				>
 			</button>
 
@@ -4310,7 +4083,9 @@
 				title="Previous bar [Left]"
 				aria-label="Previous bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_previous</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>skip_previous</i
+				>
 			</button>
 
 			<button
@@ -4321,7 +4096,9 @@
 				title="Next bar [Right]"
 				aria-label="Next bar"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">skip_next</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>skip_next</i
+				>
 			</button>
 
 			<!-- Time display -->
@@ -4337,7 +4114,7 @@
 				on:mouseleave={() => (volumeHover = false)}
 			>
 				<button
-					class="{isFullscreen
+					class="{compactBar
 						? 'p-1.5'
 						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{volume === 0
@@ -4354,8 +4131,8 @@
 					title={volume === 0 ? 'Unmute' : 'Mute'}
 					aria-label={volume === 0 ? 'Unmute' : 'Mute'}
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						 aria-hidden="true">{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+						>{volume === 0 ? 'volume_off' : volume < 0.5 ? 'volume_down' : 'volume_up'}</i
 					>
 				</button>
 				{#if volumeHover}
@@ -4389,13 +4166,13 @@
 			     chips, shown on every screen size (the track label folds to an icon
 			     on phones) so mobile users can switch track and speed without opening
 			     the settings panel. Each opens a shared PopoverMenu. -->
-			{#if tracks.length > 1}
 				<PopoverMenu placement="top" align="end" width={240} ariaLabel="Select track" let:close>
 					<button
 						slot="trigger"
 						let:toggle
 						let:open
 						on:click={toggle}
+						disabled={tracks.length <= 1}
 						class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
 							{open
 							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
@@ -4405,13 +4182,14 @@
 						aria-expanded={open}
 					>
 						<i class="material-icons !text-lg" aria-hidden="true">queue_music</i>
-						<span class="hidden sm:inline max-w-[8rem] truncate"
+						<span class="hidden sm:inline w-[3rem] lg:w-[8rem] truncate"
 							>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
 						>
 						<i
-							class="material-icons !text-lg text-neutral-400 transition-transform duration-150 {open
+							class="material-icons !text-lg max-[359px]:!hidden text-neutral-400 transition-transform duration-150 {open
 								? 'rotate-180'
-								: ''}" aria-hidden="true">arrow_drop_down</i
+								: ''}"
+							aria-hidden="true">arrow_drop_down</i
 						>
 					</button>
 					{#each tracks as track, i}
@@ -4429,12 +4207,13 @@
 						>
 							<span class="flex-1 min-w-0 truncate">{track.name || `Track ${i + 1}`}</span>
 							{#if i === activeTrackIndex}
-								<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+								<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true"
+									>check</i
+								>
 							{/if}
 						</button>
 					{/each}
 				</PopoverMenu>
-			{/if}
 
 			<PopoverMenu placement="top" align="end" width={130} ariaLabel="Playback speed" let:close>
 				<button
@@ -4452,12 +4231,13 @@
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
-					<i class="material-icons !text-base" aria-hidden="true">speed</i>
+					<i class="material-icons !text-base max-[359px]:!hidden" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
-						class="material-icons !text-lg transition-transform duration-150 {speedIsCustom
+						class="material-icons !text-lg max-[359px]:!hidden transition-transform duration-150 {speedIsCustom
 							? 'text-white/70'
-							: 'text-neutral-400'} {open ? 'rotate-180' : ''}" aria-hidden="true">arrow_drop_down</i
+							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
+						aria-hidden="true">arrow_drop_down</i
 					>
 				</button>
 				{#each speedOptions as s}
@@ -4475,7 +4255,9 @@
 					>
 						<span class="flex-1">{s}x</span>
 						{#if s === speedRounded}
-							<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+							<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true"
+								>check</i
+							>
 						{/if}
 					</button>
 				{/each}
@@ -4483,16 +4265,19 @@
 
 			<!-- Video picker button (desktop/tablet bar only; on phones it moves
 			     into the settings panel) -->
-			{#if youtubeResults.length > 0 && !mobileBar}
+			{#if !mobileBar}
 				<div class="relative">
 					<button
 						on:click={() => (showVideoDropdown = !showVideoDropdown)}
+						disabled={youtubeResults.length === 0}
 						class="p-2.5 rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 							{hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Play video"
 						aria-label="Play video"
 					>
-						<i class="material-icons !text-2xl" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
+						<i class="material-icons !text-2xl" aria-hidden="true"
+							>{hasActiveVideo ? 'videocam' : 'videocam_off'}</i
+						>
 					</button>
 
 					{#if showVideoDropdown}
@@ -4515,8 +4300,9 @@
 									>Play with video</span
 								>
 								{#if hasActiveVideo}
-									<button on:click={closeVideo} class="text-xs text-danger-400 hover:text-danger-500"
-										>Stop video</button
+									<button
+										on:click={closeVideo}
+										class="text-xs text-danger-400 hover:text-danger-500">Stop video</button
 									>
 								{/if}
 							</div>
@@ -4546,7 +4332,9 @@
 										<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 									</div>
 									{#if $activeVideoId === yt.videoId}
-										<i class="material-icons !text-sm text-violet-500" aria-hidden="true">playing_for_changes</i>
+										<i class="material-icons !text-sm text-violet-500" aria-hidden="true"
+											>playing_for_changes</i
+										>
 									{/if}
 								</button>
 							{/each}
@@ -4560,34 +4348,37 @@
 			     toggle lives in the settings panel there; the freed slot keeps the
 			     phone bar to the essentials (settings + fullscreen). -->
 			{#if !mobileBar}
-			{#if loopStartBar !== null && loopEndBar !== null}
-				<button
-					on:click={toggleLoopEnabled}
-					class="{compactBar
-						? 'p-1.5'
-						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+				{#if loopStartBar !== null && loopEndBar !== null}
+					<button
+						on:click={toggleLoopEnabled}
+						class="{compactBar
+							? 'p-1.5'
+							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
-					title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
-						1}) [Esc to clear]"
-					aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
-				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-						 aria-hidden="true">{loopEnabled ? 'repeat_on' : 'repeat'}</i
+						title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
+							1}) [Esc to clear]"
+						aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
 					>
-				</button>
-			{:else}
-				<button
-					on:click={clickLooping}
-					class="{isFullscreen
-						? 'p-1.5'
-						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
+						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+							>{loopEnabled ? 'repeat_on' : 'repeat'}</i
+						>
+					</button>
+				{:else}
+					<button
+						on:click={clickLooping}
+						class="{isFullscreen
+							? 'p-1.5'
+							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
 						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
-					title="Loop [L] &middot; Drag on progress bar to set region"
-					aria-label="Toggle loop"
-				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">repeat</i>
-				</button>
-			{/if}
+						title="Loop [L] &middot; Drag on progress bar to set region"
+						aria-label="Toggle loop"
+						aria-pressed={!!api?.isLooping && scoreLoaded}
+					>
+						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+							>repeat</i
+						>
+					</button>
+				{/if}
 			{/if}
 
 			<!-- Compact transposed pill: only in fullscreen (where the metadata row
@@ -4603,9 +4394,10 @@
 				/>
 			{/if}
 
-			{#if scoreLoaded && !mobileBar}
+			{#if !mobileBar}
 				<button
 					on:click={onLyricsButton}
+					disabled={!scoreLoaded}
 					class="{compactBar
 						? 'p-1.5'
 						: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
@@ -4616,7 +4408,9 @@
 					aria-label={lyricsAvailable ? 'Toggle lyrics' : 'Find lyrics online'}
 					aria-pressed={lyricsAvailable && $lyricsStore.mode === 'auto'}
 				>
-					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">lyrics</i>
+					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+						>lyrics</i
+					>
 				</button>
 			{/if}
 
@@ -4629,7 +4423,8 @@
 				title="Settings [S]"
 				aria-label="Settings"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">tune</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">tune</i
+				>
 			</button>
 
 			<!-- Fullscreen: shown on every platform (item 10). On native the button
@@ -4645,8 +4440,8 @@
 				title="Fullscreen [F]"
 				aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}"
-					 aria-hidden="true">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</i
 				>
 			</button>
 
@@ -4658,7 +4453,9 @@
 				title="Shortcuts [?]"
 				aria-label="Keyboard shortcuts"
 			>
-				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true">keyboard</i>
+				<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
+					>keyboard</i
+				>
 			</button>
 		</div>
 
@@ -4667,8 +4464,8 @@
 			 the rich overlay UI that sits on top of it while in big player view. -->
 		{#if hasActiveVideo && $activeVideoId && !isFullscreen}
 			<div
-				class="big-player-video-overlay fixed right-4 z-[76] w-[340px] h-[200px] rounded-xl overflow-hidden pointer-events-none"
-				style="bottom: calc(var(--player-bar-height) + 8px)"
+				class="big-player-video-overlay floating-video-box z-[76] rounded-xl overflow-hidden pointer-events-none"
+				style="--video-bar-inset: {$playerBarHeight}px"
 			>
 				<div class="relative w-full h-full">
 					<!-- Top controls overlay. No play/pause button here — YouTube's
@@ -4676,13 +4473,13 @@
 					     unstarted video, and once playback is going the tab bar's
 					     play button drives both sides. -->
 					<div
-						class="absolute top-0 left-0 right-0 flex items-center justify-between px-1 pb-1 pt-0 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+						class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-2 pointer-events-auto bg-gradient-to-b from-black/80 via-black/40 to-transparent"
 					>
-						<div class="flex items-center gap-1.5">
+						<div class="flex items-center gap-1.5 min-w-0">
 							<!-- Audio source toggle (tab / video / both) -->
 							<button
 								on:click={toggleAudioSource}
-								class="h-10 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
+								class="h-11 min-w-11 shrink-0 px-3 leading-none rounded-full text-sm font-medium flex items-center justify-center gap-1.5 transition-all duration-150 hover:scale-105 active:scale-95
 									{$audioSource === 'video'
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: $audioSource === 'both'
@@ -4694,14 +4491,14 @@
 										? 'Both tab + video audio — click for tab only'
 										: 'Tab audio only — click for video'}
 							>
-								<i class="material-icons !text-lg"
-									 aria-hidden="true">{$audioSource === 'video'
+								<i class="material-icons !text-lg !leading-none block shrink-0" aria-hidden="true"
+									>{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
 											: 'music_note'}</i
 								>
-								<span
+								<span class="video-source-label"
 									>{$audioSource === 'video'
 										? 'Video'
 										: $audioSource === 'both'
@@ -4712,13 +4509,15 @@
 							<!-- Offset control toggle -->
 							<button
 								on:click={() => (showOffsetControl = !showOffsetControl)}
-								class="h-10 px-3 rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center gap-1.5
+								class="h-11 min-w-11 shrink-0 px-3 leading-none rounded-full hover:scale-105 active:scale-95 transition-all duration-150 text-sm font-mono flex items-center justify-center gap-1.5
 									{showOffsetControl
 									? 'bg-violet-500 text-white hover:bg-violet-600'
 									: 'bg-black/60 text-white/90 hover:bg-black/80 hover:text-white'}"
 								title="Sync offset: {videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s"
 							>
-								<i class="material-icons !text-lg" aria-hidden="true">sync</i>
+								<i class="material-icons !text-lg !leading-none block shrink-0" aria-hidden="true"
+									>sync</i
+								>
 								{#if videoOffset !== 0}
 									<span>{videoOffset > 0 ? '+' : ''}{videoOffset.toFixed(1)}s</span>
 								{/if}
@@ -4726,18 +4525,20 @@
 						</div>
 						<button
 							on:click={closeVideo}
-							class="w-10 h-10 flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
+							class="w-11 h-11 shrink-0 leading-none flex items-center justify-center rounded-full bg-black/60 text-white hover:bg-danger-500 hover:scale-110 active:scale-95 transition-all duration-150"
 							title="Close video"
 							aria-label="Close video"
 						>
-							<i class="material-icons !text-xl" aria-hidden="true">close</i>
+							<i class="material-icons !text-xl !leading-none block shrink-0" aria-hidden="true"
+								>close</i
+							>
 						</button>
 					</div>
 
 					<!-- Enhanced offset control panel -->
 					{#if showOffsetControl}
 						<div
-							class="absolute bottom-0 left-0 right-0 bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
+							class="absolute top-14 bottom-0 left-0 right-0 overflow-y-auto bg-black/90 px-3 py-2.5 space-y-2 pointer-events-auto"
 						>
 							<!-- Slider for coarse adjustment -->
 							<div class="flex items-center gap-2">
@@ -4751,7 +4552,7 @@
 									on:input={(e) => setVideoOffset(parseFloat(e.currentTarget.value))}
 									use:sliderFill={videoOffset}
 									style="--range-track: rgba(255,255,255,0.2)"
-									class="range-fill flex-1 h-1 cursor-pointer appearance-none rounded-full
+									class="range-fill min-w-0 flex-1 h-1 cursor-pointer appearance-none rounded-full
 									[&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:appearance-none
 									[&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-400 [&::-moz-range-thumb]:border-0"
 								/>
@@ -4815,10 +4616,11 @@
 			<div class="px-3 py-2 sm:px-4 sm:py-3 border-t border-neutral-100 dark:border-neutral-800">
 				<div class="flex items-start justify-between gap-2 sm:gap-4">
 					<!-- Album artwork or artist image (hidden on the phone bar) -->
-					{#if (songArtwork || artistImage || cachedThumbArtwork) && !mobileBar}
+					{#if !mobileBar}
 						<div
 							class="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
 						>
+							{#if songArtwork || artistImage || cachedThumbArtwork}
 							<img
 								src={songArtwork || artistImage || cachedThumbArtwork}
 								alt=""
@@ -4828,67 +4630,74 @@
 									if (e.target instanceof HTMLElement) e.target.style.display = 'none';
 								}}
 							/>
+							{/if}
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
 						<!-- Title / artist / tuning: hidden on the phone bar, which shows
 						     only the compact source pill below (mobile redesign 1b). -->
 						{#if !mobileBar}
-						<h1 class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5">
-							<a
-								href="{base}/search?q={encodeURIComponent(songTitle)}"
-								class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-								title="Search other versions">{songTitle}</a
+							<h1
+								class="text-base sm:text-lg font-semibold text-neutral-900 dark:text-neutral-100 truncate leading-normal py-0.5"
 							>
-						</h1>
-						<!-- Subtitle + current-track chip share one horizontal line. The
+								<a
+									href="{base}/search?q={encodeURIComponent(songTitle)}"
+									class="hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+									title="Search other versions">{songTitle}</a
+								>
+							</h1>
+							<!-- Subtitle + current-track chip share one horizontal line. The
 						     prominent chip selects the track (opens the tracks panel); the
 						     tuning is demoted to muted text alongside the artist. -->
-						<div class="flex items-center gap-2 min-w-0">
-							<div class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-								{#if currentArtistName}
-									<span class="relative min-w-0 max-w-[55%] flex-shrink-0">
-										<a
-											href="{base}/artist/{encodeURIComponent(currentArtistName)}"
-											class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
-											title="View artist page">{currentArtistName}</a
-										>
+							<div class="flex items-center gap-2 min-w-0">
+								<div
+									class="flex items-baseline gap-1 min-w-0 flex-1 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400"
+								>
+									<span class="relative min-w-0 w-40 max-w-[55%] flex-shrink-0">
+										{#if currentArtistName}
+											<a
+												href="{base}/artist/{encodeURIComponent(currentArtistName)}"
+												class="block truncate hover:text-violet-600 dark:hover:text-violet-400 hover:underline transition-colors"
+												title="View artist page">{currentArtistName}</a
+											>
+										{/if}
 									</span>
-									<span class="flex-shrink-0 opacity-60">&middot;</span>
-								{/if}
-								<span class="truncate min-w-0 flex-1">
-									{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
-										? ` \u00B7 ${totalBars} bars`
-										: ''}
-								</span>
+									<span class="flex-shrink-0 opacity-60" class:invisible={!currentArtistName}
+										>&middot;</span
+									>
+									<span class="truncate min-w-0 flex-1">
+										{tracks[activeTrackIndex]?.name || 'Track'}{totalBars > 0
+											? ` \u00B7 ${totalBars} bars`
+											: ''}
+									</span>
+								</div>
+								<div class="flex-shrink-0 w-[14rem] max-w-[45%] h-8 flex items-center justify-end">
+									<TuningChip
+										api={$playerApi}
+										{activeTrackIndex}
+										{tracks}
+										on:open={openTuningPanel}
+									/>
+								</div>
 							</div>
-							<div class="flex-shrink-0">
-								<TuningChip
-									api={$playerApi}
-									{activeTrackIndex}
-									{tracks}
-									on:open={openTuningPanel}
-								/>
-							</div>
-						</div>
-						<!-- Artist country + genre pills: desktop only. On mobile the row
+							<!-- Artist country + genre pills: desktop only. On mobile the row
 						     wrapped over 2-3 lines and pushed the controls off-screen. -->
-						{#if artistInfo?.tags && artistInfo.tags.length > 0}
-							<div class="hidden sm:flex items-center gap-1.5 mt-1 flex-wrap">
-								{#if artistInfo.country}
-									<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
-										>{artistInfo.country}</span
-									>
-									<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
-								{/if}
-								{#each artistInfo.tags.slice(0, 4) as tag}
-									<span
-										class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
-										>{tag}</span
-									>
-								{/each}
+							<div class="player-artist-tags hidden sm:flex items-center gap-1.5 mt-1 h-5 overflow-hidden whitespace-nowrap">
+								{#if artistInfo?.tags && artistInfo.tags.length > 0}
+									{#if artistInfo.country}
+										<span class="text-[11px] text-neutral-500 dark:text-neutral-400"
+											>{artistInfo.country}</span
+										>
+										<span class="text-neutral-300 dark:text-neutral-600">&middot;</span>
+									{/if}
+									{#each artistInfo.tags.slice(0, 4) as tag}
+										<span
+											class="text-[10px] px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+											>{tag}</span
+										>
+									{/each}
+							{/if}
 							</div>
-						{/if}
 						{/if}
 						{#if hasVariants}
 							<!-- Version selector: browse and pick ANY version (grouped by
@@ -4898,7 +4707,13 @@
 								<span class="hidden sm:inline text-[10px] text-neutral-400 dark:text-neutral-500"
 									>Source:</span
 								>
-								<PopoverMenu placement="bottom" align="start" width={300} ariaLabel="Select version" let:close>
+								<PopoverMenu
+									placement="bottom"
+									align="start"
+									width={300}
+									ariaLabel="Select version"
+									let:close
+								>
 									<button
 										slot="trigger"
 										let:toggle
@@ -4920,11 +4735,14 @@
 											<span class="w-1.5 h-1.5 rounded-full {currentSourceDisplay.dotColor}"></span>
 										{/if}
 										<span class="max-w-[9rem] truncate">{currentSourceDisplay.label}</span>
-										<span class="text-neutral-400 dark:text-neutral-500">· {allVersions.length}</span>
+										<span class="text-neutral-400 dark:text-neutral-500"
+											>· {allVersions.length}</span
+										>
 										<i
 											class="material-icons !text-base text-neutral-400 transition-transform duration-150 {open
 												? 'rotate-180'
-												: ''}" aria-hidden="true">arrow_drop_down</i
+												: ''}"
+											aria-hidden="true">arrow_drop_down</i
 										>
 									</button>
 									{#each versionGroups as group}
@@ -4960,17 +4778,21 @@
 														>{v.title || `${gd.label} version ${i + 1}`}</span
 													>
 													{#if versionDetail(v)}
-														<span class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
+														<span
+															class="block truncate text-xs text-neutral-400 dark:text-neutral-500"
 															>{versionDetail(v)}</span
 														>
 													{/if}
 												</span>
 												{#if active}
-													<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+													<i
+														class="material-icons !text-base text-violet-500 shrink-0"
+														aria-hidden="true">check</i
+													>
 												{:else}
 													<i
 														class="material-icons !text-xl text-neutral-300 dark:text-neutral-600 shrink-0"
-														 aria-hidden="true">play_arrow</i
+														aria-hidden="true">play_arrow</i
 													>
 												{/if}
 											</button>
@@ -4998,33 +4820,40 @@
 					     here"; tapping it opens the sheet too. Both flanking blocks are
 					     `flex-1 basis-0`, which is what keeps the handle in the middle
 					     regardless of how wide the source label is. -->
-					{#if showSheetHint}
-						<button
-							class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
-							on:click={() => playSheetOpen.set(true)}
-							aria-label="Show what's up next"
-							title="Up next"
-						>
-							<span class="sheet-hint-grip" aria-hidden="true"></span>
-							<span class="sheet-hint-label">Up next</span>
-						</button>
+					{#if reserveSheetHint}
+						<div class="w-[68px] flex justify-center flex-shrink-0 self-center">
+							{#if showSheetHint}
+								<button
+									class="sheet-hint self-center flex flex-col items-center justify-center gap-1 flex-shrink-0 px-4 py-1.5 -my-1 text-neutral-400 dark:text-neutral-500 active:text-neutral-600 dark:active:text-neutral-300"
+									on:click={() => playSheetOpen.set(true)}
+									aria-label="Show what's up next"
+									title="Up next"
+								>
+									<span class="sheet-hint-grip" aria-hidden="true"></span>
+									<span class="sheet-hint-label">Up next</span>
+								</button>
+							{/if}
+						</div>
 					{/if}
 
 					<div
-						class="flex items-center gap-0.5 sm:gap-1 {showSheetHint
+						class="flex items-center gap-0.5 sm:gap-1 {reserveSheetHint
 							? 'flex-1 basis-0 justify-end'
 							: 'flex-shrink-0'}"
 					>
-						{#if tabId}
-							<FavoriteButton
-								id={tabId}
-								title={$playerState.title || title}
-								artist={$playerState.artist || currentArtistName}
-								variant="plain"
-							/>
-						{/if}
+						<div class="w-[30px] sm:w-9 flex-shrink-0">
+							{#if tabId}
+								<FavoriteButton
+									id={tabId}
+									title={$playerState.title || title}
+									artist={$playerState.artist || currentArtistName}
+									variant="plain"
+								/>
+							{/if}
+						</div>
 						{#if tabId && allPlaylists.length > 0}
-							<button aria-label="Add to playlist"
+							<button
+								aria-label="Add to playlist"
 								on:click={() => {
 									showPlaylistPicker = !showPlaylistPicker;
 								}}
@@ -5095,7 +4924,7 @@
 		<aside
 			bind:this={settings}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
-				? 'z-[60] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
+				? 'z-[45] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
 				: 'z-[110] inset-0 pt-safe pb-safe'}"
 			style={isLargeScreen
 				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
@@ -5158,7 +4987,12 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={onLyricsButton}
 						>
-							<i class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto' ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">lyrics</i>
+							<i
+								class="material-icons !text-xl {lyricsAvailable && $lyricsStore.mode === 'auto'
+									? 'text-violet-500'
+									: 'text-neutral-500 dark:text-neutral-400'}"
+								aria-hidden="true">lyrics</i
+							>
 							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">
 								{lyricsAvailable ? 'Lyrics / subtitles' : 'Find lyrics online'}
 							</span>
@@ -5173,9 +5007,18 @@
 							class="tap-target w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 							on:click={() => (showSettingsVideo = !showSettingsVideo)}
 						>
-							<i class="material-icons !text-xl {hasActiveVideo ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}" aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i>
-							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Play along with video</span>
-							<i class="material-icons !text-base text-neutral-400" aria-hidden="true">{showSettingsVideo ? 'expand_less' : 'expand_more'}</i>
+							<i
+								class="material-icons !text-xl {hasActiveVideo
+									? 'text-violet-500'
+									: 'text-neutral-500 dark:text-neutral-400'}"
+								aria-hidden="true">{hasActiveVideo ? 'videocam' : 'videocam_off'}</i
+							>
+							<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+								>Play along with video</span
+							>
+							<i class="material-icons !text-base text-neutral-400" aria-hidden="true"
+								>{showSettingsVideo ? 'expand_less' : 'expand_more'}</i
+							>
 						</button>
 						{#if showSettingsVideo}
 							<div class="bg-neutral-50 dark:bg-neutral-800/40">
@@ -5189,20 +5032,32 @@
 								{/if}
 								{#each youtubeResults as yt}
 									<button
-										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId === yt.videoId ? 'bg-violet-50 dark:bg-violet-900/20' : ''}"
+										class="w-full flex items-center gap-3 pl-8 pr-4 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors {$activeVideoId ===
+										yt.videoId
+											? 'bg-violet-50 dark:bg-violet-900/20'
+											: ''}"
 										on:click={() => selectVideo(yt.videoId)}
 									>
-										<div class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700">
+										<div
+											class="relative flex-shrink-0 w-14 h-9 rounded overflow-hidden bg-neutral-100 dark:bg-neutral-700"
+										>
 											{#if yt.thumbnail}
 												<img src={yt.thumbnail} alt="" class="w-full h-full object-cover" />
 											{/if}
 										</div>
 										<div class="flex-1 min-w-0">
-											<p class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">{yt.title}</p>
+											<p
+												class="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate"
+											>
+												{yt.title}
+											</p>
 											<p class="text-[10px] text-neutral-400 truncate">{yt.channel}</p>
 										</div>
 										{#if $activeVideoId === yt.videoId}
-											<i class="material-icons !text-base text-violet-500 shrink-0" aria-hidden="true">check</i>
+											<i
+												class="material-icons !text-base text-violet-500 shrink-0"
+												aria-hidden="true">check</i
+											>
 										{/if}
 									</button>
 								{/each}
@@ -5215,8 +5070,13 @@
 						on:click={clickShare}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">share</i>
-						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Share tab link</span>
+						<i
+							class="material-icons !text-xl text-neutral-500 dark:text-neutral-400"
+							aria-hidden="true">share</i
+						>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+							>Share tab link</span
+						>
 					</button>
 
 					<button
@@ -5224,8 +5084,13 @@
 						on:click={clickDownload}
 						disabled={!scoreLoaded}
 					>
-						<i class="material-icons !text-xl text-neutral-500 dark:text-neutral-400" aria-hidden="true">download</i>
-						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200">Download tab file</span>
+						<i
+							class="material-icons !text-xl text-neutral-500 dark:text-neutral-400"
+							aria-hidden="true">download</i
+						>
+						<span class="flex-1 min-w-0 text-sm text-neutral-700 dark:text-neutral-200"
+							>Download tab file</span
+						>
 					</button>
 				</div>
 			{/if}
@@ -5277,7 +5142,8 @@
 				<!-- Circular countdown with +/- -->
 				<div class="flex items-center justify-center gap-5 mb-6">
 					<!-- Minus: restart with 1s less -->
-					<button aria-label="One second less"
+					<button
+						aria-label="One second less"
 						on:click={() => adjustCountdownTime(-1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second less (restarts)"
@@ -5315,7 +5181,8 @@
 						</svg>
 						<div class="absolute inset-0 flex items-center justify-center">
 							{#if countdownPaused}
-								<i class="material-icons !text-5xl text-violet-300" aria-hidden="true">play_arrow</i>
+								<i class="material-icons !text-5xl text-violet-300" aria-hidden="true">play_arrow</i
+								>
 							{:else}
 								<span class="text-5xl font-bold text-white tabular-nums"
 									>{Math.ceil(rest / 1000)}</span
@@ -5331,7 +5198,8 @@
 					</button>
 
 					<!-- Plus: restart with 1s more -->
-					<button aria-label="One second more"
+					<button
+						aria-label="One second more"
 						on:click={() => adjustCountdownTime(1000)}
 						class="w-11 h-11 rounded-full bg-white/10 hover:bg-violet-500/30 text-white/70 hover:text-white flex items-center justify-center transition-colors"
 						title="1 second more (restarts)"
@@ -5418,7 +5286,8 @@
 							Keyboard shortcuts
 						</h2>
 					</div>
-					<button aria-label="Close keyboard shortcuts"
+					<button
+						aria-label="Close keyboard shortcuts"
 						on:click={() => (showKeyboardShortcuts = false)}
 						class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 					>
@@ -5430,7 +5299,9 @@
 					{#each shortcutSections as section}
 						<div>
 							<div class="flex items-center gap-1.5 mb-2">
-								<i class="material-icons !text-sm text-violet-500" aria-hidden="true">{section.icon}</i>
+								<i class="material-icons !text-sm text-violet-500" aria-hidden="true"
+									>{section.icon}</i
+								>
 								<h3 class="text-xs font-semibold text-violet-500 uppercase tracking-wider">
 									{section.title}
 								</h3>
@@ -5444,8 +5315,9 @@
 											class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300"
 											>{key}</kbd
 										>
-										<i class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
-											 aria-hidden="true">{icon}</i
+										<i
+											class="material-icons !text-base text-neutral-500 dark:text-neutral-400"
+											aria-hidden="true">{icon}</i
 										>
 										<span class="text-sm text-neutral-600 dark:text-neutral-400">{desc}</span>
 									</div>
@@ -5514,6 +5386,20 @@
 </div>
 
 <style>
+	.loading-view {
+		overflow-y: hidden;
+		overscroll-behavior-y: contain;
+	}
+	.score-loading {
+		/* Keep the old renderer mounted but clip its retained height while a
+		   different score is pending. The placeholder owns exactly one viewport. */
+		height: calc(100% - var(--player-bar-height, 0px));
+		overflow: hidden;
+	}
+	@media (max-height: 400px) {
+		.player-artist-tags { display: none; }
+	}
+
 	/* P4-local touch-target treatment (P3 owns the global `.tap-target`; this
 	   plan owns TabViewer, so it applies the equivalent here and P3 never edits
 	   this file). Every control button in this component gets a ~48dp touch

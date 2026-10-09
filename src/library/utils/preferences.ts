@@ -14,7 +14,6 @@ export interface UserPreferences {
 	miniPlayerScaleMobile: number;
 	audioSourcePreference: 'tab' | 'video' | 'both';
 	autoPlayOnLoad: boolean;
-	showMiniPlayerPreview: boolean;
 	haptics: boolean;
 }
 
@@ -80,7 +79,6 @@ const DEFAULTS: UserPreferences = {
 	miniPlayerScaleMobile: 0.7,
 	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
-	showMiniPlayerPreview: true,
 	haptics: true
 };
 

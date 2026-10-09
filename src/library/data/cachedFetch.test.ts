@@ -111,7 +111,12 @@ describe('cachedFetch', () => {
 
 		// A normal offline fetch would serve the cached copy…
 		const stale = await cachedFetchWith(
-			{ fetchFn: async () => { throw new Error('offline'); }, cache },
+			{
+				fetchFn: async () => {
+					throw new Error('offline');
+				},
+				cache
+			},
 			'/api/f',
 			{ ttl: 60_000 }
 		);
@@ -120,7 +125,12 @@ describe('cachedFetch', () => {
 		// …but a forced refresh bypasses it and surfaces OfflineError.
 		await expect(
 			cachedFetchWith(
-				{ fetchFn: async () => { throw new Error('offline'); }, cache },
+				{
+					fetchFn: async () => {
+						throw new Error('offline');
+					},
+					cache
+				},
 				'/api/f',
 				{ ttl: 60_000, forceRefresh: true }
 			)
@@ -149,7 +159,12 @@ describe('cachedFetch', () => {
 		);
 		expect(isFromCache(fresh)).toBe(false);
 		const offline = await cachedFetchWith(
-			{ fetchFn: async () => { throw new Error('x'); }, cache },
+			{
+				fetchFn: async () => {
+					throw new Error('x');
+				},
+				cache
+			},
 			'/api/h',
 			{ ttl: 60_000 }
 		);
@@ -177,5 +192,35 @@ describe('cachedFetch', () => {
 			init: { method: 'POST' }
 		});
 		expect(map.size).toBe(0);
+	});
+});
+
+describe('HTTP fallback is distinct from offline fallback', () => {
+	it.each([429, 503])('preserves HTTP %s as the reason for a cached response', async (status) => {
+		const { cache } = makeCache();
+		await cache.put('/api/rate-limit', enc('saved'), 'text/plain', 60_000);
+		const response = await cachedFetchWith(
+			{ fetchFn: async () => new Response(null, { status }), cache },
+			'/api/rate-limit'
+		);
+		expect(isFromCache(response)).toBe(true);
+		expect(response.headers.get('x-cache-fallback')).toBe('http');
+		expect(response.headers.get('x-original-status')).toBe(String(status));
+		expect(await response.text()).toBe('saved');
+	});
+	it('marks a failed network connection separately', async () => {
+		const { cache } = makeCache();
+		await cache.put('/api/unreachable', enc('saved'), 'text/plain', 60_000);
+		const response = await cachedFetchWith(
+			{
+				fetchFn: async () => {
+					throw new TypeError('Failed to fetch');
+				},
+				cache
+			},
+			'/api/unreachable'
+		);
+		expect(response.headers.get('x-cache-fallback')).toBe('network');
+		expect(response.headers.get('x-original-status')).toBeNull();
 	});
 });

@@ -104,7 +104,7 @@
 	}
 </script>
 
-<div class="group w-full">
+<div class="group w-full" data-layout-region="search-row">
 	<div class="relative {id ? 'overflow-hidden' : ''}">
 	{#if id}
 		<!-- Swipe-left reveal: toggle favorite (matches repertoire row gesture).
@@ -208,13 +208,13 @@
 					title="View artist {artist}">{artist}</a
 				>{album ? ` — ${album}` : ''}
 			</div>
-			<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+			<div class="flex items-center gap-1.5 mt-1.5 h-5 whitespace-nowrap" style="overflow-x: clip; overflow-y: visible">
 				<!-- Merged source + versions control: expands the sub-list on tap when
 				     there are alternates, otherwise a plain source pill. Lives in the
 				     wrapping info column so it never crowds the right-aligned actions. -->
 				{#if source && hasVersions}
 					<button
-						class="tap-target-sm inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
+						class="tap-target-sm inline-flex items-center w-[11rem] max-w-full shrink-0 gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors
 							{versionsExpanded
 								? 'bg-violet-500 text-white border-violet-500'
 								: 'text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40'}"
@@ -223,15 +223,15 @@
 						title="{versionsExpanded ? 'Hide' : 'Show'} all versions"
 					>
 						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
-						{mergedSourceLabel}
+						<span class="truncate">{mergedSourceLabel}</span>
 						<i class="material-icons !text-sm -mr-0.5" aria-hidden="true">{versionsExpanded ? 'expand_less' : 'expand_more'}</i>
 					</button>
 				{:else if source}
 					<span
-						class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
+						class="inline-flex items-center w-[11rem] max-w-full shrink-0 gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
 					>
 						<span class="w-1.5 h-1.5 rounded-full {sourceDisplay.dotColor} inline-block flex-shrink-0"></span>
-						{mergedSourceLabel}
+						<span class="truncate">{mergedSourceLabel}</span>
 					</span>
 				{/if}
 				{#if type}

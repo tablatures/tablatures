@@ -51,18 +51,23 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		const tag = (e.target as HTMLElement)?.tagName;
-		if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+		if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+		const focused = e.target as HTMLElement | null;
+		if (
+			focused?.isContentEditable ||
+			focused?.closest('input, textarea, select, [role="slider"], [role="menu"]')
+		)
+			return;
 
 		if (e.key === '/') {
 			e.preventDefault();
 			focusSearch();
 		} else if (e.key === 'g' || e.key === 'G') {
 			e.preventDefault();
-			tunerOpen.update(v => !v);
+			tunerOpen.update((v) => !v);
 		} else if (e.key === 'm' || e.key === 'M') {
 			e.preventDefault();
-			metronomeOpen.update(v => !v);
+			metronomeOpen.update((v) => !v);
 		}
 	}
 </script>
@@ -75,18 +80,25 @@
 />
 
 <header
+	data-layout-region="header"
 	class="pt-safe sticky top-0 z-[100] bg-white dark:bg-black border-b border-neutral-300 dark:border-neutral-700 transition-shadow duration-200 {scrolled
 		? 'shadow-sm'
 		: ''}"
 >
 	<!-- Taller on small screens (72px) with larger targets so fingers don't
 	     misclick the top bar; back to 56px from sm up. -->
-	<div class="flex items-center h-[4.5rem] sm:h-14 px-4 gap-1 sm:gap-3">
-		<!-- Left: logo. Equal-weight flex-1 with the right actions so the search
-		     bar between them lands in the true horizontal center of the header. -->
+	<div
+		class="header-row flex items-center h-[4.5rem] sm:h-14 px-4 gap-1 sm:gap-3"
+		class:has-search={showSearch}
+	>
+		<!-- Reserve each side's actual content width before allocating the search. -->
 		<div class="flex items-center flex-1 min-w-0">
 			<!-- Logo (always visible, including name on mobile) -->
-			<a href="{base}/" class="flex items-center gap-1 flex-shrink-0" aria-label="Home">
+			<a
+				href="{base}/"
+				class="flex items-center gap-1 flex-shrink-0 min-[360px]:pr-6"
+				aria-label="Home"
+			>
 				<img
 					src="{base}/logos/icon.svg"
 					width="28"
@@ -103,8 +115,7 @@
 			</a>
 		</div>
 
-		<!-- Center: search bar (desktop). Shrinks to fit; the equal flex-1 sides
-		     keep it centered and prevent it from ever overlapping logo/buttons. -->
+		<!-- Center: search shrinks between the intrinsic logo and action columns. -->
 		{#if showSearch}
 			<div class="hidden md:flex justify-center min-w-0 w-full max-w-2xl">
 				<SearchBar
@@ -136,7 +147,7 @@
 			     and remain reachable from the home-page buttons (g/m shortcuts on
 			     desktop unaffected). -->
 			<button
-				on:click={() => tunerOpen.update(v => !v)}
+				on:click={() => tunerOpen.update((v) => !v)}
 				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$tunerOpen
 					? 'text-violet-500 bg-violet-50 dark:bg-violet-900/30'
@@ -149,7 +160,7 @@
 			</button>
 
 			<button
-				on:click={() => metronomeOpen.update(v => !v)}
+				on:click={() => metronomeOpen.update((v) => !v)}
 				class="tap-target hidden md:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
 					{$metronomeOpen
 					? 'text-tool-600 bg-tool-50 dark:bg-tool-900/30 dark:text-tool-400'
@@ -170,7 +181,8 @@
 				title="Repertoire"
 				aria-label="Repertoire"
 			>
-				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">library_music</i>
+				<i class="material-icons-outlined !text-2xl sm:!text-xl" aria-hidden="true">library_music</i
+				>
 				<span class="hidden lg:inline">Repertoire</span>
 			</a>
 			<a
@@ -206,3 +218,15 @@
 		</div>
 	{/if}
 </header>
+
+<style>
+	@media (min-width: 768px) {
+		.header-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.header-row.has-search {
+			grid-template-columns: minmax(max-content, 1fr) minmax(0, 42rem) minmax(max-content, 1fr);
+		}
+	}
+</style>

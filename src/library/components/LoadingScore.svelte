@@ -76,7 +76,10 @@
 	}
 </script>
 
-<div class="flex flex-col items-center justify-center {config.gapClass}">
+<div
+	class="flex flex-col items-center justify-center {config.gapClass}"
+	style:width={message || messages.length ? 'min(16rem, calc(100vw - 2rem))' : undefined}
+>
 	<div
 		class="relative flex items-center justify-center"
 		style="width: {config.outer}px; height: {config.outer}px;"
@@ -108,7 +111,7 @@
 
 	{#if message || messages.length > 0}
 		<span
-			class="{config.textClass} text-neutral-500 dark:text-neutral-400 transition-opacity duration-200"
+			class="{config.textClass} w-full h-5 text-center truncate text-neutral-500 dark:text-neutral-400 transition-opacity duration-200"
 			class:opacity-0={!fadingIn}
 			class:opacity-100={fadingIn}
 		>
@@ -116,8 +119,10 @@
 		</span>
 	{/if}
 
-	{#if progress >= 0}
-		<span class="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono"
+	{#if message || messages.length > 0 || progress >= 0}
+		<span
+			class:invisible={progress < 0}
+			class="h-3.5 w-12 text-center text-[10px] text-neutral-500 dark:text-neutral-400 font-mono"
 			>{Math.round(displayProgress)}%</span
 		>
 	{/if}

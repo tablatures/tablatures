@@ -365,7 +365,7 @@
 		</a>
 	</div>
 {:else}
-	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6">
+	<div data-layout-region="playlist" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6">
 		<!-- Hero panel -->
 		<div class="lg:w-80 flex-shrink-0">
 			<div class="rounded-2xl overflow-hidden bg-gradient-to-b from-violet-500/90 to-violet-800 dark:to-violet-950 p-5 text-white lg:sticky lg:top-4">

@@ -15,7 +15,7 @@
 	import EmptyState from '$components/EmptyState.svelte';
 	import OfflineNotice from '$components/OfflineNotice.svelte';
 	import Seo from '$components/Seo.svelte';
-	import { openTabById } from '$utils/openTab';
+	import { downloadError, openTabById } from '$utils/openTab';
 	import { setQueue } from '$utils/playerStore';
 	import { favoriteArtistsStore } from '$utils/favoriteArtists';
 	import { playlistStore } from '$utils/playlists';
@@ -28,7 +28,7 @@
 	import { inViewport } from '$utils/inViewport';
 	import { safeImageUrl, enrichArtistImage } from '$utils/artistImage';
 	import { cacheArtistImage, getCachedArtistObjectUrl } from '$utils/artworkCache';
-	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isFromCache, isOfflineErrorLike } from '../../../library/data/cachedFetch';
+	import { cachedFetch, TTL_SEARCH, TTL_METADATA, isOfflineResponse, isOfflineErrorLike } from '../../../library/data/cachedFetch';
 
 	const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 
@@ -73,6 +73,7 @@
 	let loading = true;
 	let notFound = false;
 	let offline = false;
+	let requestError = '';
 	let info: ArtistInfo | null = null;
 	let topTabs: TabItem[] = [];
 	let similarArtists: Array<{ name: string; image: string | null; genre: string | null; tabCount: number }> = [];
@@ -180,6 +181,7 @@
 		loading = true;
 		notFound = false;
 		offline = false;
+		requestError = '';
 		info = null;
 		topTabs = [];
 		similarArtists = [];
@@ -196,12 +198,12 @@
 				forceRefresh: force
 			});
 			if (!resp.ok) {
-				notFound = true;
+				if (resp.status === 404) notFound = true;
+				else requestError = downloadError(resp.status);
 				return;
 			}
-			// A cached fallback means we couldn't reach the network — still show
-			// the artist but flag offline so the notice appears below.
-			offline = isFromCache(resp);
+			// A cached HTTP error response does not imply an offline connection.
+			offline = isOfflineResponse(resp);
 			const data = await resp.json();
 			info = data.artist;
 			topTabs = data.topTabs || [];
@@ -222,7 +224,7 @@
 			// Offline with no cached copy: show the offline state (with retry),
 			// not the "artist not found" state.
 			if (isOfflineErrorLike(err)) offline = true;
-			else notFound = true;
+			else requestError = 'Unable to load this artist. Please try again.';
 		} finally {
 			loading = false;
 		}
@@ -538,8 +540,8 @@
 <PullToRefresh on:refresh={handlePullRefresh}>
 {#if loading}
 	<!-- Banner skeleton -->
-	<div class="w-full h-40 sm:h-56 lg:h-64 bg-gradient-to-br from-violet-100 via-neutral-100 to-white dark:from-violet-900/30 dark:via-neutral-900 dark:to-black animate-pulse"></div>
-	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 -mt-12">
+	<div class="w-full h-40 sm:h-56 lg:h-72 bg-gradient-to-br from-violet-100 via-neutral-100 to-white dark:from-violet-900/30 dark:via-neutral-900 dark:to-black animate-pulse"></div>
+	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 -mt-12 sm:-mt-16">
 		<div class="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-neutral-200 dark:bg-neutral-800 animate-pulse border-4 border-white dark:border-black"></div>
 	</div>
 {:else if offline && !info}
@@ -551,6 +553,8 @@
 		description={`Reconnect to load ${artistName}.`}
 		onRetry={handlePullRefresh}
 	/>
+{:else if requestError && !info}
+	<EmptyState icon="error_outline" title={requestError} onRetry={handlePullRefresh} />
 {:else if notFound}
 	<div class="flex flex-col items-center justify-center py-24">
 		<i class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">person_off</i>
@@ -580,7 +584,7 @@
 	</div>
 
 	<!-- ================= Profile header ================= -->
-	<div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+	<div data-layout-region="artist-profile" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
 		<div class="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12 sm:-mt-16 relative z-10">
 			<!-- Avatar -->
 			<div
@@ -604,13 +608,13 @@
 				     the banner), so it must always use adaptive neutrals — white
 				     there is white-on-white in light mode. -->
 				<h1 class="text-2xl sm:text-4xl font-bold truncate text-neutral-900 dark:text-white sm:text-white sm:[text-shadow:0_1px_8px_rgba(0,0,0,0.8)]">{info.name}</h1>
-				<div class="flex items-center gap-2 mt-1 text-sm flex-wrap text-neutral-600 dark:text-neutral-400">
+				<div class="flex items-center gap-2 mt-1 h-5 text-sm overflow-hidden whitespace-nowrap text-neutral-600 dark:text-neutral-400">
 					{#if info.country}<span>{info.country}</span><span>·</span>{/if}
-					<span>{headerTabCount} tabs</span>
+					<span class="inline-block w-[10ch] shrink-0 tabular-nums">{#key headerTabCount}<span>{headerTabCount} tabs</span>{/key}</span>
 					{#if info.popularity > 0}<span>·</span><span>{fmtCount(info.popularity)} fans</span>{/if}
 					{#if info.downloadCount > 0}<span>·</span><span>{fmtCount(info.downloadCount)} plays</span>{/if}
 				</div>
-				<div class="flex items-center gap-1.5 mt-2 flex-wrap">
+				<div class="flex items-center gap-1.5 mt-2 h-6 overflow-hidden">
 					{#if info.genre}
 						<TagPill label={info.genre} variant="primary" />
 					{/if}

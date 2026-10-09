@@ -265,7 +265,7 @@
 		     button is flush-right and full-height so it reads as an obvious
 		     "submit"; the loading spinner replaces the glyph in-place while a
 		     request is in flight so the row never reflows. -->
-		<div class="absolute right-0 top-0 bottom-0 flex items-stretch">
+		<div class="absolute right-0 top-0 bottom-0 w-[76px] flex items-stretch justify-end">
 			{#if value.length > 0 && !loading && !openingResult}
 				<button
 					type="button"

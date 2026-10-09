@@ -7,6 +7,8 @@ export interface PlayerState {
 	title: string;
 	artist: string;
 	scoreLoaded: boolean;
+	/** The first layout of the current score has reached the rendering surface. */
+	scoreRendered: boolean;
 	soundFontLoaded: boolean;
 	soundFontProgress: number;
 	currentBar: number;
@@ -15,6 +17,10 @@ export interface PlayerState {
 	activeTrackIndex: number;
 	isRendering: boolean;
 	videoWasPlaying: boolean;
+	loop: { startBar: number | null; endBar: number | null; enabled: boolean } | null;
+	scoreKey: string | null;
+	masterVolume: number;
+	speed: number;
 }
 
 const DEFAULT_STATE: PlayerState = {
@@ -24,6 +30,7 @@ const DEFAULT_STATE: PlayerState = {
 	title: '',
 	artist: '',
 	scoreLoaded: false,
+	scoreRendered: false,
 	soundFontLoaded: false,
 	soundFontProgress: 0,
 	currentBar: 0,
@@ -31,7 +38,11 @@ const DEFAULT_STATE: PlayerState = {
 	tracks: [],
 	activeTrackIndex: 0,
 	isRendering: false,
-	videoWasPlaying: false
+	videoWasPlaying: false,
+	loop: null,
+	scoreKey: null,
+	masterVolume: 1,
+	speed: 1
 };
 
 // The alphaTab API instance (not serializable, just a reference)
@@ -127,7 +138,7 @@ export function resetPlayerState() {
 	// Preserve soundfont state: the soundfont belongs to the persistent API,
 	// not the current tab. Resetting it causes a permanent desync because
 	// the soundFontLoaded event won't fire again for an already-loaded font.
-	playerState.update(s => ({
+	playerState.update((s) => ({
 		...DEFAULT_STATE,
 		soundFontLoaded: s.soundFontLoaded,
 		soundFontProgress: s.soundFontProgress
@@ -148,13 +159,20 @@ export const audioSource = writable<'tab' | 'video' | 'both'>('tab');
 // Video sync offset (seconds), shared between TabViewer and MiniPlayer
 export const videoSyncOffset = writable<number>(0);
 
+// The layout installs the session adapter; full-view seeks call this same path.
+let videoSeek: ((engineMs: number) => void) | null = null;
+export function registerVideoSeek(handler: ((engineMs: number) => void) | null) {
+	videoSeek = handler;
+}
+export function seekSessionVideo(engineMs: number) {
+	videoSeek?.(engineMs);
+}
+
 // Flag to skip smooth-scroll during DOM reparenting transitions
 export const isTransitioning = writable<boolean>(false);
 
-/** Slot for component-level YouTube event handlers. The central VideoPlayer
- *  lives in +layout.svelte so the iframe survives route changes, but TabViewer
- *  still owns the tab↔video sync logic. TabViewer fills these on mount and
- *  clears them on destroy. */
+/** The persistent layout installs its session's media handlers here, so video
+ * transport and synchronization survive full/mini route transitions. */
 export const videoHandlers = writable<{
 	onStateChange?: (state: number) => void;
 	onReady?: () => void;
@@ -240,7 +258,12 @@ export function setQueue(
 	label: string | null = null,
 	href: string | null = null
 ) {
-	queueStore.set({ items, index: Math.max(0, Math.min(startIndex, items.length - 1)), label, href });
+	queueStore.set({
+		items,
+		index: Math.max(0, Math.min(startIndex, items.length - 1)),
+		label,
+		href
+	});
 }
 
 export function clearQueue() {

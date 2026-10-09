@@ -45,7 +45,9 @@ test.describe('desktop mini player sizing', () => {
 		await page.waitForTimeout(1000);
 
 		// Client-side nav off /play so the mini player + preview appear.
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await page.getByRole('link', { name: 'Settings' }).first().click();
+		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 		await page.waitForTimeout(900);
 
 		// Preview panel: raised from 340x220 to 440x290 on desktop.
@@ -86,12 +88,16 @@ test.describe('mini player close / hide controls', () => {
 		await waitForScoreLoaded(page);
 		await page.waitForTimeout(800);
 
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await page.getByRole('link', { name: 'Settings' }).first().click();
+		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 		await page.waitForTimeout(700);
 
 		// The redundant collapse/minimize button is gone from the bar entirely.
 		await expect(page.getByRole('button', { name: 'Minimize preview' })).toHaveCount(0);
-		expect(await page.locator('.fixed.bottom-0.z-\\[80\\] i', { hasText: 'close_fullscreen' }).count()).toBe(0);
+		expect(
+			await page.locator('.fixed.bottom-0.z-\\[80\\] i', { hasText: 'close_fullscreen' }).count()
+		).toBe(0);
 
 		const close = page.getByRole('button', { name: 'Close player' }).last();
 		await expect(close).toBeVisible();
@@ -126,7 +132,9 @@ test.describe('mini player close / hide controls', () => {
 		await waitForScoreLoaded(page);
 		await page.waitForTimeout(800);
 
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await page.getByRole('link', { name: 'Settings' }).first().click();
+		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 		await page.waitForTimeout(700);
 
 		await expect(page.locator('.player-host-mini')).toBeVisible();

@@ -41,7 +41,12 @@ export class OfflineError extends Error {
 	}
 }
 
-/** True when a Response was served from the on-device cache (see `x-from-cache`). */
+/** True only when a cached fallback followed an unreachable network. */
+export function isOfflineResponse(res: Response): boolean {
+	return res.headers.get('x-cache-fallback') === 'network';
+}
+
+/** True when a Response was served from the on-device cache. */
 export function isFromCache(res: Response): boolean {
 	return res.headers.get('x-from-cache') === '1';
 }
@@ -116,11 +121,19 @@ export async function cachedFetchWith(
 	const cacheable = isGet(opts.init);
 	const force = opts.forceRefresh === true;
 
-	async function serveFromCache(): Promise<Response | null> {
+	async function serveFromCache(
+		reason: 'network' | 'http',
+		status?: number
+	): Promise<Response | null> {
 		if (!cacheable || force) return null;
 		try {
 			const hit = await deps.cache.get(url);
-			if (hit) return toResponse(hit.body, hit.contentType, true);
+			if (hit) {
+				const response = toResponse(hit.body, hit.contentType, true);
+				response.headers.set('x-cache-fallback', reason);
+				if (status) response.headers.set('x-original-status', String(status));
+				return response;
+			}
 		} catch {
 			/* cache miss / unavailable */
 		}
@@ -143,11 +156,11 @@ export async function cachedFetchWith(
 		}
 		// Non-ok (5xx/4xx): prefer a good cached copy, else surface the real one.
 		// A forced refresh skips the cache and returns the real response.
-		return (await serveFromCache()) ?? res;
+		return (await serveFromCache('http', res.status)) ?? res;
 	} catch (err) {
 		// Network failure (offline): the cache is our only hope — unless the
 		// caller forced a refresh (bypass cache), in which case surface offline.
-		const cached = await serveFromCache();
+		const cached = await serveFromCache('network');
 		if (cached) return cached;
 		throw new OfflineError(url, err);
 	}

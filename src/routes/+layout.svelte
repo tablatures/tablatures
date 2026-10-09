@@ -1,13 +1,30 @@
 <script lang="ts">
+	import { timingForApi, engineToScoreMs } from '$utils/playerTiming';
 	import '$styles/app.css';
 	import 'material-icons/iconfont/material-icons.css';
 	import 'material-icons/iconfont/outlined.css';
-	import '@fontsource/ibm-plex-sans/400.css';
-	import '@fontsource/ibm-plex-sans/500.css';
-	import '@fontsource/ibm-plex-sans/600.css';
-	import '@fontsource/ibm-plex-sans/700.css';
+	import '$styles/fonts.css';
+	import textFont400 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2?url';
+	import textFont500 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2?url';
+	import textFont600 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2?url';
+	import textFont700 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2?url';
 
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { observeLayoutStability } from '$utils/layoutStability';
+	onMount(observeLayoutStability);
+	onMount(() => {
+		for (const [face, className] of [
+			['Material Icons', 'material-icons-loaded'],
+			['Material Icons Outlined', 'material-icons-outlined-loaded']
+		]) {
+			document.fonts.load(`24px "${face}"`).then((fonts) => {
+				if (fonts.length) document.documentElement.classList.add(className);
+			}).catch(() => {});
+		}
+	});
+	import { createVideoSession } from '$utils/videoSession';
+	import { createPlayerCursor } from '$utils/playerCursor';
+	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -15,8 +32,11 @@
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { toastStore } from '../library/utils/toast';
-	import { tabStore } from '../library/utils/store';
-	import { validateFile, fileToBase64 } from '../library/utils/upload';
+	import { scoreMetadata, tabStore, pendingTabStore } from '../library/utils/store';
+	import { validateFile } from '../library/utils/upload';
+	import { historyStore } from '../library/utils/history';
+	import { persistTabBytes } from '../library/data/tabBytes';
+	import { openTabFile } from '../library/utils/openTab';
 	import {
 		playerApi,
 		playerTarget,
@@ -31,7 +51,9 @@
 		audioSource,
 		beatCursorEl,
 		videoHandlers,
+		registerVideoSeek,
 		videoSyncOffset,
+		playerBarHeight,
 		playSheetOpen
 	} from '../library/utils/playerStore';
 	import { preferencesStore } from '../library/utils/preferences';
@@ -41,6 +63,7 @@
 	import { base64ToArrayBuffer } from '../library/utils/utils';
 	import { configureImporterEncoding } from '../library/utils/lyrics';
 	import MiniPlayer from '../library/components/MiniPlayer.svelte';
+	import ResumePlaybackButton from '../library/components/ResumePlaybackButton.svelte';
 	import VideoPlayer from '../library/components/VideoPlayer.svelte';
 	import GuitarTuner from '../library/components/GuitarTuner.svelte';
 	import Metronome from '../library/components/Metronome.svelte';
@@ -71,6 +94,21 @@
 	$: currentTab = $tabStore;
 	$: isOnPlay = $page.url.pathname.includes('/play');
 
+	let videoSession: ReturnType<typeof createVideoSession> | null = null;
+	$: if (browser && videoSession) {
+		($videoPlayerRef,
+			$audioSource,
+			$videoSyncOffset,
+			$playerState.masterVolume,
+			$playerState.speed);
+		videoSession.syncSettings();
+	}
+	onDestroy(() => {
+		videoSession?.dispose();
+		registerVideoSeek(null);
+		videoHandlers.set({});
+	});
+
 	// Centralized URL ↔ store sync.
 	// On first mount: read URL into stores so /play's initial render sees the URL's track etc.
 	// After that: whenever the relevant stores change, mirror them back to the URL.
@@ -87,58 +125,26 @@
 		urlHydrated = true;
 	});
 	$: if (urlHydrated && browser) {
-		($tabStore, $activeVideoId, $playerState.activeTrackIndex);
+		($tabStore, $pendingTabStore, $activeVideoId, $playerState.activeTrackIndex);
 		syncStableUrlFromState();
 	}
 	$: if (urlHydrated && browser) {
 		$playerState.progress;
 		syncPlaybackTime();
 	}
-	$: showMiniPlayer = !!currentTab?.fileAsB64 && !isOnPlay;
+	$: hasCatalogueSession = !!currentTab?.fileAsB64 && !isOnPlay;
+	$: showMiniPlayer = hasCatalogueSession && $playerState.playing;
 
-	let miniPreviewVisible = get(preferencesStore).showMiniPlayerPreview;
+	let miniPreviewVisible = false;
+	// A preview is an explicit choice for the current playback outside the full view.
+	$: if (!showMiniPlayer) miniPreviewVisible = false;
 	let miniHovered = false;
 	$: playerHostClass =
 		!isOnPlay && showMiniPlayer && miniPreviewVisible ? 'player-host-mini' : 'player-host-hidden';
 
-	// --- Mini-mode video overlay controls ---
-	// TabViewer owns audio-source application when mounted (big player view).
-	// When not on /play we need to replicate it here so the mini-mode overlay
-	// buttons (audio toggle, sync offset) behave the same.
-	let miniVolumeBeforeMute = 1;
-	function applyAudioSourceMini(source: 'tab' | 'video' | 'both') {
-		const api = get(playerApi);
-		const yt = get(videoPlayerRef);
-		if (source === 'video') {
-			if (api) {
-				if ((api.masterVolume ?? 0) > 0) miniVolumeBeforeMute = api.masterVolume;
-				api.masterVolume = 0;
-			}
-			if (yt)
-				try {
-					yt.unMute();
-					yt.setVolume(100);
-				} catch {}
-		} else if (source === 'both') {
-			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt)
-				try {
-					yt.unMute();
-					yt.setVolume(100);
-				} catch {}
-		} else {
-			if (api) api.masterVolume = miniVolumeBeforeMute;
-			if (yt)
-				try {
-					yt.mute();
-				} catch {}
-		}
-	}
+	// Mini and full controls share the persistent session audio contract.
 	function toggleAudioSourceMini() {
 		audioSource.update((s) => (s === 'tab' ? 'video' : s === 'video' ? 'both' : 'tab'));
-	}
-	$: if (browser && !$isFullPlayerView && $activeVideoId) {
-		applyAudioSourceMini($audioSource);
 	}
 
 	function persistVideoOffset() {
@@ -165,7 +171,7 @@
 		if (!yt || st.duration <= 0) return;
 		try {
 			const videoTime = yt.getCurrentTime?.() || 0;
-			const tabTimeSec = (st.progress / 100) * (st.duration / 1000);
+			const tabTimeSec = engineToScoreMs((st.progress / 100) * st.duration, st.speed) / 1000;
 			videoSyncOffset.set(Math.round((videoTime - tabTimeSec) * 10) / 10);
 			persistVideoOffset();
 		} catch {}
@@ -182,7 +188,7 @@
 		const api = get(playerApi);
 		if (api)
 			try {
-				api.masterVolume = miniVolumeBeforeMute || 1;
+				api.masterVolume = get(playerState).masterVolume;
 			} catch {}
 		activeVideoId.set(null);
 		// Drop hover state so the tab-preview close button (revealed when the
@@ -233,13 +239,7 @@
 			return;
 		}
 
-		try {
-			const fileAsB64 = await fileToBase64(file);
-			tabStore.setTab({ fileAsB64, fileName: file.name, source: 'upload' });
-			goto(base + '/play');
-		} catch {
-			toastStore.error('Failed to read the file.');
-		}
+		await openTabFile(file);
 	}
 
 	// --- Persistent alphaTab API management ---
@@ -308,15 +308,31 @@
 			}
 		});
 
+		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
+
+		videoSession = createVideoSession(api, {
+			video: () => get(videoPlayerRef),
+			offset: () => get(videoSyncOffset),
+			playing: () => get(playerState).playing,
+			loop: () => get(playerState).loop,
+			volume: () => get(playerState).masterVolume,
+			source: () => get(audioSource)
+		});
+		registerVideoSeek(videoSession.seek);
+		videoHandlers.set({ onStateChange: videoSession.onVideoState, onReady: videoSession.onReady });
+
 		// Basic event listeners for store sync
 		api.playerStateChanged.on((args) => {
+			if (!get(tabStore)?.fileAsB64) return;
 			updatePlayerState({ playing: args.state !== 0 });
 		});
 
 		api.playerPositionChanged.on((e) => {
+			if (!get(tabStore)?.fileAsB64 || !get(playerState).scoreLoaded) return;
 			updatePlayerState({
 				progress: 100 * (e.currentTime / e.endTime) || 0,
-				duration: e.endTime
+				duration: e.endTime,
+				currentBar: timingForApi(api)?.barAt(e.currentTick) ?? 0
 			});
 
 			// In mini player mode, always scroll to follow the cursor (skip during transitions)
@@ -342,19 +358,45 @@
 		});
 
 		api.scoreLoaded.on((score) => {
-			// Don't clobber existing metadata with a blank when the loaded file has
-			// no embedded title/artist (common for Songsterr/GP exports). Fall back
-			// to the tab store (set from catalog metadata on open) and then to the
-			// current state so tuning changes and variant switches keep the label.
 			const tab = get(tabStore);
-			const prev = get(playerState);
+			if (!tab?.fileAsB64 || tab.fileAsB64 !== get(loadedTabB64)) return;
+			const metadata = scoreMetadata(score, tab);
+			tabStore.updateSettings(metadata);
 			updatePlayerState({
-				title: score.title || tab?.title || prev.title || '',
-				artist: score.artist || tab?.artist || prev.artist || '',
+				...metadata,
 				scoreLoaded: true,
+				scoreRendered: false,
 				tracks: score.tracks,
+				scoreKey: get(loadedTabB64),
 				isRendering: false
 			});
+
+			// Record only a successfully parsed score, with its resolved metadata.
+			// Keeping the byte cache and Continue card here also avoids persisting
+			// invalid downloads or an empty title from a shared URL.
+			if (tab.tabId) {
+				const previous = get(historyStore).find((item) => item.id === tab.tabId);
+				historyStore.addToHistory({
+					...previous,
+					id: tab.tabId,
+					...metadata,
+					source: tab.source || previous?.source || '',
+					album: tab.album || previous?.album,
+					type: tab.type || previous?.type
+				});
+				void persistTabBytes(
+					{
+						id: tab.tabId,
+						...metadata,
+						source: tab.source || previous?.source,
+						sourceUrl: tab.sourceUrl,
+						album: tab.album || previous?.album,
+						type: tab.type || previous?.type
+					},
+					new Uint8Array(base64ToArrayBuffer(tab.fileAsB64)),
+					'history'
+				);
+			}
 
 			// Compute total bars
 			if (score.tracks?.length > 0) {
@@ -389,8 +431,9 @@
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) {
 				const buffer = base64ToArrayBuffer(tab.fileAsB64);
 				configureImporterEncoding(api, buffer);
-				api.load(buffer);
 				loadedTabB64.set(tab.fileAsB64);
+				api.isLooping = false;
+				api.load(buffer);
 				resetScoreEdits(tab.fileAsB64);
 			}
 			// Resume playback if it was active before the soundfont change
@@ -413,8 +456,24 @@
 			beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
 		});
 
+		api.postRenderFinished?.on(() => {
+			// Parsing completes before the renderer has laid out the score. Keep
+			// its placeholder until the surface is ready, including on route return.
+			if (api.score) updatePlayerState({ scoreRendered: true });
+		});
+
 		api.error?.on((error) => {
 			console.error('AlphaTab error:', error);
+			const tab = get(tabStore);
+			if (tab?.fileAsB64 && !get(playerState).scoreLoaded) {
+				const token = tabStore.beginLoad({
+					id: tab.tabId,
+					title: tab.title || tab.fileName,
+					artist: tab.artist,
+					source: tab.source
+				});
+				tabStore.failLoad(token, 'This tab could not be read. Try another file or version.');
+			}
 		});
 
 		playerApi.set(api);
@@ -532,15 +591,18 @@
 				} catch {}
 				updatePlayerState({
 					scoreLoaded: false,
+					scoreRendered: false,
 					isRendering: true,
 					playing: false,
 					progress: 0,
-					currentBar: 0
+					currentBar: 0,
+					loop: null
 				});
 				const buffer = base64ToArrayBuffer(currentTab.fileAsB64);
 				configureImporterEncoding(api, buffer);
-				api.load(buffer);
 				loadedTabB64.set(currentTab.fileAsB64);
+				api.isLooping = false;
+				api.load(buffer);
 				resetScoreEdits(currentTab.fileAsB64);
 			}
 		}
@@ -561,17 +623,6 @@
 		resetPlayerState();
 		loadedTabB64.set(null);
 		resetScoreEdits(null);
-	}
-
-	// Sync miniPreviewVisible with the showMiniPlayerPreview preference
-	$: if (browser) {
-		const prefs = get(preferencesStore);
-		miniPreviewVisible = prefs.showMiniPlayerPreview;
-	}
-
-	// When miniPreviewVisible changes, persist back to preferences
-	$: if (browser && miniPreviewVisible !== undefined) {
-		preferencesStore.update((p) => ({ ...p, showMiniPlayerPreview: miniPreviewVisible }));
 	}
 
 	// When a video becomes active, default to playing the YouTube audio
@@ -596,11 +647,7 @@
 	// silent switch), otherwise auto. Feature-guarded.
 	$: if (browser) {
 		setAudioSessionType(
-			$tunerOpen
-				? 'play-and-record'
-				: $playerState.playing || $metronomeOpen
-					? 'playback'
-					: 'auto'
+			$tunerOpen ? 'play-and-record' : $playerState.playing || $metronomeOpen ? 'playback' : 'auto'
 		);
 	}
 
@@ -801,6 +848,11 @@
 />
 
 <svelte:head>
+	<link rel="preload" href={textFont400} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont500} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont600} as="font" type="font/woff2" crossorigin="anonymous" />
+	<link rel="preload" href={textFont700} as="font" type="font/woff2" crossorigin="anonymous" />
+
 	<title>Tablatures</title>
 
 	<script>
@@ -815,7 +867,9 @@
 	</script>
 </svelte:head>
 
-<body
+<div
+	use:playerViewport={isOnPlay}
+	class:play-main={isOnPlay}
 	class="bg-white text-dark dark:bg-black dark:text-light selection:bg-violet-500 selection:text-white"
 >
 	<a
@@ -869,10 +923,11 @@
 		{#if $activeVideoId}
 			<div
 				class={$isFullPlayerView
-					? 'big-player-video-frame fixed bottom-[156px] right-4 z-[10] w-[340px] h-[220px] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
+					? 'big-player-video-frame floating-video-box z-[10] rounded-xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-700 bg-black'
 					: showMiniPlayer && miniPreviewVisible
 						? 'mini-player-overlay pointer-events-auto overflow-hidden rounded-xl'
 						: 'fixed -left-[9999px] top-0 w-[340px] h-[220px] opacity-0 pointer-events-none'}
+				style="--video-bar-inset: {$playerBarHeight}px"
 			>
 				<VideoPlayer
 					videoId={$activeVideoId}
@@ -902,8 +957,8 @@
 										? 'Both tab + video audio — click for tab only'
 										: 'Tab audio only — click for video'}
 							>
-								<i class="material-icons !text-lg"
-									 aria-hidden="true">{$audioSource === 'video'
+								<i class="material-icons !text-lg" aria-hidden="true"
+									>{$audioSource === 'video'
 										? 'videocam'
 										: $audioSource === 'both'
 											? 'headphones'
@@ -1062,7 +1117,8 @@
 	     matches the one app.css and the preview host already use. -->
 	<main
 		id="main-content"
-		class="animate-fade-in min-h-dvh {showMiniPlayer
+		data-layout-region="app"
+		class="{isOnPlay ? '' : 'animate-fade-in min-h-dvh'} {showMiniPlayer
 			? miniPreviewVisible
 				? 'pb-[calc(var(--mini-bar-height,76px)+min(50dvh,270px))] sm:pb-[var(--mini-bar-height,76px)]'
 				: 'pb-[var(--mini-bar-height,76px)]'
@@ -1077,6 +1133,8 @@
 			showPreview={miniPreviewVisible}
 			on:togglePreview={() => (miniPreviewVisible = !miniPreviewVisible)}
 		/>
+	{:else if hasCatalogueSession}
+		<ResumePlaybackButton />
 	{/if}
 
 	<!-- Toast notifications -->
@@ -1103,9 +1161,17 @@
 			{/each}
 		</div>
 	{/if}
-</body>
+</div>
 
 <style>
+	.play-main {
+		position: fixed;
+		inset-inline: 0;
+		top: var(--play-viewport-top, 0px);
+		height: var(--play-viewport-height, 100dvh);
+		overflow: hidden;
+	}
+
 	/* Persistent player host positioning */
 	.player-host-hidden {
 		position: fixed;
@@ -1149,12 +1215,33 @@
 		align-items: center;
 	}
 
-	/* Big-mode video frame — same treatment so 340x200 container has black
-	   letterbox bars top/bottom when the iframe is shorter than the box. */
-	:global(.big-player-video-frame) {
-		display: flex !important;
-		justify-content: center !important;
-		align-items: center !important;
+	/* The persistent iframe and full-view controls use the same viewport box.
+	   Fit a 16:9 video between the header and the measured transport, including
+	   short landscape windows. No independent offsets or iframe pixel sizes. */
+	:global(.floating-video-box) {
+		position: fixed;
+		right: max(16px, env(safe-area-inset-right));
+		bottom: calc(var(--play-viewport-bottom, 0px) + var(--video-bar-inset) + 8px);
+		width: min(
+			340px,
+			calc(100vw - 32px),
+			calc((var(--play-viewport-height, 100dvh) - 56px - var(--video-bar-inset) - 16px) * 16 / 9)
+		);
+		aspect-ratio: 16 / 9;
+		container-type: inline-size;
+	}
+
+	:global(.big-player-video-frame > div),
+	:global(.big-player-video-frame iframe) {
+		display: block;
+		width: 100% !important;
+		height: 100% !important;
+	}
+
+	@container (max-width: 240px) {
+		:global(.video-source-label) {
+			display: none;
+		}
 	}
 
 	@media (max-width: 480px) {
@@ -1180,31 +1267,6 @@
 		.mini-player-overlay > div,
 		.mini-player-overlay iframe {
 			width: 100% !important;
-		}
-		/* Same treatment in the big (on /play) video frame + TabViewer's
-		   overlay-buttons wrapper so they line up and span the viewport. */
-		:global(.big-player-video-frame),
-		:global(.big-player-video-overlay) {
-			left: 0 !important;
-			right: 0 !important;
-			width: 100% !important;
-			border-radius: 0 !important;
-		}
-		/* Flex-center is a safety net: if YouTube's iframe keeps its own
-		   fixed width despite our width:100%, it's at least horizontally
-		   centered inside the full-width frame. */
-		:global(.big-player-video-frame) {
-			display: flex !important;
-			justify-content: center !important;
-			align-items: center !important;
-		}
-		:global(.big-player-video-frame) > div,
-		:global(.big-player-video-frame) iframe {
-			display: block !important;
-			width: 100% !important;
-			max-width: 100% !important;
-			margin-left: auto !important;
-			margin-right: auto !important;
 		}
 	}
 </style>

@@ -156,7 +156,7 @@
 
 	<!-- Title (still part of the play button) -->
 	<div class="pt-2 px-0.5 w-full min-w-0">
-		<p class="text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+		<p class="tab-card-title text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
 			{title}
 		</p>
 	</div>
@@ -165,7 +165,7 @@
 	<!-- Artist: its own link, OUTSIDE the play button -->
 	<a
 		href="{base}/artist/{encodeURIComponent(artist)}"
-		class="mt-0.5 pb-1 px-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors self-start max-w-full"
+		class="tab-card-artist mt-0.5 mb-1 px-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors self-start max-w-full"
 		title="View artist {artist}"
 	>
 		{artist}

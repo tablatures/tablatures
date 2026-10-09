@@ -1,0 +1,38 @@
+{
+	"search": {
+		"before": {
+			"initialY": 123,
+			"finalY": 286.75,
+			"verticalMovement": 163.75
+		},
+		"after": {
+			"initialY": 307,
+			"finalY": 307,
+			"verticalMovement": 0
+		}
+	},
+	"home": {
+		"before": {
+			"initialY": 969,
+			"finalY": 581,
+			"verticalMovement": -388
+		},
+		"after": {
+			"initialY": 393,
+			"finalY": 393,
+			"verticalMovement": 0
+		}
+	},
+	"artist": {
+		"before": {
+			"initialY": 265,
+			"finalY": 281,
+			"verticalMovement": 16
+		},
+		"after": {
+			"initialY": 281,
+			"finalY": 281,
+			"verticalMovement": 0
+		}
+	}
+}

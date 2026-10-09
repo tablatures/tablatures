@@ -99,7 +99,7 @@ type ActionReturn<P> = { update?: (params: P) => void; destroy?: () => void };
 type MaybeHaptic = (() => void) | undefined;
 
 // ---------------------------------------------------------------------------
-// pinchZoom — two-finger pinch on the score + double-tap reset
+// pinchZoom — two-finger score zoom that leaves one-finger scrolling native
 // ---------------------------------------------------------------------------
 
 export interface PinchZoomParams {
@@ -107,8 +107,8 @@ export interface PinchZoomParams {
 	getScale: () => number;
 	/** Apply a new (already-clamped) scale. */
 	setScale: (scale: number) => void;
-	/** Called on double-tap to reset the zoom. */
-	onReset?: () => void;
+	onStart?: (origin: [number, number]) => void;
+	onEnd?: () => void;
 	min?: number;
 	max?: number;
 	haptic?: MaybeHaptic;
@@ -120,44 +120,31 @@ export function pinchZoom(
 	params: PinchZoomParams
 ): ActionReturn<PinchZoomParams> {
 	let p = params;
-	let lastTap = 0;
-	let lastTapX = 0;
-	let lastTapY = 0;
 
 	const gesture = new PinchGesture(
 		node,
 		(state) => {
 			if (p.enabled === false) return;
-			if (state.first) p.haptic?.();
+			if (state.first) {
+				p.onStart?.(state.origin);
+				p.haptic?.();
+			}
 			const next = clampScale(state.offset[0], p.min ?? SCALE_MIN, p.max ?? SCALE_MAX);
-			p.setScale(next);
+			if (next !== p.getScale()) p.setScale(next);
+			if (state.last) p.onEnd?.();
 		},
 		{
 			scaleBounds: { min: p.min ?? SCALE_MIN, max: p.max ?? SCALE_MAX },
-			rubberband: true,
+			rubberband: false,
 			pinchOnWheel: false,
+			// Pointer capture competes with native panning on iOS. The touch path
+			// starts only with two fingers, so single-finger scrolls stay untouched.
+			pointer: { touch: true },
+			preventDefault: true,
 			from: () => [p.getScale(), 0],
 			eventOptions: { passive: false }
 		}
 	);
-
-	// Double-tap to reset. Uses raw pointer taps so it coexists with the
-	// score's single-tap (alphaTab beat) and long-press handlers.
-	function onPointerUp(e: PointerEvent) {
-		if (p.enabled === false || !p.onReset) return;
-		const now = e.timeStamp || Date.now();
-		const near = Math.abs(e.clientX - lastTapX) < 24 && Math.abs(e.clientY - lastTapY) < 24;
-		if (isDoubleTap(lastTap, now) && near) {
-			p.haptic?.();
-			p.onReset();
-			lastTap = 0;
-			return;
-		}
-		lastTap = now;
-		lastTapX = e.clientX;
-		lastTapY = e.clientY;
-	}
-	node.addEventListener('pointerup', onPointerUp);
 
 	return {
 		update(next: PinchZoomParams) {
@@ -165,7 +152,6 @@ export function pinchZoom(
 		},
 		destroy() {
 			gesture.destroy();
-			node.removeEventListener('pointerup', onPointerUp);
 		}
 	};
 }

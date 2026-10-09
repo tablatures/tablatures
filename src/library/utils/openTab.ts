@@ -1,13 +1,14 @@
 import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
-import { tabStore, pendingTabStore, type TabVersion } from './store';
-import { historyStore } from './history';
-import { sourceVariants, updatePlayerState, clearQueue } from './playerStore';
+import { tabStore, type TabVersion } from './store';
+import { sourceVariants, clearQueue } from './playerStore';
 import { toastStore } from './toast';
 import { arrayBufferToBase64 } from './utils';
 import { decodeTabFromUrl } from './shareTab';
-import { loadStoredTabBytes, persistTabBytes } from '../data/tabBytes';
+import { loadStoredTabBytes } from '../data/tabBytes';
+import { fileToBase64 } from './upload';
 
 const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
@@ -23,28 +24,37 @@ export async function openTabFromHash(
 	navigate: boolean = true
 ): Promise<boolean> {
 	if (!browser) return false;
+	const current = get(tabStore);
+	if (current?.fileAsB64 && current.hashPayload === hashPayload) {
+		if (navigate) void goto(`${base}/play`);
+		return true;
+	}
+	const token = tabStore.beginLoad(meta);
+	sourceVariants.set([]);
+	if (navigate) void goto(`${base}/play`);
 	try {
 		const buf = await decodeTabFromUrl(hashPayload);
 		if (!buf) throw new Error('Share link data is invalid.');
 		const b64 = arrayBufferToBase64(buf);
-		tabStore.setTab({
+		const applied = tabStore.commitLoad(token, {
+			hashPayload,
 			fileAsB64: b64,
 			source: meta.source || 'upload',
 			title: meta.title,
 			artist: meta.artist
 		});
-		sourceVariants.set([]);
-		if (navigate) goto(`${base}/play`);
-		return true;
+		return applied;
 	} catch (err: any) {
-		toastStore.error(err?.message || 'Failed to open imported tab');
+		const message = err?.message || 'Failed to open imported tab';
+		if (tabStore.failLoad(token, message)) toastStore.error(message);
 		return false;
 	}
 }
 
 /**
  * Download and open a tab by its ID.
- * Adds to history, sets the tab store, and optionally navigates to /play.
+ * Sets the requested bytes and optionally navigates to /play. The layout
+ * records history and offline bytes only after alphaTab accepts the score.
  */
 export async function openTabById(
 	tab: {
@@ -75,80 +85,54 @@ export async function openTabById(
 	// Prefer the embedded hash payload for file-imported history entries;
 	// they have no catalog record to download from.
 	if (tab.hashPayload) {
-		return openTabFromHash(tab.hashPayload, { title: tab.title, artist: tab.artist, source: tab.source }, navigate);
+		return openTabFromHash(
+			tab.hashPayload,
+			{ title: tab.title, artist: tab.artist, source: tab.source },
+			navigate
+		);
 	}
 	if (!browser || !tab.id) return false;
-
-	// --- Optimistic, instant navigation ---
-	// History + the source-switch pills are known from the list item, so record
-	// them up front. Then, when navigating, flip to /play IMMEDIATELY with the
-	// optimistic metadata and let /play show its loading state while the bytes
-	// resolve below. This mirrors the shared-tab (?tab=) navigate-then-load path
-	// so every entry point feels instant instead of blocking on the ~1s download.
-	historyStore.addToHistory({
-		id: tab.id,
-		title: tab.title,
-		artist: tab.artist || 'Unknown',
-		source: tab.source || '',
-		type: tab.type,
-		album: tab.album
-	});
-
-	// Feed the source-switch pills (TabViewer/MiniPlayer): best version per source
-	if (tab.variants && tab.variants.length > 0) {
-		sourceVariants.set(bestPerSource(tab.variants));
-	} else {
-		// Versions are resolved lazily by the player UI (PlayerQueueBar)
-		// only when actually shown - saves one request per tab open
-		sourceVariants.set([]);
+	const current = get(tabStore);
+	if (current?.fileAsB64 && current.tabId === tab.id) {
+		if (navigate) void goto(`${base}/play`);
+		return true;
 	}
 
-	if (navigate) {
-		pendingTabStore.set({
-			id: tab.id,
-			title: tab.title,
-			artist: tab.artist,
-			source: tab.source
-		});
-		// Optimistic title/artist so the player chrome shows the right name while
-		// the score renders; alphaTab's scoreLoaded overrides with file metadata.
-		updatePlayerState({ title: tab.title || '', artist: tab.artist || '' });
-		goto(`${base}/play`);
-	}
+	const token = tabStore.beginLoad(tab);
+	sourceVariants.set([]);
+	if (navigate) void goto(`${base}/play`);
 
-	// Push the resolved bytes into the tab store (history + pills already set).
 	const applyToStores = (arrayBuffer: ArrayBuffer) => {
-		const b64 = arrayBufferToBase64(arrayBuffer);
-		tabStore.setTab({
-			fileAsB64: b64,
+		const applied = tabStore.commitLoad(token, {
+			fileAsB64: arrayBufferToBase64(arrayBuffer),
 			tabId: tab.id,
+			type: tab.type,
+			sourceUrl: tab.sourceUrl,
 			source: tab.source,
 			title: tab.title,
 			artist: tab.artist,
 			album: tab.album,
 			variants: tab.variants
 		});
-		// Bytes landed — drop the optimistic loading marker so /play reveals the
-		// score.
-		pendingTabStore.set(null);
+		if (!applied) return false;
+		sourceVariants.set(tab.variants?.length ? bestPerSource(tab.variants) : []);
+
+		return true;
 	};
 
-	// Offline-first: a previously-opened tab reopens straight from the on-device
-	// blob store with no network at all (and works fully offline).
-	const stored = await loadStoredTabBytes(tab.id);
-	if (stored && stored.byteLength > 0) {
-		applyToStores(stored);
-		return true;
-	}
-
-	if (!SEARCH_API_BASE_URL) {
-		pendingTabStore.set(null);
-		return false;
-	}
-
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
 	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), SEARCH_API_TIMEOUT);
+		// Offline-first: a previously-opened tab reopens straight from the on-device
+		// blob store with no network at all (and works fully offline).
+		const stored = await loadStoredTabBytes(tab.id);
+		if (stored && stored.byteLength > 0) {
+			return applyToStores(stored);
+		}
+
+		if (!tabStore.isCurrentLoad(token)) return false;
+		if (!SEARCH_API_BASE_URL)
+			throw new Error('Tab downloads are unavailable. Please try again later.');
 		// Live UG results may not be persisted yet - pass the page URL so the
 		// server can resolve the file without a catalog row
 		const srcHint =
@@ -156,40 +140,25 @@ export async function openTabById(
 		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`, {
 			signal: controller.signal
 		});
-		clearTimeout(timeoutId);
-
-		if (!response.ok) throw new Error(`Download failed (HTTP ${response.status})`);
+		if (!response.ok) throw new Error(downloadError(response.status));
 
 		const arrayBuffer = await response.arrayBuffer();
 		if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
 
-		applyToStores(arrayBuffer);
-
-		// Persist for offline reopen (LRU-evicted by the storage budget).
-		void persistTabBytes(
-			{
-				id: tab.id,
-				title: tab.title,
-				artist: tab.artist,
-				album: tab.album,
-				source: tab.source,
-				sourceUrl: tab.sourceUrl,
-				type: tab.type
-			},
-			new Uint8Array(arrayBuffer),
-			'history'
-		);
+		if (!applyToStores(arrayBuffer)) return false;
 
 		return true;
 	} catch (err: any) {
-		// Clear the loading marker so /play doesn't sit on a stuck spinner, then
-		// surface the failure (unless the caller opened the tab silently).
-		pendingTabStore.set(null);
-		if (!opts.silent) toastStore.error(err?.message || 'Failed to open tab');
+		const message =
+			err?.name === 'AbortError'
+				? 'The download timed out. Please try again.'
+				: err?.message || 'Failed to open tab';
+		if (tabStore.failLoad(token, message) && !opts.silent) toastStore.error(message);
 		return false;
+	} finally {
+		clearTimeout(timeoutId);
 	}
 }
-
 
 /** One representative (most complete) version per source, for the source pills. */
 function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVariant[] {
@@ -206,3 +175,25 @@ function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVa
 	}));
 }
 
+export function downloadError(status: number): string {
+	if (status === 429) return 'Too many requests. Please wait a moment and try again.';
+	if (status === 404) return 'This tab was not found. It may have been removed.';
+	if (status >= 500) return 'The tab service is unavailable. Please try again later.';
+	return `Download failed (HTTP ${status}). Please try again.`;
+}
+
+/** File imports use the same replacement boundary as downloads and share links. */
+export async function openTabFile(file: File): Promise<boolean> {
+	clearQueue();
+	const token = tabStore.beginLoad({ title: file.name, source: 'upload' });
+	sourceVariants.set([]);
+	void goto(`${base}/play`);
+	try {
+		const fileAsB64 = await fileToBase64(file);
+		return tabStore.commitLoad(token, { fileAsB64, fileName: file.name, source: 'upload' });
+	} catch {
+		const message = 'Failed to read the file. Please try again.';
+		if (tabStore.failLoad(token, message)) toastStore.error(message);
+		return false;
+	}
+}

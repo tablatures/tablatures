@@ -18,7 +18,6 @@
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { lockBodyScroll } from '../../library/utils/scrollLock';
-	import { arrayBufferToBase64 } from '../../library/utils/utils';
 	import { favoriteArtistsStore } from '../../library/utils/favoriteArtists';
 	import { openTabById } from '../../library/utils/openTab';
 	import { fetchArtworkBatch } from '../../library/utils/artwork';
@@ -26,7 +25,6 @@
 	import { searchLocalTabs } from '../../library/data/localSearch';
 	import EmptyState from '../../library/components/EmptyState.svelte';
 	import OfflineNotice from '../../library/components/OfflineNotice.svelte';
-	import { loadStoredTabBytes, persistTabBytes } from '../../library/data/tabBytes';
 	import { playlistStore } from '../../library/utils/playlists';
 	import type { PlaylistEntry } from '../../library/utils/playlists';
 	import LoadingScore from '../../library/components/LoadingScore.svelte';
@@ -114,6 +112,7 @@
 		if (url.startsWith('http://')) return 'https://' + url.slice(7);
 		return url;
 	}
+	let resolvingQuery = true;
 	let loading = false;
 	let loadStartTs = 0;
 	let error = '';
@@ -659,6 +658,7 @@
 	}
 
 	onMount(async () => {
+		resolvingQuery = false;
 		const initialQuery = $page.url.searchParams.get('q') || '';
 		if (initialQuery) {
 			query = initialQuery;
@@ -668,27 +668,7 @@
 		// If ?tab= is in URL, load that tab into the store (for mini player)
 		const sharedTabId = $page.url.searchParams.get('tab');
 		if (sharedTabId && !$tabStore?.fileAsB64) {
-			// Offline-first: reopen from the on-device store with no network.
-			const stored = await loadStoredTabBytes(sharedTabId);
-			if (stored && stored.byteLength > 0) {
-				tabStore.setTab({ fileAsB64: arrayBufferToBase64(stored), tabId: sharedTabId });
-			} else {
-				try {
-					const response = await fetchWithTimeout(
-						`${SEARCH_API_BASE_URL}/api/download/${sharedTabId}`,
-						{},
-						10000
-					);
-					if (response.ok) {
-						const arrayBuffer = await response.arrayBuffer();
-						if (arrayBuffer && arrayBuffer.byteLength > 0) {
-							const base64 = arrayBufferToBase64(arrayBuffer);
-							tabStore.setTab({ fileAsB64: base64, tabId: sharedTabId });
-							void persistTabBytes({ id: sharedTabId }, new Uint8Array(arrayBuffer), 'history');
-						}
-					}
-				} catch {}
-			}
+			await openTabById({ id: sharedTabId, title: '' }, false, { silent: true });
 		}
 
 		// Test API health
@@ -717,15 +697,9 @@
 	on:openTab={handleOpenTab}
 />
 
-<main id="main-content" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
+<main id="main-content" data-layout-region="search" class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]">
 	<PullToRefresh on:refresh={handlePullRefresh}>
-	{#if loading && currentPage === 1 && !tabs.length}
-		<!-- Loading -->
-		<div class="flex items-center justify-center h-[calc(100dvh-var(--header-h))]">
-			<LoadingScore messages={['Searching local database', 'Fetching from sources']} size="lg" />
-		</div>
-
-	{:else if error}
+	{#if error}
 		<!-- Error -->
 		<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
 			<i class="material-icons !text-5xl text-neutral-300 dark:text-neutral-600 mb-4" aria-hidden="true">error_outline</i>
@@ -738,10 +712,11 @@
 			</button>
 		</div>
 
-	{:else if tabs.length > 0}
+	{:else if resolvingQuery || loading || tabs.length > 0}
+		<div class="search-artists" data-layout-region="search-artists">
 		<!-- Artist hero cards (when search matches artists) -->
-		{#if artistHeroesLoading && artistHeroes.length === 0}
-			<div class="flex gap-3 overflow-x-auto py-3 px-1">
+		{#if resolvingQuery || loading || (artistHeroesLoading && artistHeroes.length === 0)}
+			<div class="flex gap-3 overflow-x-auto py-3 px-1 h-full">
 				{#each Array(3) as _}
 					<div class="flex-shrink-0 w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<div class="flex items-center gap-3 px-4 py-3">
@@ -774,7 +749,7 @@
 				{/each}
 			</div>
 		{:else if artistHeroes.length > 0}
-			<div class="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
+			<div class="flex h-full gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory py-3 px-1 scrollbar-thin scrollbar-thumb-neutral-300 dark:scrollbar-thumb-neutral-600">
 				{#each artistHeroes as hero}
 					<div class="flex-shrink-0 snap-start w-[260px] sm:w-[300px] rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
 						<!-- Top: image + name + follow -->
@@ -840,41 +815,45 @@
 					</div>
 				{/each}
 			</div>
+		{:else}
+			<div class="h-full flex flex-col justify-center px-3"><h1 class="text-xl font-semibold">Search results</h1><p class="text-sm text-neutral-500 mt-2">Tabs matching “{query}”</p></div>
 		{/if}
 
+		</div>
 		<!-- Results -->
 		<div class="py-3">
-			{#if artistHeroes.length === 0}
-				<p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3">
-					{tabs.length} result{tabs.length !== 1 ? 's' : ''}{#if hasMorePages || loadingMore}…{/if}
+				<p class="flex items-baseline gap-1 h-4 text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3" data-layout-region="search-count">
+					<span class="inline-block w-[4ch] flex-shrink-0 tabular-nums">{tabs.length}{#if hasMorePages || loadingMore}…{/if}</span>
+					<span>result{tabs.length !== 1 ? 's' : ''}</span>
 				</p>
-			{/if}
 
-			<div class="divide-y divide-neutral-100 dark:divide-neutral-800/50">
-				{#each tabs as tab}
-					<ResultCard
-						id={tab.id}
-						title={tab.title}
-						artist={tab.artist || 'Unknown'}
-						album={tab.album || ''}
-						source={tab.source}
-						type={tab.type || ''}
-						trackCount={tab.trackCount}
-						artworkUrl={tabArtwork[tab.id] || ''}
-						artistImage={tab.artistImage || ''}
-						variants={tab.variants}
-						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
-						onClick={() => openTab(tab)}
-						onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
-					/>
+			<div class="search-rows divide-y divide-neutral-100 dark:divide-neutral-800/50" data-layout-region="search-results">
+				<!-- Keep the painted slots in place when fast catalog/live responses
+				     replace placeholders, rather than inserting ahead of them. -->
+				{#each Array(tabs.length + (resolvingQuery || loading || searchingMore ? 6 : 0)) as _, index (index)}
+					{@const tab = tabs[index]}
+					<div>
+						{#if tab}
+							<ResultCard
+								id={tab.id}
+								title={tab.title}
+								artist={tab.artist || 'Unknown'}
+								album={tab.album || ''}
+								source={tab.source}
+								type={tab.type || ''}
+								trackCount={tab.trackCount}
+								artworkUrl={tabArtwork[tab.id] || ''}
+								artistImage={tab.artistImage || ''}
+								variants={tab.variants}
+								onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
+								onClick={() => openTab(tab)}
+								onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
+							/>
+						{:else}
+							<SkeletonCard />
+						{/if}
+					</div>
 				{/each}
-
-				<!-- Skeleton rows while more results stream in from live sources -->
-				{#if searchingMore}
-					{#each Array(6) as _}
-						<SkeletonCard />
-					{/each}
-				{/if}
 			</div>
 
 			{#if searchingMore}
@@ -1002,3 +981,8 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+ .search-artists { height: 184px; overflow: hidden; }
+ .search-rows { min-height: calc(100dvh - var(--header-h) - 236px); }
+</style>

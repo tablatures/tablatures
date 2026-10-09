@@ -32,10 +32,13 @@ test('clicking a result navigates to /play with a loader before bytes resolve', 
 	// navigation flipped to /play optimistically, ahead of the download.
 	await page.waitForURL('**/play**', { timeout: 3000 });
 	await expect(page.getByText('Loading tablature')).toBeVisible();
+	await expect(page.getByTestId('score-skeleton')).toBeVisible();
+	await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toBeVisible();
 
 	// Then the bytes land and the real score renders.
 	await waitForScoreLoaded(page);
 	const dur = await page.evaluate(() => (window as any).__testApi.getDuration());
 	expect(dur).toBeGreaterThan(0);
 	await expect(page.getByText('Loading tablature')).toHaveCount(0);
+	await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
 });

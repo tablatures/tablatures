@@ -17,7 +17,9 @@ test('tab scale stays correct after a mini-player round-trip', async ({ page }) 
 	expect(before.apiScale).toBeLessThan(1);
 
 	// Client-side nav to settings (mini mode) then back via the mini player.
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.getByRole('link', { name: 'Settings' }).first().click();
+	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 	await page.waitForTimeout(1000);
 	await page.locator('.mini-player-wrapper').click();
 	await waitForScoreLoaded(page);

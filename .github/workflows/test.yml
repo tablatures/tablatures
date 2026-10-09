@@ -1,14 +1,13 @@
 name: Tests
 
 # The regression gate: type-check + unit + Playwright e2e. Runs on every push
-# and PR to main, and is reusable (workflow_call) so the release workflows can
+# and every PR (including stacked PRs), and is reusable (workflow_call) so the release workflows can
 # require it before building/publishing anything.
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_call:
 
 jobs:
@@ -41,16 +40,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-playwright-chromium-webkit-${{ steps.pw.outputs.version }}
 
-      - name: Install Chromium (with system deps)
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Chromium and WebKit (with system deps)
+        run: pnpm exec playwright install --with-deps chromium webkit
 
       - name: Type-check
         run: pnpm check
 
       - name: Unit tests
         run: pnpm test:unit
+
+      - name: Zero layout shifts (production build)
+        run: pnpm test:layout
 
       - name: E2E tests (Playwright)
         run: pnpm test:e2e
@@ -66,5 +68,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
+            layout-test-results/
           retention-days: 7
