@@ -1,3 +1,4 @@
+import { expectStableCursorFollowing } from './helpers/cursor-follow';
 import { test, expect, type Page, type CDPSession } from '@playwright/test';
 import { openScore, scale, position, scrollTop, loop } from './helpers/mobile-score';
 import { waitForScoreLoaded } from './helpers/wait';
@@ -197,4 +198,8 @@ test('a score tap seeks without resetting zoom or creating a loop', async ({ pag
 	expect(await loop(page)).toBeNull();
 	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
 	await cdp.detach();
+});
+
+test('dense mobile playback does not restart scrolling on every beat', async ({ page }) => {
+	await expectStableCursorFollowing(page);
 });

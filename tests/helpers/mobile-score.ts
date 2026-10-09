@@ -4,11 +4,14 @@ import * as at from '@coderline/alphatab';
 import { setupMockApi } from './mock-api';
 import { waitForScoreLoaded } from './wait';
 
-export async function openScore(page: Page) {
+export async function openScore(page: Page, tex?: string) {
 	await setupMockApi(page);
 	const settings = new at.Settings();
 	const importer = new at.importer.AlphaTexImporter();
-	importer.initFromString(readFileSync('tests/fixtures/player/long-score.tex', 'utf8'), settings);
+	importer.initFromString(
+		tex ?? readFileSync('tests/fixtures/player/long-score.tex', 'utf8'),
+		settings
+	);
 	const bytes = new at.exporter.Gp7Exporter().export(importer.readScore(), settings);
 	await page.route('**/api/download/*', (route) =>
 		route.fulfill({ body: Buffer.from(bytes), contentType: 'application/octet-stream' })

@@ -1,3 +1,4 @@
+import { expectStableCursorFollowing } from './helpers/cursor-follow';
 import { test, expect } from '@playwright/test';
 import { openScore, scale, position, loop } from './helpers/mobile-score';
 
@@ -132,4 +133,8 @@ test.describe('WebKit touch handling', () => {
 			.poll(() => page.locator('#player-host').evaluate((el) => el.parentElement!.style.transform))
 			.toBe('');
 	});
+});
+
+test('dense mobile playback does not restart scrolling on every beat', async ({ page }) => {
+	await expectStableCursorFollowing(page);
 });

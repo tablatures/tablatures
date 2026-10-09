@@ -511,6 +511,7 @@
 	// Follow by default; manual scrolling disengages until an explicit seek or Back to cursor.
 	let autoFollow = true;
 	let cursorFollowFrame = 0;
+	let cursorFollowTop: number | null = null;
 	let cursorFollowObserver: MutationObserver | undefined;
 	let unsubscribeCursorFollow: (() => void) | undefined;
 
@@ -526,6 +527,7 @@
 
 	function reEnableAutoFollow() {
 		autoFollow = true;
+		cursorFollowTop = null;
 		alignCursorInViewport();
 	}
 
@@ -538,7 +540,14 @@
 		const viewportTop = Math.max(page?.getBoundingClientRect().top ?? 0, headerBottom);
 		const currentTop = page ? page.scrollTop : window.scrollY;
 		const delta = el.getBoundingClientRect().top - (viewportTop + 24);
-		(page ?? window).scrollTo({ top: Math.max(0, currentTop + delta), behavior: 'smooth' });
+		const top = Math.max(0, Math.round(currentTop + delta));
+		// Cursor transforms change on every beat, including horizontal animation.
+		// Restarting smooth scroll to the same fractional position makes the staff
+		// jitter on mobile. Scroll once per new row or layout, with pixel tolerance.
+		if (cursorFollowTop !== null && Math.abs(top - cursorFollowTop) <= 1) return;
+		cursorFollowTop = top;
+		if (Math.abs(top - currentTop) <= 1) return;
+		(page ?? window).scrollTo({ top, behavior: 'smooth' });
 	}
 
 	// Speed selector computed values
@@ -1946,6 +1955,7 @@
 		if (event.target instanceof Node && settings?.contains(event.target)) return;
 		if (autoFollow) {
 			autoFollow = false;
+			cursorFollowTop = null;
 		}
 	}
 
@@ -2187,6 +2197,7 @@
 			if (isNewSheet) {
 				dispatch('sheetChanged', { title: score.title, artist: score.artist });
 				autoFollow = true;
+				cursorFollowTop = null;
 				// Scroll to top when a new tab is loaded (the sheet is always its
 				// own scroller now — window/page fallback covers SSR edge cases).
 				(page ?? window).scrollTo({ top: 0, behavior: 'smooth' });
@@ -2242,6 +2253,7 @@
 		// Render events
 		const onRenderStart = () => {
 			isRendering = true;
+			cursorFollowTop = null;
 			const tracksSet = new Set();
 			apiRef.tracks.forEach((t: any) => tracksSet.add(t.index));
 			tracks.forEach((trackItem) => {
