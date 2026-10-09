@@ -41,11 +41,12 @@ export class OfflineError extends Error {
 	}
 }
 
-/** True when a Response was served from the on-device cache (see `x-from-cache`). */
+/** True only when a cached fallback followed an unreachable network. */
 export function isOfflineResponse(res: Response): boolean {
 	return res.headers.get('x-cache-fallback') === 'network';
 }
 
+/** True when a Response was served from the on-device cache. */
 export function isFromCache(res: Response): boolean {
 	return res.headers.get('x-from-cache') === '1';
 }

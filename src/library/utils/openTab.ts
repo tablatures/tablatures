@@ -24,6 +24,7 @@ export async function openTabFromHash(
 	navigate: boolean = true
 ): Promise<boolean> {
 	if (!browser) return false;
+	clearQueue();
 	const token = tabStore.beginLoad(meta);
 	sourceVariants.set([]);
 	if (navigate) void goto(`${base}/play`);
@@ -192,6 +193,7 @@ export function downloadError(status: number): string {
 
 /** File imports use the same replacement boundary as downloads and share links. */
 export async function openTabFile(file: File): Promise<boolean> {
+	clearQueue();
 	const token = tabStore.beginLoad({ title: file.name, source: 'upload' });
 	sourceVariants.set([]);
 	void goto(`${base}/play`);
