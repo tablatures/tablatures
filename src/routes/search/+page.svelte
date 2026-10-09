@@ -827,30 +827,32 @@
 				</p>
 
 			<div class="search-rows divide-y divide-neutral-100 dark:divide-neutral-800/50" data-layout-region="search-results">
-				{#each tabs as tab}
-					<ResultCard
-						id={tab.id}
-						title={tab.title}
-						artist={tab.artist || 'Unknown'}
-						album={tab.album || ''}
-						source={tab.source}
-						type={tab.type || ''}
-						trackCount={tab.trackCount}
-						artworkUrl={tabArtwork[tab.id] || ''}
-						artistImage={tab.artistImage || ''}
-						variants={tab.variants}
-						onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
-						onClick={() => openTab(tab)}
-						onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
-					/>
+				<!-- Keep the painted slots in place when fast catalog/live responses
+				     replace placeholders, rather than inserting ahead of them. -->
+				{#each Array(tabs.length + (resolvingQuery || loading || searchingMore ? 6 : 0)) as _, index (index)}
+					{@const tab = tabs[index]}
+					<div>
+						{#if tab}
+							<ResultCard
+								id={tab.id}
+								title={tab.title}
+								artist={tab.artist || 'Unknown'}
+								album={tab.album || ''}
+								source={tab.source}
+								type={tab.type || ''}
+								trackCount={tab.trackCount}
+								artworkUrl={tabArtwork[tab.id] || ''}
+								artistImage={tab.artistImage || ''}
+								variants={tab.variants}
+								onVariantClick={(variant) => openTab({ ...tab, id: variant.id, source: variant.source, sourceUrl: variant.sourceUrl })}
+								onClick={() => openTab(tab)}
+								onAddToPlaylist={allPlaylists.length > 0 ? () => openPlaylistPicker({ id: tab.id, title: tab.title, artist: tab.artist || 'Unknown', source: tab.source }) : undefined}
+							/>
+						{:else}
+							<SkeletonCard />
+						{/if}
+					</div>
 				{/each}
-
-				<!-- Skeleton rows while more results stream in from live sources -->
-				{#if resolvingQuery || loading || searchingMore}
-					{#each Array(6) as _}
-						<SkeletonCard />
-					{/each}
-				{/if}
 			</div>
 
 			{#if searchingMore}

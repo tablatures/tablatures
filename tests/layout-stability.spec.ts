@@ -485,9 +485,11 @@ test('late hero metadata never moves an already usable search result', async ({
 }, testInfo) => {
 	await installLayoutObserver(page);
 	const hold = await mock(page);
-	hold.data.release();
 	hold.fonts.release();
 	await page.goto('/search?q=Test%20Artist', { waitUntil: 'domcontentloaded' });
+	await expect(page.getByTestId('skeleton-result-card').first()).toBeVisible();
+	await painted(page);
+	hold.data.release();
 	const row = page.getByText('Song 1', { exact: true });
 	await expect(row).toBeVisible();
 	await page.waitForTimeout(600);
