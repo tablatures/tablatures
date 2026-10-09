@@ -23,3 +23,25 @@ not CLS scores.
 
 Full-resolution still comparisons: [search](search-loaded.png),
 [home with history restored](home-loaded.png), [artist](artist-loaded.png).
+
+## Score loading follow-up
+
+The score comparisons use the same PR #175 baseline (`54d2148`) and the score
+skeleton implementation in PR #176 at `65cbf141e6c269980adf966a6fc5bd9796da86f0`.
+Both sides load the committed `tests/fixtures/test-tab.gp5`, with identical gates
+for the tab download, bundled audio soundfont and Bravura music font.
+
+- [Phone loading comparison](score-phone.gif): 390 × 844 touch viewport.
+- [Desktop loading comparison](score-desktop.gif): 1280 × 800, shown at 60% size.
+- Still comparisons during the parsed-but-not-rendered gap:
+  [phone](score-phone.png), [desktop](score-desktop.png).
+- [Dark-mode phone skeleton](score-dark.png), also checked with reduced motion:
+  the activity indicator has no animation under that preference.
+
+The loops show four real screenshots per side: download pending, audio pending,
+file parsed but first render pending, then score ready. Each stage lasts two
+seconds for readability; these durations do not represent load-time benchmarks.
+The new skeleton and status box remain inside the visible score viewport while
+the renderer works, and the toolbar keeps the same rectangle in all six tested
+viewport sizes. The native layout observer records zero shifts through the
+independently delayed download/audio/render stages.
