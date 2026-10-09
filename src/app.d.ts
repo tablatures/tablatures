@@ -102,6 +102,8 @@ declare global {
 
 		interface Api {
 			isLooping: boolean;
+			readonly playerState: number;
+			customCursorHandler: import('@coderline/alphatab').AlphaTabApi['customCursorHandler'];
 			playerStateChanged: EventEmitter<PlayerStateChangedEvent>;
 			playerPositionChanged: EventEmitter<PlayerPositionChangedEvent>;
 			scoreLoaded: EventEmitter<Score>;

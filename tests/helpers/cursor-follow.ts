@@ -27,7 +27,11 @@ export async function expectStableCursorFollowing(page: Page) {
 		}) as typeof scroller.scrollTo;
 		let renders = 0,
 			misplacedFrames = 0,
-			frames = 0;
+			frames = 0,
+			backwardsFrames = 0,
+			maxBackwards = 0;
+		let previous: { x: number; y: number } | undefined;
+
 		const rows = new Set<number>();
 		const onRender = () => renders++;
 		api.renderStarted.on(onRender);
@@ -37,7 +41,14 @@ export async function expectStableCursorFollowing(page: Page) {
 				const cursor = document.querySelector('.at-cursor-beat')!.getBoundingClientRect();
 				const bar = document.querySelector('.at-cursor-bar')!.getBoundingClientRect();
 				const host = document.querySelector('#player-host')!.getBoundingClientRect();
-				rows.add(Math.round(bar.top - host.top));
+				const rowY = Math.round(bar.top - host.top);
+
+				rows.add(rowY);
+				if (previous && previous.y === rowY && cursor.left < previous.x - 2) {
+					backwardsFrames++;
+					maxBackwards = Math.max(maxBackwards, previous.x - cursor.left);
+				}
+				previous = { x: cursor.left, y: rowY };
 				frames++;
 				if (Math.abs(cursor.top - bar.top) > 2) misplacedFrames++;
 				if (performance.now() - start < 6500) requestAnimationFrame(sample);
@@ -49,6 +60,8 @@ export async function expectStableCursorFollowing(page: Page) {
 		scroller.scrollTo = nativeScroll;
 		return {
 			renders,
+			backwardsFrames,
+			maxBackwards,
 			frames,
 			misplacedFrames,
 			rows: rows.size,
@@ -59,6 +72,8 @@ export async function expectStableCursorFollowing(page: Page) {
 		};
 	});
 	await page.getByRole('button', { name: 'Pause', exact: true }).click();
+
+	expect(result.backwardsFrames, `Maximum backward jump ${result.maxBackwards}px`).toBe(0);
 	expect(result.frames).toBeGreaterThan(30);
 	expect(result.rows).toBeGreaterThanOrEqual(3);
 	expect(result.renders).toBe(0);

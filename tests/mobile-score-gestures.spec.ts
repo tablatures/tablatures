@@ -200,6 +200,8 @@ test('a score tap seeks without resetting zoom or creating a loop', async ({ pag
 	await cdp.detach();
 });
 
-test('dense mobile playback does not restart scrolling on every beat', async ({ page }) => {
+test('dense mobile playback keeps the playhead moving forward without repeated scrolling', async ({
+	page
+}) => {
 	await expectStableCursorFollowing(page);
 });

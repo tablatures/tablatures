@@ -135,6 +135,8 @@ test.describe('WebKit touch handling', () => {
 	});
 });
 
-test('dense mobile playback does not restart scrolling on every beat', async ({ page }) => {
+test('dense mobile playback keeps the playhead moving forward without repeated scrolling', async ({
+	page
+}) => {
 	await expectStableCursorFollowing(page);
 });

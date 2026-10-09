@@ -10,6 +10,7 @@
 
 	import { onMount, onDestroy } from 'svelte';
 	import { createVideoSession } from '$utils/videoSession';
+	import { createPlayerCursor } from '$utils/playerCursor';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -295,6 +296,8 @@
 				soundFont: prefs.soundFontUrl
 			}
 		});
+
+		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
 
 		videoSession = createVideoSession(api, {
 			video: () => get(videoPlayerRef),
