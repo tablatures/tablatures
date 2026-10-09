@@ -45,3 +45,30 @@ The new skeleton and status box remain inside the visible score viewport while
 the renderer works, and the toolbar keeps the same rectangle in all six tested
 viewport sizes. The native layout observer records zero shifts through the
 independently delayed download/audio/render stages.
+
+## Score reopening, refresh and medium-width header follow-up
+
+These captures compare the previous PR #176 revision at
+`20c0e6cc36c997c03121bad9135e651c72f4be13` with the fixes at
+`094f164631d8d27c0494f946000a2791b20b8728`. Both are production builds with
+the same two catalog entries and committed GP5 fixture. The second entry appends
+one trailing zero byte, giving it a distinct score identity while retaining a
+valid score. Its download stays pending during the screenshots.
+
+- [Phone: back, then open another score](score-reopen-phone.png). At 390 × 844,
+  open the first score, scroll it 300px, go back, then open the second. Apply the
+  same wheel gesture over the pending score. Before, the old notes show below
+  the scrolled-away skeleton; after, the score viewport stays covered. The
+  inherited scroll offset changes from 143px to 0px, and remains 0px after the
+  gesture. Touch viewport emulation is enabled; the wheel explicitly exercises
+  the loading scroller's input guard.
+- [Medium-width header](header-medium.png). Unscaled crops from a 1024 × 844
+  viewport. Before, the search field extends 321px into the tuner button; after,
+  it ends 12px before that button. Automated checks cover eight widths from
+  768px to 1536px, before and after delayed fonts and data arrive.
+
+Refresh was also checked on the production build with 4× CPU throttling. Native
+layout entries remain zero, and frame samples verify that the header stays at
+y=0 and the newly visible score stays at scrollTop=0. Recommendations are held
+until after the score appears to catch late “Up next” changes. These checks run
+at all six layout viewports, including phone portrait and landscape.
