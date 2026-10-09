@@ -561,11 +561,15 @@
 />
 
 {#if loadingSharedTab || opening}
-	<div class="flex items-center justify-center h-[calc(100dvh-var(--header-h))]">
+	<div
+		class="flex items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
+	>
 		<LoadingScore message="Loading tablature" size="lg" />
 	</div>
 {:else if sharedTabError}
-	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
+	<div
+		class="flex flex-col items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
+	>
 		<i
 			class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4"
 			aria-hidden="true">error_outline</i
@@ -672,7 +676,9 @@
 		</button>
 	{/if}
 {:else}
-	<div class="flex flex-col items-center justify-center h-[calc(100dvh-var(--header-h))]">
+	<div
+		class="flex flex-col items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
+	>
 		<i
 			class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4"
 			aria-hidden="true">music_off</i
@@ -692,7 +698,7 @@
 	   the 56px header); the details section sits below the fold. Free scrolling —
 	   no scroll-snap (the user asked for plain, non-magnetic scrolling). */
 	.play-shell {
-		height: calc(100dvh - var(--header-h));
+		height: calc(var(--play-viewport-height, 100dvh) - var(--header-h));
 		overflow-y: auto;
 		overscroll-behavior-y: contain;
 	}

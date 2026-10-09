@@ -11,6 +11,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { createVideoSession } from '$utils/videoSession';
 	import { createPlayerCursor } from '$utils/playerCursor';
+	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -1055,7 +1056,8 @@
 	     matches the one app.css and the preview host already use. -->
 	<main
 		id="main-content"
-		class="animate-fade-in min-h-dvh {showMiniPlayer
+		use:playerViewport={isOnPlay}
+		class="{isOnPlay ? 'play-main' : 'animate-fade-in min-h-dvh'} {showMiniPlayer
 			? miniPreviewVisible
 				? 'pb-[calc(var(--mini-bar-height,76px)+min(50dvh,270px))] sm:pb-[var(--mini-bar-height,76px)]'
 				: 'pb-[var(--mini-bar-height,76px)]'
@@ -1101,6 +1103,14 @@
 </body>
 
 <style>
+	.play-main {
+		position: fixed;
+		inset-inline: 0;
+		top: var(--play-viewport-top, 0px);
+		height: var(--play-viewport-height, 100dvh);
+		overflow: hidden;
+	}
+
 	/* Persistent player host positioning */
 	.player-host-hidden {
 		position: fixed;

@@ -140,3 +140,7 @@ test('dense mobile playback keeps the playhead moving forward without repeated s
 }) => {
 	await expectStableCursorFollowing(page);
 });
+
+test('delayed beat updates cannot overshoot and reverse the cursor', async ({ page }) => {
+	await (await import('./helpers/cursor-boundary')).expectCursorStopsAtBeatBoundary(page);
+});
