@@ -45,8 +45,12 @@ function createTabStore() {
 	function publish(tab: TabData | null) {
 		current = tab;
 		if (browser) {
-			if (tab) sessionStorage.setItem('currentTab', JSON.stringify(tab));
-			else sessionStorage.removeItem('currentTab');
+			try {
+				if (tab) sessionStorage.setItem('currentTab', JSON.stringify(tab));
+				else sessionStorage.removeItem('currentTab');
+			} catch {
+				/* Storage quota must not break an in-memory replacement. */
+			}
 		}
 		set(tab);
 	}

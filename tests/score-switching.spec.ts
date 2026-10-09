@@ -235,13 +235,18 @@ for (const lateFailure of [false, true]) {
 			);
 			finished();
 		});
+		await page.route('**/api/random?*', (route) =>
+			route.fulfill({
+				json: {
+					results: [{ id: 'late', title: 'Late Song', artist: 'Test Artist', source: 'test' }],
+					total: 1,
+					page: 1,
+					totalPages: 1
+				}
+			})
+		);
 		await page.goto('/');
-		// Trigger the same public loader used by result clicks without awaiting its download.
-		await page.evaluate(async () => {
-			const path = '/src/library/utils/openTab.ts';
-			const { openTabById } = await import(path);
-			void openTabById({ id: 'late', title: 'Late Song' });
-		});
+		await page.getByRole('button', { name: 'Play Late Song by Test Artist', exact: true }).click();
 		await expect(page).toHaveURL(/\/play/);
 		await page.getByRole('link', { name: 'Home', exact: true }).click();
 		await page.locator('input[type="file"]').setInputFiles({
@@ -322,4 +327,23 @@ test('catalogue score switching with video stays aligned after returning to the 
 		await page.evaluate(() => (window as any).__testApi.getApi() === (window as any).__switchApi)
 	).toBe(true);
 	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
+});
+
+test('an unreadable imported file cannot expose the previously loaded score', async ({ page }) => {
+	await setupMockApi(page);
+	await page.goto('/play?tab=test-tab');
+	await waitForScoreLoaded(page);
+	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page
+		.locator('input[type="file"]')
+		.setInputFiles({
+			name: 'broken.gp',
+			mimeType: 'application/octet-stream',
+			buffer: Buffer.from('not a Guitar Pro file')
+		});
+	await expect(
+		page.getByText('This tab could not be read. Try another file or version.', { exact: true })
+	).toBeVisible();
+	await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toHaveCount(0);
+	expect(await page.evaluate(() => sessionStorage.getItem('currentTab'))).toBeNull();
 });
