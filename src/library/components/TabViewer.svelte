@@ -9,6 +9,12 @@
 	import { displayTime } from '../utils/format';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import {
+		writtenTimingForApi,
+		syncPracticePlayback,
+		playbackToMediaMs,
+		playbackClockRange
+	} from '../utils/practicePlayback';
+	import {
 		resolveLoopRange,
 		loopBeats,
 		beatAtTick,
@@ -433,11 +439,12 @@
 	// Keyboard shortcut overlay
 	let showKeyboardShortcuts = false;
 
-	// Legacy bar loops and precise loops on the expanded playback timeline.
+	// Score selections use printed order; legacy and timeline loops retain repeat visits.
 	let loopStartBar: number | null = null;
 	let loopEndBar: number | null = null;
 	let loopEnabled = true;
 	let loopTicks: TickRange | null = null;
+	let loopOrder: 'written' | undefined;
 	let loopSnap: 'bar' | 'note' = 'bar';
 	let loopSyncKey = '';
 	let loopRestored = false;
@@ -454,6 +461,7 @@
 		loopStartBar = region?.startBar ?? null;
 		loopEndBar = region?.endBar ?? null;
 		loopEnabled = region?.enabled ?? true;
+		loopOrder = region?.order;
 		loopTicks =
 			region?.startTick !== undefined && region.endTick !== undefined
 				? { startTick: region.startTick, endTick: region.endTick }
@@ -691,7 +699,8 @@
 		if (!ytPlayer || !api || !duration) return;
 		try {
 			const videoTime = ytPlayer.getCurrentTime?.() || 0;
-			const tabTimeSec = engineToScoreMs((progress / 100) * duration, speed) / 1000;
+			const tabTimeSec =
+				engineToScoreMs(playbackToMediaMs(api, (progress / 100) * duration), speed) / 1000;
 			const newOffset = videoTime - tabTimeSec;
 			setVideoOffset(Math.round(newOffset * 10) / 10);
 		} catch {}
@@ -839,15 +848,25 @@
 	}
 
 	/** Set loop from bar indices */
-	function setLoopBars(startBar: number, endBar: number) {
+	function setLoopBars(startBar: number, endBar: number, order = loopOrder, enabled = true) {
+		loopOrder = order;
+		if (order === 'written') {
+			const ticks = writtenTimingForApi(api)?.range(startBar, endBar);
+			if (ticks) setLoopTicks(ticks, enabled, order);
+			return;
+		}
 		loopTicks = null;
 		loopStartBar = startBar;
 		loopEndBar = endBar;
 		loopEnabled = true;
 	}
 
+	function loopTiming() {
+		return loopOrder === 'written' ? writtenTimingForApi(api) : timingForApi(api);
+	}
+
 	function currentLoopRange(): TickRange | null {
-		const timing = timingForApi(api);
+		const timing = loopTiming();
 		return timing
 			? resolveLoopRange(timing, {
 					startBar: loopStartBar,
@@ -860,20 +879,20 @@
 
 	let notePositionCache: { timing: any; track: any; beats: ReturnType<typeof loopBeats> } | null =
 		null;
-	function notePositions() {
-		const timing = timingForApi(api),
-			track = api?.score?.tracks[activeTrackIndex];
+	function notePositions(timing = loopTiming()) {
+		const track = api?.score?.tracks[activeTrackIndex];
 		if (!timing || !track) return [];
 		if (notePositionCache?.timing !== timing || notePositionCache.track !== track)
 			notePositionCache = { timing, track, beats: loopBeats(timing, track) };
 		return notePositionCache.beats;
 	}
 
-	function setLoopTicks(ticks: TickRange, enabled = true) {
-		const timing = timingForApi(api);
+	function setLoopTicks(ticks: TickRange, enabled = true, order = loopOrder) {
+		const timing = order === 'written' ? writtenTimingForApi(api) : timingForApi(api);
 		if (!timing || !resolveLoopRange(timing, { startBar: null, endBar: null, enabled, ...ticks }))
 			return;
 		loopTicks = ticks;
+		loopOrder = order;
 		// Display all printed bars visited, even when a range crosses a repeat jump.
 		const bars = timing.visits
 			.filter((v) => v.end > ticks.startTick && v.start < ticks.endTick)
@@ -886,16 +905,18 @@
 	function selectNoteTimes(a: number, b: number) {
 		const timing = timingForApi(api);
 		if (!timing) return;
-		const beats = notePositions();
+		const beats = notePositions(timing);
+		const order = loopOrder === 'written' && loopEnabled ? 'written' : undefined;
 		const first = beatAtTick(beats, timing.msToTick(Math.min(a, b), api.playbackSpeed));
 		const last = beatAtTick(beats, timing.msToTick(Math.max(a, b), api.playbackSpeed));
-		if (first && last) setLoopTicks({ startTick: first.startTick, endTick: last.endTick });
+		if (first && last)
+			setLoopTicks({ startTick: first.startTick, endTick: last.endTick }, true, order);
 	}
 
 	function selectScoreNotes(first: any, last: any) {
-		const timing = timingForApi(api);
+		const timing = writtenTimingForApi(api);
 		const ticks = timing && rangeForBeats(timing, first, last);
-		if (ticks) setLoopTicks(ticks);
+		if (ticks) setLoopTicks(ticks, true, 'written');
 	}
 
 	function scoreBeatNearTick(beat: any, tick: number) {
@@ -913,28 +934,43 @@
 		if (!original) return;
 		const hit = beat ? scoreBeatNearTick(beat, tick) : beatAtTick(notePositions(), tick);
 		if (!hit) return;
+		const enabled = loopOrder === 'written' ? loopEnabled : true;
 		if (edge === 'start' && hit.startTick < original.endTick)
-			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick });
+			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick }, enabled);
 		if (edge === 'end' && hit.endTick > original.startTick)
-			setLoopTicks({ startTick: original.startTick, endTick: hit.endTick });
+			setLoopTicks({ startTick: original.startTick, endTick: hit.endTick }, enabled);
 	}
 
 	function moveNoteLoop(original: TickRange, target: number) {
-		const timing = timingForApi(api);
+		const timing = loopTiming();
 		if (timing) setLoopTicks(moveLoopRange(notePositions(), original, target, timing.endTick));
+	}
+
+	/** Timeline handles can edit disabled practice markers on the full song clock. */
+	function loopTickAtTime(ms: number) {
+		const timing = timingForApi(api)!;
+		const tick = timing.msToTick(ms, api.playbackSpeed);
+		if (loopOrder !== 'written' || loopEnabled) return tick;
+		const visit = timing.visits[timing.visitAt(tick)];
+		const written = writtenTimingForApi(api)!;
+		const target = written.visits.find((v) => v.masterBar.index === visit.masterBar.index)!;
+		return target.start + tick - visit.start;
 	}
 
 	function changeLoopSnap() {
 		// Choosing Bars explicitly expands the current selection to full bars.
-		if (loopSnap === 'bar') loopTicks = null;
+		if (loopSnap === 'bar') {
+			if (loopOrder === 'written' && loopStartBar !== null && loopEndBar !== null)
+				setLoopBars(loopStartBar, loopEndBar, loopOrder, loopEnabled);
+			else loopTicks = null;
+		}
 	}
 
 	function setLoopPoint(point: 'A' | 'B') {
 		const currentTime = duration > 0 ? (progress / 100) * duration : 0;
 		if (loopSnap === 'note') {
 			const timing = timingForApi(api);
-			const beat =
-				timing && beatAtTick(notePositions(), timing.msToTick(currentTime, api.playbackSpeed));
+			const beat = timing && beatAtTick(notePositions(), loopTickAtTime(currentTime));
 			if (!beat) return;
 			const previous = currentLoopRange();
 			setLoopTicks({
@@ -963,7 +999,9 @@
 	}
 
 	function clearLoopPoints() {
+		loopOrder = undefined;
 		loopTicks = null;
+		syncPracticePlayback(api, null);
 		loopStartBar = null;
 		loopEndBar = null;
 		selectionStartBeat = null;
@@ -1009,7 +1047,13 @@
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
 		if (loopStartBar === null || loopEndBar === null) return null;
 		const timing = timingForApi(api);
-		const range = currentLoopRange();
+		const range = playbackClockRange(api, {
+			startBar: loopStartBar,
+			endBar: loopEndBar,
+			enabled: loopEnabled,
+			order: loopOrder,
+			...loopTicks
+		});
 		return range && timing
 			? {
 					startMs: timing.tickToMs(range.startTick, api.playbackSpeed),
@@ -1088,6 +1132,13 @@
 	/** Sync the native player from the shared musical loop range. */
 	function syncPlaybackRange() {
 		if (!api) return;
+		syncPracticePlayback(api, {
+			startBar: loopStartBar,
+			endBar: loopEndBar,
+			enabled: loopEnabled,
+			order: loopOrder,
+			...loopTicks
+		});
 		try {
 			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
 				const range = currentLoopRange();
@@ -1158,11 +1209,16 @@
 		endsLoop?: boolean;
 	};
 
-	function loopRectsForBar(bar: number, bounds: any, ticks: TickRange | null): LoopRect[] {
+	function loopRectsForBar(
+		bar: number,
+		bounds: any,
+		ticks: TickRange | null,
+		selectionTiming = loopTiming()
+	): LoopRect[] {
 		if (!ticks) return [{ x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h }];
-		const timing = timingForApi(api);
+		const timing = selectionTiming;
 		if (!timing) return [];
-		const beats = notePositions();
+		const beats = notePositions(timing);
 		const lookup = api.renderer.boundsLookup;
 		const rects: LoopRect[] = [];
 		for (const visit of timing.visits) {
@@ -1451,7 +1507,7 @@
 
 	// MIDI timing is populated after scoreLoaded; validate restored ticks once ready.
 	$: if (api && scoreLoaded && duration > 0 && loopNeedsValidation) {
-		const timing = timingForApi(api);
+		const timing = loopTiming();
 		if (timing) {
 			loopNeedsValidation = false;
 			if (
@@ -1468,8 +1524,18 @@
 		}
 	}
 
+	// Bar edits in practice keep their explicit range on the written clock.
+	$: if (
+		loopOrder === 'written' &&
+		loopTicks === null &&
+		loopStartBar !== null &&
+		loopEndBar !== null &&
+		api
+	)
+		setLoopBars(loopStartBar, loopEndBar, loopOrder, loopEnabled);
+
 	// React to loop changes: sync playbackRange and update score selection
-	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}-${loopTicks?.startTick}-${loopTicks?.endTick}-${loopSnap}`;
+	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}-${loopTicks?.startTick}-${loopTicks?.endTick}-${loopSnap}-${loopOrder}`;
 	$: if (
 		api &&
 		scoreLoaded &&
@@ -1484,9 +1550,15 @@
 	// Persist the loop region in the URL so it survives reloads / shared links.
 	$: if (browser && scoreLoaded && loopRestored && !loopNeedsValidation && loopSyncKey) {
 		updatePlayerState({
-			loop: { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled, ...loopTicks }
+			loop: {
+				startBar: loopStartBar,
+				endBar: loopEndBar,
+				enabled: loopEnabled,
+				order: loopOrder,
+				...loopTicks
+			}
 		});
-		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled, loopTicks);
+		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled, loopTicks, loopOrder);
 	}
 
 	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
@@ -1572,7 +1644,8 @@
 			start: loopStartBar,
 			end: loopEndBar,
 			enabled: loopEnabled,
-			ticks: loopTicks
+			ticks: loopTicks,
+			order: loopOrder
 		};
 		const cleanup = () => {
 			document.removeEventListener(moveType, move);
@@ -1589,6 +1662,7 @@
 			loopEndBar = original.end;
 			loopEnabled = original.enabled;
 			loopTicks = original.ticks;
+			loopOrder = original.order;
 			updateScoreSelection();
 		};
 		const visibility = () => {
@@ -1704,7 +1778,7 @@
 		const originalTicks = currentLoopRange();
 		const origStartBar =
 			loopTicks && originalTicks
-				? (timingForApi(api)?.barAt(originalTicks.startTick) ?? loopStartBar)
+				? (loopTiming()?.barAt(originalTicks.startTick) ?? loopStartBar)
 				: loopStartBar;
 		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		const scoreAnchorBeat = useScore
@@ -1806,11 +1880,10 @@
 		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
 			if (loopSnap === 'note') {
-				const timing = timingForApi(api)!;
 				const original = currentLoopRange();
 				const tick = useScore
 					? ((edge === 'start' ? original?.startTick : original?.endTick) ?? 0)
-					: timing.msToTick(percentToTime(getProgressPercent(e.clientX)), api.playbackSpeed);
+					: loopTickAtTime(percentToTime(getProgressPercent(e.clientX)));
 				const beat = useScore ? mouseToBeatViaScore(e.clientX, e.clientY) : undefined;
 				if (!useScore || beat) resizeNoteLoop(edge, tick, beat);
 				return;
@@ -1902,6 +1975,8 @@
 			// Hold fired without a scrub — seed one bar or note at the cursor/finger
 			// and flip into loop-sizing mode.
 			pbLoopAnchorMs = percentToTime(pbStartPct);
+			// A new selection uses the timeline's current order, including after practice is off.
+			if (!loopEnabled) loopOrder = undefined;
 			if (loopSnap === 'note') selectNoteTimes(pbLoopAnchorMs, pbLoopAnchorMs);
 			else setLoopBars(msToBar(pbLoopAnchorMs), msToBar(pbLoopAnchorMs));
 			pbLoopCreating = true;
@@ -2051,8 +2126,7 @@
 			const pct = getProgressPercent(e.touches[0].clientX);
 			const time = percentToTime(pct);
 			if (loopSnap === 'note') {
-				const timing = timingForApi(api)!;
-				resizeNoteLoop(edge, timing.msToTick(time, api.playbackSpeed));
+				resizeNoteLoop(edge, loopTickAtTime(time));
 				return;
 			}
 			loopTicks = null;
@@ -2629,15 +2703,17 @@
 				const endBar = Math.max(bar1, bar2);
 				if (endBar < startBar) return;
 
-				const timing = timingForApi(api);
+				const timing = writtenTimingForApi(api);
 				const ticks =
-					loopSnap === 'note' && timing ? rangeForBeats(timing, startBeat, endBeat) : null;
+					loopSnap === 'note' && timing
+						? rangeForBeats(timing, startBeat, endBeat)
+						: (timing?.range(startBar, endBar) ?? null);
 				const visitedBars = ticks
 					? timing!.visits
 							.filter((v) => v.end > ticks.startTick && v.start < ticks.endTick)
 							.map((v) => v.masterBar.index)
 					: [startBar, endBar];
-				renderOverlayForBars(Math.min(...visitedBars), Math.max(...visitedBars), ticks);
+				renderOverlayForBars(Math.min(...visitedBars), Math.max(...visitedBars), ticks, timing);
 			} catch {}
 		}
 
@@ -2645,7 +2721,8 @@
 		function renderOverlayForBars(
 			startBar: number,
 			endBar: number,
-			ticks: TickRange | null = null
+			ticks: TickRange | null = null,
+			selectionTiming = loopTiming()
 		) {
 			const container = ensureOverlayContainer();
 			if (!container || !api) return;
@@ -2660,7 +2737,8 @@
 					for (const mbb of sg.bars) {
 						if (mbb.index < startBar || mbb.index > endBar) continue;
 						const b = mbb.realBounds;
-						if (b && b.w > 0 && b.h > 0) rects.push(...loopRectsForBar(mbb.index, b, ticks));
+						if (b && b.w > 0 && b.h > 0)
+							rects.push(...loopRectsForBar(mbb.index, b, ticks, selectionTiming));
 					}
 				}
 				if (rects.length === 0) return;
@@ -2748,7 +2826,7 @@
 					const eBar = Math.max(bar1, bar2);
 					if (eBar >= sBar) {
 						if (loopSnap === 'note') selectScoreNotes(scoreDragStartBeat, beat);
-						else setLoopBars(sBar, eBar);
+						else setLoopBars(sBar, eBar, 'written');
 						// Move cursor to start of selection
 						if (api && !playing) {
 							const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
@@ -2922,6 +3000,7 @@
 						: null,
 				getLoopTicks: () => currentLoopRange(),
 				getLoopSnap: () => loopSnap,
+				getLoopOrder: () => loopOrder,
 				getLoopMs: () => {
 					const lm = loopRangeMs();
 					return lm ? { start: lm.startMs, end: lm.endMs } : null;
@@ -5423,7 +5502,7 @@
 					{loopStartBar}
 					{loopEndBar}
 					{loopEnabled}
-					preciseLoop={!!loopTicks}
+					preciseLoop={loopSnap === 'note'}
 					bind:loopSnap
 					on:loopsnap={changeLoopSnap}
 					bind:mergeMode

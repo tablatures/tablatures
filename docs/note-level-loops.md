@@ -1,4 +1,4 @@
-# Note-level loops
+# Note-level practice loops
 
 Feature branch: `codex/note-level-loops`.
 
@@ -9,80 +9,86 @@ Choose **Notes** under **Loop snap** beside the desktop repeat button, or under
 
 - Drag across notes on the score to include the first onset through the end of
   the last selected note or rest. Reverse selection works too.
-- Double-click a note or rest to select just that position. Chords are selected
-  as one event. A normal click continues to seek and clear the previous loop.
-- Hold on the timeline, then drag, to select individual note/rest positions.
-  Holding and releasing without moving selects a single position.
+- Double-click a note or rest to loop that position. Chords are one event.
+  A normal click seeks and clears the previous loop.
+- Score selections play the highlighted notes in **printed order**. Repeat signs,
+  alternate-ending skips, and score jumps do not pull unselected passages into
+  a practice loop. Selecting the first ending into the second plays those two
+  selected passages directly, then returns to the start marker.
 - Resize either edge on the score or timeline. Move the region with its grip
   or the timeline selection. Moves snap the start and retain the musical
-  duration, so the ending can fall inside a longer note at the new location.
-- Switch back to Bars to expand the selected written bars to full bars.
+  duration; the ending can fall inside a longer note at the new location.
+- Switch back to Bars to expand the selection to full printed bars.
+- Disable or clear a score loop to restore the song's normal repeat order.
+  Editing a disabled practice marker keeps it disabled until explicitly enabled.
+- Hold on the timeline, then drag, to select note/rest positions. The timeline
+  follows the active playback order: normal song repeat visits outside practice,
+  printed order while a score practice loop is enabled.
+
+![First-to-second-ending practice loop: only the selected printed notes are highlighted](note-level-loops-repeat.png)
 
 ## Edge-case score
 
-Import `tests/fixtures/player/note-loop-edge-cases.gp` into the player. Its
-editable source is `note-loop-edge-cases.tex` beside it. Regenerate the GP file
-with `node tests/fixtures/player/generate-note-loop-score.mjs`. The second track,
+Import `tests/fixtures/player/note-loop-edge-cases.gp`. Its editable source is
+`note-loop-edge-cases.tex` beside it. Regenerate the GP file with
+`node tests/fixtures/player/generate-note-loop-score.mjs`. The second track,
 Rhythm, uses longer chords to exercise track changes with different note grids.
 
 1. Bar 1: eighth notes, an eighth rest, a chord, and a quarter note.
 2. Bar 2: opening of the repeated section; mixed notes and a quarter rest.
-3. Bar 3: a tempo change to 90, eighth-note triplets, and a sustained half note.
+3. Bar 3: tempo 90, eighth-note triplets, and a sustained half note.
 4. Bar 4: first ending; a half note tied into a quarter, then a rest.
-5. Bar 5: second ending and a tempo change to 150.
-6. Bar 6: a switch to 3/4, including a quarter rest.
+5. Bar 5: second ending and tempo 150.
+6. Bar 6: switch to 3/4, including a quarter rest.
 7. Bar 7: return to 4/4 and a whole note at the end of the score.
 
-Playback visits (one-based written bars): **1, 2, 3, 4, 2, 3, 5, 6, 7**.
-The second visit to bar 2 starts at tick 15360; selecting its second eighth
-note creates `[15840, 16320)`. A loop spanning the repeat jump can retain
-`[14400, 16320)` even though playback moves from written bar 4 back to bar 2.
-
-Score selections retain the existing smallest contiguous playback-span rule,
-with the earliest visit winning ties. Timeline selections retain the exact
-repeat pass being selected. The score cannot visually distinguish two visits
-to the same written note; the timeline shows the selected pass.
-The score preview includes every passage visited by the loop before release.
-Handles stay on the actual boundary notes even if a repeat puts the start
-below the end on the printed score. For example, selecting bar 4 into bar 5
-also includes the intervening repeat of bars 2–3; the start handle stays in bar 4.
-
-![Loop from the first ending into the second, with its start handle in bar 4](note-level-loops-repeat.png)
+Normal playback visits (one-based bars): **1, 2, 3, 4, 2, 3, 5, 6, 7**.
+Practice visits: **1, 2, 3, 4, 5, 6, 7**, with native playback restricted to
+selected notes. Selecting bar 4's first note through bar 5's first eighth note
+creates `[11520, 15840)` on the practice clock, without repeating bars 2–3.
 
 ## Storage and playback
 
-Precise ranges use expanded MIDI ticks, shared by the synthesizer, timeline,
-persistent player state, and video synchronization. Tick-to-time conversion
-continues to use the tempo map and playback speed. No alphaTab changes are
-required.
+New score selections use `?loop=w.<startTick>.<endTick>[.off]`, whose ticks refer
+to printed order. Existing `?loop=1.2[.off]` bar links and
+`?loop=n.<startTick>.<endTick>[.off]` performance links retain their behavior.
+Tick ranges are validated once score timing loads.
 
-Existing `?loop=1.2[.off]` links keep their full-bar behavior. Precise links use
-`?loop=n.15840.16320[.off]`; they are validated after MIDI timing loads.
-Track changes leave the playback boundaries intact; subsequent edits snap to
-positions on the active track.
+A persistent practice controller regenerates native MIDI once when entering or
+leaving printed-order practice. Repeat and direction metadata are suppressed
+only during synchronous generation and restored immediately, including on
+errors. The notation and exported score keep their original repeat signs.
+Native synthesizer looping handles every subsequent wrap and note transition;
+there are no timer-driven audio seeks between selected bars. Editing loop bounds
+does not regenerate MIDI. Playing transport resumes after an order change.
+
+The score, timeline, native range, shared state, and saved link use the same
+active clock. Practice continues in the mini player and through track changes.
+The timeline's duration changes with the active playback order. Video positions
+map back to the original performance clock, seeking across omitted repeat
+passages and applying playback speed and media offset. Timed lyrics and the
+video tap-to-sync controls also use the original recording clock.
 
 Boundaries clip sustained notes at the end of the loop. Seeking into a tied
-continuation relies on alphaTab's MIDI seek behavior; the feature does not
-rewrite ties or insert note attacks. Video loops use the same boundaries, but
-very short loops remain subject to the video provider's seek latency.
+continuation relies on alphaTab's MIDI seek behavior; practice does not insert
+note attacks. Video transitions and very short loops remain subject to the
+video provider's seek latency.
 
 ## Verification
 
-- `pnpm exec vitest run src/library/utils/loopRegion.test.ts src/library/utils/playerTiming.test.ts src/library/utils/videoSession.test.ts`
-- `pnpm exec playwright test tests/note-loop.spec.ts tests/loop.spec.ts tests/loop-editing.spec.ts tests/loop-repeat.spec.ts --workers=1`
+- `pnpm exec vitest run`
+- `pnpm exec playwright test tests/note-loop.spec.ts tests/loop.spec.ts tests/loop-editing.spec.ts tests/loop-repeat.spec.ts tests/player-correctness.spec.ts tests/lyrics.spec.ts --workers=1`
 - `pnpm check`
+- `pnpm build:app`
 
-The note-loop browser tests import the generated GP file through the catalog
-loading path and use real score/timeline gestures. The unit tests parse the
-AlphaTex source and verify independent expected playback ticks.
+Browser tests import the generated GP file through the catalog loading path and
+exercise real score and timeline gestures, marker placement, native playback
+visits and wraps, disabled markers, reloads, legacy links, track changes, phone
+controls, and mini playback. Unit tests use native MIDI generation to verify
+practice order, restoration of repeats and score jumps, tempo timing, disposal,
+and video position mapping at 0.5×, 1×, 1.5×, and 2×.
 
-Validation completed: all 314 unit tests passed; all 58 browser cases passed
-(one fixture-download timeout in the combined run passed when rerun alone).
-The application check reported zero errors and 16 existing warnings.
-
-The production application build (`pnpm build:app`) succeeded.
-
-Repeat-selection follow-up: 47 targeted browser cases passed, including the
-recorded first-to-second-ending drag, backwards endpoint placement, partial
-endpoints in two visits to the same written bar, and moving between endings.
-The application check still reports zero errors and the same 16 warnings.
+Validation: 328 unit tests and 87 browser scenarios passed across grouped runs.
+Three geometry-settling timeouts in the parallel run passed when run serially.
+The application check reports zero errors and 16 existing warnings. The
+production application build succeeds.

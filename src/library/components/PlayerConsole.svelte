@@ -195,7 +195,8 @@
 		</label>
 		{#if loopSnap === 'note'}
 			<p class="px-3 pb-2 text-[11px] text-neutral-500">
-				Drag across notes, or double-click a note to loop it. On the timeline, hold then drag.
+				Drag across notes, or double-click a note to loop it. Score loops play the selected notes in
+				printed order. On the timeline, hold then drag.
 			</p>
 		{/if}
 		<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} {preciseLoop} on:toggleloop on:clearloop />

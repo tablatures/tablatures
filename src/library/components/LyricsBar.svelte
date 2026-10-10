@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { playbackToMediaMs, mediaToPlaybackMs } from '../utils/practicePlayback';
 	import { get } from 'svelte/store';
 	import {
 		lyricsStore,
@@ -91,8 +92,8 @@
 
 	function handlePosition(e: { currentTime?: number } | undefined) {
 		const speed = api?.playbackSpeed || 1;
-		// The event time is scaled by speed; * speed recovers nominal song time.
-		syncedTimeMs = (e?.currentTime ?? 0) * speed;
+		// Timed lyrics follow the recording clock, including omitted practice repeats.
+		syncedTimeMs = playbackToMediaMs(api, e?.currentTime ?? 0) * speed;
 	}
 
 	function seekTicks(beat: unknown) {
@@ -110,7 +111,7 @@
 		if (!api?.player) return;
 		const speed = api.playbackSpeed || 1;
 		try {
-			api.player.timePosition = nominalMs / speed;
+			api.player.timePosition = mediaToPlaybackMs(api, nominalMs / speed);
 		} catch {
 			/* not ready */
 		}

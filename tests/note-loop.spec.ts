@@ -99,7 +99,7 @@ test('score selection keeps partial bars, reverse drag, single notes and rests',
 	const rest = await beatPoint(page, 0, 2);
 	await page.mouse.dblclick(rest.x, rest.y);
 	await ticks(page, 960, 1440);
-	await expect(page).toHaveURL(/loop=n\.960\.1440/);
+	await expect(page).toHaveURL(/loop=w\.960\.1440/);
 	await page.screenshot({ path: 'test-results/note-loop-score.png', fullPage: true });
 });
 
@@ -146,7 +146,7 @@ test('triplets, alternate endings, score resize and bar compatibility', async ({
 	await ticks(page, 8000, 8640);
 	await page.getByRole('combobox', { name: 'Loop snapping', exact: true }).selectOption('bar');
 	await ticks(page, 7680, 11520);
-	await expect(page).toHaveURL(/loop=2\.2/);
+	await expect(page).toHaveURL(/loop=w\.7680\.11520/);
 });
 
 test('repeat-ending selection keeps its preview and handles at the selected notes', async ({
@@ -164,7 +164,7 @@ test('repeat-ending selection keeps its preview and handles at the selected note
 	const previewEnd = await overlay.locator('[data-loop-preview-edge="end"]').boundingBox();
 	expect(previewStart).not.toBeNull();
 	expect(previewEnd).not.toBeNull();
-	// The repeated bars on the preceding row are already included before release.
+	// Practice includes only the printed selection, before and after release.
 	const highlights = () =>
 		overlay.locator(':scope > div').evaluateAll((elements) =>
 			elements
@@ -175,9 +175,9 @@ test('repeat-ending selection keeps its preview and handles at the selected note
 				})
 		);
 	const previewHighlights = await highlights();
-	expect(previewHighlights).toHaveLength(2);
+	expect(previewHighlights).toHaveLength(1);
 	await page.mouse.up();
-	await ticks(page, 11520, 23520);
+	await ticks(page, 11520, 15840);
 	const start = await overlay.locator('[title="Drag to resize start"]').boundingBox();
 	const end = await overlay.locator('[title="Drag to resize end"]').boundingBox();
 	expect(start!.y).toBeCloseTo(previewStart!.y, 0);
@@ -201,7 +201,7 @@ test('repeat-ending selection keeps its preview and handles at the selected note
 	await page.mouse.down();
 	await page.mouse.move(tied.x, tied.y, { steps: 10 });
 	await page.mouse.up();
-	await ticks(page, 13440, 23520);
+	await ticks(page, 13440, 15840);
 });
 
 test('repeat-jump endpoints can appear in reverse printed order', async ({ page }) => {
@@ -338,6 +338,172 @@ test('moving and cancelled resizing preserve precise boundaries', async ({ page 
 	await page.evaluate(() => window.dispatchEvent(new Event('blur')));
 	await page.mouse.up();
 	await ticks(page, original.startTick, original.endTick);
+});
+
+test('written practice plays only selected endings and survives mini playback', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 820, height: 1000 });
+	await setup(page);
+	const first = await beatPoint(page, 3, 0),
+		last = await beatPoint(page, 4, 0);
+	await dragScoreLoop(page, first.x, first.y, last.x, last.y);
+	await ticks(page, 11520, 15840);
+	await expect(page).toHaveURL(/loop=w\.11520\.15840/);
+	await page.evaluate(() => {
+		const api = (window as any).__testApi.getApi();
+		(window as any).__practiceSamples = [];
+		api.playerPositionChanged.on((e: any) => {
+			if (!e.isSeek)
+				(window as any).__practiceSamples.push({
+					tick: e.currentTick,
+					bar: api.tickCache.masterBars.find((v: any) => e.currentTick < v.end)?.masterBar.index
+				});
+		});
+		api.playbackSpeed = 2;
+	});
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
+	const wraps = () =>
+		page.evaluate(() => {
+			const samples = (window as any).__practiceSamples;
+			return samples.filter((s: any, i: number) => i > 0 && s.tick < samples[i - 1].tick).length;
+		});
+	await expect.poll(wraps, { timeout: 20000 }).toBeGreaterThanOrEqual(2);
+	const bars = await page.evaluate(() => [
+		...new Set((window as any).__practiceSamples.map((s: any) => s.bar))
+	]);
+	expect(bars.sort()).toEqual([3, 4]);
+	await page.evaluate(() => {
+		const api = (window as any).__testApi.getApi();
+		api.renderTracks([api.score.tracks[1]]);
+	});
+	await ticks(page, 11520, 15840);
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
+	const previousWraps = await wraps();
+	await expect.poll(wraps, { timeout: 15000 }).toBeGreaterThan(previousWraps);
+	await page.goBack();
+	await waitForScoreLoaded(page);
+	await ticks(page, 11520, 15840);
+	await expect.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(true);
+	await page.getByRole('button', { name: 'Disable loop', exact: true }).click();
+	await expect
+		.poll(() =>
+			page.evaluate(() =>
+				(window as any).__testApi.getApi().tickCache.masterBars.map((v: any) => v.masterBar.index)
+			)
+		)
+		.toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await expect.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(true);
+	await page.getByRole('button', { name: 'Pause', exact: true }).click();
+});
+
+test('written links restore, toggle off, clear, and retain whole-bar score snapping', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 820, height: 1000 });
+	await setup(page, '&loop=w.15360.16320');
+	await ticks(page, 15360, 16320);
+	const visits = () =>
+		page.evaluate(() =>
+			(window as any).__testApi.getApi().tickCache.masterBars.map((v: any) => v.masterBar.index)
+		);
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 4, 5, 6]);
+	await page.reload();
+	await waitForScoreLoaded(page);
+	await ticks(page, 15360, 16320);
+	await page.getByRole('button', { name: 'Disable loop', exact: true }).click();
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await expect(page).toHaveURL(/loop=w\.15360\.16320\.off/);
+	await page.reload();
+	await waitForScoreLoaded(page);
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await page.getByRole('button', { name: 'Enable loop', exact: true }).click();
+	await ticks(page, 15360, 16320);
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 4, 5, 6]);
+	await page.keyboard.press('Escape');
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await page.getByRole('combobox', { name: 'Loop snapping', exact: true }).selectOption('bar');
+	const first = await beatPoint(page, 3, 0),
+		last = await beatPoint(page, 4, 0);
+	await dragScoreLoop(page, first.x, first.y, last.x, last.y);
+	await ticks(page, 11520, 19200);
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 4, 5, 6]);
+	await expect(page).toHaveURL(/loop=w\.11520\.19200/);
+	await page.getByRole('button', { name: 'Disable loop', exact: true }).click();
+	const slider = page.getByRole('slider', { name: /Playback progress/ });
+	const box = (await slider.boundingBox())!;
+	const y = box.y + box.height / 2;
+	await page.mouse.move(box.x + (box.width * (await percentAt(page, 26880))) / 100, y);
+	await page.mouse.down();
+	await page.mouse.move(box.x + (box.width * (await percentAt(page, 27500))) / 100, y, {
+		steps: 5
+	});
+	await page.mouse.up();
+	await expect(page).toHaveURL(/loop=w\.11520\.22080\.off/);
+	await expect.poll(visits).toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await page.getByRole('button', { name: 'Enable loop', exact: true }).click();
+	await ticks(page, 11520, 22080);
+});
+
+test('disabled practice markers resize on the normal timeline without changing repeat order', async ({
+	page
+}) => {
+	await setup(page, '&loop=w.15360.16320.off');
+	const slider = page.getByRole('slider', { name: /Playback progress/ });
+	const box = (await slider.boundingBox())!;
+	const xAt = async (tick: number) => box.x + (box.width * (await percentAt(page, tick))) / 100;
+	const y = box.y + box.height / 2;
+	await page.mouse.move(await xAt(24000), y);
+	await page.mouse.down();
+	await page.mouse.move(await xAt(24600), y, { steps: 5 });
+	await page.mouse.up();
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopTicks()))
+		.toEqual({ startTick: 15360, endTick: 17280 });
+	await expect(page).toHaveURL(/loop=w\.15360\.17280\.off/);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getExpandedSequence()))
+		.toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+	await page.getByRole('button', { name: 'Enable loop', exact: true }).click();
+	await ticks(page, 15360, 17280);
+});
+
+test('a new timeline selection after disabling practice retains the selected repeat pass', async ({
+	page
+}) => {
+	await setup(page, '&loop=w.15360.16320.off');
+	const at = await percentAt(page, 15960);
+	await dragProgressBar(page, at, at);
+	await ticks(page, 15840, 16320);
+	await expect(page).toHaveURL(/loop=n\.15840\.16320/);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getExpandedSequence()))
+		.toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
+});
+
+test('timed lyrics follow the original recording during written practice', async ({ page }) => {
+	await setup(page, '&loop=w.15360.16320');
+	await page.route(/lrclib\.net\/api\/search/, (route) =>
+		route.fulfill({
+			json: [
+				{
+					trackName: 'Note Loop Edge Cases',
+					artistName: 'Tablatures test score',
+					duration: 14,
+					syncedLyrics:
+						'[00:00.00]Start\n[00:09.00]Earlier repeat\n[00:14.00]Second ending\n[00:15.00]After selection'
+				}
+			]
+		})
+	);
+	await page.getByRole('button', { name: 'Find lyrics online' }).click();
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLyricsState().syncedLineCount))
+		.toBe(4);
+	await page.evaluate(() => {
+		(window as any).__testApi.getApi().tickPosition = 15360;
+	});
+	await expect(page.getByTestId('lyrics-current')).toContainText('Second ending');
 });
 
 test.describe('phone note loops', () => {

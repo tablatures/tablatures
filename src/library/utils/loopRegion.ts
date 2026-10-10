@@ -9,9 +9,11 @@ export interface LoopRegion {
 	startBar: number | null;
 	endBar: number | null;
 	enabled: boolean;
-	/** Expanded playback ticks retain the selected repeat pass. Absent on legacy bar loops. */
+	/** Ticks on the selected playback clock. Absent on legacy bar loops. */
 	startTick?: number;
 	endTick?: number;
+	/** Written order plays each selected printed bar once, ignoring score jumps. */
+	order?: 'written';
 }
 
 /** Versioned precise links coexist with the original bar-index format. */
@@ -19,7 +21,7 @@ export function parseLoopParam(
 	value: string
 ): (LoopRegion & { startBar: number; endBar: number }) | null {
 	const parts = value.split('.');
-	const precise = parts[0] === 'n';
+	const precise = parts[0] === 'n' || parts[0] === 'w';
 	const fields = precise ? parts.slice(1) : parts;
 	if (fields.length < 2 || fields.length > 3 || (fields[2] !== undefined && fields[2] !== 'off'))
 		return null;
@@ -35,7 +37,14 @@ export function parseLoopParam(
 	)
 		return null;
 	return precise
-		? { startBar: 0, endBar: 0, startTick: start, endTick: end, enabled: fields[2] !== 'off' }
+		? {
+				startBar: 0,
+				endBar: 0,
+				startTick: start,
+				endTick: end,
+				enabled: fields[2] !== 'off',
+				...(parts[0] === 'w' ? { order: 'written' as const } : {})
+			}
 		: { startBar: start, endBar: end, enabled: fields[2] !== 'off' };
 }
 

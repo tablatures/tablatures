@@ -10,7 +10,8 @@
  *   ?video=<id>  — YouTube video id         (from activeVideoId)
  *   ?track=<n>   — active track index       (from playerState.activeTrackIndex, omitted when 0)
  *   ?t=<sec>     — playback time in seconds (from playerState.progress, debounced, omitted when 0)
- *   ?loop=<a>.<b>[.off] or n.<startTick>.<endTick>[.off] — loop region as 0-based bar indices, `.off` when disabled
+ *   ?loop=<a>.<b>[.off], n.<startTick>.<endTick>[.off], or w.<startTick>.<endTick>[.off]
+ *               — legacy bars, performance ticks, or printed-order practice ticks
  *                         (owned by TabViewer; restored after the score loads)
  *
  * Not managed here:
@@ -31,6 +32,7 @@ export interface LoopUrlState {
 	enabled: boolean;
 	startTick?: number;
 	endTick?: number;
+	order?: 'written';
 }
 
 export interface UrlState {
@@ -73,13 +75,16 @@ export function syncLoopUrl(
 	startBar: number | null,
 	endBar: number | null,
 	enabled: boolean,
-	ticks?: { startTick: number; endTick: number } | null
+	ticks?: { startTick: number; endTick: number } | null,
+	order?: 'written'
 ) {
 	if (startBar === null || endBar === null) {
 		updateUrlParams({ loop: null });
 		return;
 	}
-	const value = ticks ? `n.${ticks.startTick}.${ticks.endTick}` : `${startBar}.${endBar}`;
+	const value = ticks
+		? `${order === 'written' ? 'w' : 'n'}.${ticks.startTick}.${ticks.endTick}`
+		: `${startBar}.${endBar}`;
 	updateUrlParams({ loop: `${value}${enabled ? '' : '.off'}` });
 }
 

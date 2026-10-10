@@ -1,5 +1,6 @@
 import { resolveLoopRange, type LoopRegion } from './loopRegion';
 import { engineToScoreMs, scoreToEngineMs, timingForApi } from './playerTiming';
+import { playbackToMediaMs, mediaToPlaybackMs } from './practicePlayback';
 
 export interface VideoSessionPorts {
 	video(): any;
@@ -21,6 +22,8 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 	let previousSpeed = api.playbackSpeed || 1;
 	let previousVolume: number | null = null;
 	let previousSource: string | null = null;
+	let lastMediaMs: number | null = null;
+	let lastEngineMs: number | null = null;
 	let volumeTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const seek = (engineMs: number) => {
@@ -28,7 +31,10 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		if (!video) return;
 		seekLockUntil = Date.now() + 600;
 		video.seekTo(
-			Math.max(0, engineToScoreMs(engineMs, api.playbackSpeed) / 1000 + ports.offset()),
+			Math.max(
+				0,
+				engineToScoreMs(playbackToMediaMs(api, engineMs), api.playbackSpeed) / 1000 + ports.offset()
+			),
 			true
 		);
 	};
@@ -45,8 +51,15 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		const isEcho = mediaSeekTarget !== null && Math.abs(event.currentTime - mediaSeekTarget) < 100;
 		if (isEcho) mediaSeekTarget = null;
 		const wrapped = lastTick !== null && event.currentTick < lastTick - 1 && !event.isSeek;
+		const mediaMs = playbackToMediaMs(api, event.currentTime);
+		const jumped =
+			lastMediaMs !== null &&
+			lastEngineMs !== null &&
+			Math.abs(mediaMs - lastMediaMs - (event.currentTime - lastEngineMs)) > 100;
+		lastMediaMs = mediaMs;
+		lastEngineMs = event.currentTime;
 		lastTick = event.currentTick;
-		if ((event.isSeek || wrapped) && !isEcho) seek(event.currentTime);
+		if ((event.isSeek || wrapped || jumped) && !isEcho) seek(event.currentTime);
 	};
 	const onState = ({ state }: { state: number }) => transport(state !== 0);
 	api.playerPositionChanged.on(onPosition);
@@ -114,7 +127,10 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		const timing = timingForApi(api);
 		if (!timing || !(video.getDuration?.() > 0)) return;
 		const speed = api.playbackSpeed || 1;
-		let target = scoreToEngineMs((video.getCurrentTime() - ports.offset()) * 1000, speed);
+		let target = mediaToPlaybackMs(
+			api,
+			scoreToEngineMs((video.getCurrentTime() - ports.offset()) * 1000, speed)
+		);
 		const region = ports.loop();
 		const range = region?.enabled ? resolveLoopRange(timing, region) : null;
 		if (range) {
