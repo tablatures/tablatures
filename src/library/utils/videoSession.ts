@@ -1,10 +1,11 @@
+import { resolveLoopRange, type LoopRegion } from './loopRegion';
 import { engineToScoreMs, scoreToEngineMs, timingForApi } from './playerTiming';
 
 export interface VideoSessionPorts {
 	video(): any;
 	offset(): number;
 	playing(): boolean;
-	loop(): { startBar: number | null; endBar: number | null; enabled: boolean } | null;
+	loop(): LoopRegion | null;
 	volume(): number;
 	source(): 'tab' | 'video' | 'both';
 }
@@ -115,10 +116,7 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		const speed = api.playbackSpeed || 1;
 		let target = scoreToEngineMs((video.getCurrentTime() - ports.offset()) * 1000, speed);
 		const region = ports.loop();
-		const range =
-			region?.enabled && region.startBar !== null && region.endBar !== null
-				? timing.range(region.startBar, region.endBar)
-				: null;
+		const range = region?.enabled ? resolveLoopRange(timing, region) : null;
 		if (range) {
 			const start = timing.tickToMs(range.startTick, speed);
 			const end = timing.tickToMs(range.endTick, speed);

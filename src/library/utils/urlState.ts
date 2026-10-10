@@ -10,7 +10,7 @@
  *   ?video=<id>  — YouTube video id         (from activeVideoId)
  *   ?track=<n>   — active track index       (from playerState.activeTrackIndex, omitted when 0)
  *   ?t=<sec>     — playback time in seconds (from playerState.progress, debounced, omitted when 0)
- *   ?loop=<a>.<b>[.off] — loop region as 0-based bar indices, `.off` when disabled
+ *   ?loop=<a>.<b>[.off] or n.<startTick>.<endTick>[.off] — loop region as 0-based bar indices, `.off` when disabled
  *                         (owned by TabViewer; restored after the score loads)
  *
  * Not managed here:
@@ -19,6 +19,7 @@
  */
 
 import { engineToScoreMs } from './playerTiming';
+import { parseLoopParam } from './loopRegion';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { tabStore, pendingTabStore } from './store';
@@ -28,6 +29,8 @@ export interface LoopUrlState {
 	startBar: number;
 	endBar: number;
 	enabled: boolean;
+	startTick?: number;
+	endTick?: number;
 }
 
 export interface UrlState {
@@ -59,23 +62,25 @@ export function readUrlState(): UrlState {
 	}
 	const loop = params.get('loop');
 	if (loop !== null) {
-		const [aStr, bStr, flag] = loop.split('.');
-		const a = parseInt(aStr, 10);
-		const b = parseInt(bStr, 10);
-		if (!isNaN(a) && !isNaN(b) && a >= 0 && b >= a) {
-			out.loop = { startBar: a, endBar: b, enabled: flag !== 'off' };
-		}
+		const region = parseLoopParam(loop);
+		if (region) out.loop = region;
 	}
 	return out;
 }
 
 /** Write (or clear) the loop region param. Pass null bars to remove it. */
-export function syncLoopUrl(startBar: number | null, endBar: number | null, enabled: boolean) {
+export function syncLoopUrl(
+	startBar: number | null,
+	endBar: number | null,
+	enabled: boolean,
+	ticks?: { startTick: number; endTick: number } | null
+) {
 	if (startBar === null || endBar === null) {
 		updateUrlParams({ loop: null });
 		return;
 	}
-	updateUrlParams({ loop: `${startBar}.${endBar}${enabled ? '' : '.off'}` });
+	const value = ticks ? `n.${ticks.startTick}.${ticks.endTick}` : `${startBar}.${endBar}`;
+	updateUrlParams({ loop: `${value}${enabled ? '' : '.off'}` });
 }
 
 /**

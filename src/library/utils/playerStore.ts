@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import type { LoopRegion } from './loopRegion';
 
 export interface PlayerState {
 	playing: boolean;
@@ -17,7 +18,7 @@ export interface PlayerState {
 	activeTrackIndex: number;
 	isRendering: boolean;
 	videoWasPlaying: boolean;
-	loop: { startBar: number | null; endBar: number | null; enabled: boolean } | null;
+	loop: LoopRegion | null;
 	scoreKey: string | null;
 	masterVolume: number;
 	speed: number;

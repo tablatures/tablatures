@@ -19,6 +19,8 @@
 	export let loopStartBar: number | null = null;
 	export let loopEndBar: number | null = null;
 	export let loopEnabled = true;
+	export let loopSnap: 'bar' | 'note' = 'bar';
+	export let preciseLoop = false;
 
 	export let mergeMode = false;
 	export let selectedIndexes: number[] = [];
@@ -178,7 +180,25 @@
 			</div>
 		</div>
 
-		<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} on:toggleloop on:clearloop />
+		<label
+			class="flex items-center justify-between px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300"
+		>
+			Loop snapping
+			<select
+				aria-label="Loop snapping in settings"
+				bind:value={loopSnap}
+				on:change={() => dispatch('loopsnap')}
+				class="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-2"
+			>
+				<option value="bar">Bars</option><option value="note">Notes</option>
+			</select>
+		</label>
+		{#if loopSnap === 'note'}
+			<p class="px-3 pb-2 text-[11px] text-neutral-500">
+				Drag across notes, or double-click a note to loop it. On the timeline, hold then drag.
+			</p>
+		{/if}
+		<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} {preciseLoop} on:toggleloop on:clearloop />
 	</div>
 </div>
 

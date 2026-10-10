@@ -4,6 +4,7 @@
 	export let loopStartBar: number | null = null;
 	export let loopEndBar: number | null = null;
 	export let loopEnabled = true;
+	export let preciseLoop = false;
 
 	const dispatch = createEventDispatcher<{ toggleloop: void; clearloop: void }>();
 </script>
@@ -33,7 +34,8 @@
 				Loop {loopEnabled ? '' : '(off)'}
 			</p>
 			<p class="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
-				Bars {loopStartBar + 1} → {loopEndBar + 1}
+				{preciseLoop ? 'Notes in bars' : 'Bars'}
+				{loopStartBar + 1} → {loopEndBar + 1}
 			</p>
 		</div>
 		<button
@@ -50,6 +52,6 @@
 		class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 text-[11px] text-neutral-500 dark:text-neutral-400"
 	>
 		<i class="material-icons !text-sm" aria-hidden="true">info_outline</i>
-		Drag on the progress bar to set a loop region
+		Hold then drag on the progress bar to set a loop region
 	</p>
 {/if}
