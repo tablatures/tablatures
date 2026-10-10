@@ -541,10 +541,15 @@
 		cursorFollowTop = null;
 		if (browser) cancelAnimationFrame(cursorFollowFrame);
 		cursorFollowFrame = 0;
-		playing = false;
-		progress = 0;
-		duration = 0;
-		currentBar = 0;
+		// On route return, props can arrive after the persistent API is adopted.
+		// Resume only the session owned by these exact bytes; a replacement's
+		// store has already been cleared and must never inherit the old position.
+		const state = get(playerState);
+		const resume = state.scoreLoaded && state.scoreKey === requestedScoreKey;
+		playing = resume ? state.playing : false;
+		progress = resume ? state.progress : 0;
+		duration = resume ? state.duration : 0;
+		currentBar = resume ? state.currentBar : 0;
 		bindDuration = true;
 	}
 	$: if (playing) followAtStart = true;
