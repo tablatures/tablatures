@@ -116,7 +116,8 @@
 	<section role="dialog" aria-label="Viewport report" class="viewport-report">
 		<p>Viewport report</p>
 		<p class="help">
-			Copy this after the gap appears, then again after touching Chrome’s address bar.
+			Reproduce the gap, touch Chrome’s address bar to correct it, then copy this report.
+			It includes the preceding measurements.
 		</p>
 		<textarea aria-label="Viewport measurements" readonly value={report} />
 		<div class="actions">

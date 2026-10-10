@@ -37,10 +37,11 @@ The toolbar-gap fix is therefore **not verified on the affected device**.
 
 Opening the preview with `?viewportDebug=1` enables a lazy-loaded “Viewport
 report” button that stays available across client navigation. Reproduce the
-gap, then copy its report. It records viewport APIs, CSS small/dynamic/large
+gap, wait a second, then touch Chrome's address bar as usual to correct it.
+Open “Viewport report” and copy the report. It records viewport APIs, CSS small/dynamic/large
 viewport heights, player geometry, and the preceding route/viewport events.
-Touch Chrome's address bar, then capture a second report to compare the broken
-and corrected states. Reports are copied manually; nothing is uploaded, and
+The preceding measurements include both broken and corrected states.
+Reports are copied manually; nothing is uploaded, and
 URL query parameters / tab IDs are excluded. Ordinary visits load no reporter.
 
 Related browser reports describe [stale viewport metrics after toolbar
