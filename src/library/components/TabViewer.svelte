@@ -366,20 +366,33 @@
 	let atTop = true;
 
 	// Live height of the sticky control bar, exposed as a CSS var so floating
-	// layers and the settings sheet can anchor above it without hardcoded offsets
+	// layers and the settings sheet can anchor above it without hardcoded offsets.
+	// Include the border and fractional CSS pixels. clientHeight omits the
+	// border; offsetHeight rounds. Either leaves a loading-pane height mismatch
+	// that can move focused controls when the score is revealed.
 	let barHeight = 0;
 	let barEl: HTMLElement | undefined;
-	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
-	// its box height: the /play shell is sized in `dvh`, which can resolve taller
-	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
-	// box below the screen. The mobile bottom sheet insets its content by this so
-	// the last row clears the controls (see playerBarHeight).
+	function measureControls(node: HTMLElement) {
+		const measure = () => {
+			barHeight = node.getBoundingClientRect().height;
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(node, { box: 'border-box' });
+		return { destroy: () => observer.disconnect() };
+	}
+	// Anchor the bottom-sheet inset to the player's measured viewport. On iPhone
+	// Chrome, innerHeight can remain smaller than the actual visible player even
+	// after its toolbar disappears. The last sheet row must still clear the whole
+	// control bar (see playerBarHeight).
 	async function publishBarInset(_scoreLoaded?: boolean) {
 		// Score loading moves the sticky bar even when its own height is unchanged.
 		await tick();
 		if (!browser || !barEl) return;
 		const top = barEl.getBoundingClientRect().top;
-		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
+		const viewportBottom =
+			barEl.closest('.play-main')?.getBoundingClientRect().bottom ?? window.innerHeight;
+		playerBarHeight.set(Math.max(0, Math.round(viewportBottom - top)));
 	}
 	$: if (browser && barEl && barHeight) publishBarInset(scoreLoaded);
 	// True while the mobile below-fold sheet has travelled up over the player. The
@@ -518,13 +531,29 @@
 	let autoFollow = true;
 	let followAtStart = false;
 	let followScoreKey: string | null = null;
+	let cursorFollowFrame = 0;
+	let cursorFollowTop: number | null = null;
+	// A retained viewer must not follow the previous score's position while its
+	// replacement renders. Versions can share a title, so key this by bytes.
 	$: if (requestedScoreKey !== followScoreKey) {
 		followScoreKey = requestedScoreKey;
 		followAtStart = false;
+		autoFollow = true;
+		cursorFollowTop = null;
+		if (browser) cancelAnimationFrame(cursorFollowFrame);
+		cursorFollowFrame = 0;
+		// On route return, props can arrive after the persistent API is adopted.
+		// Resume only the session owned by these exact bytes; a replacement's
+		// store has already been cleared and must never inherit the old position.
+		const state = get(playerState);
+		const resume = state.scoreLoaded && state.scoreKey === requestedScoreKey;
+		playing = resume ? state.playing : false;
+		progress = resume ? state.progress : 0;
+		duration = resume ? state.duration : 0;
+		currentBar = resume ? state.currentBar : 0;
+		bindDuration = true;
 	}
 	$: if (playing) followAtStart = true;
-	let cursorFollowFrame = 0;
-	let cursorFollowTop: number | null = null;
 	let cursorFollowObserver: MutationObserver | undefined;
 	let unsubscribeCursorFollow: (() => void) | undefined;
 
@@ -541,7 +570,10 @@
 		// position event. This also covers paused seeks and score reflow.
 		cursorFollowFrame = requestAnimationFrame(() => {
 			cursorFollowFrame = 0;
-			if (!didReturnPlayerHost && autoFollow && !isRendering) alignCursorInViewport();
+			if (
+				!didReturnPlayerHost && autoFollow && !isRendering && !isLoading &&
+				(playing || progress > 0 || followAtStart)
+			) alignCursorInViewport();
 		});
 	}
 
@@ -3873,7 +3905,7 @@
 		on:touchend={onBarTouchEnd}
 		on:touchcancel={onBarTouchEnd}
 		bind:this={barEl}
-		bind:clientHeight={barHeight}
+		use:measureControls
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{(!pending && scoreLoaded) || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
