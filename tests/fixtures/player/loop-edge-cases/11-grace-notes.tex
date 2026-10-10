@@ -1,0 +1,13 @@
+\title "Loop edge 11: grace notes"
+\tempo 120
+.
+// Before-beat grace at the very start of the score: negative playback tick.
+:4 0.1{gr} 3.1 5.1 7.1 8.1 |
+// Before-beat grace at a bar start takes time from the previous bar.
+:4 2.1{gr} 3.1 5.1 7.1 8.1 |
+// On-beat grace in the middle of a bar.
+:4 3.1 5.1{gr ob} 7.1 8.1 10.1 |
+// Grace chord at the start of a repeat.
+\ro :4 (0.1 2.2){gr} (3.1 5.2) 5.1 7.1 8.1 |
+\rc 2 :4 3.1 5.1 7.1{gr} 8.1 10.1 |
+:1 0.1

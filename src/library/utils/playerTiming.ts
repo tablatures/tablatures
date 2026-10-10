@@ -18,12 +18,31 @@ export class PlayerTiming {
 		endMs: number;
 		msPerTick: number;
 	}[] = [];
+	readonly startTick: number;
 	readonly endTick: number;
 	readonly durationMs: number;
 
-	constructor(readonly visits: readonly BarVisit[]) {
+	/** leadIn: ticks before the first bar that alphaTab plays from 0 ms (see leadInTicks). */
+	constructor(
+		readonly visits: readonly BarVisit[],
+		leadIn = 0
+	) {
 		let ms = 0;
 		let tempo = 120;
+		const first = visits[0];
+		this.startTick = (first?.start ?? 0) - leadIn;
+		if (first && leadIn > 0) {
+			const initial = first.tempoChanges.find((c) => c.tick <= first.start && c.tempo > 0);
+			const msPerTick = 60000 / (960 * (initial?.tempo ?? tempo));
+			ms = leadIn * msPerTick;
+			this.segments.push({
+				tick: this.startTick,
+				endTick: first.start,
+				ms: 0,
+				endMs: ms,
+				msPerTick
+			});
+		}
 		for (const bar of visits) {
 			let tick = bar.start;
 			const add = (end: number) => {
@@ -91,13 +110,25 @@ export class PlayerTiming {
 	}
 }
 
+/** alphaTab delays the MIDI so that before-beat grace notes in the first bar can
+ * sound before tick 0. It maps ticks back for the API but not milliseconds, so
+ * tick -leadIn plays at 0 ms. Mirrors MidiFileGenerator._detectTickShift. */
+export function leadInTicks(score: any): number {
+	let shift = 0;
+	for (const track of score?.tracks ?? [])
+		for (const staff of track.staves)
+			for (const voice of staff.bars[0]?.voices ?? [])
+				if (!voice.isEmpty) shift = Math.min(shift, voice.beats[0]?.playbackStart ?? 0);
+	return -shift;
+}
+
 const cache = new WeakMap<object, PlayerTiming>();
 export function timingForApi(api: any): PlayerTiming | null {
 	const lookup = api?.tickCache;
 	if (!lookup?.masterBars?.length) return null;
 	let timing = cache.get(lookup);
 	if (!timing) {
-		timing = new PlayerTiming(lookup.masterBars);
+		timing = new PlayerTiming(lookup.masterBars, leadInTicks(api.score));
 		cache.set(lookup, timing);
 	}
 	return timing;

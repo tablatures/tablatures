@@ -1,0 +1,19 @@
+[
+	{"file": "01-pickup", "covers": ["anacrusis", "repeat after pickup"], "normalVisits": [0, 1, 2, 1, 2, 3]},
+	{"file": "02-repeat-counts", "covers": ["implicit repeat from start", "single-bar repeat x3", "adjacent repeats"], "normalVisits": [0, 1, 0, 1, 2, 2, 2, 3, 4, 3, 4, 5, 6, 5, 6, 7]},
+	{"file": "03-nested-repeats", "covers": ["nested repeats"], "normalVisits": [0, 1, 2, 1, 2, 3, 0, 1, 2, 1, 2, 3, 4]},
+	{"file": "04-alternate-endings", "covers": ["three endings, each closing the repeat", "multi-bar first ending", "final ending without close"], "normalVisits": [0, 1, 2, 0, 1, 3, 0, 1, 4, 5, 6, 7, 5, 8, 9], "alphaTabVisits": [0, 1, 2, 0, 1, 0, 1, 0, 1, 2, 0, 1, 0, 1, 3, 0, 1, 2, 0, 1, 0, 1, 4, 5, 6, 7, 5, 8, 9], "alphaTabIssue": "alphaTab 1.8.1 replays the group once per closing when several endings close the same repeat"},
+	{"file": "05-dal-segno-al-coda", "covers": ["segno", "to coda", "D.S. al Coda", "coda"], "normalVisits": [0, 1, 2, 3, 1, 2, 4, 5]},
+	{"file": "06-da-capo-al-fine", "covers": ["D.C. al Fine", "fine", "repeats ignored after a jump"], "normalVisits": [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]},
+	{"file": "07-meters", "covers": ["3/4 6/8 5/8 7/8 2/2 12/8 1/4", "free time", "meter change inside repeat"], "normalVisits": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 9, 10]},
+	{"file": "08-tempo", "covers": ["bar tempo", "two mid-bar tempo changes", "tempo inside repeat", "30-300 bpm"], "normalVisits": [0, 1, 2, 3, 4, 3, 4, 5]},
+	{"file": "09-rhythms", "covers": ["5-, 3-, 7-, 6-tuplets", "dots and double dots", "64th and 128th", "rests", "whole-bar rest", "empty bar"], "normalVisits": [0, 1, 2, 3, 4, 5, 6, 7]},
+	{"file": "10-ties", "covers": ["tie across barline", "tie into first ending", "tie into second ending", "tie chain", "let ring"], "normalVisits": [0, 1, 2, 3, 4, 2, 3, 5, 6, 7]},
+	{"file": "11-grace-notes", "covers": ["before-beat grace at score start", "before-beat grace at bar start", "on-beat grace", "grace chord at repeat start", "mid-bar grace"], "normalVisits": [0, 1, 2, 3, 4, 3, 4, 5]},
+	{"file": "12-voices", "covers": ["two voices", "empty voice bar", "identical voice timings", "rest in one voice only"], "normalVisits": [0, 1, 2, 3, 4, 5]},
+	{"file": "13-tracks-and-staves", "covers": ["four tracks", "grand staff", "percussion", "silent track"], "normalVisits": [0, 1, 2, 1, 2, 3]},
+	{"file": "14-irregular-bars", "covers": ["underfull bar", "overfull bar"], "normalVisits": [0, 1, 2, 3]},
+	{"file": "15-minimal", "covers": ["single bar", "single sixteenth note"], "normalVisits": [0]},
+	{"file": "16-combined", "covers": ["pickup", "segno inside repeat", "endings with meter and tempo change", "D.S. al Coda after endings"], "normalVisits": [0, 1, 2, 1, 3, 4, 1, 2, 3, 5, 6]},
+	{"file": "17-shared-ending", "covers": ["ending bar shared by passes 1 and 3"], "normalVisits": [0, 1, 2, 0, 1, 3, 0, 1, 2, 4], "alphaTabVisits": [0, 1, 2, 0, 1, 0, 1, 2, 0, 1, 2, 0, 1, 0, 1, 2, 3, 0, 1, 2, 0, 1, 0, 1, 2, 4], "alphaTabIssue": "alphaTab 1.8.1 replays the group once per closing when several endings close the same repeat"}
+]

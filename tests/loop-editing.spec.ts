@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import * as at from '@coderline/alphatab';
 import { setupMockApi } from './helpers/mock-api';
 import { waitForScoreLoaded } from './helpers/wait';
-import { setupPlayPageWithTex } from './helpers/setup';
+import { setupPlayPageWithTex, setLoopSnapping } from './helpers/setup';
 
 const fixture = (name: string) => readFileSync(`tests/fixtures/player/${name}.tex`, 'utf8');
 
@@ -46,6 +46,7 @@ async function arrangeLoop(page: Page, name: string, start: number, end: number)
 	);
 	await page.goto('/play?tab=test-tab');
 	await waitForScoreLoaded(page);
+	await setLoopSnapping(page, 'bar');
 	await page.evaluate(({ start, end }) => (window as any).__testApi.setLoop(start, end), {
 		start,
 		end
@@ -218,6 +219,7 @@ for (const name of ['tempo-change', 'repeat']) {
 
 test('sheet resize crosses staff rows after scrolling', async ({ page }) => {
 	await setupPlayPageWithTex(page, fixture('long-score'));
+	await setLoopSnapping(page, 'bar');
 	await settleScore(page);
 	const { start, end, target, scrollTop } = await page.evaluate(() => {
 		const bars = (window as any).__testApi.getBarPositions();

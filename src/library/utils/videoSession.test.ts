@@ -1,5 +1,6 @@
 import { it, expect, vi, afterEach } from 'vitest';
 import { createVideoSession } from './videoSession';
+import type { LoopRegion } from './loopRegion';
 
 afterEach(() => vi.useRealTimers());
 
@@ -16,6 +17,7 @@ function session(speed = 1) {
 	};
 	let playing = false,
 		volume = 1;
+	let loop: LoopRegion | null = null;
 	let source: 'tab' | 'video' | 'both' = 'video';
 	let videoTime = 48,
 		state = 2,
@@ -80,7 +82,7 @@ function session(speed = 1) {
 		video: () => video,
 		offset: () => 0,
 		playing: () => playing,
-		loop: () => null,
+		loop: () => loop,
 		volume: () => volume,
 		source: () => source
 	});
@@ -91,6 +93,9 @@ function session(speed = 1) {
 		position,
 		states,
 		sync,
+		setLoop: (value: LoopRegion) => {
+			loop = value;
+		},
 		setVolume: (v: number) => {
 			volume = v;
 		},
@@ -142,5 +147,33 @@ it('updates both-source synth gain and preserves zero on video close', () => {
 	s.setSource('tab');
 	s.sync.syncSettings();
 	expect(s.api.masterVolume).toBe(0);
+	s.sync.dispose();
+});
+
+// The video adapter must use the exact same partial-bar range as the synth,
+// including when there is no mounted full player.
+it.each([0.5, 1, 1.5, 2])('wraps video at precise note boundaries at %sx', (speed) => {
+	const s = session(speed);
+	s.setLoop({
+		startBar: 24,
+		endBar: 24,
+		enabled: true,
+		startTick: 24 * 3840 + 480,
+		endTick: 24 * 3840 + 960
+	});
+	s.api.play();
+	vi.advanceTimersByTime(1600);
+	expect(s.video.seekTo.mock.calls.at(-1)?.[0]).toBeCloseTo(48.25);
+	// Disabled precise loops do not trap video playback in the selected region.
+	s.setLoop({
+		startBar: 24,
+		endBar: 24,
+		enabled: false,
+		startTick: 24 * 3840 + 480,
+		endTick: 24 * 3840 + 960
+	});
+	const count = s.video.seekTo.mock.calls.length;
+	vi.advanceTimersByTime(2000);
+	expect(s.video.seekTo.mock.calls.length).toBe(count);
 	s.sync.dispose();
 });

@@ -23,6 +23,7 @@
 		}
 	});
 	import { createVideoSession } from '$utils/videoSession';
+	import { createPracticePlayback, playbackToMediaMs } from '$utils/practicePlayback';
 	import { createPlayerCursor } from '$utils/playerCursor';
 	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
@@ -95,6 +96,8 @@
 	$: isOnPlay = $page.url.pathname.includes('/play');
 
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
+	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
+	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
 	$: if (browser && videoSession) {
 		($videoPlayerRef,
 			$audioSource,
@@ -105,6 +108,7 @@
 	}
 	onDestroy(() => {
 		videoSession?.dispose();
+		practicePlayback?.dispose();
 		registerVideoSeek(null);
 		videoHandlers.set({});
 	});
@@ -171,7 +175,11 @@
 		if (!yt || st.duration <= 0) return;
 		try {
 			const videoTime = yt.getCurrentTime?.() || 0;
-			const tabTimeSec = engineToScoreMs((st.progress / 100) * st.duration, st.speed) / 1000;
+			const tabTimeSec =
+				engineToScoreMs(
+					playbackToMediaMs(get(playerApi), (st.progress / 100) * st.duration),
+					st.speed
+				) / 1000;
 			videoSyncOffset.set(Math.round((videoTime - tabTimeSec) * 10) / 10);
 			persistVideoOffset();
 		} catch {}
@@ -309,6 +317,7 @@
 		});
 
 		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
+		practicePlayback = createPracticePlayback(api);
 
 		videoSession = createVideoSession(api, {
 			video: () => get(videoPlayerRef),
