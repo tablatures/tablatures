@@ -34,6 +34,7 @@ test('opt-in report retains catalogue measurements across score navigation', asy
 	expect(last.innerHeight).toBe(780);
 	expect(last.visualViewport.height).toBe(780);
 	expect(last.cssHeights).toEqual([780, 780, 780]);
+	expect(last.safeAreaBottom).toBe(0);
 	expect(last.controls).toBeTruthy();
 	expect(last.reason).toBe('report');
 	expect(text).not.toContain('test-tab');

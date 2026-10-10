@@ -5,11 +5,61 @@ export function playerViewport(node: HTMLElement, active: boolean) {
 	let settleUntil = 0;
 	let lastGeometry = '';
 	const viewport = window.visualViewport;
+	// Chrome on iPhone can reset dvh AND visualViewport.height to svh on
+	// client navigation while its native toolbar remains collapsed. The bottom
+	// safe area still tracks the captured toolbar state, remaining exposed while
+	// it is hidden. Keep this workaround local to that browser, without guessing
+	// toolbar sizes or overriding the smaller keyboard / zoom viewport.
+	const iphoneChrome = /iPhone/.test(navigator.userAgent) && /CriOS\//.test(navigator.userAgent);
+	let probes: HTMLDivElement | undefined;
+	let smallProbe: HTMLDivElement | undefined;
+	let largeProbe: HTMLDivElement | undefined;
+	let probeObserver: ResizeObserver | undefined;
+	function createProbes() {
+		if (!iphoneChrome) return;
+		probes = document.createElement('div');
+		probes.dataset.playerViewportProbe = 'inset';
+		probes.style.cssText =
+			'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;overflow:hidden;padding-bottom:env(safe-area-inset-bottom,0px)';
+		smallProbe = document.createElement('div');
+		largeProbe = document.createElement('div');
+		smallProbe.dataset.playerViewportProbe = 'small';
+		largeProbe.dataset.playerViewportProbe = 'large';
+		smallProbe.style.height = '100svh';
+		largeProbe.style.height = '100lvh';
+		probes.append(smallProbe, largeProbe);
+		document.body.append(probes);
+		probeObserver = new ResizeObserver(refresh);
+		probeObserver.observe(probes, { box: 'border-box' });
+		probeObserver.observe(largeProbe);
+	}
 	function measure() {
-		const height = viewport?.height ?? window.innerHeight;
-		const top = viewport?.offsetTop ?? 0;
-		const bottom = Math.max(0, window.innerHeight - height - top);
+		let height = viewport?.height ?? window.innerHeight;
+		const scale = viewport?.scale ?? 1;
 		if (height <= 0) return; // Hidden pages can temporarily report no viewport.
+		if (probes && smallProbe && largeProbe && scale === 1) {
+			const small = smallProbe.getBoundingClientRect().height;
+			const large = largeProbe.getBoundingClientRect().height;
+			const inset = parseFloat(getComputedStyle(probes).paddingBottom);
+			const focused = document.activeElement;
+			const editing =
+				focused instanceof HTMLTextAreaElement ||
+				(focused instanceof HTMLElement && focused.isContentEditable) ||
+				(focused instanceof HTMLInputElement &&
+					['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(focused.type));
+			if (!editing && inset > 0 && Math.abs(height - small) <= 1 && large > small + 1) {
+				height = large;
+			}
+		}
+		// During route scroll restoration iOS briefly reports the catalogue's
+		// entire scroll position as offsetTop (685px in the device report).
+		// An unzoomed viewport cannot pan beyond the available layout space.
+		const rawTop = viewport?.offsetTop ?? 0;
+		const top =
+			scale === 1
+				? Math.min(Math.max(0, rawTop), Math.max(0, window.innerHeight - height))
+				: rawTop;
+		const bottom = Math.max(0, window.innerHeight - height - top);
 		const geometry = `${height}:${top}:${bottom}`;
 		if (geometry === lastGeometry) return;
 		lastGeometry = geometry;
@@ -36,6 +86,7 @@ export function playerViewport(node: HTMLElement, active: boolean) {
 		if (enabled === listening) return;
 		listening = enabled;
 		if (enabled) {
+			createProbes();
 			// Catalogue scroll belongs to the catalogue, not the player shell.
 			window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 			refresh();
@@ -49,6 +100,9 @@ export function playerViewport(node: HTMLElement, active: boolean) {
 			document.addEventListener('focusin', refresh);
 			document.addEventListener('focusout', refresh);
 		} else {
+			probeObserver?.disconnect();
+			probes?.remove();
+			probes = smallProbe = largeProbe = undefined;
 			cancelAnimationFrame(frame);
 			frame = 0;
 			lastGeometry = '';

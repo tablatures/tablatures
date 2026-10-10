@@ -381,17 +381,18 @@
 		observer.observe(node, { box: 'border-box' });
 		return { destroy: () => observer.disconnect() };
 	}
-	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
-	// its box height: the /play shell is sized in `dvh`, which can resolve taller
-	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
-	// box below the screen. The mobile bottom sheet insets its content by this so
-	// the last row clears the controls (see playerBarHeight).
+	// Anchor the bottom-sheet inset to the player's measured viewport. On iPhone
+	// Chrome, innerHeight can remain smaller than the actual visible player even
+	// after its toolbar disappears. The last sheet row must still clear the whole
+	// control bar (see playerBarHeight).
 	async function publishBarInset(_scoreLoaded?: boolean) {
 		// Score loading moves the sticky bar even when its own height is unchanged.
 		await tick();
 		if (!browser || !barEl) return;
 		const top = barEl.getBoundingClientRect().top;
-		playerBarHeight.set(Math.max(0, Math.round(window.innerHeight - top)));
+		const viewportBottom =
+			barEl.closest('.play-main')?.getBoundingClientRect().bottom ?? window.innerHeight;
+		playerBarHeight.set(Math.max(0, Math.round(viewportBottom - top)));
 	}
 	$: if (browser && barEl && barHeight) publishBarInset(scoreLoaded);
 	// True while the mobile below-fold sheet has travelled up over the player. The

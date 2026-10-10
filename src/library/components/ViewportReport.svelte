@@ -21,6 +21,9 @@
 			probe.style.height = `100${unit}`;
 			probes.append(probe);
 		}
+		const safeArea = document.createElement('div');
+		safeArea.style.paddingBottom = 'env(safe-area-inset-bottom,0px)';
+		probes.append(safeArea);
 		document.body.append(probes);
 		function rect(selector: string) {
 			const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -49,7 +52,10 @@
 							scale: vv.scale
 						}
 					: null,
-				cssHeights: Array.from(probes.children, (el) => el.getBoundingClientRect().height),
+				cssHeights: Array.from(probes.children)
+					.slice(0, 3)
+					.map((el) => el.getBoundingClientRect().height),
+				safeAreaBottom: parseFloat(getComputedStyle(safeArea).paddingBottom),
 				playerHeight: style?.getPropertyValue('--play-viewport-height'),
 				playerTop: style?.getPropertyValue('--play-viewport-top'),
 				root: rect('.play-main'),
@@ -116,8 +122,8 @@
 	<section role="dialog" aria-label="Viewport report" class="viewport-report">
 		<p>Viewport report</p>
 		<p class="help">
-			Reproduce the gap, touch Chrome’s address bar to correct it, then copy this report.
-			It includes the preceding measurements.
+			Reproduce the gap, touch Chrome’s address bar to correct it, then copy this report. It
+			includes the preceding measurements.
 		</p>
 		<textarea aria-label="Viewport measurements" readonly value={report} />
 		<div class="actions">
