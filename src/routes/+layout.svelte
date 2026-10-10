@@ -25,14 +25,6 @@
 	import { createVideoSession } from '$utils/videoSession';
 	import { createPlayerCursor } from '$utils/playerCursor';
 	import { playerViewport } from '$utils/playerViewport';
-	let viewportReportComponent: typeof import('$components/ViewportReport.svelte').default | undefined;
-	onMount(() => {
-		if (new URLSearchParams(location.search).get('viewportDebug') === '1') {
-			import('$components/ViewportReport.svelte').then(({ default: component }) => {
-				viewportReportComponent = component;
-			});
-		}
-	});
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -1170,10 +1162,6 @@
 		</div>
 	{/if}
 </div>
-
-{#if viewportReportComponent}
-	<svelte:component this={viewportReportComponent} />
-{/if}
 
 <style>
 	.play-main {
