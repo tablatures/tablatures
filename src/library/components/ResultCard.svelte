@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { fadeInImage } from '../utils/fadeInImage';
+	import { thumbnailUrl, thumbnailSrcset } from '../utils/artworkImage';
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
 	import { hapticTap } from '../utils/native';
@@ -38,13 +39,12 @@
 	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
 		if (primary) {
 			resolvedSrc = primary;
-			if (a) queueArtistImageForCache(a, primary);
 			return;
 		}
 		if (loading) return;
-		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t }, { cache: false })) || '';
 	}
-	$: displayImage = resolvedSrc;
+	$: displayImage = thumbnailUrl(resolvedSrc, 200);
 	$: artworkUrl, artistImage, (imageFailed = false);
 	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
@@ -131,6 +131,7 @@
 			enabled: !!id,
 			onReveal: (v) => (swipeRevealed = v)
 		}}
+		data-play-intent
 		role="button"
 		tabindex="0"
 		class="relative flex items-center gap-4 w-full px-3 py-3.5 sm:px-4 sm:py-4 text-left {id
@@ -170,10 +171,18 @@
 				<img
 					src={displayImage}
 					alt=""
-					loading="lazy"
+					srcset={thumbnailSrcset(displayImage, [80, 160, 240])}
+				sizes="(min-width: 480px) 80px, 56px"
+				width="80"
+				height="80"
+				loading="lazy"
 					decoding="async"
 					use:fadeInImage={displayImage}
-					on:load={() => (imgLoaded = true)}
+					on:load={(e) => {
+					imgLoaded = true;
+					if (e.currentTarget instanceof HTMLImageElement)
+						queueArtistImageForCache(artist, e.currentTarget.currentSrc);
+				}}
 					class="absolute inset-0 w-full h-full object-cover"
 					on:error={() => (imageFailed = true)}
 				/>

@@ -21,6 +21,7 @@ import { browser } from '$app/environment';
 import { dataReady } from '../data/init';
 import { imagesRepo } from '../data/repositories';
 import { safeImageUrl } from './artistImage';
+import { supportsArtworkByteCache } from './artworkImage';
 import { favoriteArtistsStore } from './favoriteArtists';
 
 function stripDiacritics(s: string): string {
@@ -63,7 +64,8 @@ function guessContentType(url: string, fallback: string | null): string {
 export function cacheArtistImage(artist: string, url: string): Promise<boolean> {
 	if (!browser || !artist || !url) return Promise.resolve(false);
 	const safe = safeImageUrl(url);
-	if (!safe) return Promise.resolve(false);
+	// TheAudioDB images can display in <img>, but its CDN rejects readable fetches.
+	if (!safe || !supportsArtworkByteCache(safe)) return Promise.resolve(false);
 	const key = artistKey(artist);
 	if (objectUrls.has(key)) return Promise.resolve(true);
 	const existing = fetchTasks.get(key);
@@ -122,7 +124,7 @@ function alreadyKnown(key: string): boolean {
  */
 export function queueArtistImageForCache(artist: string, url: string): void {
 	if (!browser || !artist || !url) return;
-	if (!safeImageUrl(url)) return;
+	if (!safeImageUrl(url) || !supportsArtworkByteCache(url)) return;
 	const key = artistKey(artist);
 	if (alreadyKnown(key)) return;
 

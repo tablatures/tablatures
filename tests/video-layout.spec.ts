@@ -128,7 +128,7 @@ test('resizing and full/mini navigation retain one iframe while the controls sta
 		await expectAlignedVideo(page);
 	}
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 	await expect(page.locator('.mini-player-overlay iframe')).toBeVisible();

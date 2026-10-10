@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { timingForApi, engineToScoreMs } from '$utils/playerTiming';
 	import '$styles/app.css';
-	import 'material-icons/iconfont/material-icons.css';
+	import 'material-icons/iconfont/filled.css';
 	import 'material-icons/iconfont/outlined.css';
 	import '$styles/fonts.css';
 	import textFont400 from '@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2?url';
@@ -804,11 +804,14 @@
 		const existingTab = tabStore.loadTab();
 		if (existingTab?.fileAsB64 && playerHostEl) {
 			ensureApiInitialized();
-		} else {
-			// No tab open: prefetch the engine during idle so the first tab a
-			// user opens still loads instantly, without blocking first paint.
-			warmAlphaTab();
 		}
+
+		// Warm on play intent; idle alone does not mean the network is idle.
+		function warmOnIntent(e: Event) {
+			if (e.target instanceof Element && e.target.closest('[data-play-intent]')) warmAlphaTab();
+		}
+		document.addEventListener('pointerover', warmOnIntent, { passive: true });
+		document.addEventListener('focusin', warmOnIntent);
 
 		// iOS Safari requires AudioContext.resume() from a user gesture.
 		// Register a one-time click/touchstart handler to unlock Web Audio.
@@ -837,6 +840,12 @@
 		}
 		document.addEventListener('click', resumeAudioOnGesture, { once: true });
 		document.addEventListener('touchstart', resumeAudioOnGesture, { once: true });
+		return () => {
+			document.removeEventListener('pointerover', warmOnIntent);
+			document.removeEventListener('focusin', warmOnIntent);
+			document.removeEventListener('click', resumeAudioOnGesture);
+			document.removeEventListener('touchstart', resumeAudioOnGesture);
+		};
 	});
 </script>
 

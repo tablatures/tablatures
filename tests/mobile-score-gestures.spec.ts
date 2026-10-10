@@ -137,7 +137,7 @@ test('pinched scale survives transport, panel, rotation and catalogue navigation
 	await expect.poll(() => scale(page)).toBeCloseTo(selected, 4);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.getByRole('link', { name: 'Open full player', exact: true }).first().tap();
 	await expect(page).toHaveURL(/\/play/);

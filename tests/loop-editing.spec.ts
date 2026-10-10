@@ -189,7 +189,7 @@ for (const name of ['tempo-change', 'repeat']) {
 		await dragSheetControl(page, 'Drag to resize end', 6);
 		await expectLoop(page, 2, 6, ticksFor(name, 2, 6));
 		expect(await page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(true);
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.getByRole('button', { name: 'Pause', exact: true }).click();
 		await expect(page.getByRole('link', { name: 'Open full player', exact: true })).toHaveCount(0);

@@ -684,7 +684,7 @@ html { scrollbar-gutter: stable; }
 :root .material-icons, :root .material-icons-outlined { line-height: 1 !important; }
 /* Shared by real cards, skeletons and offscreen feed cells. */
 .tab-card-title { height: 2.5em; line-height: 1.25; }
-.tab-card-artist { height: 1rem; line-height: 1rem; }
+.tab-card-artist { height: 1.5rem; line-height: 1rem; }
 
 /* A blocked icon font eventually exposes its ligature as fallback text. Keep
    its reserved box, but only paint the glyph after that particular face loads. */

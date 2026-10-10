@@ -69,7 +69,6 @@
 		}}
 		role="button"
 		tabindex="0"
-		aria-label="Upload tablature file"
 	>
 		<div class="flex flex-col items-center text-center gap-2 p-6">
 			<!-- Icon tile -->
@@ -84,9 +83,9 @@
 				{dragActive ? 'Drop it' : 'Drop a file'}
 			</p>
 			<p class="text-xs text-neutral-500 dark:text-neutral-400">
-				or <span class="text-violet-500 dark:text-violet-400 font-medium underline">browse</span>
+				or <span class="text-violet-600 dark:text-violet-400 font-medium underline">browse</span>
 			</p>
-			<p class="text-[11px] text-neutral-400 dark:text-neutral-600 leading-snug">
+			<p class="text-[11px] text-neutral-600 dark:text-neutral-400 leading-snug">
 				{SUPPORTED_TYPES.join(', ')}
 			</p>
 		</div>

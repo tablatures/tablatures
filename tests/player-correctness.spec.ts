@@ -75,7 +75,7 @@ test.describe('Unit 2 — session lifecycle', () => {
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 		await page.keyboard.press('Minus');
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.goBack();
 		await expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -96,7 +96,7 @@ test.describe('Unit 2 — session lifecycle', () => {
 			}, enabled);
 			if (!enabled) await page.getByRole('button', { name: 'Disable loop', exact: true }).click();
 			for (let round = 0; round < 3; round++) {
-				await page.getByRole('link', { name: 'Home', exact: true }).click();
+				await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 				await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 				await page.goBack();
 				await expect(page).toHaveURL(/\/play/);
@@ -135,7 +135,7 @@ test.describe('Unit 3 — persistent video transport', () => {
 		await page.evaluate(() => {
 			(window as any).__videoResumeApi = (window as any).__testApi.getApi();
 		});
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.getByRole('button', { name: 'Pause', exact: true }).click();
 		await expect(page.getByRole('progressbar')).toHaveCount(0);
@@ -237,7 +237,7 @@ test.describe('Unit 4 — gain and preferences', () => {
 		await page.keyboard.press('KeyM');
 		expect(await page.evaluate(() => (window as any).__testApi.getTrackMutes())).toEqual([true]);
 		await expect(page.getByRole('dialog', { name: 'Metronome', exact: true })).not.toBeVisible();
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.goBack();
 		await expect(page).toHaveURL(/\/play/);

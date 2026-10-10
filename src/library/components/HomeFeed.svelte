@@ -310,10 +310,10 @@
 		return newTabs.length;
 	}
 
-	/** First paint: fire the top recommendations batch AND a random batch
-	 *  concurrently, bypassing the throttle, so the first cards land as fast as
-	 *  the slower of two parallel round-trips instead of a sequential
-	 *  400ms-throttled chain. Each batch renders independently as it resolves.
+	/** First paint: start the top pool batch without the scroll throttle.
+	 *  Personalized feeds also get a concurrent random fallback; new visitors
+	 *  already have a random pool entry and need only one request.
+	 *  Each batch renders independently as it resolves.
 	 *  The throttled fill loop takes over afterwards for infinite scroll. */
 	async function primeFirstPaint(force = false) {
 		if (exhausted) return;
@@ -323,14 +323,16 @@
 
 		// Endpoint 1: the first pool entry — big mixed recommendations when the
 		// user has taste signals, otherwise a random batch.
-		// Endpoint 2: always a random batch, so something paints even when the
-		// recommendations endpoint has no coverage yet.
+		// Endpoint 2: random fallback when personalized recommendations have
+		// no coverage yet. Avoid duplicating the new-visitor random request.
 		const endpoints: string[] = [];
 		if (pool.length > 0) {
 			endpoints.push(pool[0].endpoint());
 			nextPoolIndex = 1;
 		}
-		endpoints.push('/api/random?count=24');
+		if (get(historyStore).length || get(favoriteArtistsStore).length || get(favoritesStore).length) {
+			endpoints.push('/api/random?count=24');
+		}
 
 		// Arm the cold-start "tuning up" hint (session-scoped, at most once).
 		const seenColdStart = browser ? sessionStorage.getItem(COLD_START_SESSION_KEY) : '1';
@@ -658,16 +660,15 @@
 					on:dragover={handleDragOver}
 					on:drop={handleDrop}
 					class:ring-2={dragActive}
-					aria-label="Upload tablature file"
 				>
 					<i class="material-icons !text-5xl text-violet-500" aria-hidden="true">upload_file</i>
 					<span class="font-semibold">{dragActive ? 'Drop it' : 'Drop a file'}</span>
 					<span class="text-xs text-neutral-500">or browse · {SUPPORTED_TYPES.join(', ')}</span>
 				</button>
 				<button
-					class="import-compact w-full items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-500 text-white font-semibold"
+					class="import-compact w-full items-center justify-center gap-2 px-4 py-3 rounded-xl bg-violet-600 text-white font-semibold"
 					on:click={() => fileInput.click()}
-					aria-label="Upload tablature file"
+					aria-label="Import a tab"
 					><i class="material-icons !text-xl" aria-hidden="true">upload_file</i>Import a tab</button
 				>
 				<div class="mt-2 grid grid-cols-2 gap-2">
@@ -709,9 +710,11 @@
 						</div>
 					{:else if recentItems.length > 0}
 						<div class="continue-cards">
-							{#each recentItems as item (item.id)}
+							{#each recentItems as item, index (item.id)}
 								<TabCard
 									id={item.id}
+									eager={index < gridCols}
+									priority={index === 0}
 									title={item.title}
 									artist={item.artist}
 									album={item.album || ''}
@@ -746,7 +749,7 @@
 							<div class="flex gap-2">
 								<a
 									href="{base}/search"
-									class="rounded-full bg-violet-500 text-white px-4 py-2 text-sm">Search</a
+									class="rounded-full bg-violet-600 text-white px-4 py-2 text-sm">Search</a
 								><a
 									href="{base}/repertoire"
 									class="rounded-full border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm"
@@ -821,6 +824,8 @@
 							{#if tab}
 								<TabCard
 									id={tab.id}
+									eager={index < gridCols}
+									priority={index === 0 && recentItems.length === 0}
 									title={tab.title}
 									artist={tab.artist}
 									album={tab.album}
@@ -946,7 +951,7 @@
 						<button
 							on:click={createAndAddToPlaylist}
 							disabled={!newInlinePlaylistName.trim()}
-							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-500 text-white hover:bg-violet-600 transition-colors disabled:opacity-30"
+							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors disabled:opacity-30"
 						>
 							Create
 						</button>
@@ -988,7 +993,7 @@
 		display: none;
 	}
 	.continue-pane {
-		height: calc(170px + 4.0625rem + 5px);
+		height: calc(170px + 4.5625rem + 5px);
 		overflow: hidden;
 	}
 	.continue-cards {
@@ -1006,7 +1011,7 @@
 		content-visibility: auto;
 		contain-intrinsic-size: auto none;
 		aspect-ratio: 1;
-		padding-bottom: 4.0625rem;
+		padding-bottom: 4.5625rem;
 		box-sizing: content-box;
 		min-width: 0;
 	}

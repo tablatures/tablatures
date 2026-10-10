@@ -425,7 +425,7 @@ for (const width of [768, 800, 975, 1023, 1024, 1100, 1280, 1536]) {
 		async function assertSeparated() {
 			const header = page.locator('header');
 			const search = (await header.getByRole('combobox').boundingBox())!;
-			const logo = (await header.getByRole('link', { name: 'Home', exact: true }).boundingBox())!;
+			const logo = (await header.getByRole('link', { name: 'Tablatures home', exact: true }).boundingBox())!;
 			expect(search.x).toBeGreaterThanOrEqual(logo.x + logo.width);
 			expect(search.width).toBeGreaterThan(150);
 			for (const label of ['Tuner', 'Metronome', 'Repertoire', 'Settings', 'Toggle theme']) {

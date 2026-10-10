@@ -13,15 +13,21 @@
  *
  *   <img use:fadeInImage={src} {src} alt="" />
  */
-export function fadeInImage(node: HTMLImageElement, _src?: string) {
-	node.style.opacity = '0';
+type ImageReveal = string | { src: string; immediate?: boolean } | undefined;
+
+export function fadeInImage(node: HTMLImageElement, value?: ImageReveal) {
+	let options = value;
+	const immediate = () =>
+		(typeof options === 'object' && options.immediate) ||
+		window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	node.style.opacity = immediate() ? '1' : '0';
 
 	const reveal = () => {
 		// Use an animation, not `transition`, so we never clobber a card's
 		// Tailwind `transition-transform` hover (transition and animation are
 		// independent CSS properties).
 		node.style.opacity = '1';
-		node.style.animation = 'img-fade-in 300ms ease';
+		node.style.animation = immediate() ? '' : 'img-fade-in 300ms ease';
 	};
 	const settleIfReady = () => {
 		if (node.complete && node.naturalWidth > 0) reveal();
@@ -32,10 +38,11 @@ export function fadeInImage(node: HTMLImageElement, _src?: string) {
 	settleIfReady();
 
 	return {
-		update() {
+		update(value?: ImageReveal) {
+			options = value;
 			// src changed on a reused node: hide, then reveal once the new
 			// bytes are in (or immediately if the browser already has them).
-			node.style.opacity = '0';
+			node.style.opacity = immediate() ? '1' : '0';
 			settleIfReady();
 		},
 		destroy() {

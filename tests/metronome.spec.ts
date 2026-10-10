@@ -53,7 +53,7 @@ test.describe('Metronome', () => {
 		await setupMockApi(page);
 		await page.goto('/');
 
-		await expect(page.getByRole('button', { name: 'Upload tablature file' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Import a tab' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Open tuner' })).toBeVisible();
 		const metronomeBtn = page.getByRole('button', { name: 'Open metronome' });
 		await expect(metronomeBtn).toBeVisible();
