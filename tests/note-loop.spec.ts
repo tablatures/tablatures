@@ -149,6 +149,119 @@ test('triplets, alternate endings, score resize and bar compatibility', async ({
 	await expect(page).toHaveURL(/loop=2\.2/);
 });
 
+test('repeat-ending selection keeps its preview and handles at the selected notes', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 820, height: 1000 });
+	await setup(page);
+	const first = await beatPoint(page, 3, 0);
+	const last = await beatPoint(page, 4, 0);
+	await page.mouse.move(first.x, first.y);
+	await page.mouse.down();
+	await page.mouse.move(last.x, last.y, { steps: 15 });
+	const overlay = page.locator('#loop-selection-overlay');
+	const previewStart = await overlay.locator('[data-loop-preview-edge="start"]').boundingBox();
+	const previewEnd = await overlay.locator('[data-loop-preview-edge="end"]').boundingBox();
+	expect(previewStart).not.toBeNull();
+	expect(previewEnd).not.toBeNull();
+	// The repeated bars on the preceding row are already included before release.
+	const highlights = () =>
+		overlay.locator(':scope > div').evaluateAll((elements) =>
+			elements
+				.filter((el) => (el as HTMLElement).style.background !== '')
+				.map((el) => {
+					const r = el.getBoundingClientRect();
+					return { x: r.x, y: r.y, width: r.width, height: r.height };
+				})
+		);
+	const previewHighlights = await highlights();
+	expect(previewHighlights).toHaveLength(2);
+	await page.mouse.up();
+	await ticks(page, 11520, 23520);
+	const start = await overlay.locator('[title="Drag to resize start"]').boundingBox();
+	const end = await overlay.locator('[title="Drag to resize end"]').boundingBox();
+	expect(start!.y).toBeCloseTo(previewStart!.y, 0);
+	expect(start!.x + 8).toBeCloseTo(previewStart!.x, 0);
+	expect(end!.y).toBeCloseTo(previewEnd!.y, 0);
+	expect(end!.x + 2).toBeCloseTo(previewEnd!.x, 0);
+	const committedHighlights = await highlights();
+	// A menu is added on release; compare just the score highlights.
+	expect(committedHighlights.filter((r) => r.height > 50)).toEqual(previewHighlights);
+	const barBounds = await page.evaluate(() => {
+		const b = (window as any).__testApi
+			.getApi()
+			.renderer.boundsLookup.findMasterBarByIndex(3).realBounds;
+		return { y: b.y, hostY: document.getElementById('player-host')!.getBoundingClientRect().y };
+	});
+	expect(start!.y).toBeCloseTo(barBounds.y + barBounds.hostY, 0);
+	await page.screenshot({ path: 'test-results/note-loop-repeat-fixed.png', fullPage: true });
+	// Editing the start keeps the endpoint in the second ending, across the repeat.
+	const tied = await beatPoint(page, 3, 1);
+	await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(tied.x, tied.y, { steps: 10 });
+	await page.mouse.up();
+	await ticks(page, 13440, 23520);
+});
+
+test('repeat-jump endpoints can appear in reverse printed order', async ({ page }) => {
+	await page.setViewportSize({ width: 820, height: 1000 });
+	await setup(page, '&loop=n.14400.16320');
+	await ticks(page, 14400, 16320);
+	const start = await page
+		.locator('#loop-selection-overlay [title="Drag to resize start"]')
+		.boundingBox();
+	const end = await page
+		.locator('#loop-selection-overlay [title="Drag to resize end"]')
+		.boundingBox();
+	expect(start!.y).toBeGreaterThan(end!.y);
+	const target = await beatPoint(page, 1, 2);
+	await page.mouse.move(end!.x + end!.width / 2, end!.y + end!.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(target.x, target.y, { steps: 10 });
+	await page.mouse.up();
+	await ticks(page, 14400, 16800);
+});
+
+test('two visits to the same printed bar retain separate partial endpoints', async ({ page }) => {
+	await setup(page, '&loop=n.4320.16320');
+	await ticks(page, 4320, 16320);
+	const expected = await page.evaluate(() => {
+		const api = (window as any).__testApi.getApi();
+		const beats = api.score.tracks[0].staves[0].bars[1].voices[0].beats;
+		const lookup = api.renderer.boundsLookup;
+		const hostX = document.getElementById('player-host')!.getBoundingClientRect().x;
+		return {
+			start: hostX + lookup.findBeat(beats[1]).realBounds.x,
+			end: hostX + lookup.findBeat(beats[2]).realBounds.x
+		};
+	});
+	const start = await page
+		.locator('#loop-selection-overlay [title="Drag to resize start"]')
+		.boundingBox();
+	const end = await page
+		.locator('#loop-selection-overlay [title="Drag to resize end"]')
+		.boundingBox();
+	expect(start!.x + 8).toBeCloseTo(expected.start, 0);
+	expect(end!.x + 2).toBeCloseTo(expected.end, 0);
+});
+
+test('moving from a first ending into a second ending follows playback visits', async ({
+	page
+}) => {
+	await page.setViewportSize({ width: 820, height: 1000 });
+	await setup(page, '&loop=n.11520.13440');
+	const grip = await page
+		.locator('#loop-selection-overlay [title="Drag to move loop"]')
+		.boundingBox();
+	const target = await beatPoint(page, 4, 0);
+	await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(target.x, target.y, { steps: 12 });
+	await page.mouse.up();
+	await ticks(page, 23040, 24960);
+});
+
 test('old shared bar links remain whole-bar loops and invalid precise links are cleared', async ({
 	page
 }) => {

@@ -898,19 +898,20 @@
 		if (ticks) setLoopTicks(ticks);
 	}
 
+	function scoreBeatNearTick(beat: any, tick: number) {
+		return notePositions()
+			.filter((b) => b.beat === beat)
+			.reduce(
+				(best, b) =>
+					!best || Math.abs(b.startTick - tick) < Math.abs(best.startTick - tick) ? b : best,
+				null as ReturnType<typeof loopBeats>[number] | null
+			);
+	}
+
 	function resizeNoteLoop(edge: 'start' | 'end', tick: number, beat?: any) {
 		const original = currentLoopRange();
 		if (!original) return;
-		const beats = notePositions();
-		const hit = beat
-			? beats
-					.filter((b) => b.beat === beat)
-					.reduce(
-						(best, b) =>
-							!best || Math.abs(b.startTick - tick) < Math.abs(best.startTick - tick) ? b : best,
-						null as (typeof beats)[number] | null
-					)
-			: beatAtTick(beats, tick);
+		const hit = beat ? scoreBeatNearTick(beat, tick) : beatAtTick(notePositions(), tick);
 		if (!hit) return;
 		if (edge === 'start' && hit.startTick < original.endTick)
 			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick });
@@ -1148,13 +1149,22 @@
 		}
 	}
 
-	function loopRectsForBar(bar: number, bounds: any, ticks: TickRange | null) {
+	type LoopRect = {
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+		startsLoop?: boolean;
+		endsLoop?: boolean;
+	};
+
+	function loopRectsForBar(bar: number, bounds: any, ticks: TickRange | null): LoopRect[] {
 		if (!ticks) return [{ x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h }];
 		const timing = timingForApi(api);
 		if (!timing) return [];
 		const beats = notePositions();
 		const lookup = api.renderer.boundsLookup;
-		const rects: { x: number; y: number; w: number; h: number }[] = [];
+		const rects: LoopRect[] = [];
 		for (const visit of timing.visits) {
 			if (
 				visit.masterBar.index !== bar ||
@@ -1180,7 +1190,14 @@
 			};
 			const x = xAt(start),
 				right = xAt(end);
-			rects.push({ x, y: bounds.y, w: Math.max(2, right - x), h: bounds.h });
+			rects.push({
+				x,
+				y: bounds.y,
+				w: Math.max(2, right - x),
+				h: bounds.h,
+				startsLoop: start === ticks.startTick,
+				endsLoop: end === ticks.endTick
+			});
 		}
 		return rects;
 	}
@@ -1214,7 +1231,7 @@
 			const startBar = loopStartBar;
 			const endBar = loopEndBar;
 
-			type Rect = { x: number; y: number; w: number; h: number };
+			type Rect = LoopRect;
 			const rects: Rect[] = [];
 
 			for (const sg of lookup.staffSystems) {
@@ -1262,48 +1279,51 @@
 			const pinkBorder = `${pink}0.35)`;
 			const pinkBracket = `${pink}0.6)`;
 
-			for (let i = 0; i < merged.length; i++) {
-				const r = merged[i];
-				const isFirst = i === 0;
-				const isLast = i === merged.length - 1;
+			// Playback can jump backwards through a repeat. Keep handles at the
+			// actual endpoints, independently of the visual order of the highlights.
+			const startRect = loopTicks ? rects.find((r) => r.startsLoop) : merged[0];
+			const endRect = loopTicks ? rects.find((r) => r.endsLoop) : merged.at(-1);
 
+			for (const r of merged) {
 				// Selection area
 				const sel = document.createElement('div');
 				sel.style.cssText = `position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${pink}0.10);border-top:1.5px solid ${pinkBorder};border-bottom:1.5px solid ${pinkBorder};box-sizing:border-box;pointer-events:none;`;
 				container.appendChild(sel);
-
-				// [ bracket handle on first row
-				if (isFirst) {
-					const lh = document.createElement('div');
-					lh.style.cssText = `position:absolute;left:${r.x - 8}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
-					lh.innerHTML = `<div style="width:2.5px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="display:flex;flex-direction:column;justify-content:space-between;margin-left:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div></div>`;
-					lh.title = 'Drag to resize start';
-					lh.addEventListener('mousedown', (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						startLoopEdgeDrag('start', true);
-					});
-					container.appendChild(lh);
-				}
-
-				// ] bracket handle on last row
-				if (isLast) {
-					const rh = document.createElement('div');
-					rh.style.cssText = `position:absolute;left:${r.x + r.w - 2}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
-					rh.innerHTML = `<div style="display:flex;flex-direction:column;justify-content:space-between;margin-right:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div></div><div style="width:2.5px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div>`;
-					rh.title = 'Drag to resize end';
-					rh.addEventListener('mousedown', (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						startLoopEdgeDrag('end', true);
-					});
-					container.appendChild(rh);
-				}
 			}
 
-			// Floating menu above the first row (same style as progress bar loop menu)
+			// [ bracket handle at the playback start
+			if (startRect) {
+				const r = startRect;
+				const lh = document.createElement('div');
+				lh.style.cssText = `position:absolute;left:${r.x - 8}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
+				lh.innerHTML = `<div style="width:2.5px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="display:flex;flex-direction:column;justify-content:space-between;margin-left:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div></div>`;
+				lh.title = 'Drag to resize start';
+				lh.addEventListener('mousedown', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					startLoopEdgeDrag('start', true);
+				});
+				container.appendChild(lh);
+			}
+
+			// ] bracket handle at the playback end
+			if (endRect) {
+				const r = endRect;
+				const rh = document.createElement('div');
+				rh.style.cssText = `position:absolute;left:${r.x + r.w - 2}px;top:${r.y}px;width:10px;height:${r.h}px;cursor:ew-resize;pointer-events:auto;z-index:10;display:flex;align-items:stretch;`;
+				rh.innerHTML = `<div style="display:flex;flex-direction:column;justify-content:space-between;margin-right:-1px;"><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div><div style="width:5px;height:2px;background:${pinkBracket};border-radius:2px 0 0 2px;"></div></div><div style="width:2.5px;background:${pinkBracket};border-radius:0 2px 2px 0;"></div>`;
+				rh.title = 'Drag to resize end';
+				rh.addEventListener('mousedown', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					startLoopEdgeDrag('end', true);
+				});
+				container.appendChild(rh);
+			}
+
+			// Keep the menu with the start handle, including loops across repeats.
 			if (merged.length > 0) {
-				const first = merged[0];
+				const first = startRect ?? merged[0];
 				const menuX = first.x + first.w / 2;
 				const menuY = first.y - 32;
 
@@ -1681,14 +1701,23 @@
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const barSpan = loopEndBar - loopStartBar;
-		const origStartBar = loopStartBar;
-		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		const originalTicks = currentLoopRange();
-		const scoreAnchor = useScore ? mouseToBeatViaScore(e.clientX, e.clientY, origStartBar) : null;
+		const origStartBar =
+			loopTicks && originalTicks
+				? (timingForApi(api)?.barAt(originalTicks.startTick) ?? loopStartBar)
+				: loopStartBar;
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+		const scoreAnchorBeat = useScore
+			? mouseToBeatViaScore(e.clientX, e.clientY, origStartBar, true)
+			: null;
+		const scoreAnchor =
+			scoreAnchorBeat && originalTicks
+				? scoreBeatNearTick(scoreAnchorBeat, originalTicks.startTick)
+				: null;
 		const barRect = !useScore ? range?.getBoundingClientRect() : null;
 		const startMouseX = e.clientX;
-		// Sheet movement follows printed bars, independent of tempo and repeat visits.
-		const origDragBar = useScore ? mouseToBarViaScore(e.clientX, e.clientY, origStartBar) : null;
+		// Bar-snapped movement follows printed bars, independent of repeat visits.
+		const origDragBar = scoreAnchorBeat?.voice?.bar?.masterBar?.index ?? null;
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (me: MouseEvent) => {
@@ -1696,8 +1725,10 @@
 				const timing = timingForApi(api)!;
 				if (useScore) {
 					const hit = mouseToBeatViaScore(me.clientX, me.clientY, origStartBar);
-					if (!hit || !scoreAnchor) return;
-					const delta = hit.absolutePlaybackStart - scoreAnchor.absolutePlaybackStart;
+					const hitPosition =
+						hit && scoreAnchor ? scoreBeatNearTick(hit, scoreAnchor.startTick) : null;
+					if (!hitPosition || !scoreAnchor) return;
+					const delta = hitPosition.startTick - scoreAnchor.startTick;
 					moveNoteLoop(originalTicks, originalTicks.startTick + delta);
 				} else if (barRect?.width) {
 					const ms = origStartMs + ((me.clientX - startMouseX) / barRect.width) * duration;
@@ -1737,8 +1768,14 @@
 
 	/** Hit-test a printed bar without constraining it to the current playback range.
 	 * The floating move grip sits above the staff; project it onto its anchor row
-	 * when the pointer is outside the score, while retaining cross-row hit-testing. */
-	function mouseToBeatViaScore(clientX: number, clientY: number, anchorBar?: number): any {
+	 * for the initial grab, even if the menu overlaps the preceding staff.
+	 * Subsequent movement retains cross-row hit-testing. */
+	function mouseToBeatViaScore(
+		clientX: number,
+		clientY: number,
+		anchorBar?: number,
+		projectToAnchorRow = false
+	): any {
 		try {
 			const lookup = api?.renderer?.boundsLookup;
 			if (!lookup) return null;
@@ -1747,12 +1784,14 @@
 			const hostRect = host.getBoundingClientRect();
 			// Convert client coords to player-host-relative coords
 			const x = clientX - hostRect.left;
-			const y = clientY - hostRect.top + (host.scrollTop || 0);
+			const bounds =
+				anchorBar === undefined ? null : lookup.findMasterBarByIndex(anchorBar)?.realBounds;
+			const y =
+				projectToAnchorRow && bounds
+					? bounds.y + bounds.h / 2
+					: clientY - hostRect.top + (host.scrollTop || 0);
 			let beat = lookup.getBeatAtPos(x, y);
-			if (!beat && anchorBar !== undefined) {
-				const bounds = lookup.findMasterBarByIndex(anchorBar)?.realBounds;
-				if (bounds) beat = lookup.getBeatAtPos(x, bounds.y + bounds.h / 2);
-			}
+			if (!beat && bounds) beat = lookup.getBeatAtPos(x, bounds.y + bounds.h / 2);
 			return beat ?? null;
 		} catch {}
 		return null;
@@ -2593,7 +2632,12 @@
 				const timing = timingForApi(api);
 				const ticks =
 					loopSnap === 'note' && timing ? rangeForBeats(timing, startBeat, endBeat) : null;
-				renderOverlayForBars(startBar, endBar, ticks);
+				const visitedBars = ticks
+					? timing!.visits
+							.filter((v) => v.end > ticks.startTick && v.start < ticks.endTick)
+							.map((v) => v.masterBar.index)
+					: [startBar, endBar];
+				renderOverlayForBars(Math.min(...visitedBars), Math.max(...visitedBars), ticks);
 			} catch {}
 		}
 
@@ -2609,7 +2653,7 @@
 				const lookup = api.renderer?.boundsLookup;
 				if (!lookup?.staffSystems) return;
 
-				type Rect = { x: number; y: number; w: number; h: number };
+				type Rect = LoopRect;
 				const rects: Rect[] = [];
 				for (const sg of lookup.staffSystems) {
 					if (!sg.bars) continue;
@@ -2644,13 +2688,18 @@
 				merged.sort((a, b) => a.y - b.y);
 
 				let html = '';
-				for (let i = 0; i < merged.length; i++) {
-					const r = merged[i];
-					const isFirst = i === 0,
-						isLast = i === merged.length - 1;
-					const lb = isFirst ? 'border-left:2.5px solid rgba(236,72,153,0.4);' : '';
-					const rb = isLast ? 'border-right:2.5px solid rgba(236,72,153,0.4);' : '';
-					html += `<div style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:rgba(236,72,153,0.08);border-top:1px dashed rgba(236,72,153,0.3);border-bottom:1px dashed rgba(236,72,153,0.3);${lb}${rb}box-sizing:border-box;pointer-events:none;"></div>`;
+				for (const r of merged) {
+					html += `<div style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:rgba(236,72,153,0.08);border-top:1px dashed rgba(236,72,153,0.3);border-bottom:1px dashed rgba(236,72,153,0.3);box-sizing:border-box;pointer-events:none;"></div>`;
+				}
+				const startRect = ticks ? rects.find((r) => r.startsLoop) : merged[0];
+				const endRect = ticks ? rects.find((r) => r.endsLoop) : merged.at(-1);
+				for (const [edge, r] of [
+					['start', startRect],
+					['end', endRect]
+				] as const) {
+					if (!r) continue;
+					const x = edge === 'start' ? r.x : r.x + r.w;
+					html += `<div data-loop-preview-edge="${edge}" style="position:absolute;left:${x}px;top:${r.y}px;height:${r.h}px;border-left:2.5px solid rgba(236,72,153,0.4);pointer-events:none;"></div>`;
 				}
 				container.innerHTML = html;
 			} catch {}

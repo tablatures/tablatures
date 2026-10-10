@@ -42,6 +42,12 @@ Score selections retain the existing smallest contiguous playback-span rule,
 with the earliest visit winning ties. Timeline selections retain the exact
 repeat pass being selected. The score cannot visually distinguish two visits
 to the same written note; the timeline shows the selected pass.
+The score preview includes every passage visited by the loop before release.
+Handles stay on the actual boundary notes even if a repeat puts the start
+below the end on the printed score. For example, selecting bar 4 into bar 5
+also includes the intervening repeat of bars 2–3; the start handle stays in bar 4.
+
+![Loop from the first ending into the second, with its start handle in bar 4](note-level-loops-repeat.png)
 
 ## Storage and playback
 
@@ -75,3 +81,8 @@ Validation completed: all 314 unit tests passed; all 58 browser cases passed
 The application check reported zero errors and 16 existing warnings.
 
 The production application build (`pnpm build:app`) succeeded.
+
+Repeat-selection follow-up: 47 targeted browser cases passed, including the
+recorded first-to-second-ending drag, backwards endpoint placement, partial
+endpoints in two visits to the same written bar, and moving between endings.
+The application check still reports zero errors and the same 16 warnings.
