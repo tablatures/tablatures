@@ -367,11 +367,20 @@
 
 	// Live height of the sticky control bar, exposed as a CSS var so floating
 	// layers and the settings sheet can anchor above it without hardcoded offsets.
-	// Include its border (offsetHeight): reserving only clientHeight leaves the
-	// loading pane slightly taller than the viewport and lets focused controls
-	// scroll a replacement score by 1-2 pixels.
+	// Include the border and fractional CSS pixels. clientHeight omits the
+	// border; offsetHeight rounds. Either leaves a loading-pane height mismatch
+	// that can move focused controls when the score is revealed.
 	let barHeight = 0;
 	let barEl: HTMLElement | undefined;
+	function measureControls(node: HTMLElement) {
+		const measure = () => {
+			barHeight = node.getBoundingClientRect().height;
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(node, { box: 'border-box' });
+		return { destroy: () => observer.disconnect() };
+	}
 	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
 	// its box height: the /play shell is sized in `dvh`, which can resolve taller
 	// than the visual viewport (URL bars, safe areas), leaving part of the bar's
@@ -3890,7 +3899,7 @@
 		on:touchend={onBarTouchEnd}
 		on:touchcancel={onBarTouchEnd}
 		bind:this={barEl}
-		bind:offsetHeight={barHeight}
+		use:measureControls
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{(!pending && scoreLoaded) || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"
