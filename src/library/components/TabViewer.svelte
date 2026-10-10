@@ -366,7 +366,10 @@
 	let atTop = true;
 
 	// Live height of the sticky control bar, exposed as a CSS var so floating
-	// layers and the settings sheet can anchor above it without hardcoded offsets
+	// layers and the settings sheet can anchor above it without hardcoded offsets.
+	// Include its border (offsetHeight): reserving only clientHeight leaves the
+	// loading pane slightly taller than the viewport and lets focused controls
+	// scroll a replacement score by 1-2 pixels.
 	let barHeight = 0;
 	let barEl: HTMLElement | undefined;
 	// Publish how much of the VISUAL viewport bottom the bar actually covers, not
@@ -518,6 +521,10 @@
 	let autoFollow = true;
 	let followAtStart = false;
 	let followScoreKey: string | null = null;
+	let cursorFollowFrame = 0;
+	let cursorFollowTop: number | null = null;
+	// A retained viewer must not follow the previous score's position while its
+	// replacement renders. Versions can share a title, so key this by bytes.
 	$: if (requestedScoreKey !== followScoreKey) {
 		followScoreKey = requestedScoreKey;
 		followAtStart = false;
@@ -532,8 +539,6 @@
 		bindDuration = true;
 	}
 	$: if (playing) followAtStart = true;
-	let cursorFollowFrame = 0;
-	let cursorFollowTop: number | null = null;
 	let cursorFollowObserver: MutationObserver | undefined;
 	let unsubscribeCursorFollow: (() => void) | undefined;
 
@@ -3885,7 +3890,7 @@
 		on:touchend={onBarTouchEnd}
 		on:touchcancel={onBarTouchEnd}
 		bind:this={barEl}
-		bind:clientHeight={barHeight}
+		bind:offsetHeight={barHeight}
 		class="sticky bottom-0 z-[50] bg-white dark:bg-black border-t border-neutral-200 dark:border-neutral-800 transition-opacity duration-200
 			{(!pending && scoreLoaded) || loadingTimedOut ? '' : 'pointer-events-none opacity-30'}
 			{isFullscreen ? 'fullscreen-controls' : ''}"

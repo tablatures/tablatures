@@ -108,7 +108,7 @@ for (const screen of [
 					});
 					return { maxScroll, position: (window as any).__testApi.getNativePosition().ms };
 				});
-				expect(result.maxScroll).toBeLessThanOrEqual(1);
+				expect(result.maxScroll, JSON.stringify(result)).toBeLessThanOrEqual(1);
 				expect(result.position).toBe(0);
 			});
 		}
