@@ -58,6 +58,8 @@
 				safeAreaBottom: parseFloat(getComputedStyle(safeArea).paddingBottom),
 				playerHeight: style?.getPropertyValue('--play-viewport-height'),
 				playerTop: style?.getPropertyValue('--play-viewport-top'),
+				rootPosition: style?.position,
+				scoreScroll: document.querySelector('#page')?.scrollTop,
 				root: rect('.play-main'),
 				header: rect('header'),
 				shell: rect('.play-shell'),
@@ -140,7 +142,7 @@
 	.viewport-report {
 		position: fixed;
 		left: 8px;
-		bottom: 8px;
+		top: 8px;
 		z-index: 1000;
 		background: #171717;
 		color: white;

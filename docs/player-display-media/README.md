@@ -7,9 +7,9 @@ and after the shared line-height correction. The baseline uses main commit
 was already present during capture. These are browser test captures, not
 recordings of physical iPhone Chrome or its address bar animation.
 
-| | Before | After |
-| --- | --- | --- |
-| Phone | ![Phone before](icons-phone-before.png) | ![Phone after](icons-phone-after.png) |
+|         | Before                                      | After                                     |
+| ------- | ------------------------------------------- | ----------------------------------------- |
+| Phone   | ![Phone before](icons-phone-before.png)     | ![Phone after](icons-phone-after.png)     |
 | Desktop | ![Desktop before](icons-desktop-before.png) | ![Desktop after](icons-desktop-after.png) |
 
 Reproduce captures with the optional `CAPTURE_LABEL=before` or
@@ -43,20 +43,18 @@ browser header, when the padding becomes zero without any API height change.
 The report also catches a transient 685px viewport offset inherited from the
 catalogue scroll position.
 
-The follow-up uses the large CSS viewport only on iPhone Chrome, when the bottom
-safe area is exposed and the reported height incorrectly equals the small
-viewport. It observes safe-area changes, preserves keyboard/zoom sizing, and
-bounds impossible unzoomed viewport offsets. This is a device-report-based
-workaround; confirmation on physical Chrome remains pending.
+A safe-area-based large-viewport fallback passed the simulated measurements
+but failed physical-device verification. A subsequent screenshot also shows
+clipped lower controls and a score title behind the header. That fallback has
+been removed: safe-area padding cannot establish the browser's visible bounds.
 
-| Simulated device measurements | Before | After |
-| --- | --- | --- |
-| 775px visible area, 665px reported height, 34px bottom safe area | ![Gap before](chrome-gap-before.png) | ![Gap after](chrome-gap-after.png) |
-
-These screenshots replay the reported measurements in Playwright WebKit; they
-do **not** capture native Chrome. The baseline disables the safe-area fallback
-while keeping the same 34px control padding. Reproduce both with
-`CAPTURE_LABEL=after` when running `tests/mobile-player-viewport.spec.ts`.
+The current follow-up keeps the player shell in normal document flow and lets
+the router own document scroll restoration. The previous fixed shell removed
+the 775px player from the document, leaving a 665px scroll surface at navigation.
+New regressions check that the document retains the player's full height and
+that safe-area padding never enlarges the player beyond reported bounds.
+This changes the transition that triggers the issue; physical Chrome verification
+is still required, and passing desktop simulations do not establish a fix.
 
 Opening the preview with `?viewportDebug=1` enables a lazy-loaded “Viewport
 report” button that stays available across client navigation. Reproduce the

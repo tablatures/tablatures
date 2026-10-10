@@ -1177,8 +1177,10 @@
 
 <style>
 	.play-main {
-		position: fixed;
-		inset-inline: 0;
+		/* Keep the document as tall as the player. Removing this whole shell
+		   from flow leaves only the small viewport in the document scroll surface
+		   during navigation, even when browser controls remain collapsed. */
+		position: relative;
 		top: var(--play-viewport-top, 0px);
 		height: var(--play-viewport-height, 100dvh);
 		overflow: hidden;

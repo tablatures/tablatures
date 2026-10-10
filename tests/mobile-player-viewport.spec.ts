@@ -172,7 +172,7 @@ test('switching back from another app refreshes the viewport without a resize ev
 		.toBeCloseTo(650, 0);
 });
 
-test.describe('iPhone Chrome collapsed-toolbar device report', () => {
+test.describe('iPhone Chrome player document geometry', () => {
 	test.use({
 		viewport: { width: 390, height: 775 },
 		userAgent:
@@ -194,9 +194,6 @@ test.describe('iPhone Chrome collapsed-toolbar device report', () => {
 			document.addEventListener('DOMContentLoaded', () => {
 				const style = document.createElement('style');
 				style.textContent = `
-					[data-player-viewport-probe="small"] { height:665px!important }
-					[data-player-viewport-probe="large"] { height:775px!important }
-					[data-player-viewport-probe="inset"] { padding-bottom:var(--test-safe-area,34px)!important }
 					[aria-label="Playback controls"] { padding-bottom:calc(var(--test-safe-area,34px) + 20px)!important }
 				`;
 				document.head.append(style);
@@ -219,50 +216,50 @@ test.describe('iPhone Chrome collapsed-toolbar device report', () => {
 		});
 	});
 
-	test('keeps 775px when APIs drop to 665px with the toolbar still hidden', async ({ page }) => {
-		await page.goto('/');
-		await page.evaluate(async () => {
-			const modulePath = '/src/library/utils/openTab.ts';
-			const { openTabById } = await import(modulePath);
-			await openTabById({ id: 'test-tab', title: 'Test song', artist: 'Test Artist' });
-		});
+	test('the player keeps the document as tall as its visible viewport', async ({ page }) => {
+		// Physical Chrome keeps clientHeight at 665 while its collapsed-toolbar
+		// visual viewport is 775. A fixed shell leaves the document at 665;
+		// an in-flow shell preserves all 775 pixels in its scroll surface.
+		await page.setViewportSize({ width: 390, height: 665 });
+		await page.goto('/search?q=test');
+		// Results appear after hydration. Open through the same card a user taps,
+		// so the test cannot race application startup with an imported router call.
+		await page.getByText('Test Song', { exact: true }).first().tap();
+		await expect(page).toHaveURL(/\/play/);
 		await waitForScoreLoaded(page);
-		await page.evaluate(() => (window as any).__deviceViewport({ height: 775, top: 685 }));
-		await expect(page.locator('.play-main')).toHaveCSS('top', '0px');
-		await page.evaluate(() => (window as any).__deviceViewport({ height: 665 }));
-		// This is persistent stale geometry, not a delayed event: all API heights
-		// stay at 665px even after the settling interval has expired.
-		await page.waitForTimeout(1100);
 		await expect(page.locator('.play-main')).toHaveCSS('height', '775px');
-		const bar = page.locator('[aria-label="Playback controls"]');
-		await expect.poll(() => bar.evaluate((el) => el.getBoundingClientRect().bottom)).toBe(775);
-		if (process.env.CAPTURE_LABEL) {
-			await page.screenshot({ path: '/tmp/tablatures-chrome-gap-after.png' });
-			await page.addStyleTag({
-				content: '[data-player-viewport-probe="inset"] {padding-bottom:0!important}'
-			});
-			await expect(page.locator('.play-main')).toHaveCSS('height', '665px');
-			await page.screenshot({ path: '/tmp/tablatures-chrome-gap-before.png' });
-		}
+		await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight)).toBe(775);
+		await expect
+			.poll(() =>
+				page
+					.locator('[aria-label="Playback controls"]')
+					.evaluate((el) => el.getBoundingClientRect().bottom)
+			)
+			.toBe(775);
 	});
 
-	test('returns to the small viewport when the toolbar returns without API height changes', async ({
+	test('does not enlarge the player beyond reported bounds using safe-area padding', async ({
 		page
 	}) => {
+		await page.setViewportSize({ width: 390, height: 665 });
 		await page.goto('/play?tab=test-tab');
 		await waitForScoreLoaded(page);
-		await page.evaluate(() => (window as any).__deviceViewport({ height: 665 }));
-		await expect(page.locator('.play-main')).toHaveCSS('height', '775px');
-		await page.waitForTimeout(1100);
-		// In the report, touching Chrome's header changes the safe-area padding
-		// from 34 to 0 while innerHeight, dvh and visualViewport stay at 665.
-		// Observe that signal even without a new visualViewport event.
-		await page.evaluate(() =>
-			document.documentElement.style.setProperty('--test-safe-area', '0px')
-		);
-		await expect(page.locator('.play-main')).toHaveCSS('height', '665px');
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
-		await expect(page.locator('[data-player-viewport-probe]')).toHaveCount(0);
+		for (const inset of [34, 0, 34]) {
+			await page.evaluate(
+				(value) => (window as any).__deviceViewport({ height: 665, inset: value, top: 685 }),
+				inset
+			);
+			await expect(page.locator('.play-main')).toHaveCSS('height', '665px');
+			await expect(page.locator('.play-main')).toHaveCSS('top', '0px');
+			await expect
+				.poll(() =>
+					page
+						.locator('[aria-label="Playback controls"]')
+						.evaluate((el) => el.getBoundingClientRect().bottom)
+				)
+				.toBe(665);
+			await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+		}
 	});
 
 	test('respects keyboard, zoom and intermediate toolbar heights', async ({ page }) => {
@@ -290,6 +287,6 @@ test.describe('iPhone Chrome collapsed-toolbar device report', () => {
 			input.focus({ preventScroll: true });
 			(window as any).__deviceViewport({ height: 665 });
 		});
-		await expect(page.locator('.play-main')).toHaveCSS('height', '775px');
+		await expect(page.locator('.play-main')).toHaveCSS('height', '665px');
 	});
 });
