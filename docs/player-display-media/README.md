@@ -27,3 +27,23 @@ event, restoration via `pageshow`, and returning from a hidden app without a
 resize event. Those simulations reproduce the stale-height failure but do not
 establish which events a particular iOS Chrome version emits. Physical-device
 verification of browser toolbar expansion/collapse remains necessary.
+
+## Device follow-up
+
+An iPhone recording on Chrome 154.0.8037.55 still shows a persistent gap after
+scrolling the catalogue to collapse the browser controls, then opening a score.
+The simulated delayed-metric tests do not reproduce this native browser state.
+The toolbar-gap fix is therefore **not verified on the affected device**.
+
+Opening the preview with `?viewportDebug=1` enables a lazy-loaded “Viewport
+report” button that stays available across client navigation. Reproduce the
+gap, then copy its report. It records viewport APIs, CSS small/dynamic/large
+viewport heights, player geometry, and the preceding route/viewport events.
+Touch Chrome's address bar, then capture a second report to compare the broken
+and corrected states. Reports are copied manually; nothing is uploaded, and
+URL query parameters / tab IDs are excluded. Ordinary visits load no reporter.
+
+Related browser reports describe [stale viewport metrics after toolbar
+collapse](https://issues.chromium.org/issues/490150189) and [a compositing offset
+invisible to JavaScript](https://issues.chromium.org/issues/558766777). They are
+diagnostic leads, not proof that this device has the same browser defect.
