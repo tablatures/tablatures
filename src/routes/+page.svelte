@@ -39,15 +39,14 @@
 
 <Header on:search={handleSearch} on:openTab={handleOpenTab} />
 
-<main
-	id="main-content"
+<div
 	class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 min-h-[calc(100dvh-var(--header-h))]"
 >
 	<HomeFeed {openTab} />
-</main>
+</div>
 
 <!-- Minimal footer -->
-<div class="text-center py-6 text-xs text-neutral-400 dark:text-neutral-600">
+<div class="text-center py-6 text-xs text-neutral-600 dark:text-neutral-400">
 	<a
 		href="https://github.com/tablatures/tablatures"
 		target="_blank"

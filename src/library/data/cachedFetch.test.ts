@@ -36,6 +36,45 @@ const jsonResponse = (body: string, status = 200) =>
 	new Response(enc(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('cachedFetch', () => {
+	it('returns fresh results while persistence is pending, then supports an immediate offline read', async () => {
+		const { cache } = makeCache();
+		let finishWrite!: () => void;
+		const gate = new Promise<void>((resolve) => (finishWrite = resolve));
+		const put = cache.put;
+		cache.put = async (...args) => {
+			await gate;
+			await put(...args);
+		};
+		const fresh = await cachedFetchWith(
+			{ fetchFn: async () => jsonResponse('fast'), cache },
+			'/api/slow-db'
+		);
+		expect(await fresh.text()).toBe('fast');
+		const offline = cachedFetchWith(
+			{
+				fetchFn: async () => {
+					throw new Error('offline');
+				},
+				cache
+			},
+			'/api/slow-db'
+		);
+		finishWrite();
+		expect(await (await offline).text()).toBe('fast');
+	});
+
+	it('keeps a fresh response usable when the background cache write rejects', async () => {
+		const { cache } = makeCache();
+		cache.put = async () => {
+			throw new Error('storage full');
+		};
+		const fresh = await cachedFetchWith(
+			{ fetchFn: async () => jsonResponse('live'), cache },
+			'/api/full-db'
+		);
+		expect(await fresh.text()).toBe('live');
+	});
+
 	it('is network-first, writes through, and serves the cache when offline', async () => {
 		const { cache } = makeCache();
 

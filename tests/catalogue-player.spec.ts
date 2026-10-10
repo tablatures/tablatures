@@ -60,7 +60,7 @@ for (const viewport of [
 		test('paused browsing leaves only Play and Continue restores the session', async ({ page }) => {
 			await openPracticeSession(page);
 			const before = await page.evaluate(() => (window as any).__catalogueApi.timePosition);
-			await page.getByRole('link', { name: 'Home', exact: true }).click();
+			await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 			await expect(page.getByRole('link', { name: 'Open full player' })).toHaveCount(0);
 			await expect(page.locator('.player-host-mini')).toHaveCount(0);
@@ -82,7 +82,7 @@ for (const viewport of [
 			await openPracticeSession(page);
 			await page.getByRole('button', { name: 'Play', exact: true }).click();
 			await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
-			await page.getByRole('link', { name: 'Home', exact: true }).click();
+			await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 			await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
 			await expect(page.locator('.player-host-mini')).toHaveCount(0);
@@ -94,7 +94,7 @@ for (const viewport of [
 			await expect(page.locator('.player-host-mini')).toBeVisible();
 			await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
 			await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
-			await page.getByRole('link', { name: 'Home', exact: true }).click();
+			await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 			await expect(page.locator('.player-host-mini')).toHaveCount(0);
 			await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
@@ -114,7 +114,7 @@ for (const viewport of [
 		test('paused Play resumes the retained practice session on the catalogue', async ({ page }) => {
 			await openPracticeSession(page);
 			const before = await page.evaluate(() => (window as any).__catalogueApi.timePosition);
-			await page.getByRole('link', { name: 'Home', exact: true }).click();
+			await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 			await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 			const resume = page.getByRole('button', { name: 'Play', exact: true });
 			await expect(resume).toHaveAttribute('title', /Resume/);

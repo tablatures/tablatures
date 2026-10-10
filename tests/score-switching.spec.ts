@@ -106,7 +106,7 @@ for (const entry of ['recommendation', 'autocomplete', 'catalogue']) {
 				await page.getByRole('option', { name: /Jingle Bells/ }).click();
 			} else {
 				if (entry === 'catalogue') {
-					await page.getByRole('link', { name: 'Home', exact: true }).click();
+					await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 					await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 					await expect(
 						page
@@ -168,7 +168,7 @@ test('a failed replacement clears the previous score and video, and can retry', 
 	await page.evaluate(() => (window as any).__testApi.setMockVideo(0, 120));
 	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await page.getByRole('button', { name: 'Play These Doors by Pearl Jam', exact: true }).click();
 	await expect(
 		page
@@ -201,7 +201,7 @@ for (const title of ['Imported Song', '']) {
 		await page.goto('/play?tab=doors');
 		await waitForScoreLoaded(page);
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await page.locator('input[type="file"]').setInputFiles({
 			name: 'My practice.gp',
 			mimeType: 'application/octet-stream',
@@ -253,7 +253,7 @@ for (const lateFailure of [false, true]) {
 		await page.goto('/');
 		await page.getByRole('button', { name: 'Play Late Song by Test Artist', exact: true }).click();
 		await expect(page).toHaveURL(/\/play/);
-		await page.getByRole('link', { name: 'Home', exact: true }).click();
+		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await page.locator('input[type="file"]').setInputFiles({
 			name: 'winner.gp',
 			mimeType: 'application/octet-stream',
@@ -303,7 +303,7 @@ test('catalogue score switching with video stays aligned after returning to the 
 	});
 	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.getByRole('button', { name: 'Play Jingle Bells by Pearl Jam', exact: true }).click();
 	await expect(page).toHaveURL(/\/play/);
@@ -318,7 +318,7 @@ test('catalogue score switching with video stays aligned after returning to the 
 	await page.evaluate(() => (window as any).__testApi.setMockVideo(0, 120));
 	await expect(page.locator('.big-player-video-frame iframe')).toBeVisible();
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.getByRole('link', { name: 'Open full player', exact: true }).first().click();
 	await expect(page).toHaveURL(/\/play/);
@@ -338,7 +338,7 @@ test('an unreadable imported file cannot expose the previously loaded score', as
 	await setupMockApi(page);
 	await page.goto('/play?tab=test-tab');
 	await waitForScoreLoaded(page);
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await page.locator('input[type="file"]').setInputFiles({
 		name: 'broken.gp',
 		mimeType: 'application/octet-stream',
@@ -360,7 +360,7 @@ test('a shared URL records parsed metadata in Continue and preserves it after re
 	);
 	await page.goto('/play?tab=shared');
 	await waitForScoreLoaded(page);
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	const entry = page
 		.getByRole('region', { name: 'Continue' })
 		.getByRole('button', { name: 'Play Shared Song by Pearl Jam', exact: true });
@@ -400,7 +400,7 @@ test('browser Back to the same imported share URL preserves the practice session
 		(window as any).__testApi.setLoop(1, 3);
 		api.player.timePosition = 2500;
 	});
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.goBack();
 	await waitForScoreLoaded(page);

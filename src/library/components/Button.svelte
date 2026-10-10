@@ -29,7 +29,7 @@
 	const iconSize = { sm: '!text-base', md: '!text-lg', lg: '!text-xl' };
 
 	const variantClasses = {
-		primary: 'bg-violet-500 text-white hover:bg-violet-600 disabled:bg-violet-500/40',
+		primary: 'bg-violet-600 text-white hover:bg-violet-700 disabled:bg-violet-500/40',
 		secondary:
 			'border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 dark:hover:text-violet-400 hover:border-violet-300 dark:hover:border-violet-700 disabled:opacity-40',
 		ghost:

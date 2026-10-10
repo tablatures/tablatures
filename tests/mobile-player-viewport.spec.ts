@@ -55,7 +55,7 @@ test('opening from a scrolled catalogue leaves no outer page overflow or gap', a
 			)
 			.toBeLessThanOrEqual(1);
 	}
-	await page.getByRole('link', { name: 'Home', exact: true }).click();
+	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await page.getByRole('link', { name: 'Settings', exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight))

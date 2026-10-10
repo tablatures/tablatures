@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { fadeInImage } from '../utils/fadeInImage';
+	import { thumbnailUrl, thumbnailSrcset } from '../utils/artworkImage';
 	import { favoritesStore } from '../utils/favorites';
 	import { getSourceDisplay } from '../utils/sources';
 	import { placeholderArtwork } from '../utils/placeholder';
@@ -19,6 +20,9 @@
 	export let artistImage: string = '';
 	/** Set while artwork is being fetched — shows a pulse instead of the fallback icon */
 	export let artworkLoading: boolean = false;
+	/** The parent knows which initial row is visible; only its first image gets high priority. */
+	export let eager = false;
+	export let priority = false;
 
 	let imageFailed = false;
 	/** True once the chosen image's bytes have actually decoded — until then the
@@ -35,13 +39,12 @@
 	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
 		if (primary) {
 			resolvedSrc = primary;
-			if (a) queueArtistImageForCache(a, primary);
 			return;
 		}
 		if (loading) return;
-		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t }, { cache: false })) || '';
 	}
-	$: displayImage = resolvedSrc;
+	$: displayImage = thumbnailUrl(resolvedSrc);
 	$: artworkUrl, artistImage, (imageFailed = false);
 	// Reset the decoded flag whenever the source changes so the neutral loading
 	// tile re-appears behind the incoming image until it paints.
@@ -69,6 +72,7 @@
 <div class="group relative flex flex-col w-full rounded-xl">
 	<button
 		on:click={onClick}
+		data-play-intent
 		class="relative flex flex-col text-left w-full rounded-xl overflow-hidden focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-black transition-transform duration-150 active:scale-[0.98]"
 		aria-label="Play {title} by {artist}"
 	>
@@ -84,6 +88,7 @@
 		{:else if !displayImage}
 			<!-- No artwork found: deterministic generated pastel tile (gradient + initials) -->
 			<div
+				aria-hidden="true"
 				class="artwork-ph absolute inset-0 flex items-center justify-center overflow-hidden"
 				style={placeholder.style}
 			>
@@ -98,10 +103,19 @@
 			<img
 				src={displayImage}
 				alt=""
-				loading="lazy"
+				srcset={thumbnailSrcset(displayImage)}
+				sizes="(min-width: 1536px) 200px, (min-width: 480px) 180px, calc((100vw - 44px) / 2)"
+				width="400"
+				height="400"
+				loading={eager ? 'eager' : 'lazy'}
+				fetchpriority={priority ? 'high' : 'auto'}
 				decoding="async"
-				use:fadeInImage={displayImage}
-				on:load={() => (imgLoaded = true)}
+				use:fadeInImage={{ src: displayImage, immediate: eager }}
+				on:load={(e) => {
+					imgLoaded = true;
+					if (e.currentTarget instanceof HTMLImageElement)
+						queueArtistImageForCache(artist, e.currentTarget.currentSrc);
+				}}
 				class="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
 				on:error={() => (imageFailed = true)}
 			/>
@@ -121,6 +135,18 @@
 			</div>
 		{/if}
 
+	</div>
+
+	<!-- Title (still part of the play button) -->
+	<div class="pt-2 px-0.5 w-full min-w-0">
+		<p class="tab-card-title text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+			{title}
+		</p>
+	</div>
+	</button>
+
+	<!-- Actions are siblings of the play button, so keyboard/favorite clicks stay independent. -->
+	<div class="absolute top-0 inset-x-0 aspect-square pointer-events-none">
 		<!-- Source badge (bottom-left, out of the way of action buttons) -->
 		{#if source}
 			<div class="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[10px] font-medium text-white">
@@ -131,7 +157,7 @@
 
 		<!-- Hover action buttons (top-right) -->
 		{#if id}
-			<div class="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150">
+			<div class="pointer-events-auto absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150">
 				{#if onAddToPlaylist}
 					<button
 						on:click|stopPropagation={onAddToPlaylist}
@@ -154,18 +180,10 @@
 		{/if}
 	</div>
 
-	<!-- Title (still part of the play button) -->
-	<div class="pt-2 px-0.5 w-full min-w-0">
-		<p class="tab-card-title text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
-			{title}
-		</p>
-	</div>
-	</button>
-
 	<!-- Artist: its own link, OUTSIDE the play button -->
 	<a
 		href="{base}/artist/{encodeURIComponent(artist)}"
-		class="tab-card-artist mt-0.5 mb-1 px-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors self-start max-w-full"
+		class="tab-card-artist mt-0.5 mb-1 py-1 px-0.5 block text-xs text-neutral-500 dark:text-neutral-400 hover:text-violet-500 dark:hover:text-violet-400 hover:underline truncate transition-colors self-start max-w-full"
 		title="View artist {artist}"
 	>
 		{artist}

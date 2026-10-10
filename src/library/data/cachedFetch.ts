@@ -2,8 +2,8 @@
 //
 // Behaviour (`cachedFetch(url, { ttl })`):
 //   1. Hit the network first.
-//   2. On a successful (2xx) response, write the bytes through to `http_cache`
-//      with the given TTL and return a fresh Response built from them.
+//   2. On a successful (2xx) response, return fresh bytes immediately and write
+//      them to `http_cache` in the background with the given TTL.
 //   3. On a network error (offline) OR a non-ok response, fall back to a fresh
 //      cached entry if one exists; otherwise surface the original error/response.
 //
@@ -91,6 +91,30 @@ export interface CachedFetchDeps {
 	cache: CachedFetchCache;
 }
 
+// Keep a rapid offline read behind its preceding write, without holding up
+// successful network responses. Separate cache instances must not share writes.
+const pendingWrites = new WeakMap<CachedFetchCache, Map<string, Promise<void>>>();
+
+function writeInBackground(
+	cache: CachedFetchCache,
+	url: string,
+	body: Uint8Array,
+	contentType: string | null,
+	ttl: number
+): void {
+	let writes = pendingWrites.get(cache);
+	if (!writes) pendingWrites.set(cache, (writes = new Map()));
+	const pending = Promise.resolve(writes.get(url))
+		.then(() => cache.put(url, body, contentType, ttl))
+		.catch(() => {
+			/* best-effort: a cache failure must not turn fresh data into an error */
+		});
+	writes.set(url, pending);
+	void pending.then(() => {
+		if (writes.get(url) === pending) writes.delete(url);
+	});
+}
+
 function isGet(init?: RequestInit): boolean {
 	const method = init?.method;
 	return !method || method.toUpperCase() === 'GET';
@@ -127,6 +151,7 @@ export async function cachedFetchWith(
 	): Promise<Response | null> {
 		if (!cacheable || force) return null;
 		try {
+			await pendingWrites.get(deps.cache)?.get(url);
 			const hit = await deps.cache.get(url);
 			if (hit) {
 				const response = toResponse(hit.body, hit.contentType, true);
@@ -146,11 +171,8 @@ export async function cachedFetchWith(
 			const body = new Uint8Array(await res.arrayBuffer());
 			const contentType = res.headers.get('content-type');
 			if (cacheable) {
-				try {
-					await deps.cache.put(url, body, contentType, ttl);
-				} catch {
-					/* best-effort */
-				}
+				// Persistence may still be starting. Fresh results must not wait for it.
+				writeInBackground(deps.cache, url, body, contentType, ttl);
 			}
 			return toResponse(body, contentType, false, res.status);
 		}

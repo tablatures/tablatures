@@ -55,7 +55,7 @@ const config: UserConfig = {
 				// server assets leak into the precache manifest.
 				// `wasm` is included so the sqlite-wasm engine is precached and the
 				// on-device DB works on a cold offline start (the whole point of P1).
-				globPatterns: ['client/**/*.{js,css,html,ico,png,svg,webp,woff,woff2,wasm}'],
+				globPatterns: ['client/**/*.{js,css,html,ico,png,svg,webp,woff2,wasm}'],
 				// Soundfonts (the bundled sf3 and the optional CDN upgrades) are large
 				// and range-requested; never precache them, serve CacheFirst at runtime.
 				globIgnores: ['**/*.sf2', '**/*.sf3'],

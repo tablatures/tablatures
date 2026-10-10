@@ -26,6 +26,7 @@ import { powFetch } from './powFetch';
 import { getArtwork, normalizeArtworkKey } from './artwork';
 import { enrichArtistImage, safeImageUrl } from './artistImage';
 import { queueArtistImageForCache, getCachedArtistObjectUrl } from './artworkCache';
+import { thumbnailUrl } from './artworkImage';
 import { attributeAlbum, artistMatches, type AlbumCandidate } from './metadataMatch';
 import { resolveArtworkWith, type ArtworkQuery, type ResolveDeps } from './artworkChain';
 
@@ -84,12 +85,7 @@ function realDeps(): ResolveDeps {
 		getSongArtworkUrl: (artist, title) =>
 			artist || title ? getArtwork(artist, title) : Promise.resolve(null),
 		getCachedArtistUrl: (artist) => getCachedArtistObjectUrl(artist),
-		getNetworkArtistUrl: async (artist) => {
-			const url = await enrichArtistImage(artist);
-			// Warm the offline byte cache OFF the critical path (idle/favorites only).
-			if (url) queueArtistImageForCache(artist, url);
-			return url;
-		},
+		getNetworkArtistUrl: (artist) => enrichArtistImage(artist),
 		getAttributedArtworkUrl: (artist, title) => fetchAttributedArtwork(artist, title),
 		getRelatedArtistUrl: (artist) => getCachedArtistObjectUrl(artist),
 		isOnline: () => (typeof navigator !== 'undefined' ? navigator.onLine !== false : true)
@@ -101,11 +97,15 @@ function realDeps(): ResolveDeps {
  * opportunistically caches that image's bytes under the artist so the SAME
  * picture is available offline next time (implements the durable half of 5b).
  */
-export async function resolveArtwork(q: ArtworkQuery): Promise<string | null> {
+export async function resolveArtwork(
+	q: ArtworkQuery,
+	opts: { cache?: boolean } = {}
+): Promise<string | null> {
 	if (!browser) return null;
 	const url = await resolveArtworkWith(realDeps(), q);
 	// Warm the byte cache from any allowlisted network URL we resolved, OFF the
 	// critical path (idle drain / favorites only). blob: URLs are already cached.
-	if (url && q.artist && !url.startsWith('blob:')) queueArtistImageForCache(q.artist, url);
+	if (opts.cache !== false && url && q.artist && !url.startsWith('blob:'))
+		queueArtistImageForCache(q.artist, thumbnailUrl(url));
 	return url;
 }

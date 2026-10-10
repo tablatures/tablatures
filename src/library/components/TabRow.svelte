@@ -6,6 +6,7 @@
 	 */
 	import { base } from '$app/paths';
 	import { fadeInImage } from '../utils/fadeInImage';
+	import { thumbnailUrl, thumbnailSrcset } from '../utils/artworkImage';
 	import { goto } from '$app/navigation';
 	import { getSourceDisplay } from '../utils/sources';
 	import { swipeAction as swipeActionGesture } from '../utils/gestures';
@@ -39,13 +40,12 @@
 	async function resolveDisplay(a: string, t: string, primary: string, loading: boolean) {
 		if (primary) {
 			resolvedSrc = primary;
-			if (a) queueArtistImageForCache(a, primary);
 			return;
 		}
 		if (loading) return;
-		resolvedSrc = (await resolveArtwork({ artist: a, title: t })) || '';
+		resolvedSrc = (await resolveArtwork({ artist: a, title: t }, { cache: false })) || '';
 	}
-	$: displayImage = resolvedSrc;
+	$: displayImage = thumbnailUrl(resolvedSrc, 160);
 	$: artworkUrl, artistImage, (imageFailed = false);
 	$: displayImage, (imgLoaded = false);
 	export let onClick: () => void = () => {};
@@ -105,6 +105,7 @@
 	<!-- Artwork — no padding, fills full row height, square aspect so it looks like a thumbnail -->
 	<button
 		on:click={onClick}
+		data-play-intent
 		class="relative flex-shrink-0 aspect-square overflow-hidden bg-neutral-100 dark:bg-neutral-800 self-stretch"
 		aria-label={`Open ${title} by ${artist}`}
 	>
@@ -125,10 +126,18 @@
 			<img
 				src={displayImage}
 				alt=""
+				srcset={thumbnailSrcset(displayImage, [80, 160, 240])}
+				sizes="56px"
+				width="80"
+				height="80"
 				loading="lazy"
 				decoding="async"
 				use:fadeInImage={displayImage}
-				on:load={() => (imgLoaded = true)}
+				on:load={(e) => {
+					imgLoaded = true;
+					if (e.currentTarget instanceof HTMLImageElement)
+						queueArtistImageForCache(artist, e.currentTarget.currentSrc);
+				}}
 				class="absolute inset-0 w-full h-full object-cover"
 				on:error={() => (imageFailed = true)}
 			/>

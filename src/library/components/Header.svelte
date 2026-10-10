@@ -97,13 +97,13 @@
 			<a
 				href="{base}/"
 				class="flex items-center gap-1 flex-shrink-0 min-[360px]:pr-6"
-				aria-label="Home"
+				aria-label="Tablatures home"
 			>
 				<img
 					src="{base}/logos/icon.svg"
 					width="28"
 					height="28"
-					alt="Tablatures"
+					alt=""
 					class="sm:w-8 sm:h-8"
 				/>
 				<span
