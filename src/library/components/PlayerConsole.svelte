@@ -19,7 +19,7 @@
 	export let loopStartBar: number | null = null;
 	export let loopEndBar: number | null = null;
 	export let loopEnabled = true;
-	export let loopSnap: 'bar' | 'note' = 'bar';
+	export let loopSnap: 'bar' | 'note' = 'note';
 	export let preciseLoop = false;
 
 	export let mergeMode = false;

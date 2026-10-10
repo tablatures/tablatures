@@ -21,13 +21,10 @@ function emitter() {
 		emit: (event?: any) => [...listeners].forEach((fn) => fn(event))
 	};
 }
-function fixture() {
+function fixture(tex = readFileSync('tests/fixtures/player/note-loop-edge-cases.tex', 'utf8')) {
 	const settings = new at.Settings();
 	const importer = new at.importer.AlphaTexImporter();
-	importer.initFromString(
-		readFileSync('tests/fixtures/player/note-loop-edge-cases.tex', 'utf8'),
-		settings
-	);
+	importer.initFromString(tex, settings);
 	const score = importer.readScore();
 	const api: any = {
 		score,
@@ -104,6 +101,22 @@ describe('written practice playback using real MIDI generation', () => {
 		expect(timingForApi(api)!.visits.map((v) => v.masterBar.index)).toEqual(
 			normal.visits.map((v) => v.masterBar.index)
 		);
+	});
+	it.each([
+		['pickup', '\\ac 0.1.8 2.1.8 | 3.1.1', [0, 1], 4800],
+		['nested repeats', '\\ro 0.1.1 | \\ro 2.1.1 | \\rc 2 3.1.1 | \\rc 2 4.1.1', [0, 1, 2, 3], 15360]
+	])('keeps native MIDI and the written clock aligned for %s', (_, tex, visits, endTick) => {
+		const api = fixture(tex as string);
+		const originalVisits = timingForApi(api)!.visits.map((v) => v.masterBar.index);
+		withWrittenPlayback(api.score, () => api.loadMidiForScore());
+		const generated = timingForApi(api)!;
+		expect(generated.visits.map((v) => v.masterBar.index)).toEqual(visits);
+		expect(generated.endTick).toBe(endTick);
+		expect(writtenTimingForApi(api)!.visits.map((v) => [v.start, v.end])).toEqual(
+			generated.visits.map((v) => [v.start, v.end])
+		);
+		api.loadMidiForScore();
+		expect(timingForApi(api)!.visits.map((v) => v.masterBar.index)).toEqual(originalVisits);
 	});
 	it('regenerates only on order changes, retains edits, and resumes playback at the selected notes', () => {
 		const api = fixture();

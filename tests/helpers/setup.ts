@@ -13,6 +13,15 @@ export async function setupPlayPage(page: Page): Promise<void> {
 	await waitForScoreLoaded(page);
 }
 
+/** Advanced snapping is available only in player settings. */
+export async function setLoopSnapping(page: Page, mode: 'bar' | 'note'): Promise<void> {
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	await page
+		.getByRole('combobox', { name: 'Loop snapping in settings', exact: true })
+		.selectOption(mode);
+	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+}
+
 /**
  * Set up mock API and navigate to the search page.
  * Use this for tests that start from search.
@@ -62,11 +71,7 @@ export async function dragProgressBar(
 	// Now grow the loop by dragging to the end position.
 	const steps = 10;
 	for (let i = 1; i <= steps; i++) {
-		await page.mouse.move(
-			startX + ((endX - startX) * i) / steps,
-			y,
-			{ steps: 1 }
-		);
+		await page.mouse.move(startX + ((endX - startX) * i) / steps, y, { steps: 1 });
 	}
 	await page.mouse.up();
 }

@@ -19,6 +19,9 @@
 		loopBeats,
 		beatAtTick,
 		rangeForBeats,
+		rangeForDrag,
+		beatSpan,
+		rangeForTimes,
 		moveLoopRange,
 		type TickRange
 	} from '../utils/loopRegion';
@@ -445,7 +448,7 @@
 	let loopEnabled = true;
 	let loopTicks: TickRange | null = null;
 	let loopOrder: 'written' | undefined;
-	let loopSnap: 'bar' | 'note' = 'bar';
+	let loopSnap: 'bar' | 'note' = 'note';
 	let loopSyncKey = '';
 	let loopRestored = false;
 	let loopNeedsValidation = false;
@@ -905,17 +908,14 @@
 	function selectNoteTimes(a: number, b: number) {
 		const timing = timingForApi(api);
 		if (!timing) return;
-		const beats = notePositions(timing);
 		const order = loopOrder === 'written' && loopEnabled ? 'written' : undefined;
-		const first = beatAtTick(beats, timing.msToTick(Math.min(a, b), api.playbackSpeed));
-		const last = beatAtTick(beats, timing.msToTick(Math.max(a, b), api.playbackSpeed));
-		if (first && last)
-			setLoopTicks({ startTick: first.startTick, endTick: last.endTick }, true, order);
+		const ticks = rangeForTimes(timing, notePositions(timing), a, b, api.playbackSpeed);
+		if (ticks) setLoopTicks(ticks, true, order);
 	}
 
-	function selectScoreNotes(first: any, last: any) {
+	function selectScoreNotes(first: any, last: any, drag = false) {
 		const timing = writtenTimingForApi(api);
-		const ticks = timing && rangeForBeats(timing, first, last);
+		const ticks = timing && (drag ? rangeForDrag : rangeForBeats)(timing, first, last);
 		if (ticks) setLoopTicks(ticks, true, 'written');
 	}
 
@@ -932,8 +932,11 @@
 	function resizeNoteLoop(edge: 'start' | 'end', tick: number, beat?: any) {
 		const original = currentLoopRange();
 		if (!original) return;
-		const hit = beat ? scoreBeatNearTick(beat, tick) : beatAtTick(notePositions(), tick);
-		if (!hit) return;
+		const timing = loopTiming();
+		const beatHit = beat ? scoreBeatNearTick(beat, tick) : beatAtTick(notePositions(), tick);
+		if (!beatHit || !timing) return;
+		// Grace notes go with their note, as in every other selection gesture.
+		const hit = beatSpan(timing, beatHit);
 		const enabled = loopOrder === 'written' ? loopEnabled : true;
 		if (edge === 'start' && hit.startTick < original.endTick)
 			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick }, enabled);
@@ -969,9 +972,10 @@
 	function setLoopPoint(point: 'A' | 'B') {
 		const currentTime = duration > 0 ? (progress / 100) * duration : 0;
 		if (loopSnap === 'note') {
-			const timing = timingForApi(api);
-			const beat = timing && beatAtTick(notePositions(), loopTickAtTime(currentTime));
-			if (!beat) return;
+			const timing = loopTiming();
+			const hit = timing && beatAtTick(notePositions(), loopTickAtTime(currentTime));
+			if (!hit) return;
+			const beat = beatSpan(timing, hit);
 			const previous = currentLoopRange();
 			setLoopTicks({
 				startTick:
@@ -1577,7 +1581,7 @@
 	function processSelection(startBeat: any, endBeat: any) {
 		if (!startBeat || !endBeat || !api) return;
 		if (loopSnap === 'note') {
-			selectScoreNotes(startBeat, endBeat);
+			selectScoreNotes(startBeat, endBeat, startBeat !== endBeat);
 			return;
 		}
 		loopTicks = null;
@@ -2706,7 +2710,7 @@
 				const timing = writtenTimingForApi(api);
 				const ticks =
 					loopSnap === 'note' && timing
-						? rangeForBeats(timing, startBeat, endBeat)
+						? rangeForDrag(timing, startBeat, endBeat)
 						: (timing?.range(startBar, endBar) ?? null);
 				const visitedBars = ticks
 					? timing!.visits
@@ -2825,7 +2829,7 @@
 					const sBar = Math.min(bar1, bar2);
 					const eBar = Math.max(bar1, bar2);
 					if (eBar >= sBar) {
-						if (loopSnap === 'note') selectScoreNotes(scoreDragStartBeat, beat);
+						if (loopSnap === 'note') selectScoreNotes(scoreDragStartBeat, beat, true);
 						else setLoopBars(sBar, eBar, 'written');
 						// Move cursor to start of selection
 						if (api && !playing) {
@@ -4728,17 +4732,6 @@
 			     toggle lives in the settings panel there; the freed slot keeps the
 			     phone bar to the essentials (settings + fullscreen). -->
 			{#if !mobileBar}
-				<label class="flex flex-col text-[10px] text-neutral-500 dark:text-neutral-400">
-					Loop snap
-					<select
-						aria-label="Loop snapping"
-						bind:value={loopSnap}
-						on:change={changeLoopSnap}
-						class="rounded-lg bg-transparent text-xs py-1 text-neutral-700 dark:text-neutral-200"
-					>
-						<option value="bar">Bars</option><option value="note">Notes</option>
-					</select>
-				</label>
 				{#if loopStartBar !== null && loopEndBar !== null}
 					<button
 						on:click={toggleLoopEnabled}

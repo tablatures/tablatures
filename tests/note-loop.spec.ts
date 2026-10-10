@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { setupMockApi } from './helpers/mock-api';
 import { waitForScoreLoaded } from './helpers/wait';
-import { dragProgressBar, dragScoreLoop } from './helpers/setup';
+import { dragProgressBar, dragScoreLoop, setLoopSnapping } from './helpers/setup';
 
 test.use({ viewport: { width: 1680, height: 1000 }, trace: 'retain-on-failure' });
 
@@ -17,7 +17,7 @@ async function setup(page: Page, query = '') {
 	await page.goto(`/play?tab=test-tab${query}`);
 	await waitForScoreLoaded(page);
 	await page.evaluate(() => document.fonts.ready);
-	await page.getByRole('combobox', { name: 'Loop snapping', exact: true }).selectOption('note');
+	await expect(page.getByRole('combobox', { name: 'Loop snapping', exact: true })).toHaveCount(0);
 	await expect
 		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopSnap()))
 		.toBe('note');
@@ -84,6 +84,24 @@ async function beatPoint(page: Page, bar: number, beat: number) {
 	);
 }
 
+test('note snapping is the default and the optional bar mode lives only in settings', async ({
+	page
+}) => {
+	await setup(page);
+	await page.getByRole('button', { name: 'Settings', exact: true }).click();
+	const snap = page.getByRole('combobox', { name: 'Loop snapping in settings', exact: true });
+	await expect(snap).toHaveValue('note');
+	await snap.selectOption('bar');
+	await expect.poll(() => page.evaluate(() => (window as any).__testApi.getLoopSnap())).toBe('bar');
+	await snap.selectOption('note');
+	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+	await expect(
+		page.getByRole('combobox', { name: 'Loop snapping in settings', exact: true })
+	).toHaveCount(0);
+	await expect(page.getByRole('combobox', { name: 'Loop snapping', exact: true })).toHaveCount(0);
+	await page.screenshot({ path: 'test-results/note-loop-clean-transport.png', fullPage: true });
+});
+
 test('score selection keeps partial bars, reverse drag, single notes and rests', async ({
 	page
 }) => {
@@ -112,9 +130,9 @@ test('timeline selects the second repeat visit and retains it across reload and 
 	await page.reload();
 	await waitForScoreLoaded(page);
 	await ticks(page, 15840, 16320);
-	await expect(page.getByRole('combobox', { name: 'Loop snapping', exact: true })).toHaveValue(
-		'note'
-	);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopSnap()))
+		.toBe('note');
 	await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 	await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 	await page.goBack();
@@ -144,7 +162,7 @@ test('triplets, alternate endings, score resize and bar compatibility', async ({
 	await page.mouse.move(next.x, next.y, { steps: 10 });
 	await page.mouse.up();
 	await ticks(page, 8000, 8640);
-	await page.getByRole('combobox', { name: 'Loop snapping', exact: true }).selectOption('bar');
+	await setLoopSnapping(page, 'bar');
 	await ticks(page, 7680, 11520);
 	await expect(page).toHaveURL(/loop=w\.7680\.11520/);
 });
@@ -422,7 +440,7 @@ test('written links restore, toggle off, clear, and retain whole-bar score snapp
 	await expect.poll(visits).toEqual([0, 1, 2, 3, 4, 5, 6]);
 	await page.keyboard.press('Escape');
 	await expect.poll(visits).toEqual([0, 1, 2, 3, 1, 2, 4, 5, 6]);
-	await page.getByRole('combobox', { name: 'Loop snapping', exact: true }).selectOption('bar');
+	await setLoopSnapping(page, 'bar');
 	const first = await beatPoint(page, 3, 0),
 		last = await beatPoint(page, 4, 0);
 	await dragScoreLoop(page, first.x, first.y, last.x, last.y);

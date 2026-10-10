@@ -1,4 +1,4 @@
-import { PlayerTiming, timingForApi } from './playerTiming';
+import { PlayerTiming, timingForApi, leadInTicks } from './playerTiming';
 import { resolveLoopRange, type LoopRegion } from './loopRegion';
 
 const writtenTimings = new WeakMap<object, PlayerTiming>();
@@ -27,7 +27,8 @@ export function writtenTimingForApi(api: any): PlayerTiming | null {
 				};
 				start += duration;
 				return visit;
-			})
+			}),
+			leadInTicks(score)
 		);
 		writtenTimings.set(score, timing!);
 	}
@@ -65,9 +66,12 @@ function mapTick(from: PlayerTiming, to: PlayerTiming, tick: number, near = 0): 
 		(best, v) => (!best || Math.abs(v.start - near) < Math.abs(best.start - near) ? v : best),
 		null as (typeof candidates)[number] | null
 	);
-	return target
-		? target.start + Math.min(target.end - target.start, Math.max(0, tick - visit.start))
-		: 0;
+	// Lead-in grace notes before the first bar keep their negative offset.
+	const offset = Math.max(
+		visit === from.visits[0] ? from.startTick - visit.start : 0,
+		tick - visit.start
+	);
+	return target ? target.start + Math.min(target.end - target.start, offset) : 0;
 }
 
 const sessions = new WeakMap<object, ReturnType<typeof createPracticePlayback>>();

@@ -26,7 +26,8 @@ export function parseLoopParam(
 	if (fields.length < 2 || fields.length > 3 || (fields[2] !== undefined && fields[2] !== 'off'))
 		return null;
 	const [a, b] = fields;
-	if (!/^\d+$/.test(a) || !/^\d+$/.test(b)) return null;
+	// Precise links may start in a grace-note lead-in before tick 0.
+	if (!(precise ? /^-?\d+$/ : /^\d+$/).test(a) || !/^\d+$/.test(b)) return null;
 	const start = Number(a),
 		end = Number(b);
 	if (
@@ -53,7 +54,7 @@ export function resolveLoopRange(timing: PlayerTiming, region: LoopRegion): Tick
 		const { startTick, endTick } = region;
 		return Number.isInteger(startTick) &&
 			Number.isInteger(endTick) &&
-			startTick! >= 0 &&
+			startTick! >= timing.startTick &&
 			endTick! > startTick! &&
 			endTick! <= timing.endTick
 			? { startTick: startTick!, endTick: endTick! }
@@ -66,50 +67,147 @@ export function resolveLoopRange(timing: PlayerTiming, region: LoopRegion): Tick
 
 export interface LoopBeat extends TickRange {
 	bar: number;
+	/** Index into timing.visits. */
+	visit: number;
 	beat: any;
+}
+
+/** Where a beat sounds within a visit. A note longer than its bar stops at the
+ * barline, but notes past the end of an overfull bar keep their duration. */
+function soundingEnd(visit: { start: number; end: number }, beat: any): number {
+	const end = visit.start + beat.playbackStart + beat.playbackDuration;
+	return beat.playbackStart < visit.end - visit.start ? Math.min(visit.end, end) : end;
 }
 
 /** Note/rest positions on the active track, expanded through all repeat visits.
  * A chord is one beat; tuplets use alphaTab's actual playback durations. */
 export function loopBeats(timing: PlayerTiming, track: any): LoopBeat[] {
 	const result: LoopBeat[] = [];
-	for (const visit of timing.visits) {
-		const seen = new Set<string>();
+	timing.visits.forEach((visit, index) => {
 		for (const staff of track?.staves ?? []) {
 			for (const voice of staff.bars[visit.masterBar.index]?.voices ?? []) {
 				for (const beat of voice.beats) {
 					const startTick = visit.start + beat.playbackStart;
-					const endTick = Math.min(visit.end, startTick + beat.playbackDuration);
-					const key = `${startTick}:${endTick}`;
-					if (endTick <= startTick || seen.has(key)) continue;
-					seen.add(key);
-					result.push({ startTick, endTick, bar: visit.masterBar.index, beat });
+					const endTick = Math.min(timing.endTick, soundingEnd(visit, beat));
+					if (endTick <= startTick) continue;
+					// Keep beat identities: score handles can hit either voice or staff.
+					result.push({ startTick, endTick, bar: visit.masterBar.index, visit: index, beat });
 				}
 			}
 		}
-	}
-	return result.sort((a, b) => a.startTick - b.startTick || a.endTick - b.endTick);
+	});
+	// At a shared onset, timeline snapping prefers the shorter event over a
+	// simultaneous sustained voice. Score gestures retain the clicked beat.
+	return result.sort((a, b) => a.startTick - b.startTick || b.endTick - a.endTick);
 }
 
 export function beatAtTick(beats: LoopBeat[], tick: number): LoopBeat | null {
 	const active = beats.filter((b) => b.startTick <= tick && tick < b.endTick);
-	return active.at(-1) ?? beats.find((b) => b.startTick >= tick) ?? beats.at(-1) ?? null;
+	// Past the last onset, fall back to the event that sounds last.
+	return (
+		active.at(-1) ??
+		beats.find((b) => b.startTick >= tick) ??
+		beats.reduce<LoopBeat | null>(
+			(last, b) => (!last || b.endTick >= last.endTick ? b : last),
+			null
+		)
+	);
 }
 
-/** Printed selection uses the existing smallest contiguous repeat span rule. */
+const BEFORE_BEAT = 2; // alphaTab GraceType.BeforeBeat
+
+/** Before-beat grace notes belong to the note they ornament. */
+function ornamented(beat: any): any {
+	let b = beat;
+	while (b.graceType === BEFORE_BEAT && b.nextBeat?.voice === b.voice) b = b.nextBeat;
+	return b;
+}
+
+/** A selected note sounds with its grace notes, and stops where the next note's
+ * grace notes begin (alphaTab cuts it there). */
+function noteSpan(timing: PlayerTiming, visitIndex: number, beat: any): TickRange {
+	const visit = timing.visits[visitIndex];
+	const note = ornamented(beat);
+	let first = note;
+	while (first.previousBeat?.graceType === BEFORE_BEAT && first.previousBeat.voice === note.voice)
+		first = first.previousBeat;
+	let end = soundingEnd(visit, note);
+	const next = note.nextBeat;
+	if (next?.graceType === BEFORE_BEAT) {
+		const owner =
+			next.voice === note.voice
+				? visit
+				: timing.visits[visitIndex + 1]?.masterBar.index === next.voice.bar.masterBar.index
+					? timing.visits[visitIndex + 1]
+					: null;
+		if (owner) end = Math.min(end, owner.start + next.playbackStart);
+	}
+	return {
+		startTick: visit.start + first.playbackStart,
+		endTick: Math.min(timing.endTick, end)
+	};
+}
+
+/** The span a timeline or keyboard endpoint selects. */
+export function beatSpan(timing: PlayerTiming, beat: LoopBeat): TickRange {
+	return noteSpan(timing, beat.visit, beat.beat);
+}
+
+/** Timeline selection: the notes under two pointer times on the active playback clock. */
+export function rangeForTimes(
+	timing: PlayerTiming,
+	beats: LoopBeat[],
+	aMs: number,
+	bMs: number,
+	speed = 1
+): TickRange | null {
+	const first = beatAtTick(beats, timing.msToTick(Math.min(aMs, bMs), speed));
+	const last = beatAtTick(beats, timing.msToTick(Math.max(aMs, bMs), speed));
+	return first && last
+		? { startTick: beatSpan(timing, first).startTick, endTick: beatSpan(timing, last).endTick }
+		: null;
+}
+
+/** Select note endpoints on the supplied clock (written for score gestures). */
 export function rangeForBeats(timing: PlayerTiming, first: any, last: any): TickRange | null {
-	const key = (beat: any) => [beat.voice.bar.masterBar.index, beat.playbackStart];
-	let [a, b] = [first, last];
-	const [aBar, aStart] = key(a),
-		[bBar, bStart] = key(b);
-	if (aBar > bBar || (aBar === bBar && aStart > bStart)) [a, b] = [b, a];
+	const key = (beat: any) => [
+		beat.voice.bar.masterBar.index,
+		beat.playbackStart,
+		beat.playbackDuration
+	];
+	let [a, b] = [ornamented(first), ornamented(last)];
+	const [ka, kb] = [key(a), key(b)];
+	const later = ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
+	if (later > 0) [a, b] = [b, a];
 	const range = timing.range(a.voice.bar.masterBar.index, b.voice.bar.masterBar.index);
 	if (!range) return null;
-	const endVisit = timing.visits.find((v) => v.end === range.endTick)!;
 	return {
-		startTick: range.startTick + a.playbackStart,
-		endTick: Math.min(endVisit.end, endVisit.start + b.playbackStart + b.playbackDuration)
+		startTick: noteSpan(
+			timing,
+			timing.visits.findIndex((v) => v.start === range.startTick),
+			a
+		).startTick,
+		endTick: noteSpan(
+			timing,
+			timing.visits.findIndex((v) => v.end === range.endTick),
+			b
+		).endTick
 	};
+}
+
+/** alphaTab hit-tests the score by x across voices, so the beat under a drag
+ * endpoint is ambiguous where voices share an onset. Take the longest event
+ * starting there: ending on a beat includes all of it. */
+function longestAtOnset(beat: any): any {
+	return (beat.voice?.bar?.voices ?? [])
+		.flatMap((voice: any) => voice.beats)
+		.filter((b: any) => !b.isEmpty && b.playbackStart === beat.playbackStart)
+		.reduce((best: any, b: any) => (b.playbackDuration > best.playbackDuration ? b : best), beat);
+}
+
+/** Score drag selection. Double-click keeps the exact beat via rangeForBeats. */
+export function rangeForDrag(timing: PlayerTiming, first: any, last: any): TickRange | null {
+	return rangeForBeats(timing, longestAtOnset(first), longestAtOnset(last));
 }
 
 export function moveLoopRange(

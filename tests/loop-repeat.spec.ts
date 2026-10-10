@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupPlayPageWithTex } from './helpers/setup';
+import { setupPlayPageWithTex, setLoopSnapping } from './helpers/setup';
 import { getTestApi } from './helpers/wait';
 import { TEX_SCORES, EXPECTED_SEQUENCES } from './helpers/alphatex';
 
@@ -259,6 +259,7 @@ test.describe('Loop Edge Cases', () => {
 test.describe('Timeline drag across repeat boundary', () => {
 	test('dragging across repeat boundary does not snap endBar backwards', async ({ page }) => {
 		await setupPlayPageWithTex(page, TEX_SCORES.simpleRepeat);
+		await setLoopSnapping(page, 'bar');
 
 		// simpleRepeat: bars 5-10 (indices 4-9) repeat 2x
 		// Expanded: [0,1,2,3, 4,5,6,7,8,9, 4,5,6,7,8,9, 10,11,12,13,14,15]

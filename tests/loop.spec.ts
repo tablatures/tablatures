@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { setupPlayPage, seekToPercent, dragProgressBar, dragScoreLoop } from './helpers/setup';
+import { setupPlayPage, seekToPercent, dragProgressBar, dragScoreLoop, setLoopSnapping } from './helpers/setup';
 import { waitForPlaying, waitForProgressAbove, waitForProgressNear, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
 
 test.describe('Loop Interactions', () => {
 	// --- Test 9: Create loop by dragging, verify overlay + playback looping ---
 	test('create loop by dragging on progress bar', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
 
@@ -50,6 +51,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 10: Loop playback enforces boundaries ---
 	test('loop playback stays within boundaries', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 60, 80);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -77,6 +79,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 11: Create loop via A/B keyboard shortcuts ---
 	test('create loop via A/B keyboard shortcuts', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await seekToPercent(page, 20);
 		await waitForSeekSettled(page, 20);
@@ -99,6 +102,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 12: Create loop by dragging on sheet (OPTIONAL) ---
 	test('create loop by dragging on score sheet', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		// Audio readiness precedes the final render and initial smooth cursor scroll.
 		// A drag uses fixed viewport coordinates, so wait for the sheet to settle.
@@ -170,6 +174,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 13: Clear loop (Escape key) ---
 	test('Escape key clears loop', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
@@ -184,6 +189,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 14: Loop toggle enable/disable (L key) ---
 	test('L key toggles loop enabled/disabled', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
 		let bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -206,6 +212,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 15: Seek outside loop fully removes it ---
 	test('clicking outside loop clears it', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
@@ -220,6 +227,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 16: Loop overlay matches actual playback ---
 	test('loop overlay position matches playback range', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 30, 50);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -248,6 +256,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 17: Too-small loop auto-clears ---
 	test('too-small drag does not create loop', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		const bar = page.locator('[role="slider"][aria-label*="Playback progress"]');
 		const box = await bar.boundingBox();
@@ -272,6 +281,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 18: Loop at song boundaries ---
 	test('loop at start of song works', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 1, 15);
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
@@ -287,6 +297,7 @@ test.describe('Loop Interactions', () => {
 
 	test('loop at end of song works', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 85, 99);
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
@@ -310,6 +321,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 19: Resize loop via edge drag ---
 	test('resize loop by dragging edges', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 30, 60);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -344,6 +356,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 20: Move entire loop via drag ---
 	test('drag inside loop moves it', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -384,6 +397,7 @@ test.describe('Loop Interactions', () => {
 	// --- Test 21: Loop + speed change ---
 	test('loop still works after speed change', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 40, 60);
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
@@ -422,6 +436,7 @@ test.describe('Loop Interactions', () => {
 	// ignoring the loop range and pushing playback past the loop end.
 	test('loop stays within bounds when video is active', async ({ page }) => {
 		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
 
 		// Create a loop in the 30-50% range
 		await dragProgressBar(page, 30, 50);
