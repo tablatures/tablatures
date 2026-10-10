@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPlayerCursor } from './playerCursor';
 
-const beat = (y: number) =>
-	({ barBounds: { masterBarBounds: { visualBounds: { x: 35, y, w: 300, h: 100 } } } }) as any;
+const beat = (y: number, h = 100) =>
+	({ barBounds: { masterBarBounds: { visualBounds: { x: 35, y, w: 300, h } } } }) as any;
 const cursor = () => ({ setBounds: vi.fn(), transitionToX: vi.fn() }) as any;
 
 describe('deferred playback cursor animations', () => {
@@ -64,6 +64,30 @@ describe('deferred playback cursor animations', () => {
 		line.transitionToX.mockClear();
 		advance(100);
 		expect(line.transitionToX).not.toHaveBeenCalled();
+	});
+
+	it('refreshes the cursor height when switching tracks at the same row position', () => {
+		const handler = createPlayerCursor(() => true),
+			line = cursor(),
+			bar = cursor();
+		const vocals = beat(144, 194),
+			guitar = beat(144, 216);
+		handler.placeBarCursor(bar, vocals);
+		handler.placeBeatCursor(line, vocals, 20);
+		handler.transitionBeatCursor(line, vocals, 20, 100, 100, 1);
+		advance(50);
+		// alphaTab skips placeBeatCursor when the new track has the same row Y.
+		for (const [current, height] of [
+			[guitar, 216],
+			[vocals, 194]
+		] as const) {
+			handler.placeBarCursor(bar, current);
+			handler.transitionBeatCursor(line, current, 20, 100, 100, 1);
+			expect(line.setBounds).toHaveBeenLastCalledWith(60, 144, 1, height);
+			expect(line.transitionToX).toHaveBeenLastCalledWith(0, 60);
+		}
+		advance(100);
+		expect(line.transitionToX).toHaveBeenLastCalledWith(0, 100);
 	});
 
 	it('accounts for the callback delay and stops writing after pause', () => {

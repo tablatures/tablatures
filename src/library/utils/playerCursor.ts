@@ -52,6 +52,10 @@ export function createPlayerCursor(isPlaying: () => boolean): CursorHandler {
 			const ratio = duration > 0 ? Math.min(1, elapsed / duration) : 1;
 			const from = Math.max(x, startX + (nextX - startX) * ratio);
 			const target = Math.max(from, nextX);
+			// Track switches and reflows can change staff height without changing
+			// row Y. alphaTab skips placeBeatCursor in that case while playing.
+			const bounds = beat.barBounds.masterBarBounds.visualBounds;
+			cursor.setBounds(from, bounds.y, 1, bounds.h);
 			// Own the interpolation instead of repeatedly retargeting a CSS
 			// transition. A delayed update holds at the boundary, never overshoots.
 			const advance = (now: number) => {
