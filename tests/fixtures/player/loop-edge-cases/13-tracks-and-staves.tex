@@ -1,0 +1,25 @@
+\title "Loop edge 13: tracks, grand staff and percussion"
+\tempo 120
+.
+\track "Guitar"
+\instrument 25
+:8 0.1 2.1 3.1 5.1 7.1 5.1 3.1 2.1 |
+\ro :4 0.1{tu 3} 2.1{tu 3} 3.1{tu 3} :2 5.1{d} |
+\rc 2 :2 7.1 :4 r 5.1 |
+:1 0.1
+
+\track "Piano"
+\instrument 0
+\staff {score} \tuning piano
+:2 c4 e4 | :4 g4 a4 b4 c5 | :1 c5 | :1 c4
+\staff {score} \tuning piano \clef F4
+:1 c3 | :2 g2 c3 | :8 c3 d3 e3 f3 g3 a3 b3 c4 | :1 c3
+
+\track "Drums"
+\instrument percussion
+\articulation defaults
+:4 KickHit SnareHit KickHit SnareHit | :8 KickHit KickHit SnareHit KickHit KickHit KickHit SnareHit SnareHit | :4 KickHit SnareHit KickHit SnareHit | :1 KickHit
+
+\track "Silent"
+\instrument 25
+:1 r | :1 r | :1 r | :1 r
