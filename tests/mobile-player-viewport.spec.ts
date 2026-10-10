@@ -87,3 +87,87 @@ test('player fills the visual viewport when browser chrome changes its height', 
 			.toBeCloseTo(height, 0);
 	}
 });
+
+test('player catches a viewport height that settles after the resize event', async ({ page }) => {
+	await setupMockApi(page);
+	await page.addInitScript(() => {
+		let height = 520;
+		Object.defineProperty(window.visualViewport, 'height', { get: () => height });
+		(window as any).__settleViewport = () => {
+			// Browser chrome can dispatch before its viewport metrics settle,
+			// without sending a second event with the final height.
+			window.visualViewport!.dispatchEvent(new Event('resize'));
+			setTimeout(() => {
+				height = 650;
+			}, 150);
+		};
+	});
+	await page.goto('/play?tab=test-tab');
+	await waitForScoreLoaded(page);
+	// Let activation's settling window finish before exercising this event.
+	await page.waitForTimeout(1100);
+	await page.evaluate(() => (window as any).__settleViewport());
+	await expect
+		.poll(() =>
+			page
+				.locator('[aria-label="Playback controls"]')
+				.evaluate((el) => el.getBoundingClientRect().bottom)
+		)
+		.toBeCloseTo(650, 0);
+});
+
+test('returning to the browser refreshes a silently changed viewport', async ({ page }) => {
+	await setupMockApi(page);
+	await page.addInitScript(() => {
+		let height = 520;
+		Object.defineProperty(window.visualViewport, 'height', { get: () => height });
+		(window as any).__restoreViewport = () => {
+			height = 650;
+			window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+		};
+	});
+	await page.goto('/play?tab=test-tab');
+	await waitForScoreLoaded(page);
+	await page.waitForTimeout(1100);
+	await page.evaluate(() => (window as any).__restoreViewport());
+	await expect
+		.poll(() =>
+			page
+				.locator('[aria-label="Playback controls"]')
+				.evaluate((el) => el.getBoundingClientRect().bottom)
+		)
+		.toBeCloseTo(650, 0);
+});
+
+test('switching back from another app refreshes the viewport without a resize event', async ({
+	page
+}) => {
+	await setupMockApi(page);
+	await page.addInitScript(() => {
+		let height = 520;
+		let hidden = false;
+		Object.defineProperty(window.visualViewport, 'height', { get: () => height });
+		Object.defineProperty(document, 'hidden', { get: () => hidden });
+		(window as any).__switchBack = () => {
+			hidden = true;
+			height = 0;
+			document.dispatchEvent(new Event('visibilitychange'));
+			setTimeout(() => {
+				hidden = false;
+				height = 650;
+				document.dispatchEvent(new Event('visibilitychange'));
+			}, 150);
+		};
+	});
+	await page.goto('/play?tab=test-tab');
+	await waitForScoreLoaded(page);
+	await page.waitForTimeout(1100);
+	await page.evaluate(() => (window as any).__switchBack());
+	await expect
+		.poll(() =>
+			page
+				.locator('[aria-label="Playback controls"]')
+				.evaluate((el) => el.getBoundingClientRect().bottom)
+		)
+		.toBeCloseTo(650, 0);
+});

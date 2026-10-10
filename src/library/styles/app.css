@@ -679,6 +679,9 @@ html { scrollbar-gutter: stable; }
  overflow: hidden;
  vertical-align: middle;
 }
+/* Tailwind's responsive !text-* utilities also set an important line-height.
+   Keep that text leading from clipping glyphs inside their reserved squares. */
+:root .material-icons, :root .material-icons-outlined { line-height: 1 !important; }
 /* Shared by real cards, skeletons and offscreen feed cells. */
 .tab-card-title { height: 2.5em; line-height: 1.25; }
 .tab-card-artist { height: 1rem; line-height: 1rem; }

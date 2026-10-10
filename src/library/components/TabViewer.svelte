@@ -521,6 +521,15 @@
 	$: if (requestedScoreKey !== followScoreKey) {
 		followScoreKey = requestedScoreKey;
 		followAtStart = false;
+		autoFollow = true;
+		cursorFollowTop = null;
+		if (browser) cancelAnimationFrame(cursorFollowFrame);
+		cursorFollowFrame = 0;
+		playing = false;
+		progress = 0;
+		duration = 0;
+		currentBar = 0;
+		bindDuration = true;
 	}
 	$: if (playing) followAtStart = true;
 	let cursorFollowFrame = 0;
@@ -541,7 +550,10 @@
 		// position event. This also covers paused seeks and score reflow.
 		cursorFollowFrame = requestAnimationFrame(() => {
 			cursorFollowFrame = 0;
-			if (!didReturnPlayerHost && autoFollow && !isRendering) alignCursorInViewport();
+			if (
+				!didReturnPlayerHost && autoFollow && !isRendering && !isLoading &&
+				(playing || progress > 0 || followAtStart)
+			) alignCursorInViewport();
 		});
 	}
 
