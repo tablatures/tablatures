@@ -660,7 +660,6 @@
 					on:dragover={handleDragOver}
 					on:drop={handleDrop}
 					class:ring-2={dragActive}
-					
 				>
 					<i class="material-icons !text-5xl text-violet-500" aria-hidden="true">upload_file</i>
 					<span class="font-semibold">{dragActive ? 'Drop it' : 'Drop a file'}</span>
@@ -952,7 +951,7 @@
 						<button
 							on:click={createAndAddToPlaylist}
 							disabled={!newInlinePlaylistName.trim()}
-							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-600 transition-colors disabled:opacity-30"
+							class="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors disabled:opacity-30"
 						>
 							Create
 						</button>
