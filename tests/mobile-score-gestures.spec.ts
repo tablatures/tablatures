@@ -1,6 +1,7 @@
 import { expectStableCursorFollowing } from './helpers/cursor-follow';
 import { test, expect, type Page, type CDPSession } from '@playwright/test';
 import { openScore, scale, position, scrollTop, loop } from './helpers/mobile-score';
+import { useCombinedNotation } from './helpers/setup';
 import { waitForScoreLoaded } from './helpers/wait';
 
 test.use({
@@ -149,6 +150,7 @@ test('pinched scale survives transport, panel, rotation and catalogue navigation
 test('pinching while playing preserves transport and manual browsing until Back to cursor', async ({
 	page
 }) => {
+	await useCombinedNotation(page);
 	await openScore(page);
 	const cdp = await page.context().newCDPSession(page);
 	await page.getByRole('button', { name: 'Play', exact: true }).tap();

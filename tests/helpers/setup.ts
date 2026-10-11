@@ -117,3 +117,13 @@ export async function setupPlayPageWithTex(page: Page, tex: string): Promise<voi
 	await waitForScoreLoaded(page);
 	await loadAlphaTexScore(page, tex);
 }
+
+/** Start with tab and standard notation staves. Scroll-geometry tests need the
+ * taller score; tab-only fits the long fixture in little more than a screen. */
+export async function useCombinedNotation(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const key = 'user-preferences';
+		const prefs = JSON.parse(localStorage.getItem(key) ?? '{}');
+		localStorage.setItem(key, JSON.stringify({ ...prefs, notationView: 'both' }));
+	});
+}

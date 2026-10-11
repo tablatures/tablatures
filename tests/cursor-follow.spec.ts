@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as at from '@coderline/alphatab';
 import { setupMockApi } from './helpers/mock-api';
-import { seekToPercent } from './helpers/setup';
+import { seekToPercent, useCombinedNotation } from './helpers/setup';
 import { waitForScoreLoaded } from './helpers/wait';
 
 test.use({ viewport: { width: 1488, height: 943 }, trace: 'retain-on-failure' });
@@ -237,6 +237,7 @@ async function backToCursorIcon(page: Page) {
 test('Back to cursor appears only while the cursor is out of view, pointing to it', async ({
 	page
 }) => {
+	await useCombinedNotation(page);
 	await openScore(page);
 	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
 	await settleLayout(page);
