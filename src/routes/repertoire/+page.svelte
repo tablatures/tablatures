@@ -392,15 +392,16 @@
 	</div>
 
 	<!-- Tab buttons -->
-	<div class="flex gap-1 mb-6 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto scrollbar-none">
+	<!-- Tabs share the row on phones so the last one is never cut at the edge. -->
+	<div class="flex sm:gap-1 mb-6 border-b border-neutral-200 dark:border-neutral-800 overflow-x-auto scrollbar-none">
 		<button
 			on:click={() => activeTab = 'favorites'}
-			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="flex-1 sm:flex-none shrink-0 px-1 sm:px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'favorites'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
-			<span class="flex items-center gap-1.5">
+			<span class="flex items-center justify-center gap-1 sm:gap-1.5">
 				<i class="material-icons-outlined !text-base" aria-hidden="true">favorite_border</i>
 				Favorites
 			</span>
@@ -410,12 +411,12 @@
 		</button>
 		<button
 			on:click={() => activeTab = 'history'}
-			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="flex-1 sm:flex-none shrink-0 px-1 sm:px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'history'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
-			<span class="flex items-center gap-1.5">
+			<span class="flex items-center justify-center gap-1 sm:gap-1.5">
 				<i class="material-icons-outlined !text-base" aria-hidden="true">history</i>
 				History
 			</span>
@@ -425,12 +426,12 @@
 		</button>
 		<button
 			on:click={() => activeTab = 'playlists'}
-			class="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors relative
+			class="flex-1 sm:flex-none shrink-0 px-1 sm:px-4 py-2.5 text-sm font-medium transition-colors relative
 				{activeTab === 'playlists'
 					? 'text-violet-600 dark:text-violet-400'
 					: 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}"
 		>
-			<span class="flex items-center gap-1.5">
+			<span class="flex items-center justify-center gap-1 sm:gap-1.5">
 				<i class="material-icons-outlined !text-base" aria-hidden="true">queue_music</i>
 				Playlists
 				{#if playlists.length > 0}

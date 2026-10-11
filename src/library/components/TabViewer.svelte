@@ -4442,7 +4442,9 @@
 		</div>
 
 		<!-- Control buttons -->
-		<div class="flex items-center px-2 {compactBar ? 'py-1.5 gap-0.5' : 'py-2.5 gap-1'}">
+		<div
+			class="transport-row flex items-center px-2 {compactBar ? 'py-1.5 gap-0.5' : 'py-2.5 gap-1'}"
+		>
 			<!-- Left: playback controls -->
 			<button
 				class="{compactBar ? 'p-1.5' : 'p-2.5'} rounded-xl transition-colors {playing
@@ -4486,7 +4488,9 @@
 			</button>
 
 			<!-- Time display -->
-			<span class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mx-2 hidden sm:inline">
+			<span
+				class="text-xs text-neutral-500 dark:text-neutral-400 font-mono mx-2 whitespace-nowrap hidden sm:inline"
+			>
 				{current}
 			</span>
 
@@ -4570,7 +4574,7 @@
 						>{tracks[activeTrackIndex]?.name || `Track ${activeTrackIndex + 1}`}</span
 					>
 					<i
-						class="material-icons !text-lg max-[359px]:!hidden text-neutral-400 transition-transform duration-150 {open
+						class="material-icons !text-lg bar-optional text-neutral-400 transition-transform duration-150 {open
 							? 'rotate-180'
 							: ''}"
 						aria-hidden="true">arrow_drop_down</i
@@ -4615,10 +4619,10 @@
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
-					<i class="material-icons !text-base max-[359px]:!hidden" aria-hidden="true">speed</i>
+					<i class="material-icons !text-base bar-optional" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
-						class="material-icons !text-lg max-[359px]:!hidden transition-transform duration-150 {speedIsCustom
+						class="material-icons !text-lg bar-optional transition-transform duration-150 {speedIsCustom
 							? 'text-white/70'
 							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
 						aria-hidden="true">arrow_drop_down</i
@@ -5775,6 +5779,18 @@
 </div>
 
 <style>
+	/* The bar's width is the viewport minus the score's scrollbar gutter and any
+	   docked panel, so size the optional chrome off the row itself rather than
+	   the viewport: on a 360px phone the row is only ~350px wide, and small
+	   landscape phones and portrait tablets show the time and track name too. */
+	.transport-row {
+		container-type: inline-size;
+	}
+	@container (max-width: 820px) {
+		.transport-row .bar-optional {
+			display: none !important;
+		}
+	}
 	.loading-view {
 		overflow-y: hidden;
 		overscroll-behavior-y: contain;
