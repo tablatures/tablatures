@@ -116,8 +116,16 @@ jobs:
       - name: Check Playwright browsers
         uses: ./.github/actions/playwright-browsers
 
+      # Deal tests out round-robin instead of Playwright's contiguous --shard
+      # blocks, which hand whole playback-heavy files to the same shard.
+      - name: Pick this shard's tests
+        run: |
+          pnpm exec playwright test --list | sed -n 's/^  //p' |
+            awk -v n=${{ strategy.job-total }} -v i=${{ matrix.shard }} '(NR - 1) % n == i - 1' > shard-tests.txt
+          wc -l < shard-tests.txt
+
       - name: E2E tests (Playwright)
-        run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm test:e2e --test-list shard-tests.txt
         env:
           # The dev server the e2e suite boots reads this; requests are mocked in
           # the specs, so any base works. A local URL keeps unmocked calls from
