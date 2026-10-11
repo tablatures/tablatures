@@ -239,11 +239,14 @@ test.describe('infinite-scroll loading rows', () => {
 	test('search results show a loading row while paginating', async ({ page }) => {
 		await setupMockApi(page);
 		// Search pagination goes through /api/search/live (performLiveSearch), so
-		// that's the route to hold open on page 2+.
+		// that's the route to hold open on page 2+. It stays held until the
+		// assertions are done: a fixed delay let the row vanish between them.
+		let releasePage2!: () => void;
+		const page2Held = new Promise<void>((r) => (releasePage2 = r));
 		await page.route('**/api/search/live?*', async (route) => {
 			const url = new URL(route.request().url());
 			const pageNum = Number(url.searchParams.get('page') || '1');
-			if (pageNum > 1) await new Promise((r) => setTimeout(r, 2500));
+			if (pageNum > 1) await page2Held;
 			await route.fulfill({
 				json: {
 					results: Array.from({ length: 20 }, (_, i) => ({
@@ -267,14 +270,18 @@ test.describe('infinite-scroll loading rows', () => {
 		await page.mouse.wheel(0, 6000);
 		await expect(page.getByTestId('search-loading-row')).toBeVisible({ timeout: 15000 });
 		await expect(page.getByTestId('search-loading-row')).toContainText('Loading more results');
+		releasePage2();
 	});
 
 	test('artist all-tabs shows a loading row while paginating', async ({ page }) => {
 		await setupMockApi(page);
+		// Hold page 2+ until the row has been seen (see the search test above).
+		let releasePage2!: () => void;
+		const page2Held = new Promise<void>((r) => (releasePage2 = r));
 		await page.route('**/api/search?*', async (route) => {
 			const url = new URL(route.request().url());
 			const pageNum = Number(url.searchParams.get('page') || '1');
-			if (pageNum > 1) await new Promise((r) => setTimeout(r, 2500));
+			if (pageNum > 1) await page2Held;
 			await route.fulfill({
 				json: {
 					results: Array.from({ length: 20 }, (_, i) => ({
@@ -296,5 +303,6 @@ test.describe('infinite-scroll loading rows', () => {
 
 		await page.mouse.wheel(0, 8000);
 		await expect(page.getByTestId('artist-loading-row')).toBeVisible({ timeout: 15000 });
+		releasePage2();
 	});
 });
