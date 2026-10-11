@@ -62,6 +62,7 @@
 		SCALE_MAX
 	} from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
+	import { followScrollTarget, cursorOffscreen } from '../utils/cursorFollow';
 	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
@@ -626,17 +627,42 @@
 		alignCursorInViewport();
 	}
 
+	/** The part of the score the reader can see, in client pixels. */
+	function followViewport() {
+		// The desktop console sits beside the score. Its height does not reduce
+		// the sheet viewport; use the actual scroller, sticky header and the
+		// transport bar instead.
+		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const rect = page?.getBoundingClientRect();
+		const top = Math.max(rect?.top ?? 0, headerBottom);
+		const barTop = barEl?.getBoundingClientRect().top ?? Infinity;
+		const bottom = Math.min(rect?.bottom ?? window.innerHeight, barTop);
+		return { top, bottom: bottom > top ? bottom : (rect?.bottom ?? window.innerHeight) };
+	}
+
 	function alignCursorInViewport() {
 		if (isLoading) return;
 		const el = get(beatCursorEl);
 		if (!el) return;
-		// The desktop console sits beside the score. Its height does not reduce
-		// the sheet viewport; use the actual scroller and sticky header instead.
-		const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-		const viewportTop = Math.max(page?.getBoundingClientRect().top ?? 0, headerBottom);
+		const viewport = followViewport();
+		const cursor = el.getBoundingClientRect();
 		const currentTop = page ? page.scrollTop : window.scrollY;
-		const delta = el.getBoundingClientRect().top - (viewportTop + 24);
-		const top = Math.max(0, Math.round(currentTop + delta));
+		const hostTop = loopRowsInHost
+			? (document.getElementById('player-host')?.getBoundingClientRect().top ?? 0)
+			: 0;
+		const top = followScrollTarget({
+			viewportTop: viewport.top,
+			viewportBottom: viewport.bottom,
+			cursorTop: cursor.top,
+			cursorBottom: cursor.bottom,
+			scrollTop: currentTop,
+			loop: loopRowsInHost && {
+				top: hostTop + loopRowsInHost.top,
+				bottom: hostTop + loopRowsInHost.bottom
+			}
+		});
+		// A framed loop holds still while the cursor plays through it.
+		if (top === null) return;
 		// Cursor transforms change on every beat, including horizontal animation.
 		// Restarting smooth scroll to the same fractional position makes the staff
 		// jitter on mobile. Scroll once per new row or layout, with pixel tolerance.
@@ -645,6 +671,30 @@
 		if (Math.abs(top - currentTop) <= 1) return;
 		(page ?? window).scrollTo({ top, behavior: 'smooth' });
 	}
+
+	// While not following, Back to cursor appears only when the cursor is out
+	// of view, pointing the way to it. Seeing the cursor does not resume
+	// following on its own: only Back to cursor or an explicit seek does.
+	let cursorOutOfView: 'above' | 'below' | null = null;
+	let cursorVisibilityFrame = 0;
+	function updateCursorOutOfView() {
+		const el = autoFollow ? null : get(beatCursorEl);
+		if (!el) {
+			cursorOutOfView = null;
+			return;
+		}
+		const cursor = el.getBoundingClientRect();
+		const viewport = followViewport();
+		cursorOutOfView = cursorOffscreen(cursor.top, cursor.bottom, viewport.top, viewport.bottom);
+	}
+	function scheduleCursorVisibility() {
+		if (!browser || cursorVisibilityFrame) return;
+		cursorVisibilityFrame = requestAnimationFrame(() => {
+			cursorVisibilityFrame = 0;
+			updateCursorOutOfView();
+		});
+	}
+	$: if (browser) (autoFollow, scheduleCursorVisibility());
 
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -1224,9 +1274,13 @@
 		});
 	}
 
+	// Rows covered by the rendered loop (player-host px), for loop-aware following.
+	let loopRowsInHost: { top: number; bottom: number } | null = null;
+
 	function clearScoreSelection() {
 		if (loopOverlayEl) loopOverlayEl.innerHTML = '';
 		loopMinimapVisible = false;
+		loopRowsInHost = null;
 	}
 
 	function removeOverlay() {
@@ -1363,6 +1417,9 @@
 				}
 			}
 			merged.sort((a, b) => a.y - b.y);
+			loopRowsInHost = merged.length
+				? { top: merged[0].y, bottom: Math.max(...merged.map((r) => r.y + r.h)) }
+				: null;
 
 			// Render selection rects with interactive [ ] bracket handles and floating menu
 			container.innerHTML = '';
@@ -3432,7 +3489,10 @@
 			if (!el) return;
 			// alphaTab writes the beat cursor's transform when it places or
 			// animates it. Rebind whenever rendering replaces the cursor element.
-			cursorFollowObserver = new MutationObserver(scheduleCursorFollow);
+			cursorFollowObserver = new MutationObserver(() => {
+				scheduleCursorFollow();
+				scheduleCursorVisibility();
+			});
 			cursorFollowObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
 			scheduleCursorFollow();
 		});
@@ -4248,10 +4308,14 @@
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
-	on:scroll={scheduleLoopMenuPlacement}
+	on:scroll={() => {
+		scheduleLoopMenuPlacement();
+		scheduleCursorVisibility();
+	}}
 	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
-	!autoFollow
+	!autoFollow &&
+	cursorOutOfView
 		? '52px'
 		: '0px'}"
 >
@@ -4426,7 +4490,7 @@
 		     the metadata row that sits above the transport bar. Only shown while
 		     the sheet section owns the /play view (item 14): once the user scrolls
 		     into the below-fold details, the shell's "back to top" arrow takes over. -->
-		{#if scoreLoaded && !isLoading && !autoFollow && $playSheetInView}
+		{#if scoreLoaded && !isLoading && !autoFollow && cursorOutOfView && $playSheetInView}
 			<div
 				class="fixed -translate-x-1/2 z-[55]"
 				style="bottom: calc(var(--player-bar-height) + 12px); left: calc((100% - var(--player-panel-width)) / 2)"
@@ -4436,7 +4500,9 @@
 					class="flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500 text-white shadow-lg hover:bg-violet-600 active:scale-95 transition-all animate-fade-in"
 					title="Scroll to cursor"
 				>
-					<i class="material-icons !text-lg" aria-hidden="true">fiber_manual_record</i>
+					<i class="material-icons !text-lg" aria-hidden="true"
+						>{cursorOutOfView === 'above' ? 'arrow_upward' : 'arrow_downward'}</i
+					>
 					<span class="text-sm font-medium">Back to cursor</span>
 				</button>
 			</div>

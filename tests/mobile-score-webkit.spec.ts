@@ -67,6 +67,9 @@ test.describe('WebKit touch handling', () => {
 			});
 			expect(prevented).toBe(false);
 			expect(await loop(page)).toBeNull();
+			// The touch stopped following: once the cursor is out of view, the
+			// sheet stays put and offers Back to cursor.
+			await page.locator('#page').evaluate((el) => el.scrollTo({ top: el.scrollTop + 1500 }));
 			await expect(page.getByRole('button', { name: 'Back to cursor', exact: true })).toBeVisible();
 		});
 	}
