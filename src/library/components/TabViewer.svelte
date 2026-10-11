@@ -54,7 +54,7 @@
 	import { preferencesStore } from '../utils/preferences';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
-	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
+	import { pinchZoom, longPressSelect, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
 	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -2821,31 +2821,63 @@
 					clearLoopPoints();
 				}
 				showSelectionPopover = false;
-			} else {
-				// Drag complete - retain note precision or expand to full bars.
-				try {
-					const bar1 = scoreDragStartBeat?.voice?.bar?.masterBar?.index ?? 0;
-					const bar2 = beat.voice?.bar?.masterBar?.index ?? 0;
-					const sBar = Math.min(bar1, bar2);
-					const eBar = Math.max(bar1, bar2);
-					if (eBar >= sBar) {
-						if (loopSnap === 'note') selectScoreNotes(scoreDragStartBeat, beat, true);
-						else setLoopBars(sBar, eBar, 'written');
-						// Move cursor to start of selection
-						if (api && !playing) {
-							const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
-							if (startMs >= 0) {
-								progress = (startMs / duration) * 100;
-								api.player.timePosition = startMs;
-							}
-						}
-					}
-				} catch {}
-			}
+			} else commitScoreDrag(scoreDragStartBeat, beat);
 			scoreDragStartBeat = null;
 			scoreDragging = false;
 		};
 		listen(apiRef.beatMouseUp, onBeatMouseUp);
+
+		/** Drag complete - retain note precision or expand to full bars. */
+		function commitScoreDrag(startBeat: any, endBeat: any) {
+			try {
+				const bar1 = startBeat?.voice?.bar?.masterBar?.index ?? 0;
+				const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
+				const sBar = Math.min(bar1, bar2);
+				const eBar = Math.max(bar1, bar2);
+				if (eBar >= sBar) {
+					if (loopSnap === 'note') selectScoreNotes(startBeat, endBeat, startBeat !== endBeat);
+					else setLoopBars(sBar, eBar, 'written');
+					// Move cursor to start of selection
+					if (api && !playing) {
+						const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
+						if (startMs >= 0) {
+							progress = (startMs / duration) * 100;
+							api.player.timePosition = startMs;
+						}
+					}
+				}
+			} catch {}
+		}
+
+		// Touch: a held finger picks a note, a sideways drag extends it (see
+		// longPressSelect). Same preview and commit as the mouse path.
+		let touchStartBeat: any = null;
+		let touchEndBeat: any = null;
+		scoreTouch = {
+			hold(x, y) {
+				const beat = mouseToBeatViaScore(x, y);
+				if (!beat) return false;
+				touchStartBeat = touchEndBeat = beat;
+				showSelectionPopover = false;
+				showDragPreview(beat, beat);
+				return true;
+			},
+			drag(x, y) {
+				const beat = touchStartBeat && mouseToBeatViaScore(x, y);
+				if (!beat || beat === touchEndBeat) return;
+				touchEndBeat = beat;
+				showDragPreview(touchStartBeat, beat);
+			},
+			commit() {
+				if (touchStartBeat) commitScoreDrag(touchStartBeat, touchEndBeat);
+				touchStartBeat = touchEndBeat = null;
+				updateScoreSelection();
+			},
+			abort() {
+				touchStartBeat = touchEndBeat = null;
+				updateScoreSelection();
+			}
+		};
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -3975,10 +4007,25 @@
 		}
 	}
 
-	// Touch owns native sheet scrolling and pinch zoom. Loop selection remains
-	// on alphaTab's mouse path; synthesizing mouse drags from held touches stole
-	// slow scrolling gestures and fought the browser's momentum scrolling.
+	// Touch owns native sheet scrolling and pinch zoom. Loop selection on touch
+	// goes through longPressSelect, which claims a touch only after a still hold
+	// followed by a sideways move; synthesizing mouse drags from held touches
+	// stole slow scrolling gestures and fought the browser's momentum scrolling.
 	let cancelScoreSelection = () => {};
+	let scoreTouch: {
+		hold: (x: number, y: number) => boolean;
+		drag: (x: number, y: number) => void;
+		commit: () => void;
+		abort: () => void;
+	} | null = null;
+	/** Visible band of the score for selection edge auto-scroll: below the
+	 *  header, above the sticky transport bar. */
+	function scoreScrollArea() {
+		if (!page) return null;
+		const rect = page.getBoundingClientRect();
+		const barTop = barEl?.getBoundingClientRect().top ?? rect.bottom;
+		return { el: page, top: Math.max(rect.top, 0), bottom: Math.min(rect.bottom, barTop) };
+	}
 	let scoreGestureCancelled = false;
 	function cancelScoreGesture() {
 		endScorePinch();
@@ -4067,13 +4114,23 @@
 		{/if}
 	</div>
 
-	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
+	<!-- One finger scrolls natively; only a two-finger pinch or a held-then-sideways
+	     drag (loop selection) claims touch input. No callout or text selection on hold. -->
 	<div
 		class="relative"
 		class:score-loading={isLoading}
 		aria-busy={!!isLoading}
-		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
+		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart|passive={handleUserScrollIntent}
+		use:longPressSelect={{
+			onHold: (x, y) => scoreTouch?.hold(x, y) ?? false,
+			onDrag: (x, y) => scoreTouch?.drag(x, y),
+			onCommit: () => scoreTouch?.commit(),
+			onAbort: () => scoreTouch?.abort(),
+			scrollArea: scoreScrollArea,
+			haptic: hapticTap,
+			enabled: scoreLoaded
+		}}
 		use:pinchZoom={{
 			getScale: () => tabScale,
 			setScale: setTabScaleFromPinch,

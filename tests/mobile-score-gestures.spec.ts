@@ -200,6 +200,159 @@ test('a score tap seeks without resetting zoom or creating a loop', async ({ pag
 	await cdp.detach();
 });
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Client point inside a rendered bar, `at` across its width. */
+function barPoint(page: Page, index: number, at = 0.5) {
+	return page.evaluate(
+		({ index, at }) => {
+			const bar = (window as any).__testApi
+				.getBarPositions()
+				.find((bar: any) => bar.index === index);
+			const host = document.getElementById('player-host')!.getBoundingClientRect();
+			return { x: host.x + bar.x + bar.w * at, y: host.y + bar.y + bar.h / 2 };
+		},
+		{ index, at }
+	);
+}
+
+/** One finger: hold still for `hold` ms, then travel through `path`. */
+async function holdAndDrag(
+	cdp: CDPSession,
+	from: { x: number; y: number },
+	path: Array<{ x: number; y: number }>,
+	hold = 600
+) {
+	await cdp.send('Input.dispatchTouchEvent', {
+		type: 'touchStart',
+		touchPoints: [{ id: 1, ...from }]
+	});
+	await wait(hold);
+	for (const point of path) {
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchMove',
+			touchPoints: [{ id: 1, ...point }]
+		});
+		await wait(16);
+	}
+	await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+function steps(from: { x: number; y: number }, to: { x: number; y: number }, count = 10) {
+	return Array.from({ length: count }, (_, i) => ({
+		x: from.x + ((to.x - from.x) * (i + 1)) / count,
+		y: from.y + ((to.y - from.y) * (i + 1)) / count
+	}));
+}
+
+test.describe('long-press loop selection', () => {
+	test('hold then drag sideways selects notes without scrolling', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const from = await barPoint(page, 1, 0.1);
+		const to = await barPoint(page, 2, 0.9);
+		const before = await scrollTop(page);
+		await holdAndDrag(
+			cdp,
+			from,
+			steps(from, { x: from.x + 40, y: from.y }).concat(steps({ x: from.x + 40, y: from.y }, to))
+		);
+		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 2, enabled: true });
+		expect(await page.evaluate(() => (window as any).__testApi.getLoopOrder())).toBe('written');
+		expect(await scrollTop(page)).toBe(before);
+		// The cursor moves to the loop start, as with a mouse drag.
+		await expect.poll(() => position(page)).toBeGreaterThan(500);
+		await cdp.detach();
+	});
+
+	test('a held note becomes a one-note loop on release', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const at = await barPoint(page, 1, 0.3);
+		await holdAndDrag(cdp, at, []);
+		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 1, enabled: true });
+		const ticks = await page.evaluate(() => (window as any).__testApi.getLoopTicks());
+		const bar = await page.evaluate(() => {
+			const api = (window as any).__testApi;
+			return api.getLoopMs();
+		});
+		expect(ticks.endTick - ticks.startTick).toBeGreaterThan(0);
+		expect(bar.end).toBeGreaterThan(bar.start);
+		await cdp.detach();
+	});
+
+	test('a long press near the screen edge is left to back navigation', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const row = await barPoint(page, 0, 0.5);
+		await holdAndDrag(cdp, { x: 8, y: row.y }, steps({ x: 8, y: row.y }, { x: 200, y: row.y }));
+		await wait(200);
+		expect(await loop(page)).toBeNull();
+		await cdp.detach();
+	});
+
+	test('a drag that starts moving before the hold completes never selects', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const from = await barPoint(page, 1, 0.1);
+		await holdAndDrag(cdp, from, steps(from, { x: from.x + 150, y: from.y }), 100);
+		await wait(600);
+		expect(await loop(page)).toBeNull();
+		await cdp.detach();
+	});
+
+	test('a second finger during selection cancels it and pinches instead', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const before = await scale(page);
+		const from = await barPoint(page, 1, 0.1);
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [{ id: 1, ...from }]
+		});
+		await wait(600);
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchMove',
+			touchPoints: [{ id: 1, x: from.x + 40, y: from.y }]
+		});
+		const second = { id: 2, x: from.x + 140, y: from.y };
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [{ id: 1, x: from.x + 40, y: from.y }, second]
+		});
+		for (let i = 1; i <= 10; i++) {
+			await cdp.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [
+					{ id: 1, x: from.x + 40 - i * 4, y: from.y },
+					{ id: 2, x: second.x + i * 4, y: from.y }
+				]
+			});
+			await wait(16);
+		}
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+		await expect.poll(() => scale(page)).toBeGreaterThan(before * 1.05);
+		expect(await loop(page)).toBeNull();
+		await cdp.detach();
+	});
+
+	test('a selection can be extended across rows after starting sideways', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		const bars = await page.evaluate(() => (window as any).__testApi.getBarPositions());
+		const firstRowY = bars[0].y;
+		const lower = bars.find((bar: any) => bar.y > firstRowY + 20);
+		const from = await barPoint(page, 0, 0.2);
+		const side = { x: from.x + 40, y: from.y };
+		const to = await barPoint(page, lower.index, 0.5);
+		await holdAndDrag(cdp, from, steps(from, side).concat(steps(side, to)));
+		await expect
+			.poll(() => loop(page))
+			.toEqual({ startBar: 0, endBar: lower.index, enabled: true });
+		await cdp.detach();
+	});
+});
+
 test('dense mobile playback keeps the playhead moving forward without repeated scrolling', async ({
 	page
 }) => {

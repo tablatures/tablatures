@@ -602,3 +602,300 @@ export function pullToRefresh(
 		}
 	};
 }
+
+// ---------------------------------------------------------------------------
+// longPressSelect — hold still, then drag sideways, to select on the score
+// ---------------------------------------------------------------------------
+//
+// One finger owns three gestures on the score: native scrolling, the system
+// back swipe from the screen edges, and loop selection. Selection claims the
+// touch only after the finger has rested long enough for the browser to know
+// it is not panning, and only if the first movement after the hold is
+// horizontal. A vertical first movement hands the rest of the touch back to
+// native scrolling, so "rest the thumb, then scroll" keeps working.
+
+/** Hold duration before a resting finger can start a selection. */
+export const LONG_PRESS_MS = 450;
+/** Travel allowed while holding. Smaller than the browsers' own pan slop
+ *  (~10px on iOS, ~15px on Chrome) so panning never starts before the hold. */
+export const LONG_PRESS_SLOP_PX = 6;
+/** Touches starting this close to a screen side belong to back navigation. */
+export const EDGE_GUARD_PX = 24;
+/** A touch this soon after a scroll is catching momentum, not pressing. */
+export const LONG_PRESS_SCROLL_SETTLE_MS = 150;
+
+export type LongPressState =
+	| { phase: 'idle' }
+	| { phase: 'pending'; x: number; y: number }
+	| { phase: 'held'; x: number; y: number }
+	| { phase: 'selecting' }
+	/** The rest of this touch belongs to the browser. */
+	| { phase: 'ignored' };
+
+export type LongPressEvent =
+	| {
+			type: 'down';
+			x: number;
+			y: number;
+			touches: number;
+			viewportWidth: number;
+			sinceScroll: number;
+	  }
+	| { type: 'timer' }
+	| { type: 'move'; x: number; y: number; touches: number }
+	| { type: 'scroll' }
+	| { type: 'up' }
+	| { type: 'cancel' };
+
+/** hold: show the held note. drag: claim the touch and extend the selection.
+ *  commit: apply it. abort: drop it and restore what was there before. */
+export type LongPressEffect = 'hold' | 'drag' | 'commit' | 'abort' | null;
+
+const IDLE: LongPressState = { phase: 'idle' };
+const IGNORED: LongPressState = { phase: 'ignored' };
+
+function step(state: LongPressState, effect: LongPressEffect = null) {
+	return { state, effect };
+}
+
+/** Pure transition function for the score long-press gesture. */
+export function longPressReduce(
+	state: LongPressState,
+	event: LongPressEvent
+): { state: LongPressState; effect: LongPressEffect } {
+	const active = state.phase === 'held' || state.phase === 'selecting';
+	switch (event.type) {
+		case 'down': {
+			// A second finger is a pinch: let go of any selection in progress.
+			if (event.touches !== 1) return step(IGNORED, active ? 'abort' : null);
+			if (state.phase !== 'idle') return step(state);
+			const nearEdge = event.x < EDGE_GUARD_PX || event.x > event.viewportWidth - EDGE_GUARD_PX;
+			if (nearEdge || event.sinceScroll < LONG_PRESS_SCROLL_SETTLE_MS) return step(IGNORED);
+			return step({ phase: 'pending', x: event.x, y: event.y });
+		}
+		case 'timer':
+			return state.phase === 'pending'
+				? step({ phase: 'held', x: state.x, y: state.y }, 'hold')
+				: step(state);
+		case 'move': {
+			if (event.touches !== 1) return step(IGNORED, active ? 'abort' : null);
+			if (state.phase === 'selecting') return step(state, 'drag');
+			if (state.phase !== 'pending' && state.phase !== 'held') return step(state);
+			const dx = event.x - state.x;
+			const dy = event.y - state.y;
+			if (Math.max(Math.abs(dx), Math.abs(dy)) <= LONG_PRESS_SLOP_PX) return step(state);
+			if (state.phase === 'pending') return step(IGNORED);
+			return Math.abs(dx) >= Math.abs(dy)
+				? step({ phase: 'selecting' }, 'drag')
+				: step(IGNORED, 'abort');
+		}
+		case 'scroll':
+			// Scrolling while selecting is our own edge auto-scroll.
+			if (state.phase === 'pending') return step(IGNORED);
+			if (state.phase === 'held') return step(IGNORED, 'abort');
+			return step(state);
+		case 'up':
+			return step(IDLE, active ? 'commit' : null);
+		case 'cancel':
+			return step(IDLE, active ? 'abort' : null);
+	}
+}
+
+/** Auto-scroll speed (px/frame) for a finger near the top or bottom of the
+ *  visible score; negative scrolls up. */
+export function edgeAutoScrollSpeed(
+	y: number,
+	top: number,
+	bottom: number,
+	zone = 56,
+	max = 14
+): number {
+	if (bottom - top <= zone * 2) return 0;
+	if (y < top + zone) return -Math.ceil(max * Math.min(1, (top + zone - y) / zone));
+	if (y > bottom - zone) return Math.ceil(max * Math.min(1, (y - (bottom - zone)) / zone));
+	return 0;
+}
+
+export interface LongPressSelectParams {
+	/** The finger rested on (x, y). Return false if there is nothing to select. */
+	onHold: (x: number, y: number) => boolean;
+	onDrag: (x: number, y: number) => void;
+	onCommit: () => void;
+	onAbort: () => void;
+	/** Scroll container and its visible vertical band, for edge auto-scroll. */
+	scrollArea?: () => { el: HTMLElement; top: number; bottom: number } | null;
+	haptic?: MaybeHaptic;
+	enabled?: boolean;
+}
+
+export function longPressSelect(
+	node: HTMLElement,
+	params: LongPressSelectParams
+): ActionReturn<LongPressSelectParams> {
+	let p = params;
+	let state: LongPressState = IDLE;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let lastScrollTs = -Infinity;
+	let lastX = 0;
+	let lastY = 0;
+	let frame = 0;
+	// Touch events keep targeting the element the touch started on, even after
+	// alphaTab replaces it (lazy loading, re-layout) and it no longer bubbles
+	// here. Follow the touch on that element directly.
+	let touchTarget: EventTarget | null = null;
+
+	const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+	function dispatch(event: LongPressEvent, e?: Event) {
+		const result = longPressReduce(state, event);
+		state = result.state;
+		switch (result.effect) {
+			case 'hold':
+				if (!p.onHold(lastX, lastY)) {
+					state = IGNORED;
+					break;
+				}
+				p.haptic?.();
+				break;
+			case 'drag':
+				if (e?.cancelable) e.preventDefault();
+				p.onDrag(lastX, lastY);
+				startAutoScroll();
+				break;
+			case 'commit':
+				// Suppress the compatibility click that would clear the new loop.
+				if (e?.cancelable) e.preventDefault();
+				p.onCommit();
+				break;
+			case 'abort':
+				p.onAbort();
+				break;
+		}
+		if (state.phase !== 'pending') clearTimeout(timer);
+		if (state.phase !== 'selecting') stopAutoScroll();
+		if (state.phase === 'idle') detach();
+	}
+
+	function startAutoScroll() {
+		if (frame || !p.scrollArea) return;
+		const tick = () => {
+			frame = 0;
+			if (state.phase !== 'selecting') return;
+			const area = p.scrollArea?.();
+			const speed = area ? edgeAutoScrollSpeed(lastY, area.top, area.bottom) : 0;
+			if (area && speed) {
+				const before = area.el.scrollTop;
+				area.el.scrollTop = before + speed;
+				if (area.el.scrollTop !== before) p.onDrag(lastX, lastY);
+			}
+			frame = requestAnimationFrame(tick);
+		};
+		frame = requestAnimationFrame(tick);
+	}
+
+	function stopAutoScroll() {
+		if (frame) cancelAnimationFrame(frame);
+		frame = 0;
+	}
+
+	function onTouchStart(e: TouchEvent) {
+		if (p.enabled === false) return;
+		const touch = e.touches[0];
+		if (touch && e.touches.length === 1) {
+			lastX = touch.clientX;
+			lastY = touch.clientY;
+		}
+		const wasIdle = state.phase === 'idle';
+		dispatch(
+			{
+				type: 'down',
+				x: lastX,
+				y: lastY,
+				touches: e.touches.length,
+				viewportWidth: window.innerWidth,
+				sinceScroll: now() - lastScrollTs
+			},
+			e
+		);
+		if (wasIdle && state.phase !== 'idle') attach(e.target);
+		if (state.phase === 'pending') {
+			clearTimeout(timer);
+			timer = setTimeout(() => dispatch({ type: 'timer' }), LONG_PRESS_MS);
+		}
+	}
+
+	function onTouchMove(e: TouchEvent) {
+		const touch = e.touches[0];
+		if (!touch) return;
+		lastX = touch.clientX;
+		lastY = touch.clientY;
+		dispatch({ type: 'move', x: lastX, y: lastY, touches: e.touches.length }, e);
+	}
+
+	function onTouchEnd(e: TouchEvent) {
+		// Lifting one finger of a pinch is not the end of the touch.
+		if (e.touches.length > 0) return;
+		dispatch({ type: e.type === 'touchcancel' ? 'cancel' : 'up' }, e);
+	}
+
+	function onScroll() {
+		lastScrollTs = now();
+		if (state.phase !== 'idle') dispatch({ type: 'scroll' });
+	}
+
+	function onContextMenu(e: Event) {
+		// Android opens a context menu for a long press; the hold is ours.
+		if (state.phase === 'held' || state.phase === 'selecting') e.preventDefault();
+	}
+
+	function attach(target: EventTarget | null) {
+		detach();
+		touchTarget = target && target !== node ? target : null;
+		for (const el of touchTarget ? [touchTarget, node] : [node]) {
+			el.addEventListener('touchmove', onMove as EventListener, { passive: false });
+			el.addEventListener('touchend', onEnd as EventListener, { passive: false });
+			el.addEventListener('touchcancel', onEnd as EventListener);
+		}
+	}
+
+	function detach() {
+		for (const el of touchTarget ? [touchTarget, node] : [node]) {
+			el.removeEventListener('touchmove', onMove as EventListener);
+			el.removeEventListener('touchend', onEnd as EventListener);
+			el.removeEventListener('touchcancel', onEnd as EventListener);
+		}
+		touchTarget = null;
+	}
+
+	// Attached to both the touch target and the node: a still-attached target
+	// bubbles each event to the node too, so handle each event once.
+	const seen = new WeakSet<Event>();
+	function onMove(e: TouchEvent) {
+		if (seen.has(e)) return;
+		seen.add(e);
+		onTouchMove(e);
+	}
+	function onEnd(e: TouchEvent) {
+		if (seen.has(e)) return;
+		seen.add(e);
+		onTouchEnd(e);
+	}
+
+	node.addEventListener('touchstart', onTouchStart, { passive: true });
+	node.addEventListener('contextmenu', onContextMenu);
+	window.addEventListener('scroll', onScroll, { passive: true, capture: true });
+
+	return {
+		update(next: LongPressSelectParams) {
+			p = next;
+		},
+		destroy() {
+			clearTimeout(timer);
+			stopAutoScroll();
+			detach();
+			node.removeEventListener('touchstart', onTouchStart);
+			node.removeEventListener('contextmenu', onContextMenu);
+			window.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions);
+		}
+	};
+}
