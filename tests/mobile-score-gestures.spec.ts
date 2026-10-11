@@ -221,7 +221,8 @@ async function holdAndDrag(
 	cdp: CDPSession,
 	from: { x: number; y: number },
 	path: Array<{ x: number; y: number }>,
-	hold = 600
+	hold = 600,
+	beforeRelease?: () => Promise<void>
 ) {
 	await cdp.send('Input.dispatchTouchEvent', {
 		type: 'touchStart',
@@ -235,6 +236,7 @@ async function holdAndDrag(
 		});
 		await wait(16);
 	}
+	await beforeRelease?.();
 	await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
@@ -255,11 +257,13 @@ test.describe('long-press loop selection', () => {
 		await holdAndDrag(
 			cdp,
 			from,
-			steps(from, { x: from.x + 40, y: from.y }).concat(steps({ x: from.x + 40, y: from.y }, to))
+			steps(from, { x: from.x + 40, y: from.y }).concat(steps({ x: from.x + 40, y: from.y }, to)),
+			600,
+			// The drag itself never scrolls (following may, after the commit seeks).
+			async () => expect(await scrollTop(page)).toBe(before)
 		);
 		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 2, enabled: true });
 		expect(await page.evaluate(() => (window as any).__testApi.getLoopOrder())).toBe('written');
-		expect(await scrollTop(page)).toBe(before);
 		// The cursor moves to the loop start, as with a mouse drag.
 		await expect.poll(() => position(page)).toBeGreaterThan(500);
 		await cdp.detach();
@@ -351,6 +355,109 @@ test.describe('long-press loop selection', () => {
 			.toEqual({ startBar: 0, endBar: lower.index, enabled: true });
 		await cdp.detach();
 	});
+});
+
+/** Long-press select from bar `a` to bar `b`, starting sideways. */
+async function selectBars(page: Page, cdp: CDPSession, a: number, b: number) {
+	const from = await barPoint(page, a, 0.1);
+	const side = { x: from.x + 40, y: from.y };
+	const to = await barPoint(page, b, 0.9);
+	await holdAndDrag(cdp, from, a === b ? [] : steps(from, side).concat(steps(side, to)));
+	await expect.poll(() => loop(page)).toEqual({ startBar: a, endBar: b, enabled: true });
+	// Let following settle (the commit seeks to the loop start).
+	let last = -1;
+	await expect
+		.poll(
+			async () => {
+				const now = await scrollTop(page);
+				const settled = now === last;
+				last = now;
+				return settled;
+			},
+			{ intervals: [300] }
+		)
+		.toBe(true);
+}
+
+async function center(locator: import('@playwright/test').Locator) {
+	const box = (await locator.boundingBox())!;
+	return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+test.describe('touch loop controls', () => {
+	test('the score toolbar is finger-sized, on screen and replaces the timeline toolbar', async ({
+		page
+	}) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		await selectBars(page, cdp, 0, 1);
+		const menu = page.locator('[data-loop-menu]');
+		await expect(menu).toBeVisible();
+		const box = (await menu.boundingBox())!;
+		const sheet = (await page.locator('#page').boundingBox())!;
+		expect(box.x).toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width).toBeLessThanOrEqual(390);
+		expect(box.y).toBeGreaterThanOrEqual(sheet.y);
+		for (const name of [
+			'Toggle selection loop',
+			'Play selection from start',
+			'Remove selection loop'
+		]) {
+			const button = (await menu.getByRole('button', { name, exact: true }).boundingBox())!;
+			expect(button.width).toBeGreaterThanOrEqual(40);
+			expect(button.height).toBeGreaterThanOrEqual(40);
+		}
+		await expect(menu.getByText('drag_indicator')).toHaveCount(0);
+		await expect(page.locator('[data-loop-knob]')).toHaveCount(2);
+		await expect(
+			page.locator('[data-scrub-zone]').getByRole('button', { name: 'Toggle loop', exact: true })
+		).toHaveCount(0);
+		// Selecting is an explicit seek, not manual browsing.
+		await expect(page.getByRole('button', { name: 'Back to cursor', exact: true })).toHaveCount(0);
+		await cdp.detach();
+	});
+
+	test('score toolbar buttons respond to taps', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		await selectBars(page, cdp, 1, 2);
+		const menu = page.locator('[data-loop-menu]');
+		const toggle = await center(menu.getByRole('button', { name: 'Toggle selection loop' }));
+		await page.touchscreen.tap(toggle.x, toggle.y);
+		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 2, enabled: false });
+
+		await selectBars(page, cdp, 1, 2);
+		const remove = await center(menu.getByRole('button', { name: 'Remove selection loop' }));
+		await page.touchscreen.tap(remove.x, remove.y);
+		await expect.poll(() => loop(page)).toBeNull();
+		await cdp.detach();
+	});
+
+	for (const edge of ['end', 'start'] as const) {
+		test(`dragging the ${edge} knob moves that end of the loop`, async ({ page }) => {
+			await openScore(page);
+			const cdp = await page.context().newCDPSession(page);
+			await selectBars(page, cdp, 1, edge === 'end' ? 1 : 2);
+			const before = await scrollTop(page);
+			const knob = await center(page.locator(`[data-loop-knob="${edge}"]`));
+			// The knob sits half a row from the bracket's anchor point; keep that offset.
+			const bars = await page.evaluate(() => (window as any).__testApi.getBarPositions());
+			const target = await barPoint(page, 2, edge === 'end' ? 0.9 : 0.3);
+			const offsetY = (edge === 'end' ? 1 : -1) * (bars.find((b: any) => b.index === 2).h / 2);
+			await holdAndDrag(
+				cdp,
+				knob,
+				steps(knob, { x: target.x, y: target.y + offsetY }),
+				0,
+				// The knob owns the touch: no native scrolling while it moves.
+				async () => expect(await scrollTop(page)).toBe(before)
+			);
+			await expect
+				.poll(() => loop(page))
+				.toEqual({ startBar: edge === 'end' ? 1 : 2, endBar: 2, enabled: true });
+			await cdp.detach();
+		});
+	}
 });
 
 test('dense mobile playback keeps the playhead moving forward without repeated scrolling', async ({

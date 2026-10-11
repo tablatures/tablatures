@@ -701,18 +701,27 @@ export function longPressReduce(
 	}
 }
 
+/** Travel toward an edge before auto-scroll engages, so grabbing something
+ *  that already sits in the edge zone does not scroll by itself. */
+const AUTO_SCROLL_INTENT_PX = 8;
+
 /** Auto-scroll speed (px/frame) for a finger near the top or bottom of the
- *  visible score; negative scrolls up. */
+ *  visible score; negative scrolls up. With `originY` (where the drag
+ *  started), only scrolls toward an edge the finger has moved toward. */
 export function edgeAutoScrollSpeed(
 	y: number,
 	top: number,
 	bottom: number,
+	originY?: number,
 	zone = 56,
 	max = 14
 ): number {
 	if (bottom - top <= zone * 2) return 0;
-	if (y < top + zone) return -Math.ceil(max * Math.min(1, (top + zone - y) / zone));
-	if (y > bottom - zone) return Math.ceil(max * Math.min(1, (y - (bottom - zone)) / zone));
+	const towardTop = originY === undefined || y < originY - AUTO_SCROLL_INTENT_PX;
+	const towardBottom = originY === undefined || y > originY + AUTO_SCROLL_INTENT_PX;
+	if (y < top + zone && towardTop) return -Math.ceil(max * Math.min(1, (top + zone - y) / zone));
+	if (y > bottom - zone && towardBottom)
+		return Math.ceil(max * Math.min(1, (y - (bottom - zone)) / zone));
 	return 0;
 }
 
@@ -738,6 +747,7 @@ export function longPressSelect(
 	let lastScrollTs = -Infinity;
 	let lastX = 0;
 	let lastY = 0;
+	let originY = 0;
 	let frame = 0;
 	// Touch events keep targeting the element the touch started on, even after
 	// alphaTab replaces it (lazy loading, re-layout) and it no longer bubbles
@@ -782,7 +792,7 @@ export function longPressSelect(
 			frame = 0;
 			if (state.phase !== 'selecting') return;
 			const area = p.scrollArea?.();
-			const speed = area ? edgeAutoScrollSpeed(lastY, area.top, area.bottom) : 0;
+			const speed = area ? edgeAutoScrollSpeed(lastY, area.top, area.bottom, originY) : 0;
 			if (area && speed) {
 				const before = area.el.scrollTop;
 				area.el.scrollTop = before + speed;
@@ -817,7 +827,10 @@ export function longPressSelect(
 			},
 			e
 		);
-		if (wasIdle && state.phase !== 'idle') attach(e.target);
+		if (wasIdle && state.phase !== 'idle') {
+			originY = lastY;
+			attach(e.target);
+		}
 		if (state.phase === 'pending') {
 			clearTimeout(timer);
 			timer = setTimeout(() => dispatch({ type: 'timer' }), LONG_PRESS_MS);

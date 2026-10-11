@@ -52,6 +52,6 @@
 		class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800/40 text-[11px] text-neutral-500 dark:text-neutral-400"
 	>
 		<i class="material-icons !text-sm" aria-hidden="true">info_outline</i>
-		Hold then drag on the progress bar to set a loop region
+		Hold a note on the score, or the progress bar, then drag to set a loop
 	</p>
 {/if}

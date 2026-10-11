@@ -261,6 +261,15 @@ describe('edgeAutoScrollSpeed', () => {
 		expect(edgeAutoScrollSpeed(690, 100, 700)).toBeGreaterThan(0);
 		expect(edgeAutoScrollSpeed(699, 100, 700)).toBeGreaterThan(edgeAutoScrollSpeed(660, 100, 700));
 	});
+	it('only scrolls toward an edge the finger has moved toward', () => {
+		// Grabbed inside the top zone: no scroll until it moves further up.
+		expect(edgeAutoScrollSpeed(110, 100, 700, 110)).toBe(0);
+		expect(edgeAutoScrollSpeed(112, 100, 700, 110)).toBe(0);
+		expect(edgeAutoScrollSpeed(101, 100, 700, 110)).toBeLessThan(0);
+		// Dragging down from the top zone never scrolls up.
+		expect(edgeAutoScrollSpeed(690, 100, 700, 110)).toBeGreaterThan(0);
+		expect(edgeAutoScrollSpeed(690, 100, 700, 695)).toBe(0);
+	});
 	it('does not scroll a band too small to have a middle', () => {
 		expect(edgeAutoScrollSpeed(120, 100, 180)).toBe(0);
 	});
