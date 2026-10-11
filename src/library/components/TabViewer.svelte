@@ -9,6 +9,13 @@
 	import { displayTime } from '../utils/format';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import {
+		barAtMs,
+		barEndMs,
+		barSpanBetweenMs as barSpanBetween,
+		barStartMs,
+		loopTickAtMs
+	} from '../utils/barClock';
+	import {
 		writtenTimingForApi,
 		syncPracticePlayback,
 		playbackToMediaMs,
@@ -1103,13 +1110,14 @@
 
 	/** Timeline handles can edit disabled practice markers on the full song clock. */
 	function loopTickAtTime(ms: number) {
-		const timing = timingForApi(api)!;
-		const tick = timing.msToTick(ms, api.playbackSpeed);
-		if (loopOrder !== 'written' || loopEnabled) return tick;
-		const visit = timing.visits[timing.visitAt(tick)];
-		const written = writtenTimingForApi(api)!;
-		const target = written.visits.find((v) => v.masterBar.index === visit.masterBar.index)!;
-		return target.start + tick - visit.start;
+		const onWrittenClock = loopOrder === 'written' && !loopEnabled;
+		return loopTickAtMs(
+			timingForApi(api)!,
+			onWrittenClock ? writtenTimingForApi(api) : null,
+			ms,
+			api.playbackSpeed,
+			onWrittenClock
+		);
 	}
 
 	function changeLoopSnap() {
@@ -1220,66 +1228,26 @@
 
 	/** Sheet actions use the same repeat visit as the regional loop. */
 	function barToMs(barIdx: number): number {
-		const timing = timingForApi(api);
-		const range =
-			loopStartBar !== null && loopEndBar !== null
-				? timing?.range(loopStartBar, loopEndBar)
-				: timing?.range(barIdx, barIdx);
-		const visit = timing?.visits.find(
-			(v) =>
-				v.masterBar.index === barIdx &&
-				(!range || (v.start >= range.startTick && v.end <= range.endTick))
-		);
-		return visit && timing ? timing.tickToMs(visit.start, api.playbackSpeed) : -1;
+		return barStartMs(timingForApi(api), barIdx, loopBars(), api?.playbackSpeed);
 	}
 
 	function barEndToMs(barIdx: number): number {
-		const timing = timingForApi(api);
-		const startMs = barToMs(barIdx);
-		const visit = timing?.visits.find(
-			(v) =>
-				v.masterBar.index === barIdx &&
-				Math.abs(timing.tickToMs(v.start, api.playbackSpeed) - startMs) < 0.01
-		);
-		return visit && timing ? timing.tickToMs(visit.end, api.playbackSpeed) : -1;
+		return barEndMs(timingForApi(api), barIdx, loopBars(), api?.playbackSpeed);
+	}
+
+	function loopBars() {
+		return { startBar: loopStartBar, endBar: loopEndBar };
 	}
 
 	function msToBar(ms: number): number {
-		const timing = timingForApi(api);
-		return timing?.barAt(timing.msToTick(ms, api.playbackSpeed)) ?? 0;
+		return barAtMs(timingForApi(api), ms, api?.playbackSpeed);
 	}
 
-	/** Span of masterBar indices played on the timeline between two ms
-	 *  positions. A repeated bar plays at several timeline positions, so sizing a
-	 *  loop by the bar index *at the finger* (msToBar) makes the loop end snap
-	 *  backwards when the drag crosses into a repeat's later pass (bar 9 → bar 4).
-	 *  Taking the min/max index of every bar touched keeps the loop growing
-	 *  monotonically with the drag. For scores without repeats the expanded order
-	 *  equals bar-index order, so this returns exactly anchorBar..fingerBar —
-	 *  identical to the previous behaviour. */
+	/** Bars touched between two timeline positions (see barClock.barSpanBetweenMs). */
 	function barSpanBetweenMs(msA: number, msB: number): { minBar: number; maxBar: number } | null {
 		if (!api || !duration || duration <= 0) return null;
 		try {
-			const entries = api.tickCache?.masterBars;
-			if (!entries?.length) return null;
-			const total = entries[entries.length - 1].end;
-			if (total <= 0) return null;
-			const timing = timingForApi(api);
-			if (!timing) return null;
-			const lo = timing.msToTick(Math.min(msA, msB), api.playbackSpeed);
-			const hi = timing.msToTick(Math.max(msA, msB), api.playbackSpeed);
-			let minBar = Infinity;
-			let maxBar = -Infinity;
-			for (const e of entries) {
-				// Entry overlaps [lo, hi] (inclusive of the bar containing lo).
-				if (e.end > lo && e.start <= hi) {
-					const idx = e.masterBar.index;
-					if (idx < minBar) minBar = idx;
-					if (idx > maxBar) maxBar = idx;
-				}
-			}
-			if (minBar === Infinity) return null;
-			return { minBar, maxBar };
+			return barSpanBetween(timingForApi(api), msA, msB, api.playbackSpeed);
 		} catch {
 			return null;
 		}
