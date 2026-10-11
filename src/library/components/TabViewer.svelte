@@ -402,6 +402,51 @@
 	// that can move focused controls when the score is revealed.
 	let barHeight = 0;
 	let barEl: HTMLElement | undefined;
+	let consoleBounds = { top: 56, bottom: 0, visible: true };
+
+	function dockConsole(node: HTMLElement, options: { docked: boolean; fullscreen: boolean }) {
+		let frame = 0;
+		const viewport = node.closest('#page');
+		const shell = viewport?.closest('.play-shell');
+		const measure = () => {
+			frame = 0;
+			if (!options.docked || !barEl) return;
+			// The outer shell can scroll the entire player upward. Keep the console
+			// inside the visible score area, above the transport and details.
+			const top = options.fullscreen
+				? 0
+				: Math.max(0, shell?.getBoundingClientRect().top ?? 0);
+			const bottom = barEl.getBoundingClientRect().top;
+			consoleBounds = {
+				top,
+				bottom: window.innerHeight - Math.max(top, bottom),
+				visible: bottom > top
+			};
+		};
+		const schedule = () => {
+			if (!frame) frame = requestAnimationFrame(measure);
+		};
+		const observer = new ResizeObserver(schedule);
+		if (viewport) observer.observe(viewport);
+		if (barEl) observer.observe(barEl);
+		if (shell) observer.observe(shell);
+		document.addEventListener('scroll', schedule, { capture: true, passive: true });
+		window.addEventListener('resize', schedule);
+		measure();
+		return {
+			update(next: typeof options) {
+				options = next;
+				schedule();
+			},
+			destroy() {
+				cancelAnimationFrame(frame);
+				observer.disconnect();
+				document.removeEventListener('scroll', schedule, true);
+				window.removeEventListener('resize', schedule);
+			}
+		};
+	}
+
 	function measureControls(node: HTMLElement) {
 		const measure = () => {
 			barHeight = node.getBoundingClientRect().height;
@@ -5676,11 +5721,12 @@
 		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<aside
 			bind:this={settings}
+			use:dockConsole={{ docked: isLargeScreen, fullscreen: isFullscreen }}
 			class="fixed flex flex-col bg-white dark:bg-neutral-900 {isLargeScreen
-				? 'z-[45] right-0 border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
+				? 'z-[45] right-0 overflow-hidden border-l border-neutral-200 dark:border-neutral-700 shadow-xl'
 				: 'z-[110] inset-0 pt-safe pb-safe'}"
 			style={isLargeScreen
-				? 'top: var(--app-header-height); bottom: var(--player-bar-height); width: var(--player-panel-width)'
+				? `top: ${consoleBounds.top}px; bottom: ${consoleBounds.bottom}px; width: var(--player-panel-width); visibility: ${consoleBounds.visible ? 'visible' : 'hidden'}`
 				: ''}
 			role="dialog"
 			aria-label="Player settings"
