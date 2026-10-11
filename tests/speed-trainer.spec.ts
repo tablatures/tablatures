@@ -76,3 +76,22 @@ test('counts repeats of a one-beat note loop', async ({ page }) => {
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await expect.poll(() => speed(page), { timeout: 10000 }).toBeGreaterThanOrEqual(0.75);
 });
+
+test('the bottom of the docked settings panel takes clicks, not the timeline', async ({ page }) => {
+	await openWithLoop(page);
+	const start = page.getByRole('spinbutton', { name: 'Speed trainer start' });
+	await start.scrollIntoViewIfNeeded();
+	const box = (await start.boundingBox())!;
+	const topElement = await page.evaluate(
+		({ x, y }) => document.elementFromPoint(x, y)?.getAttribute('aria-label'),
+		{ x: box.x + box.width / 2, y: box.y + box.height / 2 }
+	);
+	expect(topElement).toBe('Speed trainer start');
+	const progressBefore = await page.evaluate(() => (window as any).__testApi.getProgress());
+	await start.click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.type('80');
+	await page.keyboard.press('Tab');
+	await expect(start).toHaveValue('80');
+	expect(await page.evaluate(() => (window as any).__testApi.getProgress())).toBe(progressBefore);
+});
