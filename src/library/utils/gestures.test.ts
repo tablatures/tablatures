@@ -11,7 +11,14 @@ import {
 	SCALE_MIN,
 	SCALE_MAX,
 	SWIPE_THRESHOLD_PX,
-	PULL_TRIGGER_PX
+	PULL_TRIGGER_PX,
+	longPressReduce,
+	edgeAutoScrollSpeed,
+	LONG_PRESS_SLOP_PX,
+	EDGE_GUARD_PX,
+	type LongPressEvent,
+	type LongPressState,
+	type LongPressEffect
 } from './gestures';
 
 describe('clampScale', () => {
@@ -145,5 +152,125 @@ describe('isDoubleTap', () => {
 	});
 	it('rejects out-of-order timestamps', () => {
 		expect(isDoubleTap(1000, 900)).toBe(false);
+	});
+});
+
+describe('longPressReduce', () => {
+	const down = (x = 200, y = 400, extra: Partial<Record<string, number>> = {}) =>
+		({
+			type: 'down',
+			x,
+			y,
+			touches: 1,
+			viewportWidth: 390,
+			sinceScroll: Infinity,
+			...extra
+		}) as const;
+	const move = (x: number, y: number, touches = 1) => ({ type: 'move', x, y, touches }) as const;
+
+	function run(events: LongPressEvent[]) {
+		let state: LongPressState = { phase: 'idle' };
+		const effects: LongPressEffect[] = [];
+		for (const event of events) {
+			const result = longPressReduce(state, event);
+			state = result.state;
+			if (result.effect) effects.push(result.effect);
+		}
+		return { state, effects };
+	}
+
+	it('holds, drags sideways and commits a selection', () => {
+		const { state, effects } = run([
+			down(),
+			{ type: 'timer' },
+			move(230, 404),
+			move(300, 480),
+			{ type: 'up' }
+		]);
+		expect(effects).toEqual(['hold', 'drag', 'drag', 'commit']);
+		expect(state.phase).toBe('idle');
+	});
+
+	it('commits a single held note when released without moving', () => {
+		expect(run([down(), { type: 'timer' }, move(203, 402), { type: 'up' }]).effects).toEqual([
+			'hold',
+			'commit'
+		]);
+	});
+
+	it('hands a held-then-vertical touch back to scrolling', () => {
+		const { state, effects } = run([down(), { type: 'timer' }, move(205, 300), move(205, 200)]);
+		expect(effects).toEqual(['hold', 'abort']);
+		expect(state.phase).toBe('ignored');
+	});
+
+	it('ignores a touch that moves before the hold completes', () => {
+		const { effects } = run([down(), move(200, 400 - LONG_PRESS_SLOP_PX - 1), { type: 'timer' }]);
+		expect(effects).toEqual([]);
+	});
+
+	it('keeps a hold within the slop', () => {
+		const { state } = run([down(), move(203, 397), { type: 'timer' }]);
+		expect(state.phase).toBe('held');
+	});
+
+	it('ignores touches near the screen edges (back navigation)', () => {
+		expect(run([down(EDGE_GUARD_PX - 1), { type: 'timer' }]).effects).toEqual([]);
+		expect(run([down(390 - EDGE_GUARD_PX + 1), { type: 'timer' }]).effects).toEqual([]);
+	});
+
+	it('ignores touches that catch momentum scrolling', () => {
+		const { effects } = run([down(200, 400, { sinceScroll: 50 }), { type: 'timer' }]);
+		expect(effects).toEqual([]);
+	});
+
+	it('gives up if the page scrolls during the hold', () => {
+		expect(run([down(), { type: 'scroll' }, { type: 'timer' }]).effects).toEqual([]);
+		expect(run([down(), { type: 'timer' }, { type: 'scroll' }]).effects).toEqual(['hold', 'abort']);
+	});
+
+	it('keeps selecting through its own auto-scroll', () => {
+		const { state } = run([down(), { type: 'timer' }, move(240, 400), { type: 'scroll' }]);
+		expect(state.phase).toBe('selecting');
+	});
+
+	it('a second finger aborts the selection so pinch can zoom', () => {
+		const pending = run([down(), down(200, 400, { touches: 2 }), { type: 'timer' }]);
+		expect(pending.effects).toEqual([]);
+		const selecting = run([
+			down(),
+			{ type: 'timer' },
+			move(240, 400),
+			down(200, 400, { touches: 2 }),
+			{ type: 'up' }
+		]);
+		expect(selecting.effects).toEqual(['hold', 'drag', 'abort']);
+		expect(run([down(), { type: 'timer' }, move(240, 400, 2)]).effects).toEqual(['hold', 'abort']);
+	});
+
+	it('aborts on touchcancel and does nothing for a tap', () => {
+		expect(run([down(), { type: 'timer' }, { type: 'cancel' }]).effects).toEqual(['hold', 'abort']);
+		expect(run([down(), { type: 'up' }]).effects).toEqual([]);
+	});
+});
+
+describe('edgeAutoScrollSpeed', () => {
+	it('is zero in the middle and grows toward the edges', () => {
+		expect(edgeAutoScrollSpeed(400, 100, 700)).toBe(0);
+		expect(edgeAutoScrollSpeed(110, 100, 700)).toBeLessThan(0);
+		expect(edgeAutoScrollSpeed(690, 100, 700)).toBeGreaterThan(0);
+		expect(edgeAutoScrollSpeed(699, 100, 700)).toBeGreaterThan(edgeAutoScrollSpeed(660, 100, 700));
+	});
+	it('only scrolls toward an edge the finger has moved toward', () => {
+		// Grabbed inside the top zone: no scroll until it moves further up.
+		expect(edgeAutoScrollSpeed(110, 100, 700, 110)).toBe(0);
+		expect(edgeAutoScrollSpeed(112, 100, 700, 110)).toBe(0);
+		expect(edgeAutoScrollSpeed(101, 100, 700, 110)).toBeLessThan(0);
+		// Dragging down from the top zone never scrolls up.
+		expect(edgeAutoScrollSpeed(690, 100, 700, 110)).toBeGreaterThan(0);
+		expect(edgeAutoScrollSpeed(690, 100, 700, 695)).toBe(0);
+	});
+	it('does not scroll a band too small to have a middle', () => {
+		expect(edgeAutoScrollSpeed(120, 100, 180)).toBe(0);
 	});
 });

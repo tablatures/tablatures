@@ -37,6 +37,34 @@ async function ticks(page: Page, startTick: number, endTick: number) {
 		.toEqual({ startTick, endTick });
 }
 
+/** Box of a loop overlay control once the overlay has settled. The overlay is
+ *  rebuilt while the score lays out, so a Locator can resolve an element that
+ *  is replaced before it is measured (boundingBox() then returns null). Read
+ *  the box in one evaluate and wait until it holds still across samples. */
+async function overlayBox(page: Page, title: string) {
+	let last = '';
+	let stable = 0;
+	let box: { x: number; y: number; width: number; height: number } | null = null;
+	await expect
+		.poll(
+			async () => {
+				box = await page.evaluate((title) => {
+					const el = document.querySelector(`#loop-selection-overlay [title="${title}"]`);
+					if (!el) return null;
+					const r = el.getBoundingClientRect();
+					return { x: r.x, y: r.y, width: r.width, height: r.height };
+				}, title);
+				const key = JSON.stringify(box);
+				stable = box && key === last ? stable + 1 : 0;
+				last = key;
+				return stable;
+			},
+			{ intervals: [100] }
+		)
+		.toBeGreaterThanOrEqual(2);
+	return box!;
+}
+
 async function percentAt(page: Page, tick: number) {
 	return page.evaluate((tick) => {
 		const api = (window as any).__testApi.getApi();
@@ -153,9 +181,7 @@ test('triplets, alternate endings, score resize and bar compatibility', async ({
 	const triplet = await beatPoint(page, 2, 1);
 	await page.mouse.dblclick(triplet.x, triplet.y);
 	await ticks(page, 8000, 8320);
-	const handle = page.locator('#loop-selection-overlay [title="Drag to resize end"]');
-	const box = await handle.boundingBox();
-	expect(box).not.toBeNull();
+	const box = await overlayBox(page, 'Drag to resize end');
 	const next = await beatPoint(page, 2, 2);
 	await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
 	await page.mouse.down();
@@ -196,8 +222,8 @@ test('repeat-ending selection keeps its preview and handles at the selected note
 	expect(previewHighlights).toHaveLength(1);
 	await page.mouse.up();
 	await ticks(page, 11520, 15840);
-	const start = await overlay.locator('[title="Drag to resize start"]').boundingBox();
-	const end = await overlay.locator('[title="Drag to resize end"]').boundingBox();
+	const start = await overlayBox(page, 'Drag to resize start');
+	const end = await overlayBox(page, 'Drag to resize end');
 	expect(start!.y).toBeCloseTo(previewStart!.y, 0);
 	expect(start!.x + 8).toBeCloseTo(previewStart!.x, 0);
 	expect(end!.y).toBeCloseTo(previewEnd!.y, 0);
@@ -226,12 +252,8 @@ test('repeat-jump endpoints can appear in reverse printed order', async ({ page 
 	await page.setViewportSize({ width: 820, height: 1000 });
 	await setup(page, '&loop=n.14400.16320');
 	await ticks(page, 14400, 16320);
-	const start = await page
-		.locator('#loop-selection-overlay [title="Drag to resize start"]')
-		.boundingBox();
-	const end = await page
-		.locator('#loop-selection-overlay [title="Drag to resize end"]')
-		.boundingBox();
+	const start = await overlayBox(page, 'Drag to resize start');
+	const end = await overlayBox(page, 'Drag to resize end');
 	expect(start!.y).toBeGreaterThan(end!.y);
 	const target = await beatPoint(page, 1, 2);
 	await page.mouse.move(end!.x + end!.width / 2, end!.y + end!.height / 2);
@@ -254,12 +276,8 @@ test('two visits to the same printed bar retain separate partial endpoints', asy
 			end: hostX + lookup.findBeat(beats[2]).realBounds.x
 		};
 	});
-	const start = await page
-		.locator('#loop-selection-overlay [title="Drag to resize start"]')
-		.boundingBox();
-	const end = await page
-		.locator('#loop-selection-overlay [title="Drag to resize end"]')
-		.boundingBox();
+	const start = await overlayBox(page, 'Drag to resize start');
+	const end = await overlayBox(page, 'Drag to resize end');
 	expect(start!.x + 8).toBeCloseTo(expected.start, 0);
 	expect(end!.x + 2).toBeCloseTo(expected.end, 0);
 });
@@ -269,9 +287,7 @@ test('moving from a first ending into a second ending follows playback visits', 
 }) => {
 	await page.setViewportSize({ width: 820, height: 1000 });
 	await setup(page, '&loop=n.11520.13440');
-	const grip = await page
-		.locator('#loop-selection-overlay [title="Drag to move loop"]')
-		.boundingBox();
+	const grip = await overlayBox(page, 'Drag to move loop');
 	const target = await beatPoint(page, 4, 0);
 	await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2);
 	await page.mouse.down();
@@ -335,9 +351,7 @@ test('precise playback wraps repeatedly and survives speed and track changes', a
 
 test('moving and cancelled resizing preserve precise boundaries', async ({ page }) => {
 	await setup(page, '&loop=n.480.1920');
-	const grip = page.locator('#loop-selection-overlay [title="Drag to move loop"]');
-	await expect(grip).toBeVisible();
-	const box = await grip.boundingBox();
+	const box = await overlayBox(page, 'Drag to move loop');
 	const target = await beatPoint(page, 1, 1);
 	await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
 	await page.mouse.down();
@@ -346,9 +360,7 @@ test('moving and cancelled resizing preserve precise boundaries', async ({ page 
 	const original = await page.evaluate(() => (window as any).__testApi.getLoopTicks());
 	expect(original.endTick - original.startTick).toBe(1440);
 	expect(original.startTick).not.toBe(480);
-	const edge = await page
-		.locator('#loop-selection-overlay [title="Drag to resize end"]')
-		.boundingBox();
+	const edge = await overlayBox(page, 'Drag to resize end');
 	const end = await beatPoint(page, 2, 4);
 	await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + edge!.height / 2);
 	await page.mouse.down();

@@ -54,7 +54,13 @@
 	import { preferencesStore } from '../utils/preferences';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
-	import { pinchZoom, SCALE_MIN, SCALE_MAX } from '../utils/gestures';
+	import {
+		pinchZoom,
+		longPressSelect,
+		edgeAutoScrollSpeed,
+		SCALE_MIN,
+		SCALE_MAX
+	} from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
 	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
@@ -301,6 +307,9 @@
 		browser && window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
 	// Narrow phones get the denser transport row too, not just fullscreen/landscape
 	let isSmallScreen = browser && window.matchMedia('(max-width: 480px)').matches;
+	// Touch-first devices get finger-sized loop controls: knobs on the score's
+	// brackets, a larger score toolbar, and no floating toolbar on the timeline.
+	let coarsePointer = browser && window.matchMedia('(pointer: coarse)').matches;
 	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
@@ -1192,6 +1201,29 @@
 		return loopOverlayEl;
 	}
 
+	// Touch toolbar placement: above the loop's first row while that fits on
+	// screen, below it otherwise (e.g. once following scrolls the row to the top).
+	let loopMenuAnchor: { menu: HTMLElement; row: LoopRect } | null = null;
+	let loopMenuFrame = 0;
+	function placeLoopMenu() {
+		const anchor = loopMenuAnchor;
+		if (!anchor?.menu.isConnected) return;
+		const { menu, row } = anchor;
+		const host = document.getElementById('player-host');
+		const area = scoreScrollArea();
+		const visibleTop = host && area ? area.top - host.getBoundingClientRect().top : 0;
+		// Leave room for the start knob that caps the row.
+		const above = row.y - menu.offsetHeight - 22;
+		menu.style.top = `${above >= Math.max(0, visibleTop) ? above : row.y + row.h + 22}px`;
+	}
+	function scheduleLoopMenuPlacement() {
+		if (!loopMenuAnchor || loopMenuFrame) return;
+		loopMenuFrame = requestAnimationFrame(() => {
+			loopMenuFrame = 0;
+			placeLoopMenu();
+		});
+	}
+
 	function clearScoreSelection() {
 		if (loopOverlayEl) loopOverlayEl.innerHTML = '';
 		loopMinimapVisible = false;
@@ -1381,6 +1413,31 @@
 				container.appendChild(rh);
 			}
 
+			// Touch knobs: the start knob caps the [ bracket, the end knob hangs
+			// below the ] bracket, as with text selection handles.
+			if (coarsePointer) {
+				for (const [edge, r] of [
+					['start', startRect],
+					['end', endRect]
+				] as const) {
+					if (!r) continue;
+					const lineX = edge === 'start' ? r.x : r.x + r.w;
+					const knobY = edge === 'start' ? r.y : r.y + r.h;
+					const knob = document.createElement('div');
+					knob.dataset.loopKnob = edge;
+					knob.style.cssText = `position:absolute;left:${lineX - 18}px;top:${knobY - 18}px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;z-index:15;`;
+					knob.innerHTML = `<div style="width:16px;height:16px;border-radius:999px;background:rgb(236,72,153);border:2px solid ${theme ? '#1c1c1c' : 'white'};box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`;
+					// Anchor just inside the bracket so the grab keeps the current note.
+					const anchorX = edge === 'start' ? r.x + 2 : r.x + r.w - 2;
+					knob.addEventListener(
+						'touchstart',
+						(e) => startScoreKnobDrag(e, edge, anchorX, r.y + r.h / 2),
+						{ passive: false }
+					);
+					container.appendChild(knob);
+				}
+			}
+
 			// Keep the menu with the start handle, including loops across repeats.
 			if (merged.length > 0) {
 				const first = startRect ?? merged[0];
@@ -1393,35 +1450,42 @@
 				const menuBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
 				const divColor = isDark ? '#444' : '#e5e5e5';
 				const iconColor = isDark ? '#888' : '#999';
-				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+				menu.dataset.loopMenu = '';
+				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:${coarsePointer ? 4 : 2}px;padding:${coarsePointer ? '2px 6px' : '3px 6px'};line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
+				// Taps on the menu are not score gestures (long-press selection, pinch).
+				menu.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 
-				const controlStyle =
-					'display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;padding:0;line-height:1;';
-				const iconStyle =
-					'display:block;font-size:16px;line-height:1;width:16px;height:16px;flex-shrink:0;';
+				const controlSize = coarsePointer ? 40 : 28;
+				const iconSize = coarsePointer ? 22 : 16;
+				const controlStyle = `display:flex;align-items:center;justify-content:center;flex-shrink:0;width:${controlSize}px;height:${controlSize}px;padding:0;line-height:1;`;
+				const iconStyle = `display:block;font-size:${iconSize}px;line-height:1;width:${iconSize}px;height:${iconSize}px;flex-shrink:0;`;
 
-				// Drag handle
-				const dragHandle = document.createElement('div');
-				dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
-				dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
-				dragHandle.title = 'Drag to move loop';
-				dragHandle.addEventListener('mousedown', (e) => {
-					e.preventDefault();
-					e.stopPropagation();
-					startLoopMoveDrag(e, true);
-				});
-				menu.appendChild(dragHandle);
+				// Drag handle (mouse only: on touch, the knobs resize instead)
+				if (!coarsePointer) {
+					const dragHandle = document.createElement('div');
+					dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
+					dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
+					dragHandle.title = 'Drag to move loop';
+					dragHandle.addEventListener('mousedown', (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						startLoopMoveDrag(e, true);
+					});
+					menu.appendChild(dragHandle);
 
-				// Divider
-				const div1 = document.createElement('div');
-				div1.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
-				menu.appendChild(div1);
+					// Divider
+					const div1 = document.createElement('div');
+					div1.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
+					menu.appendChild(div1);
+				}
 
 				// Loop toggle
 				const loopBtn = document.createElement('button');
 				loopBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
 				loopBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
 				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
+				loopBtn.setAttribute('aria-label', 'Toggle selection loop');
+				loopBtn.setAttribute('aria-pressed', String(loopEnabled));
 				loopBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
 					toggleLoopEnabled();
@@ -1433,6 +1497,7 @@
 				playBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
 				playBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">play_circle</i>`;
 				playBtn.title = 'Play from start';
+				playBtn.setAttribute('aria-label', 'Play selection from start');
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
 					if (loopStartBar !== null && api) {
@@ -1456,6 +1521,7 @@
 				delBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:transparent;color:${iconColor};`;
 				delBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">delete_outline</i>`;
 				delBtn.title = 'Remove loop [Esc]';
+				delBtn.setAttribute('aria-label', 'Remove selection loop');
 				delBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
 					clearLoopPoints();
@@ -1463,6 +1529,18 @@
 				menu.appendChild(delBtn);
 
 				container.appendChild(menu);
+
+				// Keep the menu inside the score horizontally, and below the row when
+				// there is no room above it (or a touch knob would sit under it).
+				const hostWidth = container.clientWidth;
+				const menuWidth = menu.offsetWidth;
+				if (hostWidth > 0 && menuWidth > 0) {
+					const left = Math.max(8, Math.min(hostWidth - menuWidth - 8, menuX - menuWidth / 2));
+					menu.style.left = `${left}px`;
+					menu.style.transform = 'none';
+				}
+				loopMenuAnchor = coarsePointer ? { menu, row: first } : null;
+				placeLoopMenu();
 			}
 
 			// Update scrollbar minimap indicator
@@ -1642,7 +1720,16 @@
 	}
 
 	let cancelActiveDrag: (() => void) | null = null;
-	function startDocumentDrag(moveType: string, endType: string, onMove: any, onEnd: any) {
+	/** `source` defaults to the document; pass the touched element when it may be
+	 *  re-rendered mid-drag (touch events keep targeting a detached element, but
+	 *  no longer bubble to the document). */
+	function startDocumentDrag(
+		moveType: string,
+		endType: string,
+		onMove: any,
+		onEnd: any,
+		source: EventTarget = document
+	) {
 		cancelActiveDrag?.();
 		const original = {
 			start: loopStartBar,
@@ -1652,9 +1739,9 @@
 			order: loopOrder
 		};
 		const cleanup = () => {
-			document.removeEventListener(moveType, move);
-			document.removeEventListener(endType, end);
-			document.removeEventListener('touchcancel', cancel);
+			source.removeEventListener(moveType, move);
+			source.removeEventListener(endType, end);
+			source.removeEventListener('touchcancel', cancel);
 			window.removeEventListener('blur', cancel);
 			document.removeEventListener('visibilitychange', visibility);
 			cancelActiveDrag = null;
@@ -1684,9 +1771,9 @@
 			onEnd(event);
 		};
 		cancelActiveDrag = cancel;
-		document.addEventListener(moveType, move, { passive: true });
-		document.addEventListener(endType, end);
-		document.addEventListener('touchcancel', cancel);
+		source.addEventListener(moveType, move, { passive: true });
+		source.addEventListener(endType, end);
+		source.addEventListener('touchcancel', cancel);
 		window.addEventListener('blur', cancel);
 		document.addEventListener('visibilitychange', visibility);
 	}
@@ -1879,32 +1966,96 @@
 		return mouseToBeatViaScore(clientX, clientY, anchorBar)?.voice?.bar?.masterBar?.index ?? null;
 	}
 
+	/** Move one edge of a bar loop, never past the other edge. */
+	function setLoopEdgeBar(edge: 'start' | 'end', hitBar: number) {
+		loopTicks = null;
+		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
+		const barIdx = Math.min(hitBar, maxBar);
+		if (edge === 'start') {
+			loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
+		} else {
+			loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
+		}
+		updateScoreSelection();
+	}
+
+	/** Move a loop edge to the note or bar at a point on the score. */
+	function dragLoopEdgeOnScore(edge: 'start' | 'end', clientX: number, clientY: number) {
+		if (loopSnap === 'note') {
+			const original = currentLoopRange();
+			const tick = (edge === 'start' ? original?.startTick : original?.endTick) ?? 0;
+			const beat = mouseToBeatViaScore(clientX, clientY);
+			if (beat) resizeNoteLoop(edge, tick, beat);
+			return;
+		}
+		const hitBar = mouseToBarViaScore(clientX, clientY);
+		if (hitBar !== null) setLoopEdgeBar(edge, hitBar);
+	}
+
+	/** Drag a touch knob on the score's loop bracket. The point under the
+	 *  bracket line (not under the finger, which covers the notes) picks the
+	 *  note, and holding near the top or bottom of the score auto-scrolls. */
+	function startScoreKnobDrag(
+		event: TouchEvent,
+		edge: 'start' | 'end',
+		anchorX: number,
+		anchorY: number
+	) {
+		const touch = event.touches[0];
+		event.stopPropagation();
+		if (!touch || event.touches.length !== 1) return;
+		if (event.cancelable) event.preventDefault();
+		const knob = event.currentTarget as HTMLElement;
+		const host = document.getElementById('player-host')?.getBoundingClientRect();
+		if (!host) return;
+		const offsetX = touch.clientX - (host.left + anchorX);
+		const offsetY = touch.clientY - (host.top + anchorY);
+		let x = touch.clientX;
+		let y = touch.clientY;
+		const originY = y;
+		const follow = () => dragLoopEdgeOnScore(edge, x - offsetX, y - offsetY);
+		isDraggingLoop = true;
+		hapticTap();
+		const autoScroll = () => {
+			if (!isDraggingLoop) return;
+			const area = scoreScrollArea();
+			const speed = area ? edgeAutoScrollSpeed(y, area.top, area.bottom, originY) : 0;
+			if (area && speed) {
+				const before = area.el.scrollTop;
+				area.el.scrollTop = before + speed;
+				if (area.el.scrollTop !== before) follow();
+			}
+			requestAnimationFrame(autoScroll);
+		};
+		requestAnimationFrame(autoScroll);
+		startDocumentDrag(
+			'touchmove',
+			'touchend',
+			(e: TouchEvent) => {
+				if (!e.touches[0]) return;
+				x = e.touches[0].clientX;
+				y = e.touches[0].clientY;
+				follow();
+			},
+			() => {
+				isDraggingLoop = false;
+				updateScoreSelection();
+			},
+			knob
+		);
+	}
+
 	function startLoopEdgeDrag(edge: 'start' | 'end', useScore: boolean = false) {
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
-			if (loopSnap === 'note') {
-				const original = currentLoopRange();
-				const tick = useScore
-					? ((edge === 'start' ? original?.startTick : original?.endTick) ?? 0)
-					: loopTickAtTime(percentToTime(getProgressPercent(e.clientX)));
-				const beat = useScore ? mouseToBeatViaScore(e.clientX, e.clientY) : undefined;
-				if (!useScore || beat) resizeNoteLoop(edge, tick, beat);
+			if (useScore) {
+				dragLoopEdgeOnScore(edge, e.clientX, e.clientY);
 				return;
 			}
-			loopTicks = null;
-			const hitBar = useScore
-				? mouseToBarViaScore(e.clientX, e.clientY)
-				: msToBar(percentToTime(getProgressPercent(e.clientX)));
-			if (hitBar === null) return;
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const barIdx = Math.min(hitBar, maxBar);
-			if (edge === 'start') {
-				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
-			} else {
-				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
-			}
-			updateScoreSelection();
+			const time = percentToTime(getProgressPercent(e.clientX));
+			if (loopSnap === 'note') resizeNoteLoop(edge, loopTickAtTime(time));
+			else setLoopEdgeBar(edge, msToBar(time));
 		};
 
 		const onUp = () => {
@@ -2127,21 +2278,9 @@
 		dismissPopoverAndRefresh();
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
-			const pct = getProgressPercent(e.touches[0].clientX);
-			const time = percentToTime(pct);
-			if (loopSnap === 'note') {
-				resizeNoteLoop(edge, loopTickAtTime(time));
-				return;
-			}
-			loopTicks = null;
-			const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-			const barIdx = Math.min(msToBar(time), maxBar);
-			if (edge === 'start') {
-				loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
-			} else {
-				loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
-			}
-			updateScoreSelection();
+			const time = percentToTime(getProgressPercent(e.touches[0].clientX));
+			if (loopSnap === 'note') resizeNoteLoop(edge, loopTickAtTime(time));
+			else setLoopEdgeBar(edge, msToBar(time));
 		};
 		const onEnd = () => {
 			document.removeEventListener('touchmove', onMove);
@@ -2821,31 +2960,66 @@
 					clearLoopPoints();
 				}
 				showSelectionPopover = false;
-			} else {
-				// Drag complete - retain note precision or expand to full bars.
-				try {
-					const bar1 = scoreDragStartBeat?.voice?.bar?.masterBar?.index ?? 0;
-					const bar2 = beat.voice?.bar?.masterBar?.index ?? 0;
-					const sBar = Math.min(bar1, bar2);
-					const eBar = Math.max(bar1, bar2);
-					if (eBar >= sBar) {
-						if (loopSnap === 'note') selectScoreNotes(scoreDragStartBeat, beat, true);
-						else setLoopBars(sBar, eBar, 'written');
-						// Move cursor to start of selection
-						if (api && !playing) {
-							const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
-							if (startMs >= 0) {
-								progress = (startMs / duration) * 100;
-								api.player.timePosition = startMs;
-							}
-						}
-					}
-				} catch {}
-			}
+			} else commitScoreDrag(scoreDragStartBeat, beat);
 			scoreDragStartBeat = null;
 			scoreDragging = false;
 		};
 		listen(apiRef.beatMouseUp, onBeatMouseUp);
+
+		/** Drag complete - retain note precision or expand to full bars. */
+		function commitScoreDrag(startBeat: any, endBeat: any) {
+			try {
+				const bar1 = startBeat?.voice?.bar?.masterBar?.index ?? 0;
+				const bar2 = endBeat.voice?.bar?.masterBar?.index ?? 0;
+				const sBar = Math.min(bar1, bar2);
+				const eBar = Math.max(bar1, bar2);
+				if (eBar >= sBar) {
+					if (loopSnap === 'note') selectScoreNotes(startBeat, endBeat, startBeat !== endBeat);
+					else setLoopBars(sBar, eBar, 'written');
+					// Move cursor to start of selection
+					if (api && !playing) {
+						const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
+						if (startMs >= 0) {
+							progress = (startMs / duration) * 100;
+							api.player.timePosition = startMs;
+							// An explicit seek: follow the cursor again (a touch on the
+							// score had disengaged following as if it were a scroll).
+							autoFollow = true;
+						}
+					}
+				}
+			} catch {}
+		}
+
+		// Touch: a held finger picks a note, a sideways drag extends it (see
+		// longPressSelect). Same preview and commit as the mouse path.
+		let touchStartBeat: any = null;
+		let touchEndBeat: any = null;
+		scoreTouch = {
+			hold(x, y) {
+				const beat = mouseToBeatViaScore(x, y);
+				if (!beat) return false;
+				touchStartBeat = touchEndBeat = beat;
+				showSelectionPopover = false;
+				showDragPreview(beat, beat);
+				return true;
+			},
+			drag(x, y) {
+				const beat = touchStartBeat && mouseToBeatViaScore(x, y);
+				if (!beat || beat === touchEndBeat) return;
+				touchEndBeat = beat;
+				showDragPreview(touchStartBeat, beat);
+			},
+			commit() {
+				if (touchStartBeat) commitScoreDrag(touchStartBeat, touchEndBeat);
+				touchStartBeat = touchEndBeat = null;
+				updateScoreSelection();
+			},
+			abort() {
+				touchStartBeat = touchEndBeat = null;
+				updateScoreSelection();
+			}
+		};
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -2898,6 +3072,13 @@
 	let smallScreenMql: MediaQueryList | null = null;
 	function syncSmallScreen() {
 		if (smallScreenMql) isSmallScreen = smallScreenMql.matches;
+	}
+
+	let coarsePointerMql: MediaQueryList | null = null;
+	function syncCoarsePointer() {
+		if (!coarsePointerMql || coarsePointer === coarsePointerMql.matches) return;
+		coarsePointer = coarsePointerMql.matches;
+		updateScoreSelection();
 	}
 
 	let unsubscribePlayerApi: (() => void) | undefined;
@@ -2975,6 +3156,9 @@
 			smallScreenMql = window.matchMedia('(max-width: 480px)');
 			syncSmallScreen();
 			smallScreenMql.addEventListener('change', syncSmallScreen);
+			coarsePointerMql = window.matchMedia('(pointer: coarse)');
+			syncCoarsePointer();
+			coarsePointerMql.addEventListener('change', syncCoarsePointer);
 		}
 		// Seed playerState.activeTrackIndex from URL so adoption sync below
 		// sees the URL value as authoritative. Otherwise the adoption sync
@@ -3450,6 +3634,7 @@
 		mobileLandscapeMql?.removeEventListener('change', syncMobileLandscape);
 		largeScreenMql?.removeEventListener('change', syncLargeScreen);
 		smallScreenMql?.removeEventListener('change', syncSmallScreen);
+		coarsePointerMql?.removeEventListener('change', syncCoarsePointer);
 		if (mountHandleResize) window.removeEventListener('resize', mountHandleResize);
 		window.removeEventListener('orientationchange', handleOrientationChange);
 		clearTimeout(relayoutDebounceTimeout);
@@ -3975,10 +4160,25 @@
 		}
 	}
 
-	// Touch owns native sheet scrolling and pinch zoom. Loop selection remains
-	// on alphaTab's mouse path; synthesizing mouse drags from held touches stole
-	// slow scrolling gestures and fought the browser's momentum scrolling.
+	// Touch owns native sheet scrolling and pinch zoom. Loop selection on touch
+	// goes through longPressSelect, which claims a touch only after a still hold
+	// followed by a sideways move; synthesizing mouse drags from held touches
+	// stole slow scrolling gestures and fought the browser's momentum scrolling.
 	let cancelScoreSelection = () => {};
+	let scoreTouch: {
+		hold: (x: number, y: number) => boolean;
+		drag: (x: number, y: number) => void;
+		commit: () => void;
+		abort: () => void;
+	} | null = null;
+	/** Visible band of the score for selection edge auto-scroll: below the
+	 *  header, above the sticky transport bar. */
+	function scoreScrollArea() {
+		if (!page) return null;
+		const rect = page.getBoundingClientRect();
+		const barTop = barEl?.getBoundingClientRect().top ?? rect.bottom;
+		return { el: page, top: Math.max(rect.top, 0), bottom: Math.min(rect.bottom, barTop) };
+	}
 	let scoreGestureCancelled = false;
 	function cancelScoreGesture() {
 		endScorePinch();
@@ -4048,6 +4248,7 @@
 	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
+	on:scroll={scheduleLoopMenuPlacement}
 	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
 	!autoFollow
@@ -4067,13 +4268,23 @@
 		{/if}
 	</div>
 
-	<!-- One finger scrolls natively; only a two-finger pinch claims touch input. -->
+	<!-- One finger scrolls natively; only a two-finger pinch or a held-then-sideways
+	     drag (loop selection) claims touch input. No callout or text selection on hold. -->
 	<div
 		class="relative"
 		class:score-loading={isLoading}
 		aria-busy={!!isLoading}
-		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; min-height: calc(100% - var(--player-bar-height, 0px));"
+		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart|passive={handleUserScrollIntent}
+		use:longPressSelect={{
+			onHold: (x, y) => scoreTouch?.hold(x, y) ?? false,
+			onDrag: (x, y) => scoreTouch?.drag(x, y),
+			onCommit: () => scoreTouch?.commit(),
+			onAbort: () => scoreTouch?.abort(),
+			scrollArea: scoreScrollArea,
+			haptic: hapticTap,
+			enabled: scoreLoaded
+		}}
 		use:pinchZoom={{
 			getScale: () => tabScale,
 			setScale: setTabScaleFromPinch,
@@ -4323,6 +4534,10 @@
 						class="absolute left-0 -translate-x-[1px] top-1/2 -translate-y-1/2 cursor-ew-resize z-20 h-5 flex items-stretch"
 						on:touchstart|stopPropagation|preventDefault={(e) => startLoopEdgeDragTouch(e, 'start')}
 					>
+						{#if coarsePointer}
+							<!-- Finger-sized grab area around the thin bracket -->
+							<span class="absolute -inset-x-4 -inset-y-3" aria-hidden="true" />
+						{/if}
 						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
 						<div class="flex flex-col justify-between -ml-px">
 							<div
@@ -4343,6 +4558,9 @@
 						class="absolute right-0 translate-x-[1px] top-1/2 -translate-y-1/2 cursor-ew-resize z-20 h-5 flex items-stretch"
 						on:touchstart|stopPropagation|preventDefault={(e) => startLoopEdgeDragTouch(e, 'end')}
 					>
+						{#if coarsePointer}
+							<span class="absolute -inset-x-4 -inset-y-3" aria-hidden="true" />
+						{/if}
 						<div class="flex flex-col justify-between -mr-px">
 							<div
 								class="w-[5px] h-[2px] {loopEnabled
@@ -4359,69 +4577,73 @@
 					</div>
 				</div>
 
-				<!-- Loop floating controls (centered above the region) -->
-				<div
-					class="absolute -top-8 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 gap-0.5 pointer-events-auto"
-					style="left: {(startPct + endPct) / 2}%; transform: translateX(-50%)"
-				>
-					<!-- Drag handle -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<!-- Loop floating controls (centered above the region). Touch devices use
+				     the score's toolbar instead: this one is too small for fingers and
+				     runs off screen for loops near either end of the song. -->
+				{#if !coarsePointer}
 					<div
-						class="px-0.5 cursor-grab active:cursor-grabbing text-neutral-300 dark:text-neutral-600 hover:text-neutral-400 dark:hover:text-neutral-500 transition-colors"
-						on:mousedown|stopPropagation={startLoopDrag}
-						title="Drag to move loop"
+						class="absolute -top-8 z-30 flex items-center bg-white dark:bg-neutral-800 rounded-full shadow-lg border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 gap-0.5 pointer-events-auto"
+						style="left: {(startPct + endPct) / 2}%; transform: translateX(-50%)"
 					>
-						<i class="material-icons !text-sm" aria-hidden="true">drag_indicator</i>
-					</div>
-
-					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
-
-					<!-- Loop on/off -->
-					<button
-						aria-label="Toggle loop"
-						aria-pressed={loopEnabled}
-						class="p-0.5 rounded-full transition-all {loopEnabled
-							? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
-							: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-						on:click|stopPropagation={toggleLoopEnabled}
-						title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
-					>
-						<i class="material-icons !text-base" aria-hidden="true"
-							>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+						<!-- Drag handle -->
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
+						<div
+							class="px-0.5 cursor-grab active:cursor-grabbing text-neutral-300 dark:text-neutral-600 hover:text-neutral-400 dark:hover:text-neutral-500 transition-colors"
+							on:mousedown|stopPropagation={startLoopDrag}
+							title="Drag to move loop"
 						>
-					</button>
+							<i class="material-icons !text-sm" aria-hidden="true">drag_indicator</i>
+						</div>
 
-					<!-- Play from A -->
-					<button
-						class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-						on:click|stopPropagation={() => {
-							if (loopStartBar !== null && api) {
-								const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
-								if (ms < 0) return;
-								progress = (ms / duration) * 100;
-								api.player.timePosition = ms;
-								seekDebounce();
-								if (!playing) playImmediate();
-							}
-						}}
-						title="Play from A"
-					>
-						<i class="material-icons !text-base" aria-hidden="true">play_circle</i>
-					</button>
+						<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
 
-					<!-- Divider -->
-					<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
+						<!-- Loop on/off -->
+						<button
+							aria-label="Toggle loop"
+							aria-pressed={loopEnabled}
+							class="p-0.5 rounded-full transition-all {loopEnabled
+								? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
+								: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
+							on:click|stopPropagation={toggleLoopEnabled}
+							title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
+						>
+							<i class="material-icons !text-base" aria-hidden="true"
+								>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+							>
+						</button>
 
-					<!-- Remove -->
-					<button
-						aria-label="Remove loop"
-						class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
-						on:click|stopPropagation={clearLoopPoints}
-						title="Remove loop [Esc]"
-					>
-						<i class="material-icons !text-base" aria-hidden="true">delete_outline</i>
-					</button>
-				</div>
+						<!-- Play from A -->
+						<button
+							class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
+							on:click|stopPropagation={() => {
+								if (loopStartBar !== null && api) {
+									const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+									if (ms < 0) return;
+									progress = (ms / duration) * 100;
+									api.player.timePosition = ms;
+									seekDebounce();
+									if (!playing) playImmediate();
+								}
+							}}
+							title="Play from A"
+						>
+							<i class="material-icons !text-base" aria-hidden="true">play_circle</i>
+						</button>
+
+						<!-- Divider -->
+						<div class="w-px h-4 bg-neutral-200 dark:bg-neutral-700 mx-0.5" />
+
+						<!-- Remove -->
+						<button
+							aria-label="Remove loop"
+							class="p-0.5 rounded-full text-neutral-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-900/20 transition-all"
+							on:click|stopPropagation={clearLoopPoints}
+							title="Remove loop [Esc]"
+						>
+							<i class="material-icons !text-base" aria-hidden="true">delete_outline</i>
+						</button>
+					</div>
+				{/if}
 			{/if}
 
 			<!-- Expanded hit area for easier interaction (overflow upward only to avoid

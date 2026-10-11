@@ -315,3 +315,14 @@ test('sheet loop menu contains and centers every icon', async ({ page }) => {
 	expect(icons).toHaveLength(4);
 	expect(icons.every((icon) => icon.inside && icon.centered)).toBe(true);
 });
+
+test('mouse devices keep the timeline toolbar and the sheet move grip, without touch knobs', async ({
+	page
+}) => {
+	await arrangeLoop(page, 'repeat', 1, 3);
+	await expect(
+		page.locator('[data-scrub-zone]').getByRole('button', { name: 'Toggle loop', exact: true })
+	).toBeVisible();
+	await expect(page.locator('#loop-selection-overlay [title="Drag to move loop"]')).toBeVisible();
+	await expect(page.locator('[data-loop-knob]')).toHaveCount(0);
+});
