@@ -16,6 +16,11 @@ export default defineConfig({
 	use: {
 		baseURL: baselineURL || 'http://localhost:5188',
 		headless: true,
+		// The production build registers the PWA service worker, and Chromium's
+		// browser process intermittently crashes (SIGTRAP) when a request held by
+		// page.route() is fulfilled while that worker is installing. Nothing here
+		// tests the service worker, so keep it out of the way.
+		serviceWorkers: 'block',
 		trace: 'retain-on-failure'
 	},
 	webServer: baselineURL
