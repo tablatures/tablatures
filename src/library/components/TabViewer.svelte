@@ -746,6 +746,8 @@
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 	$: speedRounded = Math.round(speed * 100) / 100;
 	$: speedIsCustom = !speedPresets.includes(speedRounded);
+	// The trainer passes through preset speeds, so it keeps the pill lit throughout
+	$: speedHighlighted = speedIsCustom || trainerOn;
 	// Preset list for the speed menu, with the current custom value folded in.
 	$: speedOptions = speedIsCustom
 		? [...speedPresets, speedRounded].sort((a, b) => a - b)
@@ -4967,19 +4969,19 @@
 					let:open
 					on:click={toggle}
 					class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
-						{speedIsCustom
+						{speedHighlighted
 						? 'bg-violet-500 text-white'
 						: open
 							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
 							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
-					title="Playback speed [+/-]"
+					title={trainerOn ? 'Speed trainer on [+/-]' : 'Playback speed [+/-]'}
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
 					<i class="material-icons !text-base bar-optional" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
-						class="material-icons !text-lg bar-optional transition-transform duration-150 {speedIsCustom
+						class="material-icons !text-lg bar-optional transition-transform duration-150 {speedHighlighted
 							? 'text-white/70'
 							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
 						aria-hidden="true">arrow_drop_down</i

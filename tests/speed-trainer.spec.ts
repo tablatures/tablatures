@@ -95,3 +95,22 @@ test('the bottom of the docked settings panel takes clicks, not the timeline', a
 	await expect(start).toHaveValue('80');
 	expect(await page.evaluate(() => (window as any).__testApi.getProgress())).toBe(progressBefore);
 });
+
+test('the speed pill stays highlighted while the trainer is on, even at a preset speed', async ({
+	page
+}) => {
+	await openWithLoop(page);
+	// Starting at 100% lands on a preset, which alone does not highlight the pill
+	await page.getByRole('spinbutton', { name: 'Speed trainer start' }).fill('100');
+	await page.getByRole('spinbutton', { name: 'Speed trainer start' }).press('Tab');
+	await page.getByRole('spinbutton', { name: 'Speed trainer target' }).fill('120');
+	await page.getByRole('spinbutton', { name: 'Speed trainer target' }).press('Tab');
+	const pill = page.locator('button[aria-haspopup="menu"][title$="[+/-]"]');
+	await expect(pill).not.toHaveClass(/bg-violet-500/);
+	await page.getByRole('button', { name: 'Speed trainer' }).click();
+	expect(await speed(page)).toBe(1);
+	await expect(pill).toHaveClass(/bg-violet-500/);
+	await expect(pill).toHaveAttribute('title', 'Speed trainer on [+/-]');
+	await page.getByRole('button', { name: 'Speed trainer' }).click();
+	await expect(pill).not.toHaveClass(/bg-violet-500/);
+});
