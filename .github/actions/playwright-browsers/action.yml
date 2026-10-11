@@ -1,30 +1,19 @@
-name: Install Playwright browsers
-description: Chromium and WebKit, with the binaries cached per Playwright version.
+name: Check Playwright browsers
+description: Fail fast when the Playwright image and the lockfile disagree on the version.
 
 runs:
   using: composite
   steps:
-    # Key the cache on the resolved Playwright version so a dependency bump
-    # busts it automatically.
-    - name: Resolve Playwright version
-      id: pw
+    # The jobs run in mcr.microsoft.com/playwright:v<version>-noble, which ships
+    # the browsers and their system deps for exactly one Playwright version, so
+    # a dependency bump must bump the image tag in test.yml too.
+    - name: Check the image ships the installed Playwright's browsers
       shell: bash
-      run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-    - name: Cache Playwright browsers
-      id: pw-cache
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-chromium-webkit-${{ steps.pw.outputs.version }}
-
-    - name: Install Chromium and WebKit (with system deps)
-      if: steps.pw-cache.outputs.cache-hit != 'true'
-      shell: bash
-      run: pnpm exec playwright install --with-deps chromium webkit
-
-    # The binaries came from the cache; only the apt packages are missing.
-    - name: Install system deps for cached browsers
-      if: steps.pw-cache.outputs.cache-hit == 'true'
-      shell: bash
-      run: pnpm exec playwright install-deps chromium webkit
+      run: |
+        installed=$(pnpm exec playwright --version | awk '{print $2}')
+        for dir in $(pnpm exec playwright install --dry-run chromium webkit | awk '/Install location:/ {print $3}'); do
+          if [ ! -d "$dir" ]; then
+            echo "::error::${dir} is missing. Set the mcr.microsoft.com/playwright image in .github/workflows/test.yml to v${installed}-noble."
+            exit 1
+          fi
+        done

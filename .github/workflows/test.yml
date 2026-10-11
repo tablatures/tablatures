@@ -46,6 +46,11 @@ jobs:
   layout:
     name: Zero layout shifts (production build)
     runs-on: ubuntu-latest
+    # Browsers and their system deps come preinstalled; keep the tag in step
+    # with @playwright/test in pnpm-lock.yaml.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --user 1001
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -62,7 +67,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      - name: Check Playwright browsers
         uses: ./.github/actions/playwright-browsers
 
       - name: Zero layout shifts (production build)
@@ -79,10 +84,15 @@ jobs:
   e2e:
     name: E2E (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
+    # Browsers and their system deps come preinstalled; keep the tag in step
+    # with @playwright/test in pnpm-lock.yaml.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -99,7 +109,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      - name: Check Playwright browsers
         uses: ./.github/actions/playwright-browsers
 
       - name: E2E tests (Playwright)
