@@ -7,9 +7,16 @@
 	export let size: 'sm' | 'md' | 'lg' = 'md';
 
 	const sizeClasses = {
-		sm: '!text-lg p-1',
-		md: '!text-xl p-1.5',
-		lg: '!text-2xl p-2'
+		sm: 'p-1',
+		md: 'p-1.5',
+		lg: 'p-2'
+	};
+	// The glyph box is a fixed 1em square with overflow hidden, so it must not
+	// inherit the button's padding or the glyph gets cropped.
+	const iconClasses = {
+		sm: '!text-lg',
+		md: '!text-xl',
+		lg: '!text-2xl'
 	};
 </script>
 
@@ -24,7 +31,7 @@
 		title={tooltip || label}
 		aria-label={label}
 	>
-		<i class="material-icons {sizeClasses[size]}" aria-hidden="true">{icon}</i>
+		<i class="material-icons {iconClasses[size]}" aria-hidden="true">{icon}</i>
 	</a>
 {:else}
 	<button
@@ -37,6 +44,6 @@
 		title={tooltip || label}
 		aria-label={label}
 	>
-		<i class="material-icons {sizeClasses[size]}" aria-hidden="true">{icon}</i>
+		<i class="material-icons {iconClasses[size]}" aria-hidden="true">{icon}</i>
 	</button>
 {/if}

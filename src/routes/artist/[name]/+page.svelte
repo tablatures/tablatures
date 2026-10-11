@@ -609,12 +609,16 @@
 				     there is white-on-white in light mode. -->
 				<h1 class="text-2xl sm:text-4xl font-bold truncate text-neutral-900 dark:text-white sm:text-white sm:[text-shadow:0_1px_8px_rgba(0,0,0,0.8)]">{info.name}</h1>
 				<div class="flex items-center gap-2 mt-1 h-5 text-sm overflow-hidden whitespace-nowrap text-neutral-600 dark:text-neutral-400">
+					<!-- The tab count grows as pages load, so it goes last: nothing after
+					     it can shift, and it needs no fixed-width slot. -->
 					{#if info.country}<span>{info.country}</span><span>·</span>{/if}
-					<span class="inline-block w-[10ch] shrink-0 tabular-nums">{#key headerTabCount}<span>{headerTabCount} tabs</span>{/key}</span>
-					{#if info.popularity > 0}<span>·</span><span>{fmtCount(info.popularity)} fans</span>{/if}
-					{#if info.downloadCount > 0}<span>·</span><span>{fmtCount(info.downloadCount)} plays</span>{/if}
+					{#if info.popularity > 0}<span>{fmtCount(info.popularity)} fans</span><span>·</span>{/if}
+					{#if info.downloadCount > 0}<span>{fmtCount(info.downloadCount)} plays</span><span>·</span>{/if}
+					<span class="tabular-nums">{#key headerTabCount}<span>{headerTabCount} tabs</span>{/key}</span>
 				</div>
-				<div class="flex items-center gap-1.5 mt-2 h-6 overflow-hidden">
+				<!-- Pills that don't fit wrap onto a hidden second line, so the row
+				     only ever shows whole pills. -->
+				<div class="flex flex-wrap items-center gap-x-1.5 gap-y-3 mt-2 h-6 overflow-hidden">
 					{#if info.genre}
 						<TagPill label={info.genre} variant="primary" />
 					{/if}

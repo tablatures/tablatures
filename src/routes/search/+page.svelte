@@ -823,8 +823,10 @@
 		<!-- Results -->
 		<div class="py-3">
 				<p class="flex items-baseline gap-1 h-4 text-xs text-neutral-500 dark:text-neutral-400 mb-2 px-3" data-layout-region="search-count">
-					<span class="inline-block w-[4ch] flex-shrink-0 tabular-nums">{tabs.length}{#if hasMorePages || loadingMore}…{/if}</span>
-					<span>result{tabs.length !== 1 ? 's' : ''}</span>
+					<!-- The count trails the label so a changing digit count never shifts
+					     anything, without reserving a fixed-width gap after the number. -->
+					<span>Results</span>
+					<span class="tabular-nums">{tabs.length}{#if hasMorePages || loadingMore}+{/if}</span>
 				</p>
 
 			<div class="search-rows divide-y divide-neutral-100 dark:divide-neutral-800/50" data-layout-region="search-results">

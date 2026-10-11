@@ -139,7 +139,7 @@
 
 	<!-- Title (still part of the play button) -->
 	<div class="pt-2 px-0.5 w-full min-w-0">
-		<p class="tab-card-title text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+		<p class="tab-card-title text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2 break-words leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
 			{title}
 		</p>
 	</div>
