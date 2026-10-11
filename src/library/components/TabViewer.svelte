@@ -53,6 +53,7 @@
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import { applyNotationView } from '../utils/notationView';
+	import { createSpeedTrainer, normalizeTrainerSettings } from '../utils/speedTrainer';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
 	import {
@@ -716,10 +717,37 @@
 	}
 	$: if (browser) (autoFollow, scheduleCursorVisibility());
 
+	// Speed trainer: steps the speed up each time the loop repeats
+	let trainerOn = false;
+	let trainerLooping = false;
+	const trainerSettings = () => normalizeTrainerSettings(get(preferencesStore).speedTrainer);
+	const trainer = createSpeedTrainer(trainerSettings);
+	function videoRates(): number[] {
+		return hasActiveVideo ? (get(videoPlayerRef)?.getAvailablePlaybackRates?.() ?? []) : [];
+	}
+	function setTrainer(on: boolean) {
+		trainerOn = on;
+		trainer.resetPosition();
+		if (on) speed = trainerSettings().start;
+	}
+	/** Feed a position to the trainer and apply the speed it asks for. */
+	function trainerPosition(tick: number, endTick: number) {
+		trainerLooping = !!api?.isLooping;
+		if (!trainerOn || !playing || !bindDuration || !trainerLooping) return;
+		const range = api.playbackRange ?? { startTick: 0, endTick };
+		const next = trainer.position(tick, range, speed, videoRates());
+		if (next === null) return;
+		speed = next;
+		if (next >= trainerSettings().target)
+			toastStore.success(`Target speed reached: ${Math.round(next * 100)}%`);
+	}
+
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 	$: speedRounded = Math.round(speed * 100) / 100;
 	$: speedIsCustom = !speedPresets.includes(speedRounded);
+	// The trainer passes through preset speeds, so it keeps the pill lit throughout
+	$: speedHighlighted = speedIsCustom || trainerOn;
 	// Preset list for the speed menu, with the current custom value folded in.
 	$: speedOptions = speedIsCustom
 		? [...speedPresets, speedRounded].sort((a, b) => a - b)
@@ -2819,12 +2847,14 @@
 				currentBar = timingForApi(apiRef)?.barAt(e.currentTick) ?? msToBar(e.currentTime);
 				currentBar = Math.max(0, Math.min(totalBars - 1, currentBar));
 			}
+			trainerPosition(e.currentTick, e.endTick);
 		};
 		listen(apiRef.playerPositionChanged, onPosition);
 
 		// Player state
 		const onState = (args: { state: number }) => {
 			playing = args.state !== 0;
+			if (!playing) trainer.resetPosition();
 		};
 		listen(apiRef.playerStateChanged, onState);
 
@@ -3252,6 +3282,7 @@
 					rhythmMode: api?.settings?.notation?.rhythmMode
 				}),
 				getSpeed: () => speed,
+				getSpeedTrainer: () => ({ on: trainerOn, passes: trainer.passes }),
 				getVolume: () => volume,
 				getBarPositions: () => {
 					try {
@@ -3874,6 +3905,7 @@
 	let seekDebounceTimeout: NodeJS.Timeout;
 	function seekDebounce() {
 		bindDuration = false;
+		trainer.resetPosition();
 		clearTimeout(seekDebounceTimeout);
 		seekDebounceTimeout = setTimeout(() => {
 			bindDuration = true;
@@ -4020,6 +4052,7 @@
 		} else {
 			// No region loop - toggle alphaTab's global loop
 			api.isLooping = !api.isLooping;
+			trainerLooping = api.isLooping;
 		}
 	}
 
@@ -4748,9 +4781,10 @@
 			<!-- Expanded hit area for easier interaction (overflow upward only to avoid
 			     buttons below). Collapsed while the mobile bottom sheet covers the
 			     area above the bar, otherwise the scrub would steal the touches that
-			     belong to the sheet's list rows, and under the touch loop bar. -->
+			     belong to the sheet's list rows, under the touch loop bar, and while
+			     the settings panel is open, whose bottom rows sit right above the bar. -->
 			<div
-				class="absolute inset-x-0 bottom-0 {sheetCoversScore || showTouchLoopBar
+				class="absolute inset-x-0 bottom-0 {sheetCoversScore || showTouchLoopBar || showSettings
 					? 'top-0'
 					: '-top-12'}"
 			/>
@@ -4935,19 +4969,19 @@
 					let:open
 					on:click={toggle}
 					class="inline-flex items-center gap-1 rounded-full pl-2.5 pr-1.5 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500
-						{speedIsCustom
+						{speedHighlighted
 						? 'bg-violet-500 text-white'
 						: open
 							? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200'
 							: 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}"
-					title="Playback speed [+/-]"
+					title={trainerOn ? 'Speed trainer on [+/-]' : 'Playback speed [+/-]'}
 					aria-haspopup="menu"
 					aria-expanded={open}
 				>
 					<i class="material-icons !text-base bar-optional" aria-hidden="true">speed</i>
 					<span class="tabular-nums">{speedRounded}x</span>
 					<i
-						class="material-icons !text-lg bar-optional transition-transform duration-150 {speedIsCustom
+						class="material-icons !text-lg bar-optional transition-transform duration-150 {speedHighlighted
 							? 'text-white/70'
 							: 'text-neutral-400'} {open ? 'rotate-180' : ''}"
 						aria-hidden="true">arrow_drop_down</i
@@ -5825,6 +5859,10 @@
 					{loopEndBar}
 					{loopEnabled}
 					preciseLoop={loopSnap === 'note'}
+					{trainerOn}
+					{speed}
+					looping={trainerLooping || (loopStartBar !== null && loopEnabled)}
+					on:trainer={(e) => setTrainer(e.detail)}
 					bind:loopSnap
 					on:loopsnap={changeLoopSnap}
 					bind:mergeMode

@@ -5,6 +5,7 @@ import { dataReady } from '../data/init';
 import { prefsRepo } from '../data/repositories';
 import { PREF_KEY_PREFERENCES } from '../data/migrate';
 import type { NotationView } from './notationView';
+import { DEFAULT_SPEED_TRAINER, type SpeedTrainerSettings } from './speedTrainer';
 
 export interface UserPreferences {
 	soundFontUrl: string;
@@ -17,6 +18,7 @@ export interface UserPreferences {
 	autoPlayOnLoad: boolean;
 	haptics: boolean;
 	notationView: NotationView;
+	speedTrainer: SpeedTrainerSettings;
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -82,7 +84,8 @@ const DEFAULTS: UserPreferences = {
 	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
 	haptics: true,
-	notationView: 'tab'
+	notationView: 'tab',
+	speedTrainer: DEFAULT_SPEED_TRAINER
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */
