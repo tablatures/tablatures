@@ -1,0 +1,19 @@
+name: Check Playwright browsers
+description: Fail fast when the Playwright image and the lockfile disagree on the version.
+
+runs:
+  using: composite
+  steps:
+    # The jobs run in mcr.microsoft.com/playwright:v<version>-noble, which ships
+    # the browsers and their system deps for exactly one Playwright version, so
+    # a dependency bump must bump the image tag in test.yml too.
+    - name: Check the image ships the installed Playwright's browsers
+      shell: bash
+      run: |
+        installed=$(pnpm exec playwright --version | awk '{print $2}')
+        for dir in $(pnpm exec playwright install --dry-run chromium webkit | awk '/Install location:/ {print $3}'); do
+          if [ ! -d "$dir" ]; then
+            echo "::error::${dir} is missing. Set the mcr.microsoft.com/playwright image in .github/workflows/test.yml to v${installed}-noble."
+            exit 1
+          fi
+        done
