@@ -311,6 +311,7 @@
 	// Touch-first devices get finger-sized loop controls: knobs on the score's
 	// brackets, a larger score toolbar, and no floating toolbar on the timeline.
 	let coarsePointer = browser && window.matchMedia('(pointer: coarse)').matches;
+	$: showTouchLoopBar = coarsePointer && loopStartBar !== null && loopEndBar !== null;
 	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
@@ -1269,29 +1270,6 @@
 		return loopOverlayEl;
 	}
 
-	// Touch toolbar placement: above the loop's first row while that fits on
-	// screen, below it otherwise (e.g. once following scrolls the row to the top).
-	let loopMenuAnchor: { menu: HTMLElement; row: LoopRect } | null = null;
-	let loopMenuFrame = 0;
-	function placeLoopMenu() {
-		const anchor = loopMenuAnchor;
-		if (!anchor?.menu.isConnected) return;
-		const { menu, row } = anchor;
-		const host = document.getElementById('player-host');
-		const area = scoreScrollArea();
-		const visibleTop = host && area ? area.top - host.getBoundingClientRect().top : 0;
-		// Leave room for the start knob that caps the row.
-		const above = row.y - menu.offsetHeight - 22;
-		menu.style.top = `${above >= Math.max(0, visibleTop) ? above : row.y + row.h + 22}px`;
-	}
-	function scheduleLoopMenuPlacement() {
-		if (!loopMenuAnchor || loopMenuFrame) return;
-		loopMenuFrame = requestAnimationFrame(() => {
-			loopMenuFrame = 0;
-			placeLoopMenu();
-		});
-	}
-
 	// Rows covered by the rendered loop (player-host px), for loop-aware following.
 	let loopRowsInHost: { top: number; bottom: number } | null = null;
 
@@ -1514,7 +1492,9 @@
 			}
 
 			// Keep the menu with the start handle, including loops across repeats.
-			if (merged.length > 0) {
+			// Touch devices dock these controls in the transport bar instead: over
+			// the score, any spot for a finger-sized toolbar covers notes.
+			if (merged.length > 0 && !coarsePointer) {
 				const first = startRect ?? merged[0];
 				const menuX = first.x + first.w / 2;
 				const menuY = first.y - 32;
@@ -1526,33 +1506,29 @@
 				const divColor = isDark ? '#444' : '#e5e5e5';
 				const iconColor = isDark ? '#888' : '#999';
 				menu.dataset.loopMenu = '';
-				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:${coarsePointer ? 4 : 2}px;padding:${coarsePointer ? '2px 6px' : '3px 6px'};line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
-				// Taps on the menu are not score gestures (long-press selection, pinch).
-				menu.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+				menu.style.cssText = `position:absolute;left:${menuX}px;top:${menuY}px;transform:translateX(-50%);z-index:20;pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px 6px;line-height:1;background:${menuBg};border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.15'});border:1px solid ${menuBorder};`;
 
-				const controlSize = coarsePointer ? 40 : 28;
-				const iconSize = coarsePointer ? 22 : 16;
-				const controlStyle = `display:flex;align-items:center;justify-content:center;flex-shrink:0;width:${controlSize}px;height:${controlSize}px;padding:0;line-height:1;`;
-				const iconStyle = `display:block;font-size:${iconSize}px;line-height:1;width:${iconSize}px;height:${iconSize}px;flex-shrink:0;`;
+				const controlStyle =
+					'display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;padding:0;line-height:1;';
+				const iconStyle =
+					'display:block;font-size:16px;line-height:1;width:16px;height:16px;flex-shrink:0;';
 
-				// Drag handle (mouse only: on touch, the knobs resize instead)
-				if (!coarsePointer) {
-					const dragHandle = document.createElement('div');
-					dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
-					dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
-					dragHandle.title = 'Drag to move loop';
-					dragHandle.addEventListener('mousedown', (e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						startLoopMoveDrag(e, true);
-					});
-					menu.appendChild(dragHandle);
+				// Drag handle
+				const dragHandle = document.createElement('div');
+				dragHandle.style.cssText = `${controlStyle}width:18px;cursor:grab;color:${isDark ? '#555' : '#ccc'};`;
+				dragHandle.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">drag_indicator</i>`;
+				dragHandle.title = 'Drag to move loop';
+				dragHandle.addEventListener('mousedown', (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					startLoopMoveDrag(e, true);
+				});
+				menu.appendChild(dragHandle);
 
-					// Divider
-					const div1 = document.createElement('div');
-					div1.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
-					menu.appendChild(div1);
-				}
+				// Divider
+				const div1 = document.createElement('div');
+				div1.style.cssText = `width:1px;height:16px;background:${divColor};margin:0 2px;`;
+				menu.appendChild(div1);
 
 				// Loop toggle
 				const loopBtn = document.createElement('button');
@@ -1575,14 +1551,7 @@
 				playBtn.setAttribute('aria-label', 'Play selection from start');
 				playBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
-					if (loopStartBar !== null && api) {
-						const startMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
-						if (startMs < 0) return;
-						progress = (startMs / duration) * 100;
-						api.player.timePosition = startMs;
-						if (typeof seekDebounce === 'function') seekDebounce();
-						if (!playing) playImmediate();
-					}
+					playLoopFromStart();
 				});
 				menu.appendChild(playBtn);
 
@@ -1605,8 +1574,7 @@
 
 				container.appendChild(menu);
 
-				// Keep the menu inside the score horizontally, and below the row when
-				// there is no room above it (or a touch knob would sit under it).
+				// Keep the menu inside the score horizontally.
 				const hostWidth = container.clientWidth;
 				const menuWidth = menu.offsetWidth;
 				if (hostWidth > 0 && menuWidth > 0) {
@@ -1614,8 +1582,6 @@
 					menu.style.left = `${left}px`;
 					menu.style.transform = 'none';
 				}
-				loopMenuAnchor = coarsePointer ? { menu, row: first } : null;
-				placeLoopMenu();
 			}
 
 			// Update scrollbar minimap indicator
@@ -3816,6 +3782,17 @@
 	}
 
 	/** Play immediately, bypassing any delay (used by video sync, loop play-from-A) */
+	/** Seek to the loop's first note and play. */
+	function playLoopFromStart() {
+		if (loopStartBar === null || !api) return;
+		const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+		if (ms < 0) return;
+		progress = (ms / duration) * 100;
+		api.player.timePosition = ms;
+		seekDebounce();
+		if (!playing) playImmediate();
+	}
+
 	function playImmediate() {
 		cancelCountdown();
 		if (!playing) {
@@ -4330,7 +4307,6 @@
 	bind:this={page}
 	on:scroll={() => {
 		settleFollowScroll();
-		scheduleLoopMenuPlacement();
 		scheduleCursorVisibility();
 	}}
 	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
@@ -4476,16 +4452,7 @@
 				<!-- Play selection from start -->
 				<button
 					class="p-1 rounded-full text-neutral-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 transition-all"
-					on:click={() => {
-						if (loopStartBar !== null && api) {
-							const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
-							if (ms < 0) return;
-							progress = (ms / duration) * 100;
-							api.player.timePosition = ms;
-							seekDebounce();
-							if (!playing) playImmediate();
-						}
-					}}
+					on:click={playLoopFromStart}
 					title="Play from A"
 				>
 					<i class="material-icons !text-lg" aria-hidden="true">play_circle</i>
@@ -4565,6 +4532,50 @@
 		aria-label="Playback controls"
 		data-layout-region="player-controls"
 	>
+		{#if showTouchLoopBar && loopStartBar !== null && loopEndBar !== null}
+			<!-- Touch loop controls. Docked in the transport rather than floating over
+			     the score, where a finger-sized toolbar always covers notes; being part
+			     of the bar, following treats it as the bottom of the visible score. It
+			     stays while the loop is off, so the loop can be turned back on. -->
+			<div data-loop-bar class="flex items-center gap-1 px-2 pt-1">
+				<button
+					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors {loopEnabled
+						? 'bg-pink-500/10 text-pink-500'
+						: 'text-neutral-400'}"
+					aria-label="Toggle selection loop"
+					aria-pressed={loopEnabled}
+					on:click={toggleLoopEnabled}
+				>
+					<i class="material-icons !text-[22px]" aria-hidden="true"
+						>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+					>
+				</button>
+				<span
+					class="flex-1 min-w-0 truncate text-xs font-medium {loopEnabled
+						? 'text-pink-600 dark:text-pink-400'
+						: 'text-neutral-500 dark:text-neutral-400'}"
+				>
+					{loopEnabled ? 'Loop' : 'Loop off'} · {loopStartBar === loopEndBar
+						? `Bar ${loopStartBar + 1}`
+						: `Bars ${loopStartBar + 1}–${loopEndBar + 1}`}
+				</span>
+				<button
+					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-500 dark:text-neutral-400"
+					aria-label="Play selection from start"
+					on:click={playLoopFromStart}
+				>
+					<i class="material-icons !text-[22px]" aria-hidden="true">play_circle</i>
+				</button>
+				<button
+					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-500 dark:text-neutral-400"
+					aria-label="Remove selection loop"
+					on:click={clearLoopPoints}
+				>
+					<i class="material-icons !text-[22px]" aria-hidden="true">delete_outline</i>
+				</button>
+			</div>
+		{/if}
+
 		<!-- Progress bar with drag-to-loop. Bigger on touch viewports so the
 		     bar is actually tappable (h-1 ≈ 4px is smaller than a fingertip);
 		     desktop keeps the thin-with-hover-grow behavior.
@@ -4702,16 +4713,7 @@
 						<!-- Play from A -->
 						<button
 							class="p-0.5 rounded-full text-neutral-400 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
-							on:click|stopPropagation={() => {
-								if (loopStartBar !== null && api) {
-									const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
-									if (ms < 0) return;
-									progress = (ms / duration) * 100;
-									api.player.timePosition = ms;
-									seekDebounce();
-									if (!playing) playImmediate();
-								}
-							}}
+							on:click|stopPropagation={playLoopFromStart}
 							title="Play from A"
 						>
 							<i class="material-icons !text-base" aria-hidden="true">play_circle</i>
@@ -4736,8 +4738,12 @@
 			<!-- Expanded hit area for easier interaction (overflow upward only to avoid
 			     buttons below). Collapsed while the mobile bottom sheet covers the
 			     area above the bar, otherwise the scrub would steal the touches that
-			     belong to the sheet's list rows. -->
-			<div class="absolute inset-x-0 bottom-0 {sheetCoversScore ? 'top-0' : '-top-12'}" />
+			     belong to the sheet's list rows, and under the touch loop bar. -->
+			<div
+				class="absolute inset-x-0 bottom-0 {sheetCoversScore || showTouchLoopBar
+					? 'top-0'
+					: '-top-12'}"
+			/>
 
 			<!-- Tooltip -->
 			{#if showProgressTooltip && tooltipTime && !isDraggingLoop}
