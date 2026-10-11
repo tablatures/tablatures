@@ -465,7 +465,7 @@
 	     playlist strip and recommendations live below the fold, revealed by
 	     scrolling past the sheet (the sheet scrolls internally first, then the
 	     page scroll takes over at its boundary). -->
-	<div class="play-shell" bind:this={shellEl} on:scroll={onShellScroll}>
+	<div class="play-shell scrollbar-none" bind:this={shellEl} on:scroll={onShellScroll}>
 		<section class="play-sheet-section">
 			<TabViewer
 				{data}

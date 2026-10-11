@@ -2583,8 +2583,12 @@
 		// overwrite a replacement parsed before this view receives its new props.
 		if (track && track.score === api.score) {
 			restoreScoreSession(api.score);
-			applyNotationView(api, track, notationView);
-			api.renderTracks([track]);
+			const notationChanged = applyNotationView(api, track, notationView);
+			// Loop and mixer updates also invalidate api. Redraw only when the
+			// track or notation changes so loop controls do not flash the score.
+			if (notationChanged || api.tracks.length !== 1 || api.tracks[0] !== track) {
+				api.renderTracks([track]);
+			}
 		}
 	}
 
