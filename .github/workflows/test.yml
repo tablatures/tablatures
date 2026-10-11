@@ -3,6 +3,9 @@ name: Tests
 # The regression gate: type-check + unit + Playwright e2e. Runs on every push
 # and every PR (including stacked PRs), and is reusable (workflow_call) so the release workflows can
 # require it before building/publishing anything.
+#
+# The e2e suite is sharded across parallel jobs and the layout suite runs in its
+# own job, so wall time is bounded by the slowest shard rather than the sum.
 
 on:
   push:
@@ -10,8 +13,13 @@ on:
   pull_request:
   workflow_call:
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  static:
+    name: Type-check and unit tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,33 +37,73 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Cache the Playwright browser binaries, keyed on the resolved Playwright
-      # version so a dependency bump busts the cache automatically.
-      - name: Resolve Playwright version
-        id: pw
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-webkit-${{ steps.pw.outputs.version }}
-
-      - name: Install Chromium and WebKit (with system deps)
-        run: pnpm exec playwright install --with-deps chromium webkit
-
       - name: Type-check
         run: pnpm check
 
       - name: Unit tests
         run: pnpm test:unit
 
+  layout:
+    name: Zero layout shifts (production build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        uses: ./.github/actions/playwright-browsers
+
       - name: Zero layout shifts (production build)
         run: pnpm test:layout
 
+      - name: Upload layout report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-report
+          path: layout-test-results/
+          retention-days: 7
+
+  e2e:
+    name: E2E (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        uses: ./.github/actions/playwright-browsers
+
       - name: E2E tests (Playwright)
-        run: pnpm test:e2e
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           # The dev server the e2e suite boots reads this; requests are mocked in
           # the specs, so any base works. A local URL keeps unmocked calls from
@@ -67,9 +115,22 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
-            layout-test-results/
           retention-days: 7
+
+  # Single status to depend on (callers' `needs: test`, branch protection),
+  # independent of how many shards the suite is split into.
+  test:
+    name: All tests
+    if: always()
+    needs: [static, layout, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test job to pass
+        run: |
+          [ "${{ needs.static.result }}" = success ] &&
+          [ "${{ needs.layout.result }}" = success ] &&
+          [ "${{ needs.e2e.result }}" = success ]

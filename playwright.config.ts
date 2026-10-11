@@ -7,6 +7,9 @@ export default defineConfig({
 	testIgnore: 'layout-stability.spec.ts',
 	timeout: 60000,
 	retries: 1,
+	// Spread tests (not just files) across workers and CI shards; the heaviest
+	// spec files would otherwise pin a single worker for minutes.
+	fullyParallel: true,
 	expect: { timeout: 10000 },
 	use: {
 		baseURL: `http://localhost:${port}`,

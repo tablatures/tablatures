@@ -1,0 +1,30 @@
+name: Install Playwright browsers
+description: Chromium and WebKit, with the binaries cached per Playwright version.
+
+runs:
+  using: composite
+  steps:
+    # Key the cache on the resolved Playwright version so a dependency bump
+    # busts it automatically.
+    - name: Resolve Playwright version
+      id: pw
+      shell: bash
+      run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-chromium-webkit-${{ steps.pw.outputs.version }}
+
+    - name: Install Chromium and WebKit (with system deps)
+      if: steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm exec playwright install --with-deps chromium webkit
+
+    # The binaries came from the cache; only the apt packages are missing.
+    - name: Install system deps for cached browsers
+      if: steps.pw-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: pnpm exec playwright install-deps chromium webkit
