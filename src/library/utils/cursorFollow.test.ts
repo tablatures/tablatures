@@ -64,6 +64,19 @@ describe('followScrollTarget', () => {
 			expect(g.loop.bottom - shift).toBeLessThanOrEqual(g.viewportBottom - FOLLOW_MARGIN_PX + 1);
 		});
 
+		it('judges a loop where an in-flight scroll will land, not mid-animation', () => {
+			// Mid-scroll the loop looks framed, but the scroll is heading 600px up,
+			// where the loop would sit below the visible band.
+			const g = { ...base, cursorTop: 500, cursorBottom: 700, loop, pendingScrollTop: 400 };
+			const target = followScrollTarget(g)!;
+			expect(target).not.toBeNull();
+			const shift = target - g.scrollTop;
+			expect(loop.top - shift).toBeGreaterThanOrEqual(g.viewportTop + FOLLOW_MARGIN_PX - 1);
+			expect(loop.bottom - shift).toBeLessThanOrEqual(g.viewportBottom - FOLLOW_MARGIN_PX + 1);
+			// Heading where the loop is framed: nothing to do.
+			expect(followScrollTarget({ ...g, pendingScrollTop: 1000 })).toBeNull();
+		});
+
 		it('follows rows normally for a loop taller than the viewport', () => {
 			const g = { ...base, loop: { top: 0, bottom: 2000 } };
 			expect(followScrollTarget(g)).toBe(followScrollTarget({ ...base, loop: null }));

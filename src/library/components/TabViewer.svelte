@@ -656,6 +656,7 @@
 			cursorTop: cursor.top,
 			cursorBottom: cursor.bottom,
 			scrollTop: currentTop,
+			pendingScrollTop: followScrollPending,
 			loop: loopRowsInHost && {
 				top: hostTop + loopRowsInHost.top,
 				bottom: hostTop + loopRowsInHost.bottom
@@ -669,7 +670,24 @@
 		if (cursorFollowTop !== null && Math.abs(top - cursorFollowTop) <= 1) return;
 		cursorFollowTop = top;
 		if (Math.abs(top - currentTop) <= 1) return;
+		// The browser clamps targets past the end of the score.
+		const maxTop = page ? page.scrollHeight - page.clientHeight : Infinity;
+		followScrollPending = Math.max(0, Math.min(top, maxTop));
+		clearTimeout(followScrollTimeout);
+		followScrollTimeout = setTimeout(() => (followScrollPending = null), 1500);
 		(page ?? window).scrollTo({ top, behavior: 'smooth' });
+	}
+
+	// Destination of the follow scroll in flight, until it lands. Follow
+	// decisions made mid-animation are judged where the sheet will end up.
+	let followScrollPending: number | null = null;
+	let followScrollTimeout: ReturnType<typeof setTimeout> | undefined;
+	function settleFollowScroll() {
+		const current = page ? page.scrollTop : window.scrollY;
+		if (followScrollPending !== null && Math.abs(current - followScrollPending) <= 1) {
+			followScrollPending = null;
+			clearTimeout(followScrollTimeout);
+		}
 	}
 
 	// While not following, Back to cursor appears only when the cursor is out
@@ -2549,6 +2567,8 @@
 			autoFollow = false;
 			cursorFollowTop = null;
 		}
+		// The user's scroll interrupts any follow scroll in flight.
+		followScrollPending = null;
 	}
 
 	// Manual browsing stays under the user's control until Back to cursor or
@@ -4309,6 +4329,7 @@
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
 	on:scroll={() => {
+		settleFollowScroll();
 		scheduleLoopMenuPlacement();
 		scheduleCursorVisibility();
 	}}

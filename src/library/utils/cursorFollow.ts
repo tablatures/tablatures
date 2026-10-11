@@ -16,8 +16,26 @@ export interface FollowGeometry {
 	cursorTop: number;
 	cursorBottom: number;
 	scrollTop: number;
+	/** Where an in-flight smooth scroll is heading. Decisions are made for
+	 *  that destination: judged mid-animation, a loop can look framed and
+	 *  then end up off screen once the scroll lands. */
+	pendingScrollTop?: number | null;
 	/** Rows covered by an active loop, if any. */
 	loop?: { top: number; bottom: number } | null;
+}
+
+/** The geometry once any in-flight scroll has landed. */
+function settled(g: FollowGeometry): FollowGeometry {
+	const destination = g.pendingScrollTop;
+	if (destination === null || destination === undefined || destination === g.scrollTop) return g;
+	const shift = g.scrollTop - destination;
+	return {
+		...g,
+		scrollTop: destination,
+		cursorTop: g.cursorTop + shift,
+		cursorBottom: g.cursorBottom + shift,
+		loop: g.loop && { top: g.loop.top + shift, bottom: g.loop.bottom + shift }
+	};
 }
 
 function clampTop(top: number) {
@@ -25,7 +43,8 @@ function clampTop(top: number) {
 }
 
 /** Scroll position that frames the cursor, or null to stay where we are. */
-export function followScrollTarget(g: FollowGeometry): number | null {
+export function followScrollTarget(geometry: FollowGeometry): number | null {
+	const g = settled(geometry);
 	const height = g.viewportBottom - g.viewportTop;
 	const preferred = Math.max(FOLLOW_MARGIN_PX, height * FOLLOW_ANCHOR);
 
