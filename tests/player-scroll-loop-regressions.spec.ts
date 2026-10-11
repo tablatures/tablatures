@@ -72,6 +72,9 @@ for (const playing of [false, true]) {
 			await setupPlayPage(page);
 			await settleScore(page);
 			if (playing) await page.getByRole('button', { name: 'Play', exact: true }).click();
+			await expect
+				.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying()))
+				.toBe(playing);
 			await page.evaluate(async () => {
 				const modulePath = '/src/library/utils/playerStore.ts';
 				const { getApi } = await import(modulePath);
@@ -108,6 +111,10 @@ for (const playing of [false, true]) {
 			await expect
 				.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
 				.toBeNull();
+			// Written-order loops reload MIDI asynchronously when returning to normal playback.
+			await expect
+				.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying()))
+				.toBe(playing);
 			const result = await page.evaluate(() => {
 				const win = window as any;
 				return {
