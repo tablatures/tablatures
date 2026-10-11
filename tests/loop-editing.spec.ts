@@ -224,13 +224,15 @@ test('sheet resize crosses staff rows after scrolling', async ({ page }) => {
 	const { start, end, target, scrollTop } = await page.evaluate(() => {
 		const bars = (window as any).__testApi.getBarPositions();
 		const rows = [...new Set(bars.map((bar: any) => bar.y))] as number[];
-		const second = bars.filter((bar: any) => bar.y === rows[1]);
-		const third = bars.filter((bar: any) => bar.y === rows[2]);
+		// Rows far enough down that following (which keeps the previous row in
+		// sight) still leaves the sheet scrolled.
+		const loopRow = bars.filter((bar: any) => bar.y === rows[3]);
+		const nextRow = bars.filter((bar: any) => bar.y === rows[4]);
 		return {
-			start: second[1].index,
-			end: second[2].index,
-			target: third[1].index,
-			scrollTop: rows[1] - 80
+			start: loopRow[1].index,
+			end: loopRow[2].index,
+			target: nextRow[1].index,
+			scrollTop: rows[3] - 80
 		};
 	});
 	await page.evaluate(

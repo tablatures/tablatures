@@ -72,9 +72,12 @@ async function expectCursorVisible(page: Page) {
 	await expect
 		.poll(async () => {
 			const g = await cursorGeometry(page);
+			// The current row sits about a quarter of the way down, leaving the
+			// previous row in sight (see FOLLOW_ANCHOR).
+			const anchor = Math.max(24, (g.viewportBottom - g.viewportTop) * 0.28);
 			return (
 				g.top >= g.viewportTop &&
-				g.top < g.viewportTop + 120 &&
+				g.top <= g.viewportTop + anchor + 4 &&
 				g.bottom <= g.viewportBottom &&
 				g.top >= g.barTop - 2 &&
 				g.top <= g.barBottom
@@ -219,4 +222,51 @@ test('closing the mobile settings overlay follows the reflowed playing score', a
 	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
 	await settleLayout(page);
 	await expectCursorVisible(page);
+});
+
+async function backToCursorIcon(page: Page) {
+	const pill = page.getByRole('button', { name: 'Back to cursor' });
+	return (await pill.count()) ? pill.locator('i').textContent() : null;
+}
+
+test('Back to cursor appears only while the cursor is out of view, pointing to it', async ({
+	page
+}) => {
+	await openScore(page);
+	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+	await settleLayout(page);
+	await expectCursorVisible(page);
+	const sheet = page.locator('#page');
+	const scroll = (top: number) => sheet.evaluate((el, top) => el.scrollTo({ top }), top);
+	const followed = (await cursorGeometry(page)).scrollTop;
+
+	// A small manual scroll stops following but leaves the cursor in view.
+	await page.mouse.move(300, 400);
+	await page.mouse.wheel(0, 60);
+	await expect.poll(async () => (await cursorGeometry(page)).scrollTop).toBeGreaterThan(followed);
+	await expect(page.getByRole('button', { name: 'Back to cursor' })).toHaveCount(0);
+
+	await scroll(followed + 1500);
+	await expect.poll(() => backToCursorIcon(page)).toBe('arrow_upward');
+	await scroll(0);
+	await expect.poll(() => backToCursorIcon(page)).toBe('arrow_downward');
+
+	// Bringing the cursor back into view by hand hides the pill but does not
+	// resume following: playback across a row change leaves the scroll alone.
+	await scroll(followed + 60);
+	await expect(page.getByRole('button', { name: 'Back to cursor' })).toHaveCount(0);
+	await page.getByRole('button', { name: '1x', exact: true }).click();
+	await page.getByRole('menuitem', { name: '2x', exact: true }).click();
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
+	const startRow = (await cursorGeometry(page)).barTop;
+	await expect
+		.poll(async () => (await cursorGeometry(page)).barTop, { timeout: 20000 })
+		.not.toBe(startRow);
+	expect((await cursorGeometry(page)).scrollTop).toBe(followed + 60);
+	await page.getByRole('button', { name: 'Pause', exact: true }).click();
+
+	await scroll(followed + 1500);
+	await page.getByRole('button', { name: 'Back to cursor' }).click();
+	await expectCursorVisible(page);
+	await expect(page.getByRole('button', { name: 'Back to cursor' })).toHaveCount(0);
 });
