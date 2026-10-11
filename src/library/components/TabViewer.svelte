@@ -53,6 +53,7 @@
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import { applyNotationView } from '../utils/notationView';
+	import { createSpeedTrainer, normalizeTrainerSettings } from '../utils/speedTrainer';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
 	import {
@@ -715,6 +716,31 @@
 		});
 	}
 	$: if (browser) (autoFollow, scheduleCursorVisibility());
+
+	// Speed trainer: steps the speed up each time the loop repeats
+	let trainerOn = false;
+	let trainerLooping = false;
+	const trainerSettings = () => normalizeTrainerSettings(get(preferencesStore).speedTrainer);
+	const trainer = createSpeedTrainer(trainerSettings);
+	function videoRates(): number[] {
+		return hasActiveVideo ? (get(videoPlayerRef)?.getAvailablePlaybackRates?.() ?? []) : [];
+	}
+	function setTrainer(on: boolean) {
+		trainerOn = on;
+		trainer.resetPosition();
+		if (on) speed = trainerSettings().start;
+	}
+	/** Feed a position to the trainer and apply the speed it asks for. */
+	function trainerPosition(tick: number, endTick: number) {
+		trainerLooping = !!api?.isLooping;
+		if (!trainerOn || !playing || !bindDuration || !trainerLooping) return;
+		const range = api.playbackRange ?? { startTick: 0, endTick };
+		const next = trainer.position(tick, range, speed, videoRates());
+		if (next === null) return;
+		speed = next;
+		if (next >= trainerSettings().target)
+			toastStore.success(`Target speed reached: ${Math.round(next * 100)}%`);
+	}
 
 	// Speed selector computed values
 	const speedPresets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -2819,12 +2845,14 @@
 				currentBar = timingForApi(apiRef)?.barAt(e.currentTick) ?? msToBar(e.currentTime);
 				currentBar = Math.max(0, Math.min(totalBars - 1, currentBar));
 			}
+			trainerPosition(e.currentTick, e.endTick);
 		};
 		listen(apiRef.playerPositionChanged, onPosition);
 
 		// Player state
 		const onState = (args: { state: number }) => {
 			playing = args.state !== 0;
+			if (!playing) trainer.resetPosition();
 		};
 		listen(apiRef.playerStateChanged, onState);
 
@@ -3252,6 +3280,7 @@
 					rhythmMode: api?.settings?.notation?.rhythmMode
 				}),
 				getSpeed: () => speed,
+				getSpeedTrainer: () => ({ on: trainerOn, passes: trainer.passes }),
 				getVolume: () => volume,
 				getBarPositions: () => {
 					try {
@@ -3874,6 +3903,7 @@
 	let seekDebounceTimeout: NodeJS.Timeout;
 	function seekDebounce() {
 		bindDuration = false;
+		trainer.resetPosition();
 		clearTimeout(seekDebounceTimeout);
 		seekDebounceTimeout = setTimeout(() => {
 			bindDuration = true;
@@ -4020,6 +4050,7 @@
 		} else {
 			// No region loop - toggle alphaTab's global loop
 			api.isLooping = !api.isLooping;
+			trainerLooping = api.isLooping;
 		}
 	}
 
@@ -5825,6 +5856,10 @@
 					{loopEndBar}
 					{loopEnabled}
 					preciseLoop={loopSnap === 'note'}
+					{trainerOn}
+					{speed}
+					looping={trainerLooping || (loopStartBar !== null && loopEnabled)}
+					on:trainer={(e) => setTrainer(e.detail)}
 					bind:loopSnap
 					on:loopsnap={changeLoopSnap}
 					bind:mergeMode

@@ -6,6 +6,7 @@
 	import TrackQuickControls from '$components/TrackQuickControls.svelte';
 	import MergeRail from '$components/MergeRail.svelte';
 	import LoopBar from '$components/LoopBar.svelte';
+	import SpeedTrainer from '$components/SpeedTrainer.svelte';
 	import { scoreEdits } from '$utils/scoreEdits';
 	import { preferencesStore } from '$utils/preferences';
 
@@ -22,6 +23,10 @@
 	export let loopEnabled = true;
 	export let loopSnap: 'bar' | 'note' = 'note';
 	export let preciseLoop = false;
+
+	export let trainerOn = false;
+	export let speed = 1;
+	export let looping = false;
 
 	export let mergeMode = false;
 	export let selectedIndexes: number[] = [];
@@ -214,6 +219,12 @@
 			</p>
 		{/if}
 		<LoopBar {loopStartBar} {loopEndBar} {loopEnabled} {preciseLoop} on:toggleloop on:clearloop />
+		<SpeedTrainer
+			enabled={trainerOn}
+			{speed}
+			{looping}
+			on:toggle={(e) => dispatch('trainer', e.detail)}
+		/>
 	</div>
 </div>
 
