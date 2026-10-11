@@ -75,7 +75,10 @@ jobs:
         uses: ./.github/actions/playwright-browsers
 
       - name: Zero layout shifts (production build)
-        run: pnpm test:layout --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        # TEMPORARY flake audit: repeat every test, keep the JSON report.
+        run: pnpm test:layout --shard=${{ matrix.shard }}/${{ strategy.job-total }} --repeat-each=3 --reporter=json,dot
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: flake-layout-${{ matrix.shard }}.json
 
       - name: Upload layout report on failure
         if: failure()
@@ -83,6 +86,14 @@ jobs:
         with:
           name: layout-report-${{ matrix.shard }}
           path: layout-test-results/
+          retention-days: 7
+
+      - name: Upload flake audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-layout-${{ matrix.shard }}
+          path: flake-layout-${{ matrix.shard }}.json
           retention-days: 7
 
   e2e:
@@ -117,8 +128,10 @@ jobs:
         uses: ./.github/actions/playwright-browsers
 
       - name: E2E tests (Playwright)
-        run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        # TEMPORARY flake audit: no retries, repeat every test, keep the JSON report.
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }} --retries=0 --repeat-each=5 --reporter=json,dot
         env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: flake-e2e-${{ matrix.shard }}.json
           # The dev server the e2e suite boots reads this; requests are mocked in
           # the specs, so any base works. A local URL keeps unmocked calls from
           # reaching the network.
@@ -133,6 +146,14 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+      - name: Upload flake audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-e2e-${{ matrix.shard }}
+          path: flake-e2e-${{ matrix.shard }}.json
           retention-days: 7
 
   # Single status to depend on (callers' `needs: test`, branch protection),
