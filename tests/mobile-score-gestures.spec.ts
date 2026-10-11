@@ -385,29 +385,25 @@ async function center(locator: import('@playwright/test').Locator) {
 }
 
 test.describe('touch loop controls', () => {
-	test('the score toolbar is finger-sized, on screen and replaces the timeline toolbar', async ({
-		page
-	}) => {
+	test('loop controls dock in the transport, off the score, finger-sized', async ({ page }) => {
 		await openScore(page);
 		const cdp = await page.context().newCDPSession(page);
 		await selectBars(page, cdp, 0, 1);
-		const menu = page.locator('[data-loop-menu]');
-		await expect(menu).toBeVisible();
-		const box = (await menu.boundingBox())!;
-		const sheet = (await page.locator('#page').boundingBox())!;
-		expect(box.x).toBeGreaterThanOrEqual(0);
-		expect(box.x + box.width).toBeLessThanOrEqual(390);
-		expect(box.y).toBeGreaterThanOrEqual(sheet.y);
+		const bar = page.locator('[data-loop-bar]');
+		await expect(bar).toBeVisible();
+		await expect(bar).toContainText('Bars 1–2');
+		// Part of the transport, so it never floats over notes.
+		await expect(page.locator('[aria-label="Playback controls"] [data-loop-bar]')).toHaveCount(1);
+		await expect(page.locator('#loop-selection-overlay [data-loop-menu]')).toHaveCount(0);
 		for (const name of [
 			'Toggle selection loop',
 			'Play selection from start',
 			'Remove selection loop'
 		]) {
-			const button = (await menu.getByRole('button', { name, exact: true }).boundingBox())!;
+			const button = (await bar.getByRole('button', { name, exact: true }).boundingBox())!;
 			expect(button.width).toBeGreaterThanOrEqual(40);
 			expect(button.height).toBeGreaterThanOrEqual(40);
 		}
-		await expect(menu.getByText('drag_indicator')).toHaveCount(0);
 		await expect(page.locator('[data-loop-knob]')).toHaveCount(2);
 		await expect(
 			page.locator('[data-scrub-zone]').getByRole('button', { name: 'Toggle loop', exact: true })
@@ -417,19 +413,48 @@ test.describe('touch loop controls', () => {
 		await cdp.detach();
 	});
 
-	test('score toolbar buttons respond to taps', async ({ page }) => {
+	test('loop bar buttons respond to taps, including turning a loop back on', async ({ page }) => {
 		await openScore(page);
 		const cdp = await page.context().newCDPSession(page);
 		await selectBars(page, cdp, 1, 2);
-		const menu = page.locator('[data-loop-menu]');
-		const toggle = await center(menu.getByRole('button', { name: 'Toggle selection loop' }));
-		await page.touchscreen.tap(toggle.x, toggle.y);
+		const bar = page.locator('[data-loop-bar]');
+		const toggle = bar.getByRole('button', { name: 'Toggle selection loop' });
+		let point = await center(toggle);
+		await page.touchscreen.tap(point.x, point.y);
 		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 2, enabled: false });
+		await expect(bar).toContainText('Loop off');
+		point = await center(toggle);
+		await page.touchscreen.tap(point.x, point.y);
+		await expect.poll(() => loop(page)).toEqual({ startBar: 1, endBar: 2, enabled: true });
 
-		await selectBars(page, cdp, 1, 2);
-		const remove = await center(menu.getByRole('button', { name: 'Remove selection loop' }));
-		await page.touchscreen.tap(remove.x, remove.y);
+		point = await center(bar.getByRole('button', { name: 'Play selection from start' }));
+		await page.touchscreen.tap(point.x, point.y);
+		await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+		await page.getByRole('button', { name: 'Pause', exact: true }).tap();
+
+		point = await center(bar.getByRole('button', { name: 'Remove selection loop' }));
+		await page.touchscreen.tap(point.x, point.y);
 		await expect.poll(() => loop(page)).toBeNull();
+		await expect(bar).toHaveCount(0);
+		await cdp.detach();
+	});
+
+	test('the playing row stays above the loop bar', async ({ page }) => {
+		await openScore(page);
+		const cdp = await page.context().newCDPSession(page);
+		await selectBars(page, cdp, 2, 5);
+		await page.getByRole('button', { name: '1x', exact: true }).click();
+		await page.getByRole('menuitem', { name: '2x', exact: true }).click();
+		await page.getByRole('button', { name: 'Play', exact: true }).tap();
+		for (let i = 0; i < 6; i++) {
+			await page.waitForTimeout(500);
+			const { cursor, bar } = await page.evaluate(() => ({
+				cursor: document.querySelector('.at-cursor-beat')!.getBoundingClientRect().bottom,
+				bar: document.querySelector('[data-loop-bar]')!.getBoundingClientRect().top
+			}));
+			expect(cursor).toBeLessThanOrEqual(bar + 1);
+		}
+		await page.getByRole('button', { name: 'Pause', exact: true }).tap();
 		await cdp.detach();
 	});
 
