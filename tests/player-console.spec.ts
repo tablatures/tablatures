@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPageWithTex } from './helpers/setup';
+import { setupMockApi } from './helpers/mock-api';
+import { waitForScoreLoaded } from './helpers/wait';
 import { TEX_SCORES } from './helpers/alphatex';
 
 // Default (desktop) viewport: the panel is the tab-less docked master-detail
@@ -17,6 +19,62 @@ async function getStaffTuning(page: Page): Promise<{ tunings: number[]; capo: nu
 }
 
 test.describe('player console (large screens)', () => {
+	test('stays above the transport when scrolling to details and returns with the player', async ({
+		page
+	}) => {
+		await setupMockApi(page);
+		await page.route('**/api/recommendations*', (route) =>
+			route.fulfill({
+				json: {
+					results: Array.from({ length: 8 }, (_, i) => ({
+						id: `rec-${i}`,
+						title: `Recommended Song ${i}`,
+						artist: 'Test Artist',
+						source: 'songsterr',
+						type: 'Guitar Pro'
+					}))
+				}
+			})
+		);
+		await page.goto('/search?q=test');
+		await page.getByText('Test Song', { exact: true }).first().click();
+		await page.waitForURL('**/play**');
+		await waitForScoreLoaded(page);
+		await expect(page.getByText('Recommended Song 0', { exact: true })).toBeAttached();
+		await openConsole(page);
+		const panel = page.getByRole('dialog', { name: 'Player settings' });
+		const shell = page.locator('.play-shell');
+		const transport = page.getByRole('slider', { name: /Playback progress/ });
+		const panelBottom = async () => panel.evaluate((el) => el.getBoundingClientRect().bottom);
+		const transportTop = async () => transport.evaluate((el) => el.getBoundingClientRect().top);
+		await expect
+			.poll(async () => Math.abs((await panelBottom()) - (await transportTop())))
+			.toBeLessThanOrEqual(1);
+
+		// The score's own scroll does not move the docked console.
+		const initialBottom = await panelBottom();
+		await page.locator('#page').evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+		await expect.poll(panelBottom).toBe(initialBottom);
+
+		// Scrolling past the player must shrink the console above the transport,
+		// keeping the controls and below-fold recommendations unobstructed.
+		await shell.evaluate((el) => el.scrollTo({ top: 240 }));
+		await expect.poll(() => shell.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		await expect
+			.poll(async () => Math.abs((await panelBottom()) - (await transportTop())))
+			.toBeLessThanOrEqual(1);
+		await expect.poll(panelBottom).toBeLessThan(initialBottom - 100);
+		await page.screenshot({ path: test.info().outputPath('console-scrolled.png') });
+		await shell.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+		await expect(panel).toBeHidden();
+		await expect(page.getByText('Recommended Song 7', { exact: true })).toBeInViewport();
+
+		await shell.evaluate((el) => el.scrollTo({ top: 0 }));
+		await expect(panel).toBeVisible();
+		await expect.poll(panelBottom).toBe(initialBottom);
+		await expect(panel.getByRole('slider', { name: 'Metro knob' })).toBeVisible();
+	});
+
 	test('opens tab-less with everything visible and reflows the score', async ({ page }) => {
 		await setupPlayPageWithTex(page, TEX_SCORES.alternateTuning);
 		await openConsole(page);
