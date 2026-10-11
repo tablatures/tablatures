@@ -52,6 +52,7 @@
 	} from '../utils/playerStore';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
+	import { applyNotationView } from '../utils/notationView';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
 	import {
@@ -2545,12 +2546,16 @@
 		reEnableAutoFollow();
 	}
 
+	// A primitive, so unrelated preference changes do not rerender the score.
+	$: notationView = $preferencesStore.notationView;
+
 	$: if (api && tracks.length > 0 && scoreLoaded && scoreMatchesRequest && !pending) {
 		const track = tracks[activeTrackIndex] || tracks[0];
 		// renderTracks adopts the track's score, so a retained track must never
 		// overwrite a replacement parsed before this view receives its new props.
 		if (track && track.score === api.score) {
 			restoreScoreSession(api.score);
+			applyNotationView(api, track, notationView);
 			api.renderTracks([track]);
 		}
 	}
@@ -3242,6 +3247,10 @@
 				getFullViewListenerCount: () => getViewSubscriptionCount(get(playerApi)),
 				getTotalBars: () => totalBars,
 				getScale: () => ({ apiScale: api?.settings?.display?.scale, tabScale }),
+				getNotation: () => ({
+					staveProfile: api?.settings?.display?.staveProfile,
+					rhythmMode: api?.settings?.notation?.rhythmMode
+				}),
 				getSpeed: () => speed,
 				getVolume: () => volume,
 				getBarPositions: () => {
@@ -3925,6 +3934,7 @@
 
 	function setActiveTrack(trackIndex: number) {
 		activeTrackIndex = trackIndex;
+		applyNotationView(api, tracks[trackIndex], notationView);
 		api.renderTracks([tracks[trackIndex]]);
 		updatePlayerState({ activeTrackIndex: trackIndex });
 	}

@@ -4,6 +4,7 @@ import { base } from '$app/paths';
 import { dataReady } from '../data/init';
 import { prefsRepo } from '../data/repositories';
 import { PREF_KEY_PREFERENCES } from '../data/migrate';
+import type { NotationView } from './notationView';
 
 export interface UserPreferences {
 	soundFontUrl: string;
@@ -15,6 +16,7 @@ export interface UserPreferences {
 	audioSourcePreference: 'tab' | 'video' | 'both';
 	autoPlayOnLoad: boolean;
 	haptics: boolean;
+	notationView: NotationView;
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -79,7 +81,8 @@ const DEFAULTS: UserPreferences = {
 	miniPlayerScaleMobile: 0.7,
 	audioSourcePreference: 'video',
 	autoPlayOnLoad: false,
-	haptics: true
+	haptics: true,
+	notationView: 'tab'
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */

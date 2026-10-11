@@ -7,6 +7,7 @@
 	import MergeRail from '$components/MergeRail.svelte';
 	import LoopBar from '$components/LoopBar.svelte';
 	import { scoreEdits } from '$utils/scoreEdits';
+	import { preferencesStore } from '$utils/preferences';
 
 	export let api: any;
 	export let tracks: any[] = [];
@@ -180,6 +181,20 @@
 			</div>
 		</div>
 
+		<label
+			class="flex items-center justify-between px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300"
+		>
+			Notation
+			<select
+				aria-label="Notation"
+				bind:value={$preferencesStore.notationView}
+				class="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-2"
+			>
+				<option value="tab">Tab</option><option value="both">Tab + notation</option><option
+					value="score">Notation</option
+				>
+			</select>
+		</label>
 		<label
 			class="flex items-center justify-between px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300"
 		>

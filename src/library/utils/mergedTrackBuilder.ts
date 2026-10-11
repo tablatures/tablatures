@@ -19,6 +19,9 @@ import {
 	type SourceBar
 } from './trackMerge';
 import { readTrackTuning } from './transposition';
+import { get } from 'svelte/store';
+import { preferencesStore } from './preferences';
+import { applyNotationView } from './notationView';
 
 // --- Types ---
 
@@ -351,6 +354,7 @@ export function appendMergedTrack(api: any, params: MergeTrackParams): MergeTrac
 	try {
 		score.finish(api.settings);
 		if (typeof api.loadMidiForScore === 'function') api.loadMidiForScore();
+		applyNotationView(api, track, get(preferencesStore).notationView);
 		api.renderTracks([track]);
 	} catch {
 		const bytes = new alphaTab.exporter.Gp7Exporter().export(score, api.settings);

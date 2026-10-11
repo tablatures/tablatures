@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as at from '@coderline/alphatab';
 import { setupMockApi } from './helpers/mock-api';
-import { seekToPercent } from './helpers/setup';
+import { seekToPercent, useCombinedNotation } from './helpers/setup';
 import { waitForScoreLoaded } from './helpers/wait';
 
 test.use({ viewport: { width: 1488, height: 943 }, trace: 'retain-on-failure' });
@@ -63,7 +63,12 @@ async function cursorGeometry(page: Page) {
 			barTop: host.top + bar.y,
 			barBottom: host.top + bar.y + bar.h,
 			currentBar: bridge.getCurrentBar(),
-			scrollTop: document.querySelector('#page')!.scrollTop
+			scrollTop: document.querySelector('#page')!.scrollTop,
+			// Near the end of a short score the row cannot scroll up to the top
+			atMaxScroll: (() => {
+				const p = document.querySelector('#page')!;
+				return p.scrollTop >= p.scrollHeight - p.clientHeight - 1;
+			})()
 		};
 	});
 }
@@ -77,7 +82,7 @@ async function expectCursorVisible(page: Page) {
 			const anchor = Math.max(24, (g.viewportBottom - g.viewportTop) * 0.28);
 			return (
 				g.top >= g.viewportTop &&
-				g.top <= g.viewportTop + anchor + 4 &&
+				(g.top <= g.viewportTop + anchor + 4 || g.atMaxScroll) &&
 				g.bottom <= g.viewportBottom &&
 				g.top >= g.barTop - 2 &&
 				g.top <= g.barBottom
@@ -232,6 +237,7 @@ async function backToCursorIcon(page: Page) {
 test('Back to cursor appears only while the cursor is out of view, pointing to it', async ({
 	page
 }) => {
+	await useCombinedNotation(page);
 	await openScore(page);
 	await page.getByRole('button', { name: 'Close settings', exact: true }).click();
 	await settleLayout(page);
