@@ -4779,9 +4779,10 @@
 			<!-- Expanded hit area for easier interaction (overflow upward only to avoid
 			     buttons below). Collapsed while the mobile bottom sheet covers the
 			     area above the bar, otherwise the scrub would steal the touches that
-			     belong to the sheet's list rows, and under the touch loop bar. -->
+			     belong to the sheet's list rows, under the touch loop bar, and while
+			     the settings panel is open, whose bottom rows sit right above the bar. -->
 			<div
-				class="absolute inset-x-0 bottom-0 {sheetCoversScore || showTouchLoopBar
+				class="absolute inset-x-0 bottom-0 {sheetCoversScore || showTouchLoopBar || showSettings
 					? 'top-0'
 					: '-top-12'}"
 			/>
