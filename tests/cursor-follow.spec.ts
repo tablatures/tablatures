@@ -63,7 +63,12 @@ async function cursorGeometry(page: Page) {
 			barTop: host.top + bar.y,
 			barBottom: host.top + bar.y + bar.h,
 			currentBar: bridge.getCurrentBar(),
-			scrollTop: document.querySelector('#page')!.scrollTop
+			scrollTop: document.querySelector('#page')!.scrollTop,
+			// Near the end of a short score the row cannot scroll up to the top
+			atMaxScroll: (() => {
+				const p = document.querySelector('#page')!;
+				return p.scrollTop >= p.scrollHeight - p.clientHeight - 1;
+			})()
 		};
 	});
 }
@@ -77,7 +82,7 @@ async function expectCursorVisible(page: Page) {
 			const anchor = Math.max(24, (g.viewportBottom - g.viewportTop) * 0.28);
 			return (
 				g.top >= g.viewportTop &&
-				g.top <= g.viewportTop + anchor + 4 &&
+				(g.top <= g.viewportTop + anchor + 4 || g.atMaxScroll) &&
 				g.bottom <= g.viewportBottom &&
 				g.top >= g.barTop - 2 &&
 				g.top <= g.barBottom

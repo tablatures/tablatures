@@ -106,7 +106,11 @@ async function beatPoint(page: Page, bar: number, beat: number) {
 				api.score.tracks[0].staves[0].bars[bar].voices[0].beats[beat]
 			);
 			const host = document.getElementById('player-host')!.getBoundingClientRect();
-			return { x: host.x + b.onNotesX, y: host.y + b.realBounds.y + b.realBounds.h / 2 };
+			// Tied beats draw no fret number in tab view, so their note
+			// position sits on the beat's left edge. Hit testing needs a point
+			// strictly inside the beat.
+			const x = Math.max(b.onNotesX, b.realBounds.x + 1);
+			return { x: host.x + x, y: host.y + b.realBounds.y + b.realBounds.h / 2 };
 		},
 		{ bar, beat }
 	);
