@@ -1,0 +1,837 @@
+{
+	"version": "v1",
+	"sources": {
+		"musescore": {
+			"name": "MuseScore General 0.2",
+			"license": "MIT"
+		},
+		"generaluser": {
+			"name": "GeneralUser GS 2.0.1",
+			"license": "GeneralUser GS License v2.0"
+		}
+	},
+	"packs": {
+		"0:0": {
+			"file": "0-0.sf3",
+			"bytes": 461766,
+			"name": "Grand Piano",
+			"source": "generaluser"
+		},
+		"0:1": {
+			"file": "0-1.sf3",
+			"bytes": 461662,
+			"name": "Bright Grand Piano",
+			"source": "generaluser"
+		},
+		"0:2": {
+			"file": "0-2.sf3",
+			"bytes": 472320,
+			"name": "Electric Grand",
+			"source": "musescore"
+		},
+		"0:3": {
+			"file": "0-3.sf3",
+			"bytes": 530980,
+			"name": "Honky-Tonk Piano",
+			"source": "generaluser"
+		},
+		"0:4": {
+			"file": "0-4.sf3",
+			"bytes": 184492,
+			"name": "Tine Electric Piano",
+			"source": "musescore"
+		},
+		"0:5": {
+			"file": "0-5.sf3",
+			"bytes": 74916,
+			"name": "FM Electric Piano",
+			"source": "musescore"
+		},
+		"0:6": {
+			"file": "0-6.sf3",
+			"bytes": 284414,
+			"name": "Harpsichord",
+			"source": "musescore"
+		},
+		"0:7": {
+			"file": "0-7.sf3",
+			"bytes": 85066,
+			"name": "Clavinet",
+			"source": "musescore"
+		},
+		"0:8": {
+			"file": "0-8.sf3",
+			"bytes": 68818,
+			"name": "Celesta",
+			"source": "musescore"
+		},
+		"0:9": {
+			"file": "0-9.sf3",
+			"bytes": 101750,
+			"name": "Glockenspiel",
+			"source": "musescore"
+		},
+		"0:10": {
+			"file": "0-10.sf3",
+			"bytes": 37532,
+			"name": "Music Box",
+			"source": "musescore"
+		},
+		"0:11": {
+			"file": "0-11.sf3",
+			"bytes": 89274,
+			"name": "Vibraphone",
+			"source": "musescore"
+		},
+		"0:12": {
+			"file": "0-12.sf3",
+			"bytes": 125726,
+			"name": "Marimba",
+			"source": "musescore"
+		},
+		"0:13": {
+			"file": "0-13.sf3",
+			"bytes": 164664,
+			"name": "Xylophone",
+			"source": "musescore"
+		},
+		"0:14": {
+			"file": "0-14.sf3",
+			"bytes": 24300,
+			"name": "Tubular Bells",
+			"source": "musescore"
+		},
+		"0:15": {
+			"file": "0-15.sf3",
+			"bytes": 156874,
+			"name": "Dulcimer",
+			"source": "musescore"
+		},
+		"0:16": {
+			"file": "0-16.sf3",
+			"bytes": 19636,
+			"name": "Drawbar Organ",
+			"source": "musescore"
+		},
+		"0:17": {
+			"file": "0-17.sf3",
+			"bytes": 612222,
+			"name": "Percussive Organ",
+			"source": "musescore"
+		},
+		"0:18": {
+			"file": "0-18.sf3",
+			"bytes": 660284,
+			"name": "Rock Organ",
+			"source": "musescore"
+		},
+		"0:19": {
+			"file": "0-19.sf3",
+			"bytes": 624578,
+			"name": "Church Organ",
+			"source": "musescore"
+		},
+		"0:20": {
+			"file": "0-20.sf3",
+			"bytes": 46078,
+			"name": "Reed Organ",
+			"source": "musescore"
+		},
+		"0:21": {
+			"file": "0-21.sf3",
+			"bytes": 248236,
+			"name": "Accordion",
+			"source": "musescore"
+		},
+		"0:22": {
+			"file": "0-22.sf3",
+			"bytes": 105196,
+			"name": "Harmonica",
+			"source": "musescore"
+		},
+		"0:23": {
+			"file": "0-23.sf3",
+			"bytes": 352680,
+			"name": "Bandoneon",
+			"source": "musescore"
+		},
+		"0:24": {
+			"file": "0-24.sf3",
+			"bytes": 257518,
+			"name": "Nylon String Guitar",
+			"source": "musescore"
+		},
+		"0:25": {
+			"file": "0-25.sf3",
+			"bytes": 340296,
+			"name": "Steel String Guitar",
+			"source": "musescore"
+		},
+		"0:26": {
+			"file": "0-26.sf3",
+			"bytes": 183328,
+			"name": "Jazz Guitar",
+			"source": "musescore"
+		},
+		"0:27": {
+			"file": "0-27.sf3",
+			"bytes": 150452,
+			"name": "Clean Guitar",
+			"source": "musescore"
+		},
+		"0:28": {
+			"file": "0-28.sf3",
+			"bytes": 127912,
+			"name": "Palm Muted Guitar",
+			"source": "musescore"
+		},
+		"0:29": {
+			"file": "0-29.sf3",
+			"bytes": 578616,
+			"name": "Overdrive Guitar",
+			"source": "musescore"
+		},
+		"0:30": {
+			"file": "0-30.sf3",
+			"bytes": 491702,
+			"name": "Distortion Guitar",
+			"source": "musescore"
+		},
+		"0:31": {
+			"file": "0-31.sf3",
+			"bytes": 117646,
+			"name": "Guitar Harmonics",
+			"source": "musescore"
+		},
+		"0:32": {
+			"file": "0-32.sf3",
+			"bytes": 159144,
+			"name": "Acoustic Bass",
+			"source": "musescore"
+		},
+		"0:33": {
+			"file": "0-33.sf3",
+			"bytes": 236132,
+			"name": "Fingered Bass",
+			"source": "musescore"
+		},
+		"0:34": {
+			"file": "0-34.sf3",
+			"bytes": 318606,
+			"name": "Picked Bass",
+			"source": "musescore"
+		},
+		"0:35": {
+			"file": "0-35.sf3",
+			"bytes": 198254,
+			"name": "Fretless Bass",
+			"source": "musescore"
+		},
+		"0:36": {
+			"file": "0-36.sf3",
+			"bytes": 401778,
+			"name": "Slap Bass",
+			"source": "musescore"
+		},
+		"0:37": {
+			"file": "0-37.sf3",
+			"bytes": 441380,
+			"name": "Pop Bass",
+			"source": "musescore"
+		},
+		"0:38": {
+			"file": "0-38.sf3",
+			"bytes": 114918,
+			"name": "Synth Bass 1",
+			"source": "musescore"
+		},
+		"0:39": {
+			"file": "0-39.sf3",
+			"bytes": 87282,
+			"name": "Synth Bass 2",
+			"source": "musescore"
+		},
+		"0:40": {
+			"file": "0-40.sf3",
+			"bytes": 347002,
+			"name": "Violin",
+			"source": "musescore"
+		},
+		"0:41": {
+			"file": "0-41.sf3",
+			"bytes": 392000,
+			"name": "Viola",
+			"source": "musescore"
+		},
+		"0:42": {
+			"file": "0-42.sf3",
+			"bytes": 310564,
+			"name": "Cello",
+			"source": "musescore"
+		},
+		"0:43": {
+			"file": "0-43.sf3",
+			"bytes": 449872,
+			"name": "Contrabass",
+			"source": "musescore"
+		},
+		"0:44": {
+			"file": "0-44.sf3",
+			"bytes": 1262776,
+			"name": "Strings Tremolo",
+			"source": "musescore"
+		},
+		"0:45": {
+			"file": "0-45.sf3",
+			"bytes": 627364,
+			"name": "Strings Pizzicato",
+			"source": "musescore"
+		},
+		"0:46": {
+			"file": "0-46.sf3",
+			"bytes": 172940,
+			"name": "Harp",
+			"source": "musescore"
+		},
+		"0:47": {
+			"file": "0-47.sf3",
+			"bytes": 131948,
+			"name": "Timpani",
+			"source": "musescore"
+		},
+		"0:48": {
+			"file": "0-48.sf3",
+			"bytes": 1262760,
+			"name": "Strings Fast",
+			"source": "musescore"
+		},
+		"0:49": {
+			"file": "0-49.sf3",
+			"bytes": 1262764,
+			"name": "Strings Slow",
+			"source": "musescore"
+		},
+		"0:50": {
+			"file": "0-50.sf3",
+			"bytes": 483604,
+			"name": "Synth Strings 1",
+			"source": "musescore"
+		},
+		"0:51": {
+			"file": "0-51.sf3",
+			"bytes": 483632,
+			"name": "Synth Strings 2",
+			"source": "musescore"
+		},
+		"0:52": {
+			"file": "0-52.sf3",
+			"bytes": 1093700,
+			"name": "Choir Aahs",
+			"source": "musescore"
+		},
+		"0:53": {
+			"file": "0-53.sf3",
+			"bytes": 155928,
+			"name": "Voice Oohs",
+			"source": "musescore"
+		},
+		"0:54": {
+			"file": "0-54.sf3",
+			"bytes": 180744,
+			"name": "Synth Voice",
+			"source": "musescore"
+		},
+		"0:55": {
+			"file": "0-55.sf3",
+			"bytes": 28276,
+			"name": "Orchestra Hit",
+			"source": "musescore"
+		},
+		"0:56": {
+			"file": "0-56.sf3",
+			"bytes": 70180,
+			"name": "Trumpet",
+			"source": "musescore"
+		},
+		"0:57": {
+			"file": "0-57.sf3",
+			"bytes": 135754,
+			"name": "Trombone",
+			"source": "musescore"
+		},
+		"0:58": {
+			"file": "0-58.sf3",
+			"bytes": 60312,
+			"name": "Tuba",
+			"source": "musescore"
+		},
+		"0:59": {
+			"file": "0-59.sf3",
+			"bytes": 72118,
+			"name": "Harmon Mute Trumpet",
+			"source": "musescore"
+		},
+		"0:60": {
+			"file": "0-60.sf3",
+			"bytes": 370278,
+			"name": "French Horns",
+			"source": "musescore"
+		},
+		"0:61": {
+			"file": "0-61.sf3",
+			"bytes": 686358,
+			"name": "Brass Section",
+			"source": "musescore"
+		},
+		"0:62": {
+			"file": "0-62.sf3",
+			"bytes": 56162,
+			"name": "Synth Brass 1",
+			"source": "musescore"
+		},
+		"0:63": {
+			"file": "0-63.sf3",
+			"bytes": 56166,
+			"name": "Synth Brass 2",
+			"source": "musescore"
+		},
+		"0:64": {
+			"file": "0-64.sf3",
+			"bytes": 292398,
+			"name": "Soprano Sax",
+			"source": "musescore"
+		},
+		"0:65": {
+			"file": "0-65.sf3",
+			"bytes": 253646,
+			"name": "Alto Sax",
+			"source": "musescore"
+		},
+		"0:66": {
+			"file": "0-66.sf3",
+			"bytes": 534854,
+			"name": "Tenor Sax",
+			"source": "musescore"
+		},
+		"0:67": {
+			"file": "0-67.sf3",
+			"bytes": 750222,
+			"name": "Baritone Sax",
+			"source": "musescore"
+		},
+		"0:68": {
+			"file": "0-68.sf3",
+			"bytes": 107990,
+			"name": "Oboe",
+			"source": "musescore"
+		},
+		"0:69": {
+			"file": "0-69.sf3",
+			"bytes": 238910,
+			"name": "English Horn",
+			"source": "musescore"
+		},
+		"0:70": {
+			"file": "0-70.sf3",
+			"bytes": 189612,
+			"name": "Bassoon",
+			"source": "musescore"
+		},
+		"0:71": {
+			"file": "0-71.sf3",
+			"bytes": 104762,
+			"name": "Clarinet",
+			"source": "musescore"
+		},
+		"0:72": {
+			"file": "0-72.sf3",
+			"bytes": 133762,
+			"name": "Piccolo",
+			"source": "musescore"
+		},
+		"0:73": {
+			"file": "0-73.sf3",
+			"bytes": 146528,
+			"name": "Flute",
+			"source": "musescore"
+		},
+		"0:74": {
+			"file": "0-74.sf3",
+			"bytes": 127122,
+			"name": "Recorder",
+			"source": "musescore"
+		},
+		"0:75": {
+			"file": "0-75.sf3",
+			"bytes": 95396,
+			"name": "Pan Flute",
+			"source": "musescore"
+		},
+		"0:76": {
+			"file": "0-76.sf3",
+			"bytes": 14566,
+			"name": "Bottle Chiff",
+			"source": "musescore"
+		},
+		"0:77": {
+			"file": "0-77.sf3",
+			"bytes": 25600,
+			"name": "Shakuhachi",
+			"source": "musescore"
+		},
+		"0:78": {
+			"file": "0-78.sf3",
+			"bytes": 8918,
+			"name": "Whistle",
+			"source": "musescore"
+		},
+		"0:79": {
+			"file": "0-79.sf3",
+			"bytes": 90696,
+			"name": "Ocarina",
+			"source": "musescore"
+		},
+		"0:80": {
+			"file": "0-80.sf3",
+			"bytes": 58866,
+			"name": "Square Lead",
+			"source": "musescore"
+		},
+		"0:81": {
+			"file": "0-81.sf3",
+			"bytes": 56002,
+			"name": "Saw Lead",
+			"source": "musescore"
+		},
+		"0:82": {
+			"file": "0-82.sf3",
+			"bytes": 27698,
+			"name": "Calliope Lead",
+			"source": "musescore"
+		},
+		"0:83": {
+			"file": "0-83.sf3",
+			"bytes": 43290,
+			"name": "Chiffer Lead",
+			"source": "musescore"
+		},
+		"0:84": {
+			"file": "0-84.sf3",
+			"bytes": 162752,
+			"name": "Charang",
+			"source": "musescore"
+		},
+		"0:85": {
+			"file": "0-85.sf3",
+			"bytes": 152170,
+			"name": "Solo Vox",
+			"source": "musescore"
+		},
+		"0:86": {
+			"file": "0-86.sf3",
+			"bytes": 538422,
+			"name": "5th Saw Wave",
+			"source": "musescore"
+		},
+		"0:87": {
+			"file": "0-87.sf3",
+			"bytes": 173052,
+			"name": "Bass & Lead",
+			"source": "musescore"
+		},
+		"0:88": {
+			"file": "0-88.sf3",
+			"bytes": 521048,
+			"name": "Fantasia",
+			"source": "musescore"
+		},
+		"0:89": {
+			"file": "0-89.sf3",
+			"bytes": 636182,
+			"name": "Warm Pad",
+			"source": "musescore"
+		},
+		"0:90": {
+			"file": "0-90.sf3",
+			"bytes": 483458,
+			"name": "Polysynth",
+			"source": "musescore"
+		},
+		"0:91": {
+			"file": "0-91.sf3",
+			"bytes": 200034,
+			"name": "Space Voice",
+			"source": "musescore"
+		},
+		"0:92": {
+			"file": "0-92.sf3",
+			"bytes": 514542,
+			"name": "Bowed Glass",
+			"source": "musescore"
+		},
+		"0:93": {
+			"file": "0-93.sf3",
+			"bytes": 819548,
+			"name": "Metal Pad",
+			"source": "musescore"
+		},
+		"0:94": {
+			"file": "0-94.sf3",
+			"bytes": 663440,
+			"name": "Halo Pad",
+			"source": "musescore"
+		},
+		"0:95": {
+			"file": "0-95.sf3",
+			"bytes": 483632,
+			"name": "Sweep Pad",
+			"source": "musescore"
+		},
+		"0:96": {
+			"file": "0-96.sf3",
+			"bytes": 511476,
+			"name": "Ice Rain",
+			"source": "musescore"
+		},
+		"0:97": {
+			"file": "0-97.sf3",
+			"bytes": 483632,
+			"name": "Soundtrack",
+			"source": "musescore"
+		},
+		"0:98": {
+			"file": "0-98.sf3",
+			"bytes": 38534,
+			"name": "Crystal",
+			"source": "musescore"
+		},
+		"0:99": {
+			"file": "0-99.sf3",
+			"bytes": 740182,
+			"name": "Atmosphere",
+			"source": "musescore"
+		},
+		"0:100": {
+			"file": "0-100.sf3",
+			"bytes": 687526,
+			"name": "Brightness",
+			"source": "musescore"
+		},
+		"0:101": {
+			"file": "0-101.sf3",
+			"bytes": 58294,
+			"name": "Goblin",
+			"source": "musescore"
+		},
+		"0:102": {
+			"file": "0-102.sf3",
+			"bytes": 727456,
+			"name": "Echo Drops",
+			"source": "musescore"
+		},
+		"0:103": {
+			"file": "0-103.sf3",
+			"bytes": 632734,
+			"name": "Star Theme",
+			"source": "musescore"
+		},
+		"0:104": {
+			"file": "0-104.sf3",
+			"bytes": 95652,
+			"name": "Sitar",
+			"source": "musescore"
+		},
+		"0:105": {
+			"file": "0-105.sf3",
+			"bytes": 151492,
+			"name": "Banjo",
+			"source": "musescore"
+		},
+		"0:106": {
+			"file": "0-106.sf3",
+			"bytes": 57266,
+			"name": "Shamisen",
+			"source": "musescore"
+		},
+		"0:107": {
+			"file": "0-107.sf3",
+			"bytes": 27266,
+			"name": "Koto",
+			"source": "musescore"
+		},
+		"0:108": {
+			"file": "0-108.sf3",
+			"bytes": 58382,
+			"name": "Kalimba",
+			"source": "musescore"
+		},
+		"0:109": {
+			"file": "0-109.sf3",
+			"bytes": 165164,
+			"name": "Bagpipe",
+			"source": "musescore"
+		},
+		"0:110": {
+			"file": "0-110.sf3",
+			"bytes": 346986,
+			"name": "Fiddle",
+			"source": "musescore"
+		},
+		"0:111": {
+			"file": "0-111.sf3",
+			"bytes": 36532,
+			"name": "Shenai",
+			"source": "musescore"
+		},
+		"0:112": {
+			"file": "0-112.sf3",
+			"bytes": 7286,
+			"name": "Tinker Bell",
+			"source": "musescore"
+		},
+		"0:113": {
+			"file": "0-113.sf3",
+			"bytes": 9400,
+			"name": "Agogo",
+			"source": "musescore"
+		},
+		"0:114": {
+			"file": "0-114.sf3",
+			"bytes": 34700,
+			"name": "Steel Drums",
+			"source": "musescore"
+		},
+		"0:115": {
+			"file": "0-115.sf3",
+			"bytes": 9448,
+			"name": "Woodblock",
+			"source": "musescore"
+		},
+		"0:116": {
+			"file": "0-116.sf3",
+			"bytes": 16302,
+			"name": "Taiko Drum",
+			"source": "musescore"
+		},
+		"0:117": {
+			"file": "0-117.sf3",
+			"bytes": 18012,
+			"name": "Melodic Tom",
+			"source": "musescore"
+		},
+		"0:118": {
+			"file": "0-118.sf3",
+			"bytes": 26502,
+			"name": "Synth Drum",
+			"source": "musescore"
+		},
+		"0:119": {
+			"file": "0-119.sf3",
+			"bytes": 36116,
+			"name": "Reverse Cymbal",
+			"source": "musescore"
+		},
+		"0:120": {
+			"file": "0-120.sf3",
+			"bytes": 9314,
+			"name": "Fret Noise",
+			"source": "musescore"
+		},
+		"0:121": {
+			"file": "0-121.sf3",
+			"bytes": 8800,
+			"name": "Breath Noise",
+			"source": "musescore"
+		},
+		"0:122": {
+			"file": "0-122.sf3",
+			"bytes": 30072,
+			"name": "Sea Shore",
+			"source": "musescore"
+		},
+		"0:123": {
+			"file": "0-123.sf3",
+			"bytes": 24024,
+			"name": "Bird Tweet",
+			"source": "musescore"
+		},
+		"0:124": {
+			"file": "0-124.sf3",
+			"bytes": 55662,
+			"name": "Telephone",
+			"source": "musescore"
+		},
+		"0:125": {
+			"file": "0-125.sf3",
+			"bytes": 16330,
+			"name": "Helicopter",
+			"source": "musescore"
+		},
+		"0:126": {
+			"file": "0-126.sf3",
+			"bytes": 58340,
+			"name": "Applause",
+			"source": "musescore"
+		},
+		"0:127": {
+			"file": "0-127.sf3",
+			"bytes": 11218,
+			"name": "Gun Shot",
+			"source": "musescore"
+		},
+		"128:0": {
+			"file": "128-0.sf3",
+			"bytes": 1304764,
+			"name": "Standard",
+			"source": "musescore"
+		},
+		"128:8": {
+			"file": "128-8.sf3",
+			"bytes": 1307324,
+			"name": "Room",
+			"source": "musescore"
+		},
+		"128:16": {
+			"file": "128-16.sf3",
+			"bytes": 1325342,
+			"name": "Power",
+			"source": "musescore"
+		},
+		"128:24": {
+			"file": "128-24.sf3",
+			"bytes": 1231678,
+			"name": "Electronic",
+			"source": "musescore"
+		},
+		"128:25": {
+			"file": "128-25.sf3",
+			"bytes": 1293928,
+			"name": "TR-808",
+			"source": "musescore"
+		},
+		"128:32": {
+			"file": "128-32.sf3",
+			"bytes": 1302902,
+			"name": "Jazz",
+			"source": "musescore"
+		},
+		"128:40": {
+			"file": "128-40.sf3",
+			"bytes": 1317994,
+			"name": "Brush",
+			"source": "musescore"
+		},
+		"128:48": {
+			"file": "128-48.sf3",
+			"bytes": 911246,
+			"name": "Orchestra Kit",
+			"source": "musescore"
+		},
+		"128:56": {
+			"file": "128-56.sf3",
+			"bytes": 319916,
+			"name": "Marching Snare",
+			"source": "musescore"
+		}
+	}
+}
