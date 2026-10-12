@@ -16,7 +16,8 @@
 		"test:e2e": "node scripts/test-e2e.mjs",
 		"test:stability": "node scripts/test-e2e.mjs --repeat-each=5 --retries=0",
 		"test:layout": "playwright test --config playwright.layout.config.ts",
-		"instruments:build": "node scripts/instrument-packs/build.mjs"
+		"instruments:build": "node scripts/instrument-packs/build.mjs",
+		"test:player": "vitest run src/library/utils/playerTransport.test.ts src/library/utils/practicePlayback.test.ts src/library/utils/videoSession.test.ts src/library/utils/playerTiming.test.ts src/library/utils/loopRegion.test.ts src/library/utils/barClock.test.ts src/library/utils/speedTrainer.test.ts"
 	},
 	"devDependencies": {
 		"@capacitor-community/keep-awake": "^8.0.1",
