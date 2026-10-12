@@ -114,6 +114,11 @@ pnpm run build
 pnpm run preview
 ```
 
+## Tests
+
+See [the testing guide](docs/testing.md) for focused commands, regression coverage,
+and failure triage. Use `pnpm test:e2e <spec>` for isolated ports and failure reports.
+
 ## Studio instrument packs
 
 `static/instruments/v1/` holds one small SoundFont per General MIDI program and GS drum kit, split losslessly from [MuseScore General](https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/) (MIT) and, for the pianos MuseScore makes too heavy, [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS). The player loads only the packs the open tab plays, on top of the bundled Sonivox bank, and falls back to Sonivox offline. Credits and licenses are in `static/instruments/v1/LICENSE.md`.

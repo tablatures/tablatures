@@ -1,7 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { setupPlayPage, setupSearchPage, seekToPercent } from './helpers/setup';
-import { waitForScoreLoaded, waitForPlaying, waitForProgressAbove, waitForProgressNear, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
-import { setupMockApi } from './helpers/mock-api';
+import {
+	waitForScoreLoaded,
+	waitForPlaying,
+	waitForProgressAbove,
+	waitForSeekSettled,
+	getTestApi,
+	sampleProgress
+} from './helpers/wait';
 
 test.describe('Core Playback', () => {
 	// --- Test 1: Search, select, and load a tab ---
@@ -131,10 +137,9 @@ test.describe('Core Playback', () => {
 		await seekToPercent(page, 0);
 		await waitForSeekSettled(page, 0, 10);
 		await page.keyboard.press('ArrowLeft');
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getCurrentBar() === 0,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getCurrentBar() === 0, undefined, {
+			timeout: 2000
+		});
 
 		// Verify ArrowRight at or near the end doesn't crash or overflow
 		const totalBars = await getTestApi<number>(page, 'getTotalBars');
@@ -164,11 +169,11 @@ test.describe('Core Playback', () => {
 		for (let i = 0; i < 5; i++) {
 			const result = await page.evaluate(() => {
 				const api = (window as any).__testApi;
-				if (!api) return null;
+				if (!api) throw new Error('Player bridge missing');
 				const progress = api.getProgress();
 				const duration = api.getDuration();
 				const timeEl = document.body.innerText.match(/(\d{2}:\d{2})\s*\/\s*(\d{2}:\d{2})/);
-				if (!timeEl) return null;
+				if (!timeEl) throw new Error('Playback time display missing');
 				const parseMmSs = (s: string) => {
 					const [m, sec] = s.split(':').map(Number);
 					return m * 60 + sec;
@@ -176,11 +181,14 @@ test.describe('Core Playback', () => {
 				const currentSec = parseMmSs(timeEl[1]);
 				const totalSec = parseMmSs(timeEl[2]);
 				const displayProgress = totalSec > 0 ? (currentSec / totalSec) * 100 : 0;
-				return { progress, displayProgress, duration };
+				return { progress, displayProgress, duration, currentSec, totalSec };
 			});
-			if (result && result.duration > 0) {
-				expect(Math.abs(result.progress - result.displayProgress)).toBeLessThan(3);
-			}
+			expect(result.duration).toBeGreaterThan(0);
+			expect(Math.abs(result.progress - result.displayProgress)).toBeLessThan(3);
+			expect(
+				Math.abs(result.currentSec - ((result.progress / 100) * result.duration) / 1000)
+			).toBeLessThan(2);
+			expect(Math.abs(result.totalSec - result.duration / 1000)).toBeLessThan(1);
 			// Wait for progress to advance ~1% before next sample
 			const current = await getTestApi<number>(page, 'getProgress');
 			await waitForProgressAbove(page, current + 0.5);
@@ -251,10 +259,9 @@ test.describe('Core Playback', () => {
 		}
 
 		// Wait for state to settle
-		await page.waitForFunction(
-			() => (window as any).__testApi !== undefined,
-			{ timeout: 5000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi !== undefined, undefined, {
+			timeout: 5000
+		});
 		const playing = await getTestApi<boolean>(page, 'isPlaying');
 
 		const playerErrors = errors.filter(
@@ -279,35 +286,6 @@ test.describe('Core Playback', () => {
 
 		const durationDuring = await getTestApi<number>(page, 'getDuration');
 		expect(durationDuring).toBe(durationBefore);
-
-		await page.keyboard.press('Space');
-	});
-
-	// --- Test 32: Time display matches progress throughout ---
-	test('time display stays in sync with progress over time', async ({ page }) => {
-		await setupPlayPage(page);
-
-		await page.keyboard.press('Space');
-		await waitForProgressAbove(page, 1);
-
-		for (let i = 0; i < 5; i++) {
-			const synced = await page.evaluate(() => {
-				const api = (window as any).__testApi;
-				if (!api) return true;
-				const progress = api.getProgress();
-				const duration = api.getDuration();
-				const currentTimeSec = (progress / 100) * (duration / 1000);
-				const timeEl = document.body.innerText.match(/(\d{2}:\d{2})\s*\/\s*\d{2}:\d{2}/);
-				if (!timeEl) return true;
-				const [m, s] = timeEl[1].split(':').map(Number);
-				const displaySec = m * 60 + s;
-				return Math.abs(displaySec - currentTimeSec) < 2;
-			});
-			expect(synced).toBe(true);
-			// Wait for progress to advance before next check
-			const current = await getTestApi<number>(page, 'getProgress');
-			await waitForProgressAbove(page, current + 0.5);
-		}
 
 		await page.keyboard.press('Space');
 	});

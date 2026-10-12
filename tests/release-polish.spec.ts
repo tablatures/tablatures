@@ -86,12 +86,10 @@ test.describe('mini player close / hide controls', () => {
 	test('bar has one modest X that quits; the PiP toggle owns show/hide', async ({ page }) => {
 		await setupPlayPage(page);
 		await waitForScoreLoaded(page);
-		await page.waitForTimeout(800);
 
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		await page.getByRole('link', { name: 'Settings' }).first().click();
 		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
-		await page.waitForTimeout(700);
 
 		// The redundant collapse/minimize button is gone from the bar entirely.
 		await expect(page.getByRole('button', { name: 'Minimize preview' })).toHaveCount(0);
@@ -116,14 +114,14 @@ test.describe('mini player close / hide controls', () => {
 
 		// Toggling it off hides the preview and keeps the bar; toggling on restores.
 		await pip.click();
-		await page.waitForTimeout(400);
 		await expect(page.locator('.player-host-mini')).toHaveCount(0);
 		const restore = page.getByRole('button', { name: 'Show tab preview' }).last();
 		await expect(restore).toBeVisible();
 		await expect(restore).toHaveAttribute('aria-pressed', 'false');
+		await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
+		await expect.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(true);
 
 		await restore.click();
-		await page.waitForTimeout(500);
 		await expect(page.locator('.player-host-mini')).toBeVisible();
 	});
 

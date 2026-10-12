@@ -2,14 +2,15 @@ import { type Page } from '@playwright/test';
 
 /**
  * Wait for the score to finish loading in alphaTab.
- * Polls window.__testApi.getDuration() until it returns > 0.
+ * Waits for a positive duration and native audio readiness.
  */
 export async function waitForScoreLoaded(page: Page, timeout = 30000): Promise<void> {
 	await page.waitForFunction(
 		() => {
 			const api = (window as any).__testApi;
-			return api && api.getDuration() > 0;
+			return api && api.getDuration() > 0 && api.getApi()?.isReadyForPlayback;
 		},
+		undefined,
 		{ timeout, polling: 500 }
 	);
 }
@@ -70,10 +71,10 @@ export async function waitForProgressNear(
  * Wait for the __testApi bridge to be available.
  */
 export async function waitForBridge(page: Page, timeout = 30000): Promise<void> {
-	await page.waitForFunction(
-		() => !!(window as any).__testApi,
-		{ timeout, polling: 500 }
-	);
+	await page.waitForFunction(() => !!(window as any).__testApi, undefined, {
+		timeout,
+		polling: 500
+	});
 }
 
 /**
@@ -110,7 +111,11 @@ export async function getTestApi<T>(page: Page, getter: string): Promise<T> {
  * Sample progress N times with a delay between samples.
  * Returns an array of progress values.
  */
-export async function sampleProgress(page: Page, count: number, intervalMs: number): Promise<number[]> {
+export async function sampleProgress(
+	page: Page,
+	count: number,
+	intervalMs: number
+): Promise<number[]> {
 	return page.evaluate(
 		({ count, intervalMs }) => {
 			return new Promise<number[]>((resolve) => {

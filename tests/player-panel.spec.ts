@@ -8,26 +8,17 @@ test.use({ viewport: { width: 390, height: 820 } });
 
 async function openPanel(page: Page): Promise<void> {
 	const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-	if (!(await settingsBtn.isVisible())) {
-		await page.keyboard.press('s');
-	} else {
-		await settingsBtn.click();
-	}
+	await settingsBtn.click();
 	await expect(page.locator('[role="dialog"]')).toBeVisible();
 }
 
 test.describe('player console (mobile full-screen)', () => {
-	test('opens from the settings button with the track console (no tabs)', async ({ page }) => {
+	test('opens a full-screen track console and closes via its button', async ({ page }) => {
 		await setupPlayPage(page);
 		await openPanel(page);
 		// The unified console is used everywhere now — no tab strip.
 		await expect(page.locator('[role="dialog"] [role="tablist"]')).toHaveCount(0);
 		await expect(page.locator('[role="dialog"]').getByText(/Tracks \(/)).toBeVisible();
-	});
-
-	test('covers the full viewport (over the top and bottom bars)', async ({ page }) => {
-		await setupPlayPage(page);
-		await openPanel(page);
 
 		const viewport = page.viewportSize()!;
 		const panelBox = await page.locator('[role="dialog"]').boundingBox();
@@ -35,11 +26,6 @@ test.describe('player console (mobile full-screen)', () => {
 		// Full-screen overlay: starts at the very top and spans the whole viewport.
 		expect(panelBox!.y).toBeLessThanOrEqual(1);
 		expect(panelBox!.height).toBeGreaterThanOrEqual(viewport.height - 1);
-	});
-
-	test('closes via the close button', async ({ page }) => {
-		await setupPlayPage(page);
-		await openPanel(page);
 
 		await page.locator('button[aria-label="Close settings"]').click();
 		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
