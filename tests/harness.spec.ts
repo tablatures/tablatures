@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { setupPlayPageWithTex } from './helpers/setup';
+import { setupPlayPageWithTex, seekToPercent } from './helpers/setup';
 import { loadAlphaTexScore, TEX_SCORES } from './helpers/alphatex';
-import { waitForBridge, waitForScoreLoaded } from './helpers/wait';
+import { waitForBridge, waitForScoreLoaded, waitForSeekSettled } from './helpers/wait';
 
 test('score replacement accepts identical duration and repeated identical content', async ({
 	page
@@ -24,4 +24,40 @@ test('readiness helpers honor their timeout instead of Playwright defaults', asy
 	await page.goto('about:blank');
 	await expect(waitForBridge(page, 50)).rejects.toThrow(/Timeout 50ms/);
 	await expect(waitForScoreLoaded(page, 50)).rejects.toThrow(/Timeout 50ms/);
+});
+
+test('seek settling waits for worker acknowledgement rather than optimistic progress', async ({
+	page
+}) => {
+	await page.goto('about:blank');
+	await page.setContent(
+		'<div role="slider" aria-label="Playback progress" style="width: 500px; height: 20px"></div>'
+	);
+	await page.evaluate(() => {
+		const listeners = new Set<(event: { currentTime: number; endTime: number }) => void>();
+		const api = {
+			playerPositionChanged: {
+				on: (listener: (event: { currentTime: number; endTime: number }) => void) =>
+					listeners.add(listener),
+				off: (listener: (event: { currentTime: number; endTime: number }) => void) =>
+					listeners.delete(listener)
+			}
+		};
+		let progress = 0;
+		document.querySelector('[role="slider"]')!.addEventListener('click', () => {
+			progress = 90;
+		});
+		(window as any).__testApi = {
+			getProgress: () => progress,
+			getApi: () => api,
+			acknowledge: (value: number) =>
+				listeners.forEach((listener) => listener({ currentTime: value, endTime: 100 }))
+		};
+	});
+	await seekToPercent(page, 90);
+	await expect(waitForSeekSettled(page, 90, 5, 50)).rejects.toThrow(/Timeout 50ms/);
+	await page.evaluate(() => (window as any).__testApi.acknowledge(30));
+	await expect(waitForSeekSettled(page, 90, 5, 50)).rejects.toThrow(/Timeout 50ms/);
+	await page.evaluate(() => (window as any).__testApi.acknowledge(90));
+	await waitForSeekSettled(page, 90, 5, 1000);
 });

@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { setupMockApi } from './mock-api';
-import { waitForScoreLoaded } from './wait';
+import { waitForScoreLoaded, observeSeekAcknowledgement } from './wait';
 import { loadAlphaTexScore } from './alphatex';
 
 /**
@@ -40,6 +40,7 @@ export async function seekToPercent(page: Page, percent: number): Promise<void> 
 	if (!box) throw new Error('Progress bar not found');
 	const x = box.x + (percent / 100) * box.width;
 	const y = box.y + box.height / 2;
+	await observeSeekAcknowledgement(page);
 	await page.mouse.click(x, y);
 }
 

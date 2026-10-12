@@ -77,9 +77,28 @@ export async function waitForBridge(page: Page, timeout = 30000): Promise<void> 
 	});
 }
 
-/**
- * Wait for a seek to settle — progress is near the target and stable.
- */
+/** Subscribe before the click: both UI progress and alphaTab's time getter are
+ * optimistic writes. Only the position event acknowledges a worker seek. */
+export async function observeSeekAcknowledgement(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const win = window as any;
+		win.__testSeekObservation?.dispose();
+		const api = win.__testApi.getApi();
+		const observation = {
+			progress: null as number | null,
+			dispose: () => api.playerPositionChanged.off(onPosition)
+		};
+		const onPosition = (event: { currentTime: number; endTime: number }) => {
+			observation.progress = event.endTime > 0 ? (100 * event.currentTime) / event.endTime : 0;
+		};
+		api.playerPositionChanged.on(onPosition);
+		win.__testSeekObservation = observation;
+	});
+}
+
+/** Wait until both the displayed position and the worker acknowledge the target.
+ * Call seekToPercent first to observe events before sending the seek. Stability
+ * after that acknowledgement is asserted by callers' progress samples. */
 export async function waitForSeekSettled(
 	page: Page,
 	targetPercent: number,
@@ -89,7 +108,14 @@ export async function waitForSeekSettled(
 	await page.waitForFunction(
 		({ target, tol }) => {
 			const api = (window as any).__testApi;
-			return api && Math.abs(api.getProgress() - target) < tol;
+			const acknowledged = (window as any).__testSeekObservation?.progress;
+			return (
+				api &&
+				acknowledged !== null &&
+				acknowledged !== undefined &&
+				Math.abs(acknowledged - target) < tol &&
+				Math.abs(api.getProgress() - target) < tol
+			);
 		},
 		{ target: targetPercent, tol: tolerance },
 		{ timeout, polling: 100 }
