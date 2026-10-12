@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { setupMockApi } from './mock-api';
 import { waitForScoreLoaded } from './wait';
 import { loadAlphaTexScore } from './alphatex';
@@ -63,11 +63,23 @@ export async function dragProgressBar(
 	const startX = box.x + (startPercent / 100) * box.width;
 	const endX = box.x + (endPercent / 100) * box.width;
 	const y = box.y + box.height / 2;
+	const loopNow = () =>
+		page.evaluate(() => {
+			const t = (window as any).__testApi;
+			return JSON.stringify([t.getLoopTicks?.(), t.getLoopBounds?.()]);
+		});
+	const before = await loopNow();
 	await page.mouse.move(startX, y);
 	await page.mouse.down();
 	// Hold still (< LONG_PRESS_MOVE_CANCEL_PX movement) past LONG_PRESS_MS so the
-	// hold fires and seeds the loop at the anchor bar.
+	// hold fires and seeds the loop at the anchor. Wait for the seed itself: on a
+	// busy machine the timer fires late, and moving first turns the hold into a
+	// scrub. A hold that seeds the same loop leaves nothing to wait for.
 	await page.waitForTimeout(500);
+	await expect
+		.poll(loopNow, { timeout: 5000 })
+		.not.toBe(before)
+		.catch(() => undefined);
 	// Now grow the loop by dragging to the end position.
 	const steps = 10;
 	for (let i = 1; i <= steps; i++) {
