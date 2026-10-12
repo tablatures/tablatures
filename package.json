@@ -13,7 +13,8 @@
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
 		"test:unit": "vitest run",
-		"test:e2e": "playwright test",
+		"test:e2e": "node scripts/test-e2e.mjs",
+		"test:stability": "node scripts/test-e2e.mjs --repeat-each=5 --retries=0",
 		"test:layout": "playwright test --config playwright.layout.config.ts",
 		"instruments:build": "node scripts/instrument-packs/build.mjs"
 	},

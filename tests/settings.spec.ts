@@ -1,228 +1,128 @@
-import { test, expect } from '@playwright/test';
-import { setupPlayPage, seekToPercent, dragProgressBar } from './helpers/setup';
+import { test, expect, type Page } from '@playwright/test';
+import {
+	setupPlayPage,
+	setupPlayPageWithTex,
+	seekToPercent,
+	dragProgressBar
+} from './helpers/setup';
+import { TEX_SCORES } from './helpers/alphatex';
 import {
 	waitForScoreLoaded,
 	waitForPlaying,
 	waitForProgressAbove,
 	waitForSeekSettled,
-	getTestApi,
-	sampleProgress
+	getTestApi
 } from './helpers/wait';
-import { setupMockApi } from './helpers/mock-api';
 
 // Exercise the mobile full-screen console; the docked console has its own spec.
 test.use({ viewport: { width: 390, height: 820 } });
 
+async function changeSpeed(page: Page, speed: number) {
+	await page.locator('button[title="Playback speed [+/-]"]').click();
+	await page.getByRole('menuitem', { name: `${speed}x`, exact: true }).click();
+	await expect.poll(() => getTestApi(page, 'getSpeed')).toBe(speed);
+	await expect.poll(() => getTestApi(page, 'getApiPlaybackSpeed')).toBe(speed);
+}
+
 test.describe('Settings & Controls', () => {
-	// --- Test 22: Change playback speed ---
-	test('changing speed affects playback rate', async ({ page }) => {
+	test('speed menu updates the audio engine and survives seeking', async ({ page }) => {
 		await setupPlayPage(page);
-
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (!(await speedSelect.isVisible())) {
-			test.skip();
-			return;
-		}
-
-		// Set 0.5x and measure
-		await speedSelect.selectOption('0.5');
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
-			timeout: 2000
-		});
-		await page.keyboard.press('Space');
-		await waitForProgressAbove(page, 1);
-		const start1 = await getTestApi<number>(page, 'getProgress');
-		// Wait for progress to advance by polling
-		await waitForProgressAbove(page, start1 + 2);
-		const end1 = await getTestApi<number>(page, 'getProgress');
-		const delta1 = end1 - start1;
-		await page.keyboard.press('Space');
-		await waitForPlaying(page, false);
-
-		// Set 2x and measure
-		await seekToPercent(page, 10);
-		await waitForSeekSettled(page, 10);
-		await speedSelect.selectOption('2');
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 2, {
-			timeout: 2000
-		});
-		await page.keyboard.press('Space');
-		await waitForProgressAbove(page, 11);
-		const start2 = await getTestApi<number>(page, 'getProgress');
-		await waitForProgressAbove(page, start2 + 2);
-		const end2 = await getTestApi<number>(page, 'getProgress');
-		const delta2 = end2 - start2;
-		await page.keyboard.press('Space');
-
-		if (delta1 > 0) {
-			const ratio = delta2 / delta1;
-			expect(ratio).toBeGreaterThan(1.0);
+		// Exact clock scaling at each speed is covered by playerTiming.test.ts.
+		// Here verify both menu directions, native engine wiring and seek persistence.
+		for (const speed of [0.5, 2]) {
+			await changeSpeed(page, speed);
+			await seekToPercent(page, 50);
+			await waitForSeekSettled(page, 50);
+			expect(await getTestApi(page, 'getSpeed')).toBe(speed);
+			expect(await getTestApi(page, 'getApiPlaybackSpeed')).toBe(speed);
 		}
 	});
 
-	// --- Test 23: Speed persists after seek ---
-	test('speed setting persists after seek', async ({ page }) => {
+	test('volume toggle mutes and restores the audio engine', async ({ page }) => {
 		await setupPlayPage(page);
-
-		// The speed control is a popover menu: open the trigger, then pick 0.5x.
-		const speedTrigger = page.locator('button[title="Playback speed [+/-]"]').first();
-		await expect(speedTrigger).toBeVisible();
-		await speedTrigger.click();
-		await page.getByRole('menuitem', { name: '0.5x' }).click();
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
-			timeout: 2000
-		});
-
-		await seekToPercent(page, 50);
-		await waitForSeekSettled(page, 50);
-
-		const speed = await getTestApi<number>(page, 'getSpeed');
-		expect(speed).toBe(0.5);
+		expect(await getTestApi(page, 'getVolume')).toBe(1);
+		await page.getByRole('button', { name: 'Mute', exact: true }).click();
+		await expect.poll(() => getTestApi(page, 'getVolume')).toBe(0);
+		await expect.poll(() => getTestApi(page, 'getApiMasterVolume')).toBe(0);
+		await page.getByRole('button', { name: 'Unmute', exact: true }).click();
+		await expect.poll(() => getTestApi(page, 'getVolume')).toBe(1);
+		await expect.poll(() => getTestApi(page, 'getApiMasterVolume')).toBe(1);
 	});
 
-	// --- Test 24: Volume control ---
-	test('volume toggle mutes and restores', async ({ page }) => {
-		await setupPlayPage(page);
-
-		const volume = await getTestApi<number>(page, 'getVolume');
-		expect(volume).toBe(1);
-
-		// The mute button has title="Mute" or title="Unmute"
-		const muteBtn = page.locator('button[title="Mute"]').first();
-		if (await muteBtn.isVisible()) {
-			await muteBtn.click();
-			await page.waitForFunction(() => (window as any).__testApi?.getVolume() === 0, {
-				timeout: 2000
-			});
-
-			// Now it shows Unmute
-			const unmuteBtn = page.locator('button[title="Unmute"]').first();
-			await unmuteBtn.click();
-			await page.waitForFunction(() => (window as any).__testApi?.getVolume() === 1, {
-				timeout: 2000
-			});
-		}
-	});
-
-	// --- Test 25: Metronome toggle ---
 	test('metronome value persists through play/pause', async ({ page }) => {
 		await setupPlayPage(page);
-
-		// Open settings and set metronome via the slider
-		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-		if (!(await settingsBtn.isVisible())) {
-			test.skip();
-			return;
-		}
-
-		await settingsBtn.click();
-		await expect(page.locator('[role="dialog"]')).toBeVisible();
-
-		// Metronome is now a rotary knob (role=slider). Nudge it up via the keyboard.
-		const metronomeKnob = page.getByRole('slider', { name: 'Metro knob' }).first();
-		if (await metronomeKnob.isVisible()) {
-			await metronomeKnob.focus();
-			for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
-		}
-
-		// Close settings via Escape
+		await page.locator('button[title="Settings [S]"]').click();
+		const knob = page.getByRole('slider', { name: 'Metro knob' });
+		await knob.focus();
+		for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
+		await expect(knob).toHaveAttribute('aria-valuenow', '0.5');
+		await expect.poll(() => getTestApi(page, 'getApiMetronomeVolume')).toBeCloseTo(0.5);
 		await page.keyboard.press('Escape');
-		await expect(page.locator('[role="dialog"]')).not.toBeVisible();
+		await expect(page.getByRole('dialog')).not.toBeVisible();
 
-		// Play and pause
 		await page.keyboard.press('Space');
 		await waitForPlaying(page, true);
 		await waitForProgressAbove(page, 1);
 		await page.keyboard.press('Space');
 		await waitForPlaying(page, false);
+
+		expect(await getTestApi<number>(page, 'getMetronome')).toBeCloseTo(0.5);
+		expect(await getTestApi<number>(page, 'getApiMetronomeVolume')).toBeCloseTo(0.5);
+		await page.locator('button[title="Settings [S]"]').click();
+		await expect(knob).toHaveAttribute('aria-valuenow', '0.5');
 	});
 
-	// --- Test 26: Track switching ---
-	test('switching tracks re-renders score', async ({ page }) => {
-		await setupPlayPage(page);
-
-		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-		if (!(await settingsBtn.isVisible())) {
-			test.skip();
-			return;
-		}
-
-		await settingsBtn.click();
-		await expect(page.locator('[role="dialog"]')).toBeVisible();
-
-		// The unified console shows the track list directly (no tabs).
-		const trackOptions = page.locator('[role="option"]');
-		const count = await trackOptions.count();
-		if (count <= 1) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
-
-		// Click the select button (the track name) of the second track.
-		await trackOptions.nth(1).getByRole('button').first().click();
-		// Wait for re-render to complete
-		await page.waitForFunction(() => (window as any).__testApi?.getDuration() > 0, {
+	test('switching tracks selects and renders the requested track', async ({ page }) => {
+		await setupPlayPageWithTex(page, TEX_SCORES.twoGuitars);
+		await page.locator('button[title="Settings [S]"]').click();
+		const tracks = page.getByRole('listbox', { name: 'Track list' }).getByRole('option');
+		await expect(tracks).toHaveCount(2);
+		await expect(tracks.nth(0)).toHaveAttribute('aria-selected', 'true');
+		await page.evaluate(() => {
+			const api = (window as any).__testApi.getApi();
+			(window as any).__trackRenderFinished = false;
+			const onRender = () => {
+				api.postRenderFinished.off(onRender);
+				(window as any).__trackRenderFinished = true;
+			};
+			api.postRenderFinished.on(onRender);
+		});
+		await tracks.nth(1).locator('button[title="Rhythm"]').click();
+		await page.waitForFunction(() => (window as any).__trackRenderFinished, undefined, {
 			timeout: 10000
 		});
-		const dur = await getTestApi<number>(page, 'getDuration');
-		expect(dur).toBeGreaterThan(0);
-
+		await expect(tracks.nth(1)).toHaveAttribute('aria-selected', 'true');
+		await expect(tracks.nth(0)).toHaveAttribute('aria-selected', 'false');
+		expect(
+			await page.evaluate(() => (window as any).__testApi.getApi().tracks.map((t: any) => t.name))
+		).toEqual(['Rhythm']);
 		await page.keyboard.press('Escape');
 	});
 
-	// --- Test 27: Settings persist across reload ---
 	test('settings persist in localStorage after reload', async ({ page }) => {
 		await setupPlayPage(page);
-
-		const speedTrigger = page.locator('button[title="Playback speed [+/-]"]').first();
-		await expect(speedTrigger).toBeVisible();
-		await speedTrigger.click();
-		await page.getByRole('menuitem', { name: '0.75x' }).click();
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, {
-			timeout: 2000
-		});
-
-		// Reload the page with the same tab
-		await setupMockApi(page);
-		await page.goto('/play?tab=test-tab');
+		await changeSpeed(page, 0.75);
+		await page.reload();
 		await waitForScoreLoaded(page);
-
-		const speed = await getTestApi<number>(page, 'getSpeed');
-		expect(speed).toBe(0.75);
+		expect(await getTestApi(page, 'getSpeed')).toBe(0.75);
+		expect(await getTestApi(page, 'getApiPlaybackSpeed')).toBe(0.75);
 	});
 
-	// --- Test 33: No console errors during full workflow ---
 	test('no console errors during full workflow', async ({ page }) => {
 		const errors: string[] = [];
 		page.on('console', (msg) => {
 			if (msg.type() === 'error') errors.push(msg.text());
 		});
-
 		await setupPlayPage(page);
-
 		await page.keyboard.press('Space');
 		await waitForProgressAbove(page, 3);
-
 		await seekToPercent(page, 50);
 		await waitForSeekSettled(page, 50);
-
 		await dragProgressBar(page, 30, 50);
-		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() !== null, {
-			timeout: 3000
-		});
-
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (await speedSelect.isVisible()) {
-			await speedSelect.selectOption('1.5');
-			await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 1.5, {
-				timeout: 2000
-			});
-		}
-
+		await expect.poll(() => getTestApi(page, 'getLoopBounds')).not.toBeNull();
+		await changeSpeed(page, 1.5);
 		await page.keyboard.press('Space');
 		await waitForPlaying(page, false);
-
 		const relevantErrors = errors.filter(
 			(e) =>
 				(e.includes('player') ||
@@ -232,7 +132,6 @@ test.describe('Settings & Controls', () => {
 				!e.includes('favicon') &&
 				!e.includes('net::')
 		);
-
 		expect(relevantErrors).toHaveLength(0);
 	});
 });

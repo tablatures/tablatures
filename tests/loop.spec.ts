@@ -1,6 +1,18 @@
 import { test, expect } from '@playwright/test';
-import { setupPlayPage, seekToPercent, dragProgressBar, dragScoreLoop, setLoopSnapping } from './helpers/setup';
-import { waitForPlaying, waitForProgressAbove, waitForProgressNear, waitForSeekSettled, getTestApi, sampleProgress } from './helpers/wait';
+import {
+	setupPlayPage,
+	seekToPercent,
+	dragProgressBar,
+	dragScoreLoop,
+	setLoopSnapping
+} from './helpers/setup';
+import {
+	waitForPlaying,
+	waitForProgressAbove,
+	waitForSeekSettled,
+	getTestApi,
+	sampleProgress
+} from './helpers/wait';
 
 test.describe('Loop Interactions', () => {
 	// --- Test 9: Create loop by dragging, verify overlay + playback looping ---
@@ -29,51 +41,20 @@ test.describe('Loop Interactions', () => {
 		expect(barHTML).toContain('left:');
 		expect(barHTML).toContain('width:');
 
-		// Play from loop start and verify playback stays within bounds
-		await seekToPercent(page, loopStartPct + 1);
-		await waitForSeekSettled(page, loopStartPct + 1, 5);
-		await page.keyboard.press('Space');
-		await waitForPlaying(page, true);
-
-		// Sample progress — verify it stays within the loop overlay region
-		const samples = await sampleProgress(page, 20, 200);
-		for (const s of samples) {
-			expect(s).toBeGreaterThan(loopStartPct - 3);
-			expect(s).toBeLessThan(loopEndPct + 3);
-		}
-
-		// Verify progress is advancing (not stuck)
-		expect(samples[samples.length - 1]).toBeGreaterThan(samples[0] + 0.5);
-
-		await page.keyboard.press('Space');
-	});
-
-	// --- Test 10: Loop playback enforces boundaries ---
-	test('loop playback stays within boundaries', async ({ page }) => {
-		await setupPlayPage(page);
-		await setLoopSnapping(page, 'bar');
-
-		await dragProgressBar(page, 60, 80);
-		const bounds = await getTestApi<any>(page, 'getLoopBounds');
-		expect(bounds).not.toBeNull();
-
-		const loopMs = await getTestApi<any>(page, 'getLoopMs');
-		const duration = await getTestApi<number>(page, 'getDuration');
-		const loopStartPct = (loopMs.start / duration) * 100;
-		const loopEndPct = (loopMs.end / duration) * 100;
-
-		await seekToPercent(page, loopStartPct + 2);
-		await waitForSeekSettled(page, loopStartPct + 2, 5);
-		await page.keyboard.press('Space');
-		await waitForPlaying(page, true);
-
-		const samples = await sampleProgress(page, 15, 200);
-		for (const s of samples) {
-			expect(s).toBeGreaterThan(loopStartPct - 3);
-			expect(s).toBeLessThan(loopEndPct + 3);
-		}
-
-		await page.keyboard.press('Space');
+		// Gesture-to-engine wiring belongs here; actual repeated wraps are covered
+		// by player-correctness.spec.ts with a tempo-changing musical fixture.
+		const expectedRange = await page.evaluate(
+			({ startBar, endBar }) => (window as any).__testApi.getExpandedRangeTicks(startBar, endBar),
+			bounds
+		);
+		await expect
+			.poll(() =>
+				page.evaluate(() => {
+					const api = (window as any).__testApi.getApi();
+					return { range: api.playbackRange, looping: api.isLooping };
+				})
+			)
+			.toEqual({ range: expectedRange, looping: true });
 	});
 
 	// --- Test 11: Create loop via A/B keyboard shortcuts ---
@@ -90,10 +71,9 @@ test.describe('Loop Interactions', () => {
 		await page.keyboard.press('KeyB');
 
 		// After both A and B, bounds should be set (note: after only A, getLoopBounds returns null because loopEnd is still null)
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() !== null,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() !== null, {
+			timeout: 2000
+		});
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 		expect(bounds.startBar).toBeLessThan(bounds.endBar);
@@ -180,10 +160,9 @@ test.describe('Loop Interactions', () => {
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
 
 		await page.keyboard.press('Escape');
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() === null,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() === null, {
+			timeout: 2000
+		});
 	});
 
 	// --- Test 14: Loop toggle enable/disable (L key) ---
@@ -192,7 +171,7 @@ test.describe('Loop Interactions', () => {
 		await setLoopSnapping(page, 'bar');
 
 		await dragProgressBar(page, 20, 40);
-		let bounds = await getTestApi<any>(page, 'getLoopBounds');
+		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 		expect(bounds.enabled).toBe(true);
 
@@ -203,10 +182,9 @@ test.describe('Loop Interactions', () => {
 		);
 
 		await page.keyboard.press('KeyL');
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds()?.enabled === true,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds()?.enabled === true, {
+			timeout: 2000
+		});
 	});
 
 	// --- Test 15: Seek outside loop fully removes it ---
@@ -218,10 +196,9 @@ test.describe('Loop Interactions', () => {
 		expect(await getTestApi<any>(page, 'getLoopBounds')).not.toBeNull();
 
 		await seekToPercent(page, 60);
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() === null,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() === null, {
+			timeout: 2000
+		});
 	});
 
 	// --- Test 16: Loop overlay matches actual playback ---
@@ -270,10 +247,7 @@ test.describe('Loop Interactions', () => {
 		await page.mouse.up();
 
 		// Small delay for mouseup handler to complete, then check
-		await page.waitForFunction(
-			() => (window as any).__testApi !== undefined,
-			{ timeout: 1000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi !== undefined, { timeout: 1000 });
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).toBeNull();
 	});
@@ -342,10 +316,9 @@ test.describe('Loop Interactions', () => {
 		await page.mouse.move(newStartX, y, { steps: 5 });
 		await page.mouse.up();
 
-		await page.waitForFunction(
-			() => (window as any).__testApi?.getLoopBounds() !== null,
-			{ timeout: 2000 }
-		);
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() !== null, {
+			timeout: 2000
+		});
 		const newBounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(newBounds).not.toBeNull();
 		expect(newBounds.startBar).toBeLessThan(bounds.startBar);
@@ -403,14 +376,13 @@ test.describe('Loop Interactions', () => {
 		const bounds = await getTestApi<any>(page, 'getLoopBounds');
 		expect(bounds).not.toBeNull();
 
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (await speedSelect.isVisible()) {
-			await speedSelect.selectOption('2');
-			await page.waitForFunction(
-				() => (window as any).__testApi?.getSpeed() === 2,
-				{ timeout: 2000 }
-			);
-		}
+		const rangeBefore = await page.evaluate(() => (window as any).__testApi.getApi().playbackRange);
+		await page.locator('button[title="Playback speed [+/-]"]').click();
+		await page.getByRole('menuitem', { name: '2x', exact: true }).click();
+		await expect.poll(() => getTestApi(page, 'getApiPlaybackSpeed')).toBe(2);
+		expect(await page.evaluate(() => (window as any).__testApi.getApi().playbackRange)).toEqual(
+			rangeBefore
+		);
 
 		const loopMs = await getTestApi<any>(page, 'getLoopMs');
 		const duration = await getTestApi<number>(page, 'getDuration');
@@ -458,10 +430,10 @@ test.describe('Loop Interactions', () => {
 		// The video sync interval will try to push playback to 80%, which is outside the loop.
 		const videoTimeSec = (duration / 1000) * 0.8;
 		const videoDurationSec = duration / 1000;
-		await page.evaluate(
-			({ t, d }) => (window as any).__testApi.setMockVideo(t, d),
-			{ t: videoTimeSec, d: videoDurationSec }
-		);
+		await page.evaluate(({ t, d }) => (window as any).__testApi.setMockVideo(t, d), {
+			t: videoTimeSec,
+			d: videoDurationSec
+		});
 
 		// Wait for video sync to fire a few times (200ms interval)
 		await page.waitForTimeout(600);

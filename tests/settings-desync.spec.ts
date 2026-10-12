@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { setupPlayPage } from './helpers/setup';
-import { waitForScoreLoaded, waitForPlaying, getTestApi } from './helpers/wait';
+import { getTestApi } from './helpers/wait';
 
 // Drives the unified console on the mobile full-screen layout.
 test.use({ viewport: { width: 390, height: 820 } });
@@ -13,12 +13,17 @@ test.use({ viewport: { width: 390, height: 820 } });
  * settings on every speed change. Fix: removed the dead variables and
  * the overbroad reset from the render block.
  */
+async function changeSpeed(page: Page, speed: string) {
+	await page.locator('button[title="Playback speed [+/-]"]').click();
+	await page.getByRole('menuitem', { name: `${speed}x`, exact: true }).click();
+}
+
 test.describe('Settings desync on speed change (#129)', () => {
 	test('mute all → change speed → mutes should persist', async ({ page }) => {
 		await setupPlayPage(page);
 
 		// Wait for tracks to be available
-		await page.waitForFunction(() => (window as any).__testApi?.getTrackCount() > 0, {
+		await page.waitForFunction(() => (window as any).__testApi?.getTrackCount() > 0, undefined, {
 			timeout: 10000
 		});
 
@@ -27,20 +32,11 @@ test.describe('Settings desync on speed change (#129)', () => {
 
 		// Open settings and go to Tracks tab to mute all
 		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-		if (!(await settingsBtn.isVisible())) {
-			test.skip();
-			return;
-		}
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
 		// Click "Mute All" button (in the track quick-controls footer)
 		const muteAllBtn = page.locator('button[aria-label="Mute all"]').first();
-		if (!(await muteAllBtn.isVisible())) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
 		await muteAllBtn.click();
 
 		// Verify all tracks are muted in UI state
@@ -51,13 +47,8 @@ test.describe('Settings desync on speed change (#129)', () => {
 		await page.keyboard.press('Escape');
 
 		// Change playback speed
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (!(await speedSelect.isVisible())) {
-			test.skip();
-			return;
-		}
-		await speedSelect.selectOption('0.5');
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, {
+		await changeSpeed(page, '0.5');
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.5, undefined, {
 			timeout: 2000
 		});
 
@@ -73,26 +64,17 @@ test.describe('Settings desync on speed change (#129)', () => {
 	test('custom volume → change speed → volume should persist', async ({ page }) => {
 		await setupPlayPage(page);
 
-		await page.waitForFunction(() => (window as any).__testApi?.getTrackCount() > 0, {
+		await page.waitForFunction(() => (window as any).__testApi?.getTrackCount() > 0, undefined, {
 			timeout: 10000
 		});
 
 		// Set master volume to 50% via the volume slider
 		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-		if (!(await settingsBtn.isVisible())) {
-			test.skip();
-			return;
-		}
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
 		// Master volume is a rotary knob (default 1); step it down to a custom level.
 		const volumeKnob = page.getByRole('slider', { name: 'Volume knob' }).first();
-		if (!(await volumeKnob.isVisible())) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
 		await volumeKnob.focus();
 		for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown');
 		await page.keyboard.press('Escape');
@@ -102,13 +84,8 @@ test.describe('Settings desync on speed change (#129)', () => {
 		expect(volumeBefore).toBeLessThan(1);
 
 		// Change speed
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (!(await speedSelect.isVisible())) {
-			test.skip();
-			return;
-		}
-		await speedSelect.selectOption('1.5');
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 1.5, {
+		await changeSpeed(page, '1.5');
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 1.5, undefined, {
 			timeout: 2000
 		});
 
@@ -122,20 +99,11 @@ test.describe('Settings desync on speed change (#129)', () => {
 
 		// Set metronome via settings
 		const settingsBtn = page.locator('button[title="Settings [S]"]').first();
-		if (!(await settingsBtn.isVisible())) {
-			test.skip();
-			return;
-		}
 		await settingsBtn.click();
 		await expect(page.locator('[role="dialog"]')).toBeVisible();
 
 		// Metronome is a rotary knob (default 0); step it up to 0.8.
 		const metronomeKnob = page.getByRole('slider', { name: 'Metro knob' }).first();
-		if (!(await metronomeKnob.isVisible())) {
-			await page.keyboard.press('Escape');
-			test.skip();
-			return;
-		}
 		await metronomeKnob.focus();
 		for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowUp');
 		await page.keyboard.press('Escape');
@@ -144,13 +112,8 @@ test.describe('Settings desync on speed change (#129)', () => {
 		expect(metronomeBefore).toBeCloseTo(0.8, 1);
 
 		// Change speed
-		const speedSelect = page.locator('select[aria-label="Playback speed"]');
-		if (!(await speedSelect.isVisible())) {
-			test.skip();
-			return;
-		}
-		await speedSelect.selectOption('0.75');
-		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, {
+		await changeSpeed(page, '0.75');
+		await page.waitForFunction(() => (window as any).__testApi?.getSpeed() === 0.75, undefined, {
 			timeout: 2000
 		});
 

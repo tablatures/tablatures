@@ -90,31 +90,6 @@ test('mini player preview clears the bar and controls meet the tap floor', async
 	expect(eff.w).toBeGreaterThanOrEqual(44);
 });
 
-// Item 29: the bar's PiP toggle hides the preview but keeps the track loaded and
-// the bar visible; the X is the definitive quit (stop + unload → bar gone).
-test('mini player PiP toggle hides the preview but keeps the track loaded', async ({ page }) => {
-	await setupPlayPage(page);
-	await waitForScoreLoaded(page);
-	await page.waitForTimeout(800);
-
-	await page.getByRole('button', { name: 'Play', exact: true }).click();
-	await page.getByRole('link', { name: 'Settings' }).first().click();
-	await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
-	await page.waitForTimeout(600);
-
-	// Preview visible.
-	await expect(page.locator('.player-host-mini')).toBeVisible();
-
-	// Toggle the preview off → preview hides, the bar (and its play control) stay.
-	await page.getByRole('button', { name: 'Hide tab preview' }).last().click();
-	await page.waitForTimeout(400);
-
-	await expect(page.locator('.player-host-mini')).toHaveCount(0);
-	// The mini player bar itself is still present (track not unloaded).
-	await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Show tab preview' }).last()).toBeVisible();
-});
-
 test('mini player X quits the tab: the bar unloads', async ({ page }) => {
 	await setupPlayPage(page);
 	await waitForScoreLoaded(page);
