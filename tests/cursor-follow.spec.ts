@@ -175,8 +175,14 @@ test('resizing the dock does not cancel manual scroll disengagement', async ({ p
 	await openScore(page);
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.mouse.move(300, 350);
-	await page.mouse.wheel(0, -5000);
-	await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible();
+	// A follow scroll that commits just after a wheel starts cancels it (see the
+	// fixme test below); like a reader, scroll again if the first tick is lost.
+	await expect(async () => {
+		await page.mouse.wheel(0, -5000);
+		await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible({
+			timeout: 1000
+		});
+	}).toPass({ timeout: 10000 });
 	const separator = await page
 		.getByRole('separator', { name: 'Resize settings panel' })
 		.boundingBox();
@@ -190,6 +196,33 @@ test('resizing the dock does not cancel manual scroll disengagement', async ({ p
 	await expect.poll(async () => (await cursorGeometry(page)).currentBar).toBeGreaterThan(start + 1);
 	await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible();
 	expect((await cursorGeometry(page)).scrollTop).toBeLessThan(10);
+});
+
+// Known race, kept as the acceptance test for a single scroll owner: in
+// Chromium the most recent scroll wins, so a follow scroll that commits just
+// after a wheel starts cancels the reader's scroll (one lost wheel tick).
+// Stopping the animation from the wheel listener also stops the wheel's own
+// scroll, so this needs the follow logic to yield before it scrolls.
+test.fixme('scrolling during a follow animation wins over the animation', async ({ page }) => {
+	await openScore(page);
+	const scrollTop = () => page.evaluate(() => document.querySelector('#page')!.scrollTop);
+	// Resolves on the first frame the follow animation moves the sheet.
+	const animating = page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				document.querySelector('#page')!.addEventListener('scroll', () => resolve(), { once: true })
+			)
+	);
+	// A paused seek far down the score starts a smooth follow scroll.
+	await seekToPercent(page, 90);
+	await animating;
+	// Mid-animation, the reader scrolls back up. The animation must not take
+	// the sheet back down: the reader's scroll lands and following stays off.
+	await page.mouse.move(300, 350);
+	await page.mouse.wheel(0, -5000);
+	await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible();
+	await settleLayout(page);
+	expect(await scrollTop()).toBeLessThan(10);
 });
 
 test('scrolling inside settings leaves sheet following engaged', async ({ page }) => {
