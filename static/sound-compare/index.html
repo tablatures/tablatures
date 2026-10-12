@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Production prototype: blind test</title>
+<style>
+	body { font: 16px/1.4 -apple-system, system-ui, sans-serif; margin: 0 auto; max-width: 640px; padding: 16px; color: #171717; }
+	h1 { font-size: 20px; } h2 { font-size: 17px; margin: 28px 0 8px; }
+	p.note { color: #525252; font-size: 14px; }
+	.row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+	.label { width: 1.6em; font-weight: 700; color: #7c3aed; }
+	.name { font-size: 13px; color: #525252; min-width: 10em; visibility: hidden; }
+	.revealed .name { visibility: visible; }
+	audio { flex: 1; min-width: 0; }
+	button { font: inherit; padding: 10px 16px; border-radius: 999px; border: 0; background: #7c3aed; color: white; margin-top: 24px; }
+</style>
+</head>
+<body>
+<h1>Does production close the gap?</h1>
+<p class="note">Same notes and the same MuseScore samples, loudness-matched. One version is today's Studio sound. The other renders each track on its own and mixes it like a record: clean guitar through an amp and cabinet, double-tracked, plus bass drive, drum compression and a room. Order is shuffled. Headphones help.</p>
+<div id="clips"></div>
+<button id="reveal">Reveal</button>
+<script>
+	const versions = { studio: 'Studio today', fx: 'Rendered and mixed (prototype)' };
+	const clips = { rock: 'Distorted riff, bass, drums', clean: 'Clean electric arpeggio, bass' };
+	const root = document.getElementById('clips');
+	for (const [clip, title] of Object.entries(clips)) {
+		const h = document.createElement('h2');
+		h.textContent = title;
+		root.append(h);
+		Object.keys(versions).sort(() => Math.random() - 0.5).forEach((v, i) => {
+			const row = document.createElement('div');
+			row.className = 'row';
+			row.innerHTML = `<span class="label">${'AB'[i]}</span><audio controls preload="none" src="${clip}-${v}.mp3"></audio><span class="name">${versions[v]}</span>`;
+			root.append(row);
+		});
+	}
+	document.addEventListener('play', (e) => { for (const a of document.querySelectorAll('audio')) if (a !== e.target) a.pause(); }, true);
+	document.getElementById('reveal').onclick = () => document.body.classList.toggle('revealed');
+</script>
+</body>
+</html>
