@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { openScore } from './mobile-score';
 import { seekToPercent } from './setup';
+import { waitForSeekSettled } from './wait';
 
 // Short beats and alternating staff heights exercise the repeated cursor
 // updates and frequent row changes visible in the iPhone recording.
@@ -15,6 +16,7 @@ const denseScore =
 export async function expectStableCursorFollowing(page: Page) {
 	await openScore(page, denseScore);
 	await seekToPercent(page, 35);
+	await waitForSeekSettled(page, 35);
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	const result = await page.evaluate(async () => {
 		const api = (window as any).__testApi.getApi();
@@ -51,10 +53,12 @@ export async function expectStableCursorFollowing(page: Page) {
 				previous = { x: cursor.left, y: rowY };
 				frames++;
 				if (Math.abs(cursor.top - bar.top) > 2) misplacedFrames++;
-				// Watch at least three rows: a slow start on a busy machine must not
-				// shrink what the run covers.
+				// Observe every transition the assertions require. Three rows can fit
+				// with only one scroll target, depending on the initial viewport.
+				// Keep the existing deadline; do not shorten coverage on a slow start.
 				const elapsed = performance.now() - start;
-				if ((elapsed < 6500 || rows.size < 3) && elapsed < 15000) requestAnimationFrame(sample);
+				if ((elapsed < 6500 || rows.size < 3 || targets.length < 2) && elapsed < 15000)
+					requestAnimationFrame(sample);
 				else resolve();
 			};
 			requestAnimationFrame(sample);

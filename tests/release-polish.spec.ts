@@ -88,6 +88,10 @@ test.describe('mini player close / hide controls', () => {
 		await waitForScoreLoaded(page);
 
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		// Prove playback started before testing whether browsing/hiding preserves it.
+		await expect
+			.poll(() => page.evaluate(() => (window as any).__testApi.getNativePosition().ms))
+			.toBeGreaterThan(0);
 		await page.getByRole('link', { name: 'Settings' }).first().click();
 		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 
