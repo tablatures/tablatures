@@ -7,7 +7,15 @@
 // context routes each of them through the limiter, with no patch to alphaTab
 // and a genuine AudioContext left for everything else.
 
-const installed = new WeakMap<BaseAudioContext, AudioNode>();
+export interface MasterBus {
+	context: AudioContext;
+	/** alphaTab's synth enters here; Studio Mix turns it down while it plays. */
+	synth: GainNode;
+	/** Studio Mix connects its tracks here, ahead of the limiter. */
+	mix: AudioNode;
+}
+
+const installed = new WeakMap<BaseAudioContext, MasterBus>();
 
 /** A soft knee at about -1 dBFS: transparent below, rounds off whatever the compressor lets through. */
 function softClipCurve(size = 2048): Float32Array {
@@ -43,9 +51,11 @@ export function installMasterLimiter(api: any): boolean {
 	if (!ctx || installed.has(ctx)) return !!ctx;
 	try {
 		const destination = ctx.destination;
-		const input = createLimiter(ctx, destination);
-		Object.defineProperty(ctx, 'destination', { value: input, configurable: true });
-		installed.set(ctx, input);
+		const limiter = createLimiter(ctx, destination);
+		const synth = ctx.createGain();
+		synth.connect(limiter);
+		Object.defineProperty(ctx, 'destination', { value: synth, configurable: true });
+		installed.set(ctx, { context: ctx, synth, mix: limiter });
 		return true;
 	} catch {
 		return false;
@@ -55,4 +65,10 @@ export function installMasterLimiter(api: any): boolean {
 export function hasMasterLimiter(api: any): boolean {
 	const ctx = api?.player?.output?.context;
 	return !!ctx && installed.has(ctx);
+}
+
+export function masterBus(api: any): MasterBus | null {
+	installMasterLimiter(api);
+	const ctx = api?.player?.output?.context;
+	return (ctx && installed.get(ctx)) || null;
 }
