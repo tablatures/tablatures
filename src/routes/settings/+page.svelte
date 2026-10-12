@@ -64,6 +64,13 @@
 		customSfUrl = prefs.soundFontUrl;
 	}
 
+	function toggleStudioMix() {
+		preferencesStore.update((p) => ({
+			...p,
+			mixEngine: p.mixEngine === 'studio' ? 'live' : 'studio'
+		}));
+	}
+
 	function toggleHaptics() {
 		const next = !$preferencesStore.haptics;
 		preferencesStore.update((p) => ({ ...p, haptics: next }));
@@ -533,6 +540,23 @@
 						[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:border-0
 						[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-violet-500 [&::-moz-range-thumb]:border-0"
 				/>
+			</div>
+		</div>
+
+		<!-- Studio Mix (beta) -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<label class="text-sm font-medium text-neutral-700 dark:text-neutral-200">Studio Mix <span class="ml-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">beta</span></label>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Renders every track and mixes it like a record: guitars through an amp and cabinet, bass and drums compressed, a shared room. Plays the live sound while it renders</p>
+			<div>
+				<button
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.mixEngine === 'studio' ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={toggleStudioMix}
+					role="switch"
+					aria-checked={$preferencesStore.mixEngine === 'studio'}
+					aria-label="Studio Mix"
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.mixEngine === 'studio' ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
 			</div>
 		</div>
 

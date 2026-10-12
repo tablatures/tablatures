@@ -88,6 +88,8 @@ export interface InstrumentPacks {
 	/** Apply packs that arrived while playing. Call when playback pauses or stops. */
 	flush(): void;
 	readonly applied: ReadonlySet<string>;
+	/** Bytes of the applied packs, in the order the synth loaded them. */
+	appliedBytes(): Uint8Array[];
 	readonly waiting: number;
 	dispose(): void;
 }
@@ -117,6 +119,7 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 	let enabled = true;
 	let manifest: Promise<PackManifest | null> | null = null;
 	const applied = new Set<string>();
+	const bytesByKey = new Map<string, Uint8Array>();
 	const inFlight = new Map<string, Promise<void>>();
 	const ready = new Map<string, Uint8Array>();
 	let generation = 0;
@@ -147,6 +150,7 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 			try {
 				api.loadSoundFont(bytes, true);
 				applied.add(key);
+				bytesByKey.set(key, bytes);
 				if (applying++ === 0) applyingSince = Date.now();
 			} catch {
 				// A rejected pack leaves the base instrument in place.
@@ -245,6 +249,7 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 			// (from the cache) for the next ensure().
 			generation++;
 			applied.clear();
+			bytesByKey.clear();
 			ready.clear();
 			inFlight.clear();
 		},
@@ -254,6 +259,9 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 		flush,
 		get applied() {
 			return applied;
+		},
+		appliedBytes() {
+			return [...applied].map((key) => bytesByKey.get(key)!).filter(Boolean);
 		},
 		get waiting() {
 			return ready.size;

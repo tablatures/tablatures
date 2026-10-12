@@ -21,6 +21,8 @@ export interface UserPreferences {
 	speedTrainer: SpeedTrainerSettings;
 	/** Studio layers per-instrument packs over the bundled soundfont. */
 	instrumentQuality: 'studio' | 'standard';
+	/** Studio Mix renders each track and mixes it in place of the live synth (beta). */
+	mixEngine: 'live' | 'studio';
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -98,7 +100,8 @@ const DEFAULTS: UserPreferences = {
 	haptics: true,
 	notationView: 'tab',
 	speedTrainer: DEFAULT_SPEED_TRAINER,
-	instrumentQuality: 'studio'
+	instrumentQuality: 'studio',
+	mixEngine: 'live'
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */

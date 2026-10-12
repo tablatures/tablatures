@@ -67,6 +67,7 @@
 		INSTRUMENTS_WEB_ORIGIN
 	} from '$utils/instrumentPacks';
 	import { installMasterLimiter, hasMasterLimiter } from '$utils/masterBus';
+	import { createStudioMix } from '$utils/studioMix';
 	import { isNative } from '$utils/native';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
@@ -108,6 +109,16 @@
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
 	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
 	let instrumentPacks: ReturnType<typeof createInstrumentPacks> | null = null;
+	let studioMix: ReturnType<typeof createStudioMix> | null = null;
+	let baseSoundFont: { url: string; bytes: Promise<Uint8Array> } | null = null;
+	const baseSoundFontBytes = (url: string) => {
+		if (baseSoundFont?.url !== url)
+			baseSoundFont = {
+				url,
+				bytes: fetch(url).then(async (r) => new Uint8Array(await r.arrayBuffer()))
+			};
+		return baseSoundFont.bytes;
+	};
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
 	$: if (browser && videoSession) {
 		($videoPlayerRef,
@@ -121,6 +132,7 @@
 		videoSession?.dispose();
 		practicePlayback?.dispose();
 		instrumentPacks?.dispose();
+		studioMix?.dispose();
 		registerVideoSeek(null);
 		videoHandlers.set({});
 	});
@@ -336,10 +348,21 @@
 			caches: 'caches' in window ? window.caches : undefined
 		});
 		instrumentPacks.setEnabled(studioInstruments(prefs));
+		studioMix = createStudioMix(api, {
+			alphaTab: () => window.alphaTab,
+			soundFonts: async () => [
+				await baseSoundFontBytes(get(preferencesStore).soundFontUrl),
+				...(instrumentPacks?.appliedBytes() ?? [])
+			],
+			volume: () => get(playerState).masterVolume ?? 1,
+			silenced: () => get(audioSource) === 'video' && !!get(videoPlayerRef)
+		});
+		studioMix.setEnabled(prefs.mixEngine === 'studio');
 		api.playerReady?.on(() => installMasterLimiter(api));
 		if (import.meta.env.DEV) {
 			(window as any).__instrumentPacks = instrumentPacks;
 			(window as any).__hasMasterLimiter = () => hasMasterLimiter(api);
+			(window as any).__studioMix = studioMix;
 		}
 
 		videoSession = createVideoSession(api, {
@@ -461,6 +484,8 @@
 		api.soundFontLoaded.on(() => {
 			updatePlayerState({ soundFontLoaded: true });
 			installMasterLimiter(api);
+			// New instruments change the mix's sound
+			studioMix?.refresh();
 			// No-op once applied; after a base swap it re-layers the score's packs
 			if (api.score) void instrumentPacks?.ensure(api.score);
 			// Load the pending tab if any
@@ -568,6 +593,14 @@
 		try {
 			api.render();
 		} catch {}
+	}
+
+	$: studioMix?.setEnabled($preferencesStore.mixEngine === 'studio');
+	// A new speed needs a re-render; the live synth covers the gap
+	let studioMixSpeed = 1;
+	$: if (studioMix && $playerState.speed !== studioMixSpeed) {
+		studioMixSpeed = $playerState.speed;
+		studioMix.onSpeed();
 	}
 
 	// Track the current soundfont URL to detect changes
