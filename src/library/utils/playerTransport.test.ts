@@ -69,7 +69,7 @@ function harness(timing: PlayerTiming | null = musicalClock('repeat')) {
 		videoPlaying: vi.fn(),
 		seekVideo: vi.fn(),
 		onSeek: vi.fn(),
-		onSeekSuppressionEnd: vi.fn(),
+		onSeekSettled: vi.fn(),
 		onLoop: vi.fn(),
 		onCountdown: vi.fn()
 	};
@@ -86,6 +86,8 @@ function harness(timing: PlayerTiming | null = musicalClock('repeat')) {
 		setTiming: (next: PlayerTiming | null) => (timing = next)
 	};
 }
+
+const position = (currentTime: number, isSeek = false) => ({ currentTime, endTime: 22000, isSeek });
 
 const region: LoopRegion = { startBar: 1, endBar: 3, enabled: true };
 
@@ -185,31 +187,220 @@ describe('our playback commands and countdown', () => {
 });
 
 describe('our seeks and repeated-bar navigation', () => {
-	it('suppresses synchronous stale position callbacks before writing to the engine', () => {
+	it('suppresses synchronous stale callbacks and accepts a synchronous acknowledgement', () => {
 		const { player, ports, writes, onEngineSeek } = harness();
-		onEngineSeek.mockImplementation(() => expect(player.acceptPosition()).toBe(false));
+		const receive = player.positionReceiver();
+		onEngineSeek.mockImplementation(() => {
+			expect(receive(position(1000))).toBe(false);
+			expect(receive(position(8000, true))).toBe(true);
+		});
 		player.seek(8000);
 		expect(writes).toEqual([8000]);
 		expect(ports.onSeek).toHaveBeenCalledWith(8000);
 		expect(ports.seekVideo).toHaveBeenCalledWith(8000);
-		vi.advanceTimersByTime(100);
-		expect(player.acceptPosition()).toBe(true);
-		expect(ports.onSeekSuppressionEnd).toHaveBeenCalledTimes(1);
+		expect(player.state.suppressPosition).toBe(false);
+		expect(ports.onSeekSettled).toHaveBeenCalledTimes(1);
 	});
 
-	it('a rapid later seek owns the suppression deadline and video target', () => {
+	it('elapsed time and playback at the target cannot substitute for an acknowledgement', () => {
+		const { player, ports } = harness();
+		const receive = player.positionReceiver();
+		player.seek(8000);
+		vi.advanceTimersByTime(60000);
+		expect(receive(position(1000))).toBe(false);
+		expect(receive(position(8000))).toBe(false);
+		expect(player.state.suppressPosition).toBe(true);
+		expect(ports.onSeekSettled).not.toHaveBeenCalled();
+		expect(receive(position(8000, true))).toBe(true);
+		expect(receive(position(8100))).toBe(true);
+		expect(ports.onSeekSettled).toHaveBeenCalledTimes(1);
+	});
+
+	it('only the latest rapid seek can settle the UI and video target', () => {
 		const { player, ports, writes } = harness();
+		const receive = player.positionReceiver();
 		player.seek(1000);
-		vi.advanceTimersByTime(80);
 		player.seek(9000);
-		vi.advanceTimersByTime(20);
-		expect(player.acceptPosition()).toBe(false);
-		expect(ports.onSeekSuppressionEnd).not.toHaveBeenCalled();
+		expect(receive(position(1000, true))).toBe(false);
+		expect(receive(position(1100))).toBe(false);
+		expect(ports.onSeekSettled).not.toHaveBeenCalled();
 		expect(writes).toEqual([1000, 9000]);
 		expect(ports.seekVideo).toHaveBeenLastCalledWith(9000);
-		vi.advanceTimersByTime(80);
-		expect(player.acceptPosition()).toBe(true);
-		expect(ports.onSeekSuppressionEnd).toHaveBeenCalledTimes(1);
+		expect(receive(position(9000, true))).toBe(true);
+		expect(player.state.suppressPosition).toBe(false);
+		expect(ports.onSeekSettled).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([-100, 30000])('acknowledges native clamping of seek %s', (ms) => {
+		const { player, writes } = harness();
+		const receive = player.positionReceiver();
+		player.seek(ms);
+		expect(writes).toEqual([Math.max(0, ms)]);
+		expect(receive(position(ms < 0 ? 0 : 22000, true))).toBe(true);
+	});
+
+	it('pause during a pending seek never resumes playback on acknowledgement', () => {
+		const { player, engine, ports } = harness();
+		const receive = player.positionReceiver();
+		player.seek(9000);
+		player.pause();
+		expect(receive(position(9000, true))).toBe(true);
+		expect(engine.play).not.toHaveBeenCalled();
+		expect(engine.playerState).toBe(0);
+		expect(ports.videoPlaying).toHaveBeenLastCalledWith(false);
+	});
+
+	it.each(['score', 'engine'] as const)(
+		'rejects callbacks captured for the previous %s',
+		(kind) => {
+			const h = harness();
+			const oldReceive = h.player.positionReceiver();
+			h.player.seek(1000);
+			if (kind === 'score') h.replaceScore();
+			else h.setEngine({ ...h.engine });
+			expect(oldReceive(position(1000, true))).toBe(false);
+			h.player.resetSession();
+			const receive = h.player.positionReceiver();
+			h.player.seek(9000);
+			expect(oldReceive(position(9000, true))).toBe(false);
+			expect(receive(position(9000, true))).toBe(true);
+		}
+	);
+
+	it('MIDI reload fences stale positions and cancels delayed starts even for the same score', () => {
+		const { player, engine } = harness();
+		const oldReceive = player.positionReceiver();
+		player.play(1000);
+		player.seek(9000);
+		player.beginLoad();
+		const receive = player.positionReceiver();
+		vi.advanceTimersByTime(1000);
+		expect(engine.play).not.toHaveBeenCalled();
+		expect(player.state).toMatchObject({ remainingMs: 0, suppressPosition: false });
+		expect(oldReceive(position(9000, true))).toBe(false);
+		expect(receive(position(1000))).toBe(false);
+		player.completeLoad(); // The initial load has no stop event.
+
+		expect(receive(position(0, true))).toBe(true);
+		expect(oldReceive(position(9000, true))).toBe(false);
+	});
+
+	it('position readiness belongs to an accepted current session, not a load-completion signal', () => {
+		const { player } = harness();
+		const oldReceive = player.positionReceiver();
+		expect(player.state.positionReady).toBe(false);
+		expect(oldReceive(position(1000))).toBe(true);
+		expect(player.state.positionReady).toBe(true);
+		player.beginLoad();
+		const receive = player.positionReceiver();
+		expect(player.state.positionReady).toBe(false);
+		expect(receive(position(1000))).toBe(false);
+		player.completeLoad();
+		expect(player.state.positionReady).toBe(false);
+		expect(oldReceive(position(1000))).toBe(false);
+		expect(player.state.positionReady).toBe(false);
+		expect(receive(position(0, true))).toBe(true);
+		expect(player.state.positionReady).toBe(true);
+		player.dispose();
+		expect(player.state.positionReady).toBe(false);
+	});
+
+	it('coalesces seeks during loading and sends the latest once after completion', () => {
+		const { player, writes, ports } = harness();
+		player.beginLoad();
+		const receive = player.positionReceiver();
+		player.seek(1000);
+		player.seek(9000);
+		expect(writes).toEqual([]);
+		expect(ports.seekVideo).toHaveBeenLastCalledWith(9000);
+		player.completeLoad();
+		player.completeLoad(); // A redundant completion with no pending load is inert.
+		expect(writes).toEqual([9000]);
+		expect(receive(position(0, true))).toBe(false);
+		expect(receive(position(9000, true))).toBe(true);
+	});
+
+	it('completion of an earlier overlapping load cannot release the latest', () => {
+		const { player, writes } = harness();
+		player.beginLoad();
+		player.beginLoad();
+		player.seek(9000);
+		player.completeLoad();
+		expect(writes).toEqual([]);
+		player.completeLoad();
+		expect(writes).toEqual([9000]);
+	});
+
+	it('score replacement discards a seek deferred behind a load', () => {
+		const { player, writes, replaceScore } = harness();
+		player.beginLoad();
+		player.seek(9000);
+		replaceScore();
+		player.resetSession();
+		player.completeLoad();
+		expect(writes).toEqual([]);
+		expect(player.state.suppressPosition).toBe(false);
+	});
+
+	it('score replacement retains the count of older native loads still in flight', () => {
+		const { player, writes, replaceScore } = harness();
+		player.beginLoad();
+		replaceScore();
+		player.resetSession();
+		player.beginLoad();
+		const receive = player.positionReceiver();
+		player.seek(9000);
+		player.completeLoad(); // Previous score finishes first.
+		expect(writes).toEqual([]);
+		expect(receive(position(9000, true))).toBe(false);
+		player.completeLoad();
+		expect(writes).toEqual([9000]);
+		expect(receive(position(9000, true))).toBe(true);
+	});
+
+	it.each([NaN, Infinity])('invalid position event %s cannot settle a seek', (currentTime) => {
+		const { player } = harness();
+		const receive = player.positionReceiver();
+		player.seek(9000);
+		expect(receive(position(currentTime, true))).toBe(false);
+		expect(player.state.suppressPosition).toBe(true);
+	});
+
+	it('a speed change retains the musical target while an acknowledgement is pending', () => {
+		const { player, engine } = harness();
+		const receive = player.positionReceiver();
+		player.seek(9000);
+		player.setSpeed(0.5);
+		expect(engine.playbackSpeed).toBe(0.5);
+		expect(receive(position(9000, true))).toBe(false);
+		expect(receive({ currentTime: 18000, endTime: 44000, isSeek: true })).toBe(true);
+	});
+
+	it('a speed change while loading rescales the deferred seek before sending it', () => {
+		const { player, writes } = harness();
+		player.beginLoad();
+		player.seek(9000);
+		player.setSpeed(0.5);
+		player.completeLoad();
+		expect(writes).toEqual([18000]);
+	});
+
+	it('changing the loop region supersedes a pending timeline seek', () => {
+		const { player, ports } = harness();
+		const receive = player.positionReceiver();
+		player.seek(9000);
+		player.syncLoop(region);
+		expect(player.state.suppressPosition).toBe(false);
+		expect(ports.onSeekSettled).toHaveBeenCalledOnce();
+		expect(receive(position(2000, true))).toBe(true);
+	});
+
+	it('reapplying the same loop leaves a pending timeline seek intact', () => {
+		const { player } = harness();
+		player.syncLoop(region);
+		player.seek(9000);
+		player.syncLoop({ ...region });
+		expect(player.state.suppressPosition).toBe(true);
 	});
 
 	it('next/previous bar follows the second repeat visit, including at half speed', () => {
@@ -238,15 +429,17 @@ describe('our seeks and repeated-bar navigation', () => {
 
 	it('disposal prevents pending seek callbacks and future commands', () => {
 		const { player, engine, ports, writes } = harness();
+		const receive = player.positionReceiver();
 		player.seek(1000);
 		player.dispose();
+		expect(receive(position(1000, true))).toBe(false);
 		player.seek(2000);
 		player.play();
 		player.syncLoop(region);
 		vi.advanceTimersByTime(1000);
 		expect(writes).toEqual([1000]);
 		expect(engine.play).not.toHaveBeenCalled();
-		expect(ports.onSeekSuppressionEnd).not.toHaveBeenCalled();
+		expect(ports.onSeekSettled).not.toHaveBeenCalled();
 		expect(ports.syncPractice).not.toHaveBeenCalled();
 	});
 
