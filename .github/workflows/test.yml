@@ -125,13 +125,29 @@ jobs:
           wc -l < shard-tests.txt
 
       - name: E2E tests (Playwright)
-        run: pnpm test:e2e --test-list shard-tests.txt
+        # TEMPORARY flake probe: only the three CI-only flakes, repeated, no retries.
+        run: >-
+          pnpm exec playwright test tests/loop-edge-cases.spec.ts tests/player-correctness.spec.ts tests/mobile-score-webkit.spec.ts
+          -g '01-pickup.*timeline drag snaps|tempo-changing region completes two wraps|dense mobile playback keeps the playhead'
+          --repeat-each=20 --retries=0 --trace=retain-on-failure --reporter=json,dot
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           # The dev server the e2e suite boots reads this; requests are mocked in
           # the specs, so any base works. A local URL keeps unmocked calls from
           # reaching the network.
           VITE_SEARCH_API_BASE_URL: http://localhost:3000
           VITE_SEARCH_API_TIMEOUT: '10000'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: probe-${{ matrix.shard }}.json
+
+      - name: Upload flake probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.shard }}
+          path: |
+            probe-${{ matrix.shard }}.json
+            test-results/
+          retention-days: 7
 
       - name: Upload Playwright report on failure
         if: failure()
