@@ -35,10 +35,17 @@ function harness({
 	const requests: string[] = [];
 	const loaded: string[] = [];
 	const listeners = new Set<(e: any) => void>();
+	const loadedListeners = new Set<() => void>();
 	const api = {
 		playerState: 0,
 		loadSoundFont(data: Uint8Array) {
 			loaded.push(new TextDecoder().decode(data));
+			// The worker acknowledges each load a moment later
+			setTimeout(() => loadedListeners.forEach((f) => f()), 5);
+		},
+		soundFontLoaded: {
+			on: (f: () => void) => loadedListeners.add(f),
+			off: (f: () => void) => loadedListeners.delete(f)
 		},
 		playerStateChanged: {
 			on: (f: (e: any) => void) => listeners.add(f),
@@ -60,7 +67,12 @@ function harness({
 		if (fail.has(file)) return new Response('', { status: 503 });
 		return new Response(file);
 	}) as typeof fetch;
-	const packs = createInstrumentPacks(api, { baseUrl: '/instruments/v1', fetch: fetchFn, caches });
+	const packs = createInstrumentPacks(api, {
+		baseUrl: '/instruments/v1',
+		fetch: fetchFn,
+		caches,
+		settleMs: 10
+	});
 	const setState = (state: number) => {
 		api.playerState = state;
 		for (const f of listeners) f({ state });
@@ -100,8 +112,19 @@ describe('createInstrumentPacks', () => {
 		expect(h.loaded).toEqual([]);
 		expect(h.packs.waiting).toBe(3);
 		h.setState(0);
-		expect(h.loaded).toHaveLength(3);
+		await expect.poll(() => h.loaded).toHaveLength(3);
 		expect(h.packs.waiting).toBe(0);
+	});
+
+	it('ignores a momentary stop that resumes right away', async () => {
+		const h = harness();
+		h.setState(1);
+		await h.packs.ensure(rock);
+		// MIDI reloads stop and restart the synth within a moment
+		h.setState(0);
+		h.setState(1);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(h.loaded).toEqual([]);
 	});
 
 	it('keeps the base instruments when a pack or the manifest is unavailable', async () => {
@@ -157,7 +180,8 @@ describe('starting playback while packs download', () => {
 				await gate;
 				return new Response(url.split('/').pop()!);
 			},
-			holdStartMs
+			holdStartMs,
+			settleMs: 10
 		} as never);
 		return { api, packs, starts, open };
 	}
@@ -191,5 +215,15 @@ describe('starting playback while packs download', () => {
 		const { api, starts } = playable();
 		api.play();
 		expect(starts).toEqual(['play with 0 packs']);
+	});
+
+	it('a start while a pack load is being processed waits for it to finish', async () => {
+		const { api, packs, starts, open } = playable();
+		open();
+		const loading = packs.ensure(rock);
+		await loading; // packs applied, the synth has not acknowledged yet
+		api.play();
+		expect(starts).toEqual([]);
+		await expect.poll(() => starts).toEqual(['play with 3 packs']);
 	});
 });

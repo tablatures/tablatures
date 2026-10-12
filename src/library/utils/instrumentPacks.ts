@@ -53,6 +53,8 @@ export interface PackLoaderDeps {
 	caches?: CacheStorage;
 	/** How long a start waits for packs still downloading. */
 	holdStartMs?: number;
+	/** How long playback must stay paused before packs apply. */
+	settleMs?: number;
 }
 
 async function cachedBytes(url: string, deps: PackLoaderDeps): Promise<Uint8Array> {
@@ -94,6 +96,7 @@ interface SynthApi {
 	loadSoundFont(data: Uint8Array, append: boolean): unknown;
 	readonly playerState: number;
 	playerStateChanged?: { on(f: (e: any) => void): void; off(f: (e: any) => void): void };
+	soundFontLoaded?: { on(f: () => void): void; off(f: () => void): void };
 	play?(): unknown;
 	playPause?(): unknown;
 }
@@ -103,6 +106,12 @@ interface SynthApi {
  * band's packs), so packs never load during playback. A start while packs are
  * still downloading waits for them briefly, which only happens the first time
  * an instrument is used; packs that arrive later wait for the next pause.
+ *
+ * The synth also stops for an instant whenever it reloads MIDI (loop and
+ * practice changes) and resumes right after. Packs only apply once playback
+ * has stayed paused for a moment, and a start while a load is still being
+ * processed waits for it: the load's own pause would otherwise land after the
+ * start and leave playback stopped.
  */
 export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): InstrumentPacks {
 	let enabled = true;
@@ -116,6 +125,11 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 	// cannot delay every press of Play.
 	const waitedFor = new WeakSet<Promise<void>>();
 	let holding = false;
+	// Pack loads posted to the synth and not yet acknowledged
+	let applying = 0;
+	let applyingSince = 0;
+	let queuedStart: (() => unknown) | null = null;
+	let settleTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const getManifest = () =>
 		(manifest ??= deps
@@ -127,20 +141,40 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 			}));
 
 	const flush = () => {
-		if (!enabled || api.playerState !== 0) return;
+		if (!enabled || api.playerState !== 0 || queuedStart) return;
 		for (const [key, bytes] of ready) {
 			ready.delete(key);
 			try {
 				api.loadSoundFont(bytes, true);
 				applied.add(key);
+				if (applying++ === 0) applyingSince = Date.now();
 			} catch {
 				// A rejected pack leaves the base instrument in place.
 			}
 		}
 	};
 
+	const queue = (start: () => unknown) => {
+		queuedStart = start;
+		setTimeout(() => {
+			if (queuedStart !== start) return;
+			applying = 0;
+			releaseStart();
+		}, 5000);
+	};
+	const releaseStart = () => {
+		const start = queuedStart;
+		queuedStart = null;
+		start?.();
+	};
+	const onLoaded = () => {
+		if (applying > 0 && --applying === 0) releaseStart();
+	};
+	api.soundFontLoaded?.on(onLoaded);
+
 	const onState = (e: { state: number }) => {
-		if (e?.state === 0) flush();
+		clearTimeout(settleTimer);
+		if (e?.state === 0) settleTimer = setTimeout(flush, deps.settleMs ?? 250);
 	};
 	api.playerStateChanged?.on(onState);
 
@@ -148,6 +182,12 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 	const play = api.play?.bind(api);
 	const playPause = api.playPause?.bind(api);
 	const hold = (start: () => unknown): boolean => {
+		// A load that never acknowledges (a failed pack) must not block playback.
+		if (applying > 0 && Date.now() - applyingSince > 5000) applying = 0;
+		if (applying > 0) {
+			queue(start);
+			return true;
+		}
 		if (!enabled || api.playerState !== 0) return false;
 		if (!holding) {
 			const pending = [...ensuring].filter((run) => !waitedFor.has(run));
@@ -158,7 +198,8 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 			void Promise.race([Promise.allSettled(pending), timeout]).then(() => {
 				holding = false;
 				flush();
-				start();
+				if (applying > 0) queue(start);
+				else start();
 			});
 		}
 		return true;
@@ -219,6 +260,8 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 		},
 		dispose() {
 			api.playerStateChanged?.off(onState);
+			api.soundFontLoaded?.off(onLoaded);
+			clearTimeout(settleTimer);
 			if (play) api.play = play;
 			if (playPause) api.playPause = playPause;
 		}
