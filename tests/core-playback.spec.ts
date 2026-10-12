@@ -66,6 +66,43 @@ test.describe('Core Playback', () => {
 		await waitForPlaying(page, false);
 	});
 
+	// One UI integration check; countdown timing/cancellation matrices run in Node.
+	test('delay controls pause, resume, bypass and cancel the shared transport countdown', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await setupPlayPage(page);
+		await page.getByRole('button', { name: 'Settings', exact: true }).click();
+		const delay = page.getByRole('slider', { name: 'Delay knob', exact: true });
+		await delay.press('End');
+		await expect(delay).toHaveAttribute('aria-valuenow', '10000');
+		await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		const countdown = page.getByRole('dialog', { name: 'Countdown to play', exact: true });
+		await expect(countdown).toBeVisible();
+		expect(await getTestApi<boolean>(page, 'isPlaying')).toBe(false);
+		await countdown.getByTitle('Pause', { exact: true }).click();
+		await expect(countdown.getByTitle('Resume', { exact: true })).toBeVisible();
+		await countdown.getByTitle('Resume', { exact: true }).click();
+		await expect(countdown.getByTitle('Pause', { exact: true })).toBeVisible();
+		await countdown.getByRole('button', { name: 'Play now', exact: true }).click();
+		await expect(countdown).not.toBeVisible();
+		await waitForPlaying(page, true);
+		await waitForProgressAbove(page, 1);
+		await page.getByRole('button', { name: 'Pause', exact: true }).click();
+		await waitForPlaying(page, false);
+
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		await expect(countdown).toBeVisible();
+		await countdown.getByRole('button', { name: 'Clear delay', exact: true }).click();
+		await expect(countdown).not.toBeVisible();
+		expect(await getTestApi<boolean>(page, 'isPlaying')).toBe(false);
+		await page.getByRole('button', { name: 'Play', exact: true }).click();
+		await waitForPlaying(page, true);
+		await expect(countdown).not.toBeVisible();
+	});
+
 	// --- Test 4: Timeline seek (click) ---
 	test('timeline seek by clicking progress bar', async ({ page }) => {
 		await setupPlayPage(page);

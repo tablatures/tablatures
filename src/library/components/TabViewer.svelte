@@ -7,6 +7,7 @@
 	import { configureImporterEncoding } from '../utils/lyrics';
 	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
+	import { createPlayerTransport } from '../utils/playerTransport';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import { claimBarDrag, isBarOwnGesture, isScrubZone, isVerticalSwipe } from '../utils/barGesture';
 	import {
@@ -211,7 +212,6 @@
 	// Timeout constants (ms)
 	const PRINT_DELAY_MS = 100;
 	const CONTROLS_HIDE_DELAY_MS = 3000;
-	const COUNTDOWN_INTERVAL_MS = 100;
 	const DEBOUNCE_DELAY_MS = 300;
 	const SETTINGS_STORAGE_KEY = 'tabviewer-settings';
 	// Gate the settings-save reactive until loadSettings() has restored persisted
@@ -421,9 +421,7 @@
 			if (!options.docked || !barEl) return;
 			// The outer shell can scroll the entire player upward. Keep the console
 			// inside the visible score area, above the transport and details.
-			const top = options.fullscreen
-				? 0
-				: Math.max(0, shell?.getBoundingClientRect().top ?? 0);
+			const top = options.fullscreen ? 0 : Math.max(0, shell?.getBoundingClientRect().top ?? 0);
 			const bottom = barEl.getBoundingClientRect().top;
 			consoleBounds = {
 				top,
@@ -1166,7 +1164,6 @@
 	function clearLoopPoints() {
 		loopOrder = undefined;
 		loopTicks = null;
-		syncPracticePlayback(api, null);
 		loopStartBar = null;
 		loopEndBar = null;
 		selectionStartBeat = null;
@@ -1174,12 +1171,7 @@
 		showSelectionPopover = false;
 		clearScoreSelection();
 		removeOverlay();
-		if (api) {
-			try {
-				api.playbackRange = null;
-				api.isLooping = false;
-			} catch {}
-		}
+		transport.clearLoop();
 	}
 
 	// Loop enforcement: alphaTab's native isLooping + playbackRange handles seamless looping
@@ -1257,34 +1249,13 @@
 	/** Sync the native player from the shared musical loop range. */
 	function syncPlaybackRange() {
 		if (!api) return;
-		syncPracticePlayback(api, {
+		transport.syncLoop({
 			startBar: loopStartBar,
 			endBar: loopEndBar,
 			enabled: loopEnabled,
 			order: loopOrder,
 			...loopTicks
 		});
-		try {
-			if (loopStartBar !== null && loopEndBar !== null && loopEnabled) {
-				const range = currentLoopRange();
-				if (range && range.endTick > range.startTick) {
-					if (
-						api.playbackRange?.startTick !== range.startTick ||
-						api.playbackRange?.endTick !== range.endTick
-					)
-						api.playbackRange = range;
-					api.isLooping = true;
-				} else {
-					api.playbackRange = null;
-					api.isLooping = false;
-				}
-			} else {
-				if (api.playbackRange) api.playbackRange = null;
-				// A disabled region stops looping; absent bounds leave the whole-song
-				// toggle owned by the persistent engine.
-				if (loopStartBar !== null || loopEndBar !== null) api.isLooping = false;
-			}
-		} catch {}
 	}
 
 	// --- Score selection overlay ---
@@ -2197,9 +2168,7 @@
 		if (!range || !duration || !api) return;
 		const pct = getProgressPercent(clientX);
 		progress = pct;
-		bindDuration = false;
-		api.player.timePosition = (pct / 100) * duration;
-		seekDebounce();
+		transport.seek((pct / 100) * duration);
 		autoFollow = true;
 		followAtStart = true;
 	}
@@ -2743,14 +2712,7 @@
 	// Seek by bar
 	function seekByBars(delta: number) {
 		if (!api || totalBars === 0) return;
-		const timing = timingForApi(api);
-		if (!timing) return;
-		const tick = timing.msToTick((progress / 100) * duration, api.playbackSpeed);
-		const nextVisit = Math.max(0, Math.min(timing.visits.length - 1, timing.visitAt(tick) + delta));
-		const ms = timing.tickToMs(timing.visits[nextVisit].start, api.playbackSpeed);
-		progress = duration > 0 ? (ms / duration) * 100 : 0;
-		api.player.timePosition = ms;
-		seekDebounce();
+		transport.seekByBars((progress / 100) * duration, delta);
 		autoFollow = true;
 		followAtStart = true;
 	}
@@ -2818,7 +2780,7 @@
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
-			if (bindDuration) {
+			if (bindDuration && transport.acceptPosition()) {
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
 			}
@@ -3038,7 +3000,7 @@
 						const startMs = loopRangeMs()?.startMs ?? barToMs(sBar);
 						if (startMs >= 0) {
 							progress = (startMs / duration) * 100;
-							api.player.timePosition = startMs;
+							transport.seek(startMs);
 							// An explicit seek: follow the cursor again (a touch on the
 							// score had disengaged following as if it were a scroll).
 							autoFollow = true;
@@ -3593,15 +3555,12 @@
 		} else if (event.code === 'Home') {
 			event.preventDefault();
 			if (api) {
-				api.player.timePosition = 0;
-				progress = 0;
-				driveVideoSeek(0);
+				transport.seek(0);
 			}
 		} else if (event.code === 'End') {
 			event.preventDefault();
 			if (api && duration > 0) {
-				api.player.timePosition = duration - 100;
-				driveVideoSeek(duration - 100);
+				transport.seek(duration - 100);
 			}
 		} else if (event.code === 'Slash') {
 			event.preventDefault();
@@ -3704,7 +3663,6 @@
 		window.removeEventListener('orientationchange', handleOrientationChange);
 		clearTimeout(relayoutDebounceTimeout);
 		clearTimeout(scaleDebounceTimeout);
-		clearTimeout(seekDebounceTimeout);
 		document.removeEventListener('fullscreenchange', handleFullscreenChange);
 		mountObserver?.disconnect();
 		if (page) {
@@ -3717,7 +3675,7 @@
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
 
 		// Cleanup timers that may still be running
-		clearInterval(countdownInterval);
+		transport.dispose();
 		clearTimeout(longPressTimer);
 
 		clearTimeout(loadingTimeoutId);
@@ -3725,79 +3683,54 @@
 		document.body.style.overflow = '';
 	});
 
-	let countdownInterval: NodeJS.Timeout;
 	let rest = 0;
 	let countdownPaused = false;
-
-	/** Actually start playback (called when countdown finishes or when playing without delay) */
-	function startPlaybackNow() {
-		rest = 0;
-		countdownPaused = false;
-		clearInterval(countdownInterval);
-		api?.playPause();
-		// Start video only when actually playing, not during countdown
-		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer)
+	const transport = createPlayerTransport({
+		engine: () => api,
+		score: () => api?.score,
+		timing: () => timingForApi(api),
+		syncPractice: (region) => syncPracticePlayback(api, region),
+		videoPlaying: (shouldPlay) => {
+			const video = $videoPlayerRef;
 			try {
-				ytPlayer.playVideo();
+				if (shouldPlay) video?.playVideo();
+				else video?.pauseVideo();
 			} catch {}
+		},
+		seekVideo: seekSessionVideo,
+		onSeek: (ms) => {
+			bindDuration = false;
+			trainer.resetPosition();
+			progress = duration > 0 ? (ms / duration) * 100 : 0;
+		},
+		onSeekSuppressionEnd: () => (bindDuration = true),
+		onLoop: (looping) => (trainerLooping = looping),
+		onCountdown: (state) => {
+			rest = state.remainingMs;
+			countdownPaused = state.countdownPaused;
+		}
+	});
+
+	function startPlaybackNow() {
+		transport.playNow();
 	}
 
-	/** Cancel any active countdown without starting playback */
 	function cancelCountdown() {
-		clearInterval(countdownInterval);
-		rest = 0;
-		countdownPaused = false;
-	}
-
-	/** Start the countdown interval that ticks down to playback */
-	function startCountdownTimer() {
-		clearInterval(countdownInterval);
-		countdownPaused = false;
-		countdownInterval = setInterval(() => {
-			rest -= COUNTDOWN_INTERVAL_MS;
-			if (rest <= 0) {
-				startPlaybackNow();
-			}
-		}, COUNTDOWN_INTERVAL_MS);
+		transport.cancelCountdown();
 	}
 
 	function toggleCountdownPause() {
-		if (countdownPaused) {
-			// Resume countdown
-			startCountdownTimer();
-		} else {
-			// Pause countdown
-			countdownPaused = true;
-			clearInterval(countdownInterval);
-		}
+		transport.toggleCountdownPause();
 	}
 
 	function adjustCountdownTime(deltaMs: number) {
-		const newDelay = Math.max(1000, Math.min(10000, delaying + deltaMs));
-		delaying = newDelay;
-		// Restart the countdown with the new delay
-		rest = newDelay;
-		startCountdownTimer();
+		delaying = Math.max(1000, Math.min(10000, delaying + deltaMs));
+		transport.adjustCountdown(delaying);
 	}
 
 	function clickPlay() {
-		// If countdown is active, cancel it (tap play again = cancel)
-		if (rest > 0) {
-			cancelCountdown();
-			return;
-		}
-
 		showControls();
-
-		if (delaying > 0) {
-			// Start countdown - don't play yet, don't start video yet
-			rest = delaying;
-			startCountdownTimer();
-		} else {
-			// No delay - play immediately
-			startPlaybackNow();
-		}
+		transport.play(delaying);
 	}
 
 	/** Play immediately, bypassing any delay (used by video sync, loop play-from-A) */
@@ -3807,41 +3740,20 @@
 		const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
 		if (ms < 0) return;
 		progress = (ms / duration) * 100;
-		api.player.timePosition = ms;
-		seekDebounce();
+		transport.seek(ms);
 		if (!playing) playImmediate();
 	}
 
 	function playImmediate() {
-		cancelCountdown();
-		if (!playing) {
-			api?.playPause();
-		}
-		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer)
-			try {
-				ytPlayer.playVideo();
-			} catch {}
+		transport.playNow();
 		showControls();
 	}
 
 	function clickPause() {
-		// Cancel any active countdown
-		cancelCountdown();
-
-		api?.pause();
+		transport.pause();
 		playing = false;
-
-		// Keep controls visible when paused
 		controlsVisible = true;
 		clearTimeout(hideTimeout);
-
-		// Sync video
-		const ytPlayer = $videoPlayerRef;
-		if (ytPlayer)
-			try {
-				ytPlayer.pauseVideo();
-			} catch {}
 	}
 
 	function selectVideo(videoId: string) {
@@ -3869,30 +3781,6 @@
 		audioSource.set('tab');
 		if (api) api.masterVolume = volume;
 		showOffsetControl = false;
-	}
-
-	/** Propagate a tab seek to the YouTube player so the video stays in step
-	 *  with the tab timeline. Safe to call when no video is open (no-op).
-	 *  Also installs a short lock so the 200ms sync poller doesn't immediately
-	 *  drag the tab back to the video's still-settling old position. */
-	function driveVideoSeek(tabMs: number) {
-		seekSessionVideo(tabMs);
-	}
-
-	// After seeking, alphaTab may fire one last playerPositionChanged event
-	// with the OLD position before the seek completes. Suppress it briefly.
-	let seekDebounceTimeout: NodeJS.Timeout;
-	function seekDebounce() {
-		bindDuration = false;
-		trainer.resetPosition();
-		clearTimeout(seekDebounceTimeout);
-		seekDebounceTimeout = setTimeout(() => {
-			bindDuration = true;
-		}, 100);
-
-		if (duration > 0) {
-			driveVideoSeek((progress / 100) * duration);
-		}
 	}
 
 	// pause the progress while dragging
@@ -4020,8 +3908,7 @@
 
 	// update the progress on click
 	function progressChange() {
-		api.player.timePosition = (progress / 100) * duration;
-		seekDebounce();
+		transport.seek((progress / 100) * duration);
 	}
 
 	function clickLooping() {
@@ -4030,8 +3917,7 @@
 			toggleLoopEnabled();
 		} else {
 			// No region loop - toggle alphaTab's global loop
-			api.isLooping = !api.isLooping;
-			trainerLooping = api.isLooping;
+			transport.toggleSongLoop();
 		}
 	}
 
@@ -5095,10 +4981,10 @@
 						class="{isFullscreen
 							? 'p-1.5'
 							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{api?.isLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
+						{trainerLooping && scoreLoaded ? 'text-violet-500' : 'text-neutral-500 dark:text-neutral-400'}"
 						title="Loop [L] &middot; Drag on progress bar to set region"
 						aria-label="Toggle loop"
-						aria-pressed={!!api?.isLooping && scoreLoaded}
+						aria-pressed={trainerLooping && scoreLoaded}
 					>
 						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
 							>repeat</i

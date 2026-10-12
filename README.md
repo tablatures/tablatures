@@ -117,7 +117,8 @@ pnpm run preview
 ## Tests
 
 See [the testing guide](docs/testing.md) for focused commands, regression coverage,
-and failure triage. Use `pnpm test:e2e <spec>` for isolated ports and failure reports.
+and failure triage. Run `pnpm test:player` for browser-free player control regressions.
+Use `pnpm test:e2e <spec>` for isolated ports and failure reports.
 
 ## Studio instrument packs
 

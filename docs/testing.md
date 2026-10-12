@@ -7,6 +7,7 @@ A passing retry is evidence of an intermittent failure, not proof that the appli
 
 | Change                                 | Start here                                              | Browser follow-up                                                                                  |
 | -------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Transport commands, countdown, seeks   | `pnpm test:player`                                      | `tests/core-playback.spec.ts`, `tests/player-correctness.spec.ts`, `tests/loop.spec.ts`            |
 | Musical position, tempo, repeat ranges | `pnpm test:unit src/library/utils/playerTiming.test.ts` | `tests/loop-repeat.spec.ts`, `tests/player-correctness.spec.ts`                                    |
 | Cursor and scrolling                   | `pnpm test:unit src/library/utils/playerCursor.test.ts` | `tests/cursor-follow.spec.ts`, relevant mobile/scroll specs                                        |
 | Player settings and lifecycle          | Relevant store/subscription unit specs                  | `tests/settings-desync.spec.ts`, `tests/score-switching.spec.ts`, `tests/catalogue-player.spec.ts` |
@@ -15,6 +16,7 @@ A passing retry is evidence of an intermittent failure, not proof that the appli
 
 ```sh
 pnpm test:unit
+pnpm test:player # Browser-free application player regressions
 pnpm test:e2e tests/loop-repeat.spec.ts tests/settings-desync.spec.ts
 # Only when investigating or validating reliability:
 pnpm test:stability tests/harness.spec.ts tests/settings-desync.spec.ts
@@ -99,3 +101,25 @@ platform capabilities with a documented reason. No automatic retries are enabled
 This policy does not claim complete player coverage or a measured coverage
 percentage. Expand deterministic cases with each fixed defect; preserve browser
 checks for boundaries that pure logic tests cannot exercise.
+
+## Browser-free application player
+
+`pnpm test:player` exercises our transport, practice playback, video session and
+musical policies in Node. `createPlayerTransport` is the production controller
+used by `TabViewer`, not a second implementation for tests. Its engine and media
+ports let tests record commands, deliver synchronous stale callbacks, replace a
+score, and advance application timers deterministically. No browser, audio device
+or wall-clock sleeps are needed.
+
+The transport suite owns delayed play cancellation/pause/resume, idempotent play,
+seek suppression and video forwarding, next/previous navigation through repeated
+bar visits and tempo changes, and region versus whole-song repeat policy. Real
+parsing/MIDI generation supplies fixture clocks; alphaTab synthesis is not under
+test. Musical expectations are explicit constants from the fixture.
+
+This first extraction retains the existing 100 ms seek suppression window. It is
+not a worker acknowledgement and cannot prove that the engine completed a seek.
+Keep the browser regressions for native acknowledgements, actual playback,
+gestures, rendering and navigation. When adding a control policy, put it in the
+shared controller and exercise its commands here before adding browser coverage
+for any new integration boundary.
