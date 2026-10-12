@@ -16,6 +16,8 @@ export interface TransportState {
 	remainingMs: number;
 	countdownPaused: boolean;
 	suppressPosition: boolean;
+	/** At least one native position from the current load generation reached our controller. */
+	positionReady: boolean;
 }
 
 export interface TransportPorts {
@@ -45,7 +47,12 @@ const COUNTDOWN_INTERVAL_MS = 100;
  * Engine calls are effects; tests control their responses rather than retesting
  * alphaTab's synthesis, scheduling or repeat expansion. */
 export function createPlayerTransport(ports: TransportPorts) {
-	let state: TransportState = { remainingMs: 0, countdownPaused: false, suppressPosition: false };
+	let state: TransportState = {
+		remainingMs: 0,
+		countdownPaused: false,
+		suppressPosition: false,
+		positionReady: false
+	};
 	let countdown: ReturnType<typeof setInterval> | undefined;
 	let pendingSeek: { ms: number; engine: TransportEngine; score: unknown } | null = null;
 	let generation = 0;
@@ -103,6 +110,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 	};
 	const invalidateSession = () => {
 		generation++;
+		state = { ...state, positionReady: false };
 		cancelCountdown();
 		clearSeek();
 	};
@@ -140,6 +148,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 				if (!event.isSeek || Math.abs(event.currentTime - expected) > 0.01) return false;
 				clearSeek();
 			}
+			if (!state.positionReady) state = { ...state, positionReady: true };
 			return true;
 		};
 	};
@@ -275,7 +284,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 			pendingSeek = null;
 			generation++;
 			cancelCountdown();
-			state = { ...state, suppressPosition: false };
+			state = { ...state, suppressPosition: false, positionReady: false };
 		}
 	};
 }

@@ -3225,6 +3225,7 @@
 			(window as any).__testApi = {
 				getProgress: () => progress,
 				getDuration: () => duration,
+				isPositionReady: () => transport.state.positionReady,
 				getLoopBounds: () =>
 					loopStartBar !== null && loopEndBar !== null
 						? { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }

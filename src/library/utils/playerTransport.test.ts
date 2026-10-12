@@ -285,6 +285,26 @@ describe('our seeks and repeated-bar navigation', () => {
 		expect(oldReceive(position(9000, true))).toBe(false);
 	});
 
+	it('position readiness belongs to an accepted current session, not a load-completion signal', () => {
+		const { player } = harness();
+		const oldReceive = player.positionReceiver();
+		expect(player.state.positionReady).toBe(false);
+		expect(oldReceive(position(1000))).toBe(true);
+		expect(player.state.positionReady).toBe(true);
+		player.beginLoad();
+		const receive = player.positionReceiver();
+		expect(player.state.positionReady).toBe(false);
+		expect(receive(position(1000))).toBe(false);
+		player.completeLoad();
+		expect(player.state.positionReady).toBe(false);
+		expect(oldReceive(position(1000))).toBe(false);
+		expect(player.state.positionReady).toBe(false);
+		expect(receive(position(0, true))).toBe(true);
+		expect(player.state.positionReady).toBe(true);
+		player.dispose();
+		expect(player.state.positionReady).toBe(false);
+	});
+
 	it('coalesces seeks during loading and sends the latest once after completion', () => {
 		const { player, writes, ports } = harness();
 		player.beginLoad();

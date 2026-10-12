@@ -82,7 +82,10 @@ appropriate for isolated application timers, but it cannot drive an AudioContext
 Use awaited UI assertions or observable lifecycle events rather than sleeping
 for readiness. The alphaTeX helper subscribes before loading and waits for the
 new score, player readiness and layout, including identical-duration reloads.
-The initial score helper also checks native playback readiness. `seekToPercent`
+The initial score helper also waits for our controller to accept a position from
+the current load generation and checks native playback readiness. An old positive
+duration and the engine's optimistic ready flag cannot establish that the new
+score reached the UI. `seekToPercent`
 subscribes to native position events before clicking; `waitForSeekSettled` waits
 for a matching worker acknowledgement as well as displayed progress. alphaTab's
 time getter is also optimistic, so checking it alone cannot prove completion.

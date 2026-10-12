@@ -2,13 +2,16 @@ import { type Page } from '@playwright/test';
 
 /**
  * Wait for the score to finish loading in alphaTab.
- * Waits for a positive duration and native audio readiness.
+ * Waits for our current session to accept a native position, a positive duration
+ * and native audio readiness. A previous score can satisfy the latter two.
  */
 export async function waitForScoreLoaded(page: Page, timeout = 30000): Promise<void> {
 	await page.waitForFunction(
 		() => {
 			const api = (window as any).__testApi;
-			return api && api.getDuration() > 0 && api.getApi()?.isReadyForPlayback;
+			return (
+				api && api.isPositionReady() && api.getDuration() > 0 && api.getApi()?.isReadyForPlayback
+			);
 		},
 		undefined,
 		{ timeout, polling: 500 }

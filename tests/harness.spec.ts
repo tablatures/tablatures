@@ -61,3 +61,24 @@ test('seek settling waits for worker acknowledgement rather than optimistic prog
 	await page.evaluate(() => (window as any).__testApi.acknowledge(90));
 	await waitForSeekSettled(page, 90, 5, 1000);
 });
+
+test('score readiness rejects a previous duration until our current session accepts a position', async ({
+	page
+}) => {
+	await page.goto('about:blank');
+	await page.evaluate(() => {
+		(window as any).__testApi = {
+			getDuration: () => 64000,
+			isPositionReady: () => false,
+			getApi: () => ({ isReadyForPlayback: true })
+		};
+	});
+	// The engine's readiness and our previous displayed duration can both still
+	// be positive while a replacement MIDI stream has not reached the UI.
+	await expect(waitForScoreLoaded(page, 50)).rejects.toThrow(/Timeout 50ms/);
+	await page.evaluate(() => {
+		(window as any).__testApi.getDuration = () => 32000;
+		(window as any).__testApi.isPositionReady = () => true;
+	});
+	await waitForScoreLoaded(page, 1000);
+});
