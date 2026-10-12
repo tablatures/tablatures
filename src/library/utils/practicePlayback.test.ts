@@ -223,9 +223,20 @@ describe('written practice playback using real MIDI generation', () => {
 		}
 	});
 	describe('resuming while alphaTab confirms playback asynchronously', () => {
-		/** Like alphaTab: play() only requests playback; the state follows in an event. */
+		/** Like alphaTab: play() only requests playback and a MIDI load is processed
+		 *  later by the synth, which stops the player and then reports ready. */
 		function asyncPlayer() {
 			const api = fixture();
+			const load = api.loadMidiForScore.bind(api);
+			api.loadMidiForScore = function () {
+				const state = this.playerState;
+				load();
+				this.playerState = state; // the stop arrives with processLoad()
+			};
+			api.processLoad = () => {
+				api.playerState = 0;
+				api.playerStateChanged.emit({ state: 0, stopped: true });
+			};
 			api.playerStateChanged = emitter();
 			api.plays = 0;
 			api.play = function () {
@@ -244,23 +255,56 @@ describe('written practice playback using real MIDI generation', () => {
 			const session = createPracticePlayback(api);
 			api.confirm(1);
 			session.sync(region); // enter practice while playing
+			api.processLoad();
 			api.playerReady.emit(); // resume requested, not yet confirmed
 			expect(api.plays).toBe(1);
-			expect(api.playerState).toBe(0);
 			session.sync(null); // leave practice inside that window
+			api.processLoad();
 			api.playerReady.emit();
 			expect(api.plays).toBe(2);
 			session.dispose();
 		});
 
-		it('ignores a stale stop from an earlier reload while the resume is pending', () => {
+		it('waits for the latest load, ignoring a ready left over from an earlier one', () => {
 			const api = asyncPlayer();
 			const session = createPracticePlayback(api);
 			api.confirm(1);
 			session.sync(region);
+			api.processLoad();
+			api.playerReady.emit();
+			api.confirm(1);
+			session.sync(null); // a new load is issued while playing
+			api.playerReady.emit(); // alphaTab's second ready for the previous load
+			expect(api.plays).toBe(1);
+			api.processLoad(); // the new load stops the player...
+			api.playerReady.emit(); // ...and only then is ready
+			expect(api.plays).toBe(2);
+			session.dispose();
+		});
+
+		it('is not held back by an earlier load that never reported a stop', () => {
+			const api = asyncPlayer();
+			const session = createPracticePlayback(api);
+			api.loadMidiForScore(); // e.g. a settings change, never stopped the player
+			api.playerReady.emit();
+			api.confirm(1);
+			session.sync(region);
+			api.processLoad();
+			api.playerReady.emit();
+			expect(api.plays).toBe(1);
+			session.dispose();
+		});
+
+		it('ignores a stale state change while the resume is pending', () => {
+			const api = asyncPlayer();
+			const session = createPracticePlayback(api);
+			api.confirm(1);
+			session.sync(region);
+			api.processLoad();
 			api.playerReady.emit(); // resume requested
-			api.confirm(0); // the previous load's stop arrives late
+			api.confirm(0); // a late state change from earlier work
 			session.sync(null);
+			api.processLoad();
 			api.playerReady.emit();
 			expect(api.plays).toBe(2);
 			session.dispose();
@@ -271,10 +315,12 @@ describe('written practice playback using real MIDI generation', () => {
 			const session = createPracticePlayback(api);
 			api.confirm(1);
 			session.sync(region);
+			api.processLoad();
 			api.playerReady.emit();
 			api.confirm(1);
 			api.confirm(0); // the reader pauses
 			session.sync(null);
+			api.processLoad();
 			api.playerReady.emit();
 			expect(api.plays).toBe(1);
 			session.dispose();
@@ -289,8 +335,10 @@ describe('written practice playback using real MIDI generation', () => {
 			const session = createPracticePlayback(api);
 			api.confirm(1);
 			session.sync(region);
+			api.processLoad();
 			api.playerReady.emit();
 			session.sync(null);
+			api.processLoad();
 			api.playerReady.emit();
 			expect(api.plays).toBe(1);
 			session.dispose();

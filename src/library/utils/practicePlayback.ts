@@ -124,6 +124,11 @@ export function createPracticePlayback(api: any) {
 	// window must not conclude the player was stopped. Only the confirmation
 	// settles it: a late stop from an earlier reload can arrive in between.
 	let resumeRequested = false;
+	// The synth processes loads in order: each one stops the player, then reports
+	// ready (alphaTab 1.8 reports ready twice). A ready that arrives while a later
+	// load has not stopped the player yet belongs to an earlier load. Only players
+	// that report state changes can be tracked this way.
+	let loadsInFlight = 0;
 	const isWritten = () => writtenLookup !== null && api.tickCache === writtenLookup;
 	const applyRange = () => {
 		const timing = timingForApi(api);
@@ -177,7 +182,13 @@ export function createPracticePlayback(api: any) {
 		applyRange();
 	};
 	const ready = () => {
-		if (!pending || pending.lookup !== api.tickCache) return;
+		if (!pending) {
+			// Nothing waits on this ready; a load that never reported a stop must
+			// not hold back the next one.
+			loadsInFlight = 0;
+			return;
+		}
+		if (pending.lookup !== api.tickCache || loadsInFlight > 0) return;
 		const target = pending;
 		pending = null;
 		applyRange();
@@ -188,11 +199,13 @@ export function createPracticePlayback(api: any) {
 				: target.tick;
 		if (target.resume) resumeRequested = api.play() !== false;
 	};
-	const stateChanged = (e: { state: number }) => {
+	const stateChanged = (e: { state: number; stopped?: boolean }) => {
+		if (e.stopped) loadsInFlight = Math.max(0, loadsInFlight - 1);
 		if (e.state !== 0) resumeRequested = false;
 	};
 	// Settings that regenerate MIDI also need to retain the practice order.
 	const midiLoad = () => {
+		if (api.playerStateChanged) loadsInFlight++;
 		if (!generating) queueMicrotask(() => sync(region));
 	};
 	api.playerReady.on(ready);
