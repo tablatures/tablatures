@@ -28,15 +28,18 @@ export interface TransportPorts {
 	videoPlaying(playing: boolean): void;
 	seekVideo(ms: number): void;
 	onSeek(ms: number): void;
-	onSeekSuppressionEnd(): void;
+	onSeekSettled(): void;
 	onLoop(looping: boolean): void;
 	onCountdown(state: Readonly<TransportState>): void;
 }
 
+export interface TransportPosition {
+	currentTime: number;
+	endTime: number;
+	isSeek: boolean;
+}
+
 const COUNTDOWN_INTERVAL_MS = 100;
-// Preserve the existing UI's post-seek suppression window. This is not a worker
-// acknowledgement: the browser's integration tests still verify actual settling.
-const SEEK_SUPPRESSION_MS = 100;
 
 /** Application transport policy shared by the UI and browser-free regressions.
  * Engine calls are effects; tests control their responses rather than retesting
@@ -44,7 +47,11 @@ const SEEK_SUPPRESSION_MS = 100;
 export function createPlayerTransport(ports: TransportPorts) {
 	let state: TransportState = { remainingMs: 0, countdownPaused: false, suppressPosition: false };
 	let countdown: ReturnType<typeof setInterval> | undefined;
-	let seekTimeout: ReturnType<typeof setTimeout> | undefined;
+	let pendingSeek: { ms: number; engine: TransportEngine; score: unknown } | null = null;
+	let generation = 0;
+	let loading = false;
+	let loadsInFlight = 0;
+	let loadEngine = ports.engine();
 	let countdownEngine: TransportEngine | null = null;
 	let countdownScore: unknown;
 	let disposed = false;
@@ -87,19 +94,54 @@ export function createPlayerTransport(ports: TransportPorts) {
 		state = { ...state, remainingMs: delayMs };
 		startTimer();
 	};
+	const clearSeek = () => {
+		pendingSeek = null;
+		if (state.suppressPosition) {
+			state = { ...state, suppressPosition: false };
+			ports.onSeekSettled();
+		}
+	};
+	const invalidateSession = () => {
+		generation++;
+		cancelCountdown();
+		clearSeek();
+	};
 	const seek = (ms: number) => {
 		const engine = ports.engine();
 		if (disposed || !engine || !Number.isFinite(ms)) return;
-		clearTimeout(seekTimeout);
+		ms = Math.max(0, ms);
+		pendingSeek = { ms, engine, score: ports.score() };
 		state = { ...state, suppressPosition: true };
-		// Install suppression before the engine write: callbacks may arrive synchronously.
+		// Install the target before writing: engine callbacks may be synchronous.
 		ports.onSeek(ms);
-		engine.player.timePosition = ms;
+		if (!loading) engine.player.timePosition = ms;
 		ports.seekVideo(ms);
-		seekTimeout = setTimeout(() => {
-			state = { ...state, suppressPosition: false };
-			ports.onSeekSuppressionEnd();
-		}, SEEK_SUPPRESSION_MS);
+	};
+	const positionReceiver = () => {
+		const source = { generation, engine: ports.engine(), score: ports.score() };
+		return (event: TransportPosition) => {
+			if (
+				disposed ||
+				loading ||
+				source.generation !== generation ||
+				source.engine !== ports.engine() ||
+				source.score !== ports.score() ||
+				!Number.isFinite(event.currentTime) ||
+				!Number.isFinite(event.endTime) ||
+				event.endTime <= 0
+			)
+				return false;
+			if (pendingSeek) {
+				if (pendingSeek.engine !== source.engine || pendingSeek.score !== source.score)
+					return false;
+				// Ordinary playback and earlier seeks cannot acknowledge the latest command.
+				// The native engine clamps positions beyond the end of the score.
+				const expected = Math.min(pendingSeek.ms, event.endTime);
+				if (!event.isSeek || Math.abs(event.currentTime - expected) > 0.01) return false;
+				clearSeek();
+			}
+			return true;
+		};
 	};
 
 	return {
@@ -137,6 +179,13 @@ export function createPlayerTransport(ports: TransportPorts) {
 			startCountdown(Math.max(1000, Math.min(10000, delayMs)));
 		},
 		seek,
+		setSpeed(speed: number) {
+			const engine = ports.engine();
+			if (disposed || !engine || !Number.isFinite(speed) || speed <= 0) return;
+			// Engine milliseconds change with speed; the musical target does not.
+			if (pendingSeek) pendingSeek.ms *= engine.playbackSpeed / speed;
+			engine.playbackSpeed = speed;
+		},
 		/** Move through playback visits, rather than printed bar indices. */
 		seekByBars(positionMs: number, delta: number) {
 			const engine = ports.engine();
@@ -149,8 +198,41 @@ export function createPlayerTransport(ports: TransportPorts) {
 			const visit = Math.max(0, Math.min(timing.visits.length - 1, timing.visitAt(tick) + delta));
 			seek(timing.tickToMs(timing.visits[visit].start, engine.playbackSpeed));
 		},
-		acceptPosition() {
-			return !disposed && !state.suppressPosition;
+		/** Capture the source session so callbacks retained by an old view are inert. */
+		positionReceiver,
+		resetSession() {
+			if (disposed) return;
+			invalidateSession();
+			if (loadEngine !== ports.engine()) {
+				loadsInFlight = 0;
+				loadEngine = ports.engine();
+			}
+			loading = loadsInFlight > 0;
+		},
+		beginLoad() {
+			if (disposed) return;
+			invalidateSession();
+			if (loadEngine !== ports.engine()) {
+				loadsInFlight = 0;
+				loadEngine = ports.engine();
+			}
+			loading = true;
+			loadsInFlight++;
+		},
+		completeLoad() {
+			if (disposed || !loading || loadEngine !== ports.engine()) return;
+			loadsInFlight = Math.max(0, loadsInFlight - 1);
+			if (loadsInFlight > 0) return;
+			// MIDI completion is emitted once per load, unlike readiness. Ordered
+			// worker messages fence the old stream, including the first load
+			// (which has no previous playback to stop).
+			loading = false;
+			if (
+				pendingSeek &&
+				pendingSeek.engine === ports.engine() &&
+				pendingSeek.score === ports.score()
+			)
+				pendingSeek.engine.player.timePosition = pendingSeek.ms;
 		},
 		syncLoop(region: LoopRegion) {
 			const engine = ports.engine();
@@ -163,8 +245,11 @@ export function createPlayerTransport(ports: TransportPorts) {
 			if (
 				engine.playbackRange?.startTick !== range?.startTick ||
 				engine.playbackRange?.endTick !== range?.endTick
-			)
+			) {
+				// A new region deliberately seeks to its start, superseding a timeline seek.
+				if (range) clearSeek();
 				engine.playbackRange = range;
+			}
 			// Absent region bounds preserve the persistent whole-song repeat toggle.
 			if (region.startBar !== null || region.endBar !== null) engine.isLooping = !!range;
 			ports.onLoop(engine.isLooping);
@@ -187,7 +272,8 @@ export function createPlayerTransport(ports: TransportPorts) {
 		dispose() {
 			if (disposed) return;
 			disposed = true;
-			clearTimeout(seekTimeout);
+			pendingSeek = null;
+			generation++;
 			cancelCountdown();
 			state = { ...state, suppressPosition: false };
 		}

@@ -242,13 +242,17 @@ test.describe('Unit 4 — gain and preferences', () => {
 		await page.keyboard.press('KeyM');
 		expect(await page.evaluate(() => (window as any).__testApi.getTrackMutes())).toEqual([true]);
 		await expect(page.getByRole('dialog', { name: 'Metronome', exact: true })).not.toBeVisible();
+		const listenerCount = await page.evaluate(() =>
+			(window as any).__testApi.getFullViewListenerCount()
+		);
+		expect(listenerCount).toBeGreaterThan(0);
 		await page.getByRole('link', { name: 'Tablatures home', exact: true }).click();
 		await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 		await page.goBack();
 		await expect(page).toHaveURL(/\/play/);
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getFullViewListenerCount()))
-			.toBe(11);
+			.toBe(listenerCount);
 		await expect
 			.poll(() => page.evaluate(() => (window as any).__testApi.getTrackVolumes()))
 			.toEqual([0.5]);

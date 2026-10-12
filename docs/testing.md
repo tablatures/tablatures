@@ -112,14 +112,29 @@ score, and advance application timers deterministically. No browser, audio devic
 or wall-clock sleeps are needed.
 
 The transport suite owns delayed play cancellation/pause/resume, idempotent play,
-seek suppression and video forwarding, next/previous navigation through repeated
+seek acknowledgements and video forwarding, next/previous navigation through repeated
 bar visits and tempo changes, and region versus whole-song repeat policy. Real
 parsing/MIDI generation supplies fixture clocks; alphaTab synthesis is not under
 test. Musical expectations are explicit constants from the fixture.
 
-This first extraction retains the existing 100 ms seek suppression window. It is
-not a worker acknowledgement and cannot prove that the engine completed a seek.
-Keep the browser regressions for native acknowledgements, actual playback,
-gestures, rendering and navigation. When adding a control policy, put it in the
-shared controller and exercise its commands here before adding browser coverage
-for any new integration boundary.
+Seeks stay pending until a native position event marks a seek and matches the
+latest requested position; elapsed time and optimistic engine getters cannot
+settle them. The application rejects earlier seek acknowledgements and scopes
+position receivers to an engine, score and load generation. MIDI loads fence
+old positions until all submitted loads report completion; seeks during loading
+coalesce to the latest target. Session changes cancel pending countdowns and
+seeks. Rejected position events cannot update the displayed bar or speed trainer.
+
+The integration uses the host's `alphaTab.midiFileLoaded` event: subscribing to
+`midiLoaded.on()` reads a recursive getter in alphaTab 1.8.1's worker proxy.
+Readiness can be repeated and the first load has no prior playback to stop, so
+neither is a one-per-load completion signal. This narrow adapter leaves alphaTab
+unchanged. Worker messages are ordered; the application does not invent request
+identifiers absent from that protocol or promise correctness for arbitrary
+reordering of the engine's raw event stream.
+
+Keep the existing browser regressions for native acknowledgements, actual
+playback, gestures, rendering and navigation. No browser scenarios were removed
+for this change. When adding a control policy, put it in the shared controller
+and exercise its commands here before adding browser coverage for a new
+integration boundary.

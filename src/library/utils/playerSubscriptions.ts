@@ -19,3 +19,20 @@ export function subscribePlayerEvent(
 }
 
 export const getViewSubscriptionCount = (api: object) => active.get(api) ?? 0;
+
+/** Use the host's native event without asking an emitter to replay old state. */
+export function subscribePlayerDomEvent(
+	api: object,
+	host: EventTarget,
+	name: string,
+	callback: () => void
+) {
+	return subscribePlayerEvent(
+		api,
+		{
+			on: (fn: () => void) => host.addEventListener(name, fn),
+			off: (fn: () => void) => host.removeEventListener(name, fn)
+		},
+		callback
+	);
+}

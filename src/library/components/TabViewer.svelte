@@ -5,7 +5,11 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
-	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
+	import {
+		subscribePlayerDomEvent,
+		subscribePlayerEvent,
+		getViewSubscriptionCount
+	} from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
 	import { createPlayerTransport } from '../utils/playerTransport';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
@@ -2545,7 +2549,7 @@
 			);
 	}
 	$: if (api) {
-		if (api.playbackSpeed !== speed) api.playbackSpeed = speed;
+		if (api.playbackSpeed !== speed) transport.setSpeed(speed);
 		updatePlayerState({ speed, masterVolume: volume });
 	}
 
@@ -2725,6 +2729,8 @@
 		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
 
+		transport.resetSession();
+		let receivePosition = transport.positionReceiver();
 		const listen = (emitter: any, handler: (...args: any[]) => void) => {
 			fullPlayerListenerCleanups.push(subscribePlayerEvent(apiRef, emitter, handler));
 		};
@@ -2733,6 +2739,8 @@
 		const onScoreLoaded = (score: any) => {
 			const tab = get(tabStore);
 			if (!tab?.fileAsB64 || tab.fileAsB64 !== data.fileAsB64) return;
+			transport.resetSession();
+			receivePosition = transport.positionReceiver();
 			const metadata = scoreMetadata(score, tab);
 			const newTitle = [metadata.title, metadata.artist].filter(Boolean).join(' - ');
 			const isNewSheet = title !== newTitle;
@@ -2776,11 +2784,27 @@
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
+		listen(apiRef.midiLoad, () => {
+			transport.beginLoad();
+			receivePosition = transport.positionReceiver();
+		});
+		// alphaTab 1.8.1's midiLoaded.on() replay reads a recursive getter in
+		// the worker proxy. The native host event reports the same completion
+		// without reading that getter or replaying an earlier load.
+		fullPlayerListenerCleanups.push(
+			subscribePlayerDomEvent(apiRef, apiRef.container.element, 'alphaTab.midiFileLoaded', () => {
+				transport.completeLoad();
+				receivePosition = transport.positionReceiver();
+			})
+		);
+
+		// Register load tracking before scoreLoaded.on() can replay and restore a practice session.
 		listen(apiRef.scoreLoaded, onScoreLoaded);
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
-			if (bindDuration && transport.acceptPosition()) {
+			if (!receivePosition(e)) return;
+			if (bindDuration) {
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
 			}
@@ -3703,7 +3727,7 @@
 			trainer.resetPosition();
 			progress = duration > 0 ? (ms / duration) * 100 : 0;
 		},
-		onSeekSuppressionEnd: () => (bindDuration = true),
+		onSeekSettled: () => (bindDuration = true),
 		onLoop: (looping) => (trainerLooping = looping),
 		onCountdown: (state) => {
 			rest = state.remainingMs;
