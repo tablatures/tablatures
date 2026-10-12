@@ -14,6 +14,11 @@ test.describe('Unit 1 — musical position', () => {
 		expect(
 			await page.evaluate(() => (window as any).__testApi.getExpandedRangeTicks(1, 4))
 		).toEqual({ startTick: 3840, endTick: 19200 });
+		// setLoop seeks to the loop start; the synth reports it asynchronously. Sampling
+		// before that report lands reads the old position (tick 1), not playback.
+		await expect
+			.poll(() => page.evaluate(() => (window as any).__testApi.getNativePosition().tick))
+			.toBeGreaterThanOrEqual(3840);
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		const samples = await page.evaluate(async () => {
 			const values: { tick: number; ms: number }[] = [];

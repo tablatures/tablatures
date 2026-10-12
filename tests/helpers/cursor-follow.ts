@@ -51,7 +51,10 @@ export async function expectStableCursorFollowing(page: Page) {
 				previous = { x: cursor.left, y: rowY };
 				frames++;
 				if (Math.abs(cursor.top - bar.top) > 2) misplacedFrames++;
-				if (performance.now() - start < 6500) requestAnimationFrame(sample);
+				// Watch at least three rows: a slow start on a busy machine must not
+				// shrink what the run covers.
+				const elapsed = performance.now() - start;
+				if ((elapsed < 6500 || rows.size < 3) && elapsed < 15000) requestAnimationFrame(sample);
 				else resolve();
 			};
 			requestAnimationFrame(sample);
