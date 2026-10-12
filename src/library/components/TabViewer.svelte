@@ -8,6 +8,7 @@
 	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
+	import { claimBarDrag, isBarOwnGesture, isScrubZone, isVerticalSwipe } from '../utils/barGesture';
 	import {
 		barAtMs,
 		barEndMs,
@@ -2416,23 +2417,8 @@
 	}
 
 	// --- Transport bar → outer shell scroll / bottom sheet (items 8, 21) ---
-	// A DRAG that starts anywhere on the bar — the progress-bar strip, the
-	// play/pause button row AND the metadata row (source pill, favourite, share,
-	// download) — scrolls the outer view: on desktop it drives the /play shell
-	// (revealing the below-fold recommendations); on phones it opens the
-	// YouTube-style bottom sheet (item 23). TAPS still activate the buttons — we
-	// only claim the gesture once the finger moves past a ~10px threshold, and
-	// suppress the click that would otherwise follow a claimed drag.
-	//
-	// The progress bar owns its own gesture (scrub + long-press loop) and KEEPS
-	// priority: it only yields when the swipe is unmistakably vertical (see
-	// isVerticalSheetSwipe) and neither the hold nor a scrub has engaged.
-	// Range sliders and open popover menus are never claimed.
-	const BAR_DRAG_THRESHOLD = 10; // px before a touch is treated as a drag, not a tap
-	// Stricter, vertical-only threshold for swipes that begin on the scrub zone —
-	// the loop long-press must never lose a gesture to a sloppy finger.
-	const BAR_VERTICAL_CLAIM_PX = 14;
-	const BAR_VERTICAL_RATIO = 1.6; // |dy| must beat |dx| by this much
+	// Ownership rules live in barGesture.ts. Claimed drags suppress the click
+	// that would otherwise follow.
 	let barTouchStartX = 0;
 	let barTouchStartY = 0;
 	let barTouchLastY = 0;
@@ -2441,29 +2427,11 @@
 	let barDrivesSheet = false; // this drag is feeding the mobile bottom sheet
 	let barFromScrubZone = false; // gesture began on the progress bar
 
-	function isBarOwnGesture(target: EventTarget | null): boolean {
-		// Buttons and links are intentionally NOT here: a drag on them scrolls the
-		// view while a tap still clicks (item 21). Only the slider/menu zones keep
-		// their own drag/scroll behaviour outright; the progress bar is handled
-		// separately (it yields to a clearly vertical swipe).
-		const el = target as HTMLElement | null;
-		if (el?.closest?.('[data-scrub-zone]')) return false;
-		return !!el?.closest?.('input, [role="slider"], [role="menu"], select');
-	}
-
-	function isScrubZone(target: EventTarget | null): boolean {
-		return !!(target as HTMLElement | null)?.closest?.('[data-scrub-zone]');
-	}
-
 	/** True when a touch that started on the scrub zone has moved far enough, and
 	 *  vertically enough, that the user clearly means "open the sheet". */
 	function isVerticalSheetSwipe(t: Touch): boolean {
 		if (!barGesturePending || !barFromScrubZone) return false;
-		const dy = t.clientY - barTouchStartY;
-		const dx = t.clientX - barTouchStartX;
-		return (
-			Math.abs(dy) >= BAR_VERTICAL_CLAIM_PX && Math.abs(dy) >= Math.abs(dx) * BAR_VERTICAL_RATIO
-		);
+		return isVerticalSwipe(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
 	}
 
 	/** Drive the outer view by a vertical delta: on phones the finger moves the
@@ -2522,28 +2490,22 @@
 		const t = e.touches[0];
 		if (!t) return;
 		if (!barGestureClaimed) {
-			let claimFrom: number;
+			const claimY = claimBarDrag({
+				startX: barTouchStartX,
+				startY: barTouchStartY,
+				x: t.clientX,
+				y: t.clientY,
+				fromScrubZone: barFromScrubZone,
+				scrubEngaged: pbLoopCreating || pbScrubbing || isDraggingLoop,
+				sheetEnabled: get(playSheetEnabled)
+			});
+			if (claimY === null) return;
 			if (barFromScrubZone) {
-				// The scrub / long-press-loop gesture owns the progress bar. Give it up
-				// only for an unmistakably vertical swipe, and only while it hasn't
-				// engaged yet — and only where the sheet exists (phones), so the
-				// desktop scrub is bit-for-bit unchanged.
-				if (pbLoopCreating || pbScrubbing || isDraggingLoop) return;
-				if (!get(playSheetEnabled) || !isVerticalSheetSwipe(t)) return;
 				pbSuppressed = true; // the progress bar drops the rest of this gesture
 				clearTimeout(longPressTimer);
-				claimFrom = BAR_VERTICAL_CLAIM_PX;
-			} else {
-				const dist = Math.hypot(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
-				if (dist < BAR_DRAG_THRESHOLD) return; // still within tap slop → let it be a tap
-				claimFrom = BAR_DRAG_THRESHOLD;
 			}
 			barGestureClaimed = true;
-			// Count travel from the edge of the tap slop, NOT from this event: touch
-			// moves get coalesced, so a fast flick can deliver its whole distance in
-			// one event — resetting to it would throw the entire gesture away.
-			const dy = t.clientY - barTouchStartY;
-			barTouchLastY = barTouchStartY + Math.sign(dy) * claimFrom;
+			barTouchLastY = claimY;
 			// Hand the gesture to the bottom sheet: from here every finger delta
 			// moves it continuously (item 21), and its release decides where it lands.
 			barDrivesSheet = get(playSheetEnabled);
