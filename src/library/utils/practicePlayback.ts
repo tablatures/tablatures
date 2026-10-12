@@ -119,6 +119,11 @@ export function createPracticePlayback(api: any) {
 	let disposed = false;
 	let normalAnchor = 0;
 	let pending: { lookup: any; tick: number; resume: boolean } | null = null;
+	// play() only requests playback; alphaTab confirms it in playerStateChanged.
+	// Until then playerState still reads paused, so an order change in that
+	// window must not conclude the player was stopped. Only the confirmation
+	// settles it: a late stop from an earlier reload can arrive in between.
+	let resumeRequested = false;
 	const isWritten = () => writtenLookup !== null && api.tickCache === writtenLookup;
 	const applyRange = () => {
 		const timing = timingForApi(api);
@@ -145,7 +150,8 @@ export function createPracticePlayback(api: any) {
 		if (!isWritten()) normal = timing;
 		const wantWritten = !!(region?.enabled && region.order === 'written');
 		if (wantWritten !== isWritten()) {
-			const wasPlaying = pending?.resume ?? api.playerState !== 0;
+			const wasPlaying = pending?.resume ?? (resumeRequested || api.playerState !== 0);
+			resumeRequested = false;
 			const tick = pending?.tick ?? api.tickPosition ?? 0;
 			const written = writtenTimingForApi(api)!;
 			if (wantWritten) normalAnchor = tick;
@@ -180,7 +186,10 @@ export function createPracticePlayback(api: any) {
 			range && (target.tick < range.startTick || target.tick >= range.endTick)
 				? range.startTick
 				: target.tick;
-		if (target.resume) api.play();
+		if (target.resume) resumeRequested = api.play() !== false;
+	};
+	const stateChanged = (e: { state: number }) => {
+		if (e.state !== 0) resumeRequested = false;
 	};
 	// Settings that regenerate MIDI also need to retain the practice order.
 	const midiLoad = () => {
@@ -188,6 +197,7 @@ export function createPracticePlayback(api: any) {
 	};
 	api.playerReady.on(ready);
 	api.midiLoad.on(midiLoad);
+	api.playerStateChanged?.on(stateChanged);
 	const session = {
 		sync,
 		toMedia(ms: number) {
@@ -212,6 +222,7 @@ export function createPracticePlayback(api: any) {
 			disposed = true;
 			api.playerReady.off(ready);
 			api.midiLoad.off(midiLoad);
+			api.playerStateChanged?.off(stateChanged);
 			sessions.delete(api);
 		}
 	};

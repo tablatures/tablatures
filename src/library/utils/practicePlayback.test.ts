@@ -222,6 +222,81 @@ describe('written practice playback using real MIDI generation', () => {
 			vi.useRealTimers();
 		}
 	});
+	describe('resuming while alphaTab confirms playback asynchronously', () => {
+		/** Like alphaTab: play() only requests playback; the state follows in an event. */
+		function asyncPlayer() {
+			const api = fixture();
+			api.playerStateChanged = emitter();
+			api.plays = 0;
+			api.play = function () {
+				this.plays++;
+				return true;
+			};
+			api.confirm = (state: 0 | 1) => {
+				api.playerState = state;
+				api.playerStateChanged.emit({ state });
+			};
+			return api;
+		}
+
+		it('keeps resuming when the order changes again before playback has restarted', () => {
+			const api = asyncPlayer();
+			const session = createPracticePlayback(api);
+			api.confirm(1);
+			session.sync(region); // enter practice while playing
+			api.playerReady.emit(); // resume requested, not yet confirmed
+			expect(api.plays).toBe(1);
+			expect(api.playerState).toBe(0);
+			session.sync(null); // leave practice inside that window
+			api.playerReady.emit();
+			expect(api.plays).toBe(2);
+			session.dispose();
+		});
+
+		it('ignores a stale stop from an earlier reload while the resume is pending', () => {
+			const api = asyncPlayer();
+			const session = createPracticePlayback(api);
+			api.confirm(1);
+			session.sync(region);
+			api.playerReady.emit(); // resume requested
+			api.confirm(0); // the previous load's stop arrives late
+			session.sync(null);
+			api.playerReady.emit();
+			expect(api.plays).toBe(2);
+			session.dispose();
+		});
+
+		it('does not resume after a confirmed pause', () => {
+			const api = asyncPlayer();
+			const session = createPracticePlayback(api);
+			api.confirm(1);
+			session.sync(region);
+			api.playerReady.emit();
+			api.confirm(1);
+			api.confirm(0); // the reader pauses
+			session.sync(null);
+			api.playerReady.emit();
+			expect(api.plays).toBe(1);
+			session.dispose();
+		});
+
+		it('does not keep a resume that the player refused', () => {
+			const api = asyncPlayer();
+			api.play = function () {
+				this.plays++;
+				return false;
+			};
+			const session = createPracticePlayback(api);
+			api.confirm(1);
+			session.sync(region);
+			api.playerReady.emit();
+			session.sync(null);
+			api.playerReady.emit();
+			expect(api.plays).toBe(1);
+			session.dispose();
+		});
+	});
+
 	it('suppresses score jumps during practice and restores them afterward', () => {
 		const api = fixture();
 		api.score.masterBars[6].directions = new Set([at.model.Direction.JumpDaCapo]);
