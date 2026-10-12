@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openScore } from './mobile-score';
 import { seekToPercent } from './setup';
 
@@ -15,6 +15,24 @@ const denseScore =
 export async function expectStableCursorFollowing(page: Page) {
 	await openScore(page, denseScore);
 	await seekToPercent(page, 35);
+	await page.evaluate(() => {
+		const t0 = performance.now();
+		const api = (window as any).__testApi.getApi();
+		const log: string[] = ((window as any).__probe = []);
+		const at = () => Math.round(performance.now() - t0);
+		api.midiLoad.on(() => log.push(`${at()} midiLoad`));
+		api.playerReady.on(() => log.push(`${at()} ready`));
+		api.playerStateChanged.on((e: any) =>
+			log.push(
+				`${at()} state ${e.state}${e.stopped ? ' stopped' : ''} tick=${Math.round(api.tickPosition)}`
+			)
+		);
+		api.playerPositionChanged.on((e: any) => {
+			if (log.filter((l) => l.includes('pos')).length < 12)
+				log.push(`${at()} pos tick=${Math.round(e.currentTick)} ms=${Math.round(e.currentTime)}`);
+		});
+	});
+	await page.evaluate(() => (window as any).__probe.push('play-click'));
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	const result = await page.evaluate(async () => {
 		const api = (window as any).__testApi.getApi();
@@ -71,6 +89,19 @@ export async function expectStableCursorFollowing(page: Page) {
 			targets
 		};
 	});
+	await page.evaluate(
+		(r) =>
+			(window as any).__probe.push(
+				`result rows=${r.rows} frames=${r.frames} targets=${r.targets.length}`
+			),
+		result
+	);
+	await test
+		.info()
+		.attach('probe', {
+			body: JSON.stringify(await page.evaluate(() => (window as any).__probe ?? []), null, 1),
+			contentType: 'application/json'
+		});
 	await page.getByRole('button', { name: 'Pause', exact: true }).click();
 
 	expect(result.backwardsFrames, `Maximum backward jump ${result.maxBackwards}px`).toBe(0);

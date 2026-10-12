@@ -10,10 +10,28 @@ const fixture = (name: string) => readFileSync(`tests/fixtures/player/${name}.te
 test.describe('Unit 1 — musical position', () => {
 	test('tempo-changing region completes two wraps within its musical bounds', async ({ page }) => {
 		await setupPlayPageWithTex(page, fixture('tempo-change'));
+		await page.evaluate(() => {
+			const t0 = performance.now();
+			const api = (window as any).__testApi.getApi();
+			const log: string[] = ((window as any).__probe = []);
+			const at = () => Math.round(performance.now() - t0);
+			api.midiLoad.on(() => log.push(`${at()} midiLoad`));
+			api.playerReady.on(() => log.push(`${at()} ready`));
+			api.playerStateChanged.on((e: any) =>
+				log.push(
+					`${at()} state ${e.state}${e.stopped ? ' stopped' : ''} tick=${Math.round(api.tickPosition)}`
+				)
+			);
+			api.playerPositionChanged.on((e: any) => {
+				if (log.filter((l) => l.includes('pos')).length < 12)
+					log.push(`${at()} pos tick=${Math.round(e.currentTick)} ms=${Math.round(e.currentTime)}`);
+			});
+		});
 		await page.evaluate(() => (window as any).__testApi.setLoop(1, 4));
 		expect(
 			await page.evaluate(() => (window as any).__testApi.getExpandedRangeTicks(1, 4))
 		).toEqual({ startTick: 3840, endTick: 19200 });
+		await page.evaluate(() => (window as any).__probe.push('play-click'));
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
 		const samples = await page.evaluate(async () => {
 			const values: { tick: number; ms: number }[] = [];
@@ -26,6 +44,16 @@ test.describe('Unit 1 — musical position', () => {
 		// alphaTab emits position before checking for a wrap, after consuming audio samples.
 		// Allow one output buffer (4096 samples / 44.1 kHz < 100 ms) in the reported
 		// position; the configured musical range above must still be exact.
+		await page.evaluate(
+			(s) => (window as any).__probe.push('samples ' + JSON.stringify(s.slice(0, 6))),
+			samples
+		);
+		await test
+			.info()
+			.attach('probe', {
+				body: JSON.stringify(await page.evaluate(() => (window as any).__probe ?? []), null, 1),
+				contentType: 'application/json'
+			});
 		const outputBufferMs = 100;
 		const endTempoTicksPerMs = (960 * 180) / 60_000;
 		let wraps = 0;

@@ -233,7 +233,45 @@ for (const { file } of cases) {
 			if (!laterNote) return;
 			// Pressing inside the current loop moves it, so start the new selection after it.
 			const from = Math.min(97, (await percentOfTick(page, first.end)) + 2);
+			await page.evaluate(() => {
+				const t0 = performance.now();
+				const api = (window as any).__testApi.getApi();
+				const log: string[] = ((window as any).__probe = []);
+				const at = () => Math.round(performance.now() - t0);
+				api.midiLoad.on(() => log.push(`${at()} midiLoad`));
+				api.playerReady.on(() => log.push(`${at()} ready`));
+				api.playerStateChanged.on((e: any) =>
+					log.push(
+						`${at()} state ${e.state}${e.stopped ? ' stopped' : ''} tick=${Math.round(api.tickPosition)}`
+					)
+				);
+				api.playerPositionChanged.on((e: any) => {
+					if (log.filter((l) => l.includes('pos')).length < 12)
+						log.push(
+							`${at()} pos tick=${Math.round(e.currentTick)} ms=${Math.round(e.currentTime)}`
+						);
+				});
+			});
+			const before = await loopState(page);
+			await page.evaluate(
+				(x) =>
+					(window as any).__probe.push(
+						'before-drag ' + x + ' duration=' + (window as any).__testApi.getDuration()
+					),
+				JSON.stringify({ from, ticks: before.ticks, order: before.order })
+			);
 			await dragProgressBar(page, from, 99);
+			const after = await loopState(page);
+			await page.evaluate(
+				(x) => (window as any).__probe.push('after-drag ' + x),
+				JSON.stringify({ ticks: after.ticks, order: after.order, native: after.native })
+			);
+			await test
+				.info()
+				.attach('probe', {
+					body: JSON.stringify(await page.evaluate(() => (window as any).__probe ?? []), null, 1),
+					contentType: 'application/json'
+				});
 			await expect
 				.poll(() => loopState(page).then((s) => s.ticks?.startTick ?? 0))
 				.toBeGreaterThanOrEqual(first.end);
