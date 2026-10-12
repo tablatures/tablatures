@@ -71,10 +71,13 @@ test.describe('Core Playback', () => {
 		expect(progress).toBeGreaterThan(47);
 		expect(progress).toBeLessThan(53);
 
-		const currentBar = await getTestApi<number>(page, 'getCurrentBar');
+		// The bar follows the synth's position event, which can lag the click
+		// while the synth worker decodes newly loaded instrument samples.
 		const totalBars = await getTestApi<number>(page, 'getTotalBars');
-		expect(currentBar).toBeGreaterThan(totalBars * 0.3);
-		expect(currentBar).toBeLessThan(totalBars * 0.7);
+		await expect
+			.poll(() => getTestApi<number>(page, 'getCurrentBar'))
+			.toBeGreaterThan(totalBars! * 0.3);
+		expect(await getTestApi<number>(page, 'getCurrentBar')).toBeLessThan(totalBars! * 0.7);
 	});
 
 	// --- Test 5: Seek then resume ---

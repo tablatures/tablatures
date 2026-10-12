@@ -17,9 +17,12 @@
 			['Material Icons', 'material-icons-loaded'],
 			['Material Icons Outlined', 'material-icons-outlined-loaded']
 		]) {
-			document.fonts.load(`24px "${face}"`).then((fonts) => {
-				if (fonts.length) document.documentElement.classList.add(className);
-			}).catch(() => {});
+			document.fonts
+				.load(`24px "${face}"`)
+				.then((fonts) => {
+					if (fonts.length) document.documentElement.classList.add(className);
+				})
+				.catch(() => {});
 		}
 	});
 	import { createVideoSession } from '$utils/videoSession';
@@ -57,7 +60,14 @@
 		playerBarHeight,
 		playSheetOpen
 	} from '../library/utils/playerStore';
-	import { preferencesStore } from '../library/utils/preferences';
+	import { preferencesStore, studioInstruments } from '../library/utils/preferences';
+	import {
+		createInstrumentPacks,
+		INSTRUMENTS_VERSION,
+		INSTRUMENTS_WEB_ORIGIN
+	} from '$utils/instrumentPacks';
+	import { installMasterLimiter, hasMasterLimiter } from '$utils/masterBus';
+	import { isNative } from '$utils/native';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
 	import { sliderFill } from '../library/utils/sliderFill';
@@ -97,6 +107,7 @@
 
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
 	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
+	let instrumentPacks: ReturnType<typeof createInstrumentPacks> | null = null;
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
 	$: if (browser && videoSession) {
 		($videoPlayerRef,
@@ -109,6 +120,7 @@
 	onDestroy(() => {
 		videoSession?.dispose();
 		practicePlayback?.dispose();
+		instrumentPacks?.dispose();
 		registerVideoSeek(null);
 		videoHandlers.set({});
 	});
@@ -318,6 +330,17 @@
 
 		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
 		practicePlayback = createPracticePlayback(api);
+		instrumentPacks = createInstrumentPacks(api, {
+			baseUrl: `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`,
+			fetch: window.fetch.bind(window),
+			caches: 'caches' in window ? window.caches : undefined
+		});
+		instrumentPacks.setEnabled(studioInstruments(prefs));
+		api.playerReady?.on(() => installMasterLimiter(api));
+		if (import.meta.env.DEV) {
+			(window as any).__instrumentPacks = instrumentPacks;
+			(window as any).__hasMasterLimiter = () => hasMasterLimiter(api);
+		}
 
 		videoSession = createVideoSession(api, {
 			video: () => get(videoPlayerRef),
@@ -420,6 +443,9 @@
 			// data (seeded tabs) fill themselves in as tabs get played
 			reportTabMeta(score);
 
+			// Studio instruments for the tracks this score plays
+			void instrumentPacks?.ensure(score);
+
 			// Apply theme
 			applyTheme(api);
 		});
@@ -434,6 +460,9 @@
 
 		api.soundFontLoaded.on(() => {
 			updatePlayerState({ soundFontLoaded: true });
+			installMasterLimiter(api);
+			// No-op once applied; after a base swap it re-layers the score's packs
+			if (api.score) void instrumentPacks?.ensure(api.score);
 			// Load the pending tab if any
 			const tab = get(tabStore);
 			const loaded = get(loadedTabB64);
@@ -543,6 +572,7 @@
 
 	// Track the current soundfont URL to detect changes
 	let currentSoundFontUrl = get(preferencesStore).soundFontUrl;
+	let currentStudio = studioInstruments(get(preferencesStore));
 	let wasPlayingBeforeSoundFontChange = false;
 
 	// Subscribe to soundfont URL changes and apply at runtime
@@ -560,7 +590,27 @@
 			api.settings.player.soundFont = newUrl;
 			api.updateSettings();
 			updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
+			instrumentPacks?.reset();
 			api.loadSoundFont(newUrl, false);
+		}
+	}
+
+	// Studio packs on or off. Appended packs cannot be unloaded one by one, so
+	// turning them off reloads the base soundfont; turning them on layers them.
+	$: if (browser && studioInstruments($preferencesStore) !== currentStudio) {
+		currentStudio = studioInstruments($preferencesStore);
+		instrumentPacks?.setEnabled(currentStudio);
+		const api = get(playerApi);
+		if (api && instrumentPacks) {
+			instrumentPacks.reset();
+			if (currentStudio) {
+				if (api.score) void instrumentPacks.ensure(api.score);
+			} else if (get(playerState).soundFontLoaded) {
+				// Skipped when a soundfont switch already reloads the base
+				wasPlayingBeforeSoundFontChange = get(playerState).playing;
+				updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
+				api.loadSoundFont(currentSoundFontUrl, false);
+			}
 		}
 	}
 

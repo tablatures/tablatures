@@ -156,15 +156,26 @@ export async function loadAlphaTexScore(page: Page, tex: string): Promise<void> 
 			const interval = 500;
 			const start = Date.now();
 
+			let sequenceChangedAt = 0;
 			function check() {
 				const t = win.__testApi;
 				if (t) {
 					const dur = t.getDuration();
 					const seq = t.getExpandedSequence();
-					// Verify the score actually changed (duration or sequence length differs)
-					if (dur > 0 && seq && (dur !== prevDuration || seq.length !== prevSeqLen)) {
+					// The bar sequence updates first; the reported duration follows once
+					// the synth has loaded the new MIDI, which takes longer while it
+					// decodes instrument samples. Wait for the duration too, unless the
+					// new score happens to last as long as the previous one.
+					if (dur > 0 && seq && dur !== prevDuration) {
 						resolve();
 						return;
+					}
+					if (dur > 0 && seq && seq.length !== prevSeqLen) {
+						sequenceChangedAt ||= Date.now();
+						if (Date.now() - sequenceChangedAt > 2000) {
+							resolve();
+							return;
+						}
 					}
 				}
 				if (Date.now() - start > timeout) {

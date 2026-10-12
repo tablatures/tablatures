@@ -52,6 +52,7 @@
 
 ### Player
 - **alphaTab-powered rendering** of Guitar Pro files (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`, `.xml`)
+- **Studio instrument sounds**: MuseScore General instruments downloaded one at a time as a tab needs them (a rock band is about 3 MB, cached after the first time), layered over the bundled offline soundfont. A master limiter keeps dense arrangements from clipping
 - **Persistent mini-player**: audio continues playing across page navigation with a floating tab preview
 - **YouTube video sync**: play along with YouTube videos, with bidirectional playback sync and adjustable time offset
 - **Drag-to-loop**: drag on the progress bar or the tablature sheet to create A-B loop regions with floating controls
@@ -113,9 +114,21 @@ pnpm run build
 pnpm run preview
 ```
 
+## Studio instrument packs
+
+`static/instruments/v1/` holds one small SoundFont per General MIDI program and GS drum kit, split losslessly from [MuseScore General](https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/) (MIT) and, for the pianos MuseScore makes too heavy, [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS). The player loads only the packs the open tab plays, on top of the bundled Sonivox bank, and falls back to Sonivox offline. Credits and licenses are in `static/instruments/v1/LICENSE.md`.
+
+The packs are committed. To rebuild them (downloads both sources once into `.cache/`, hash-checked):
+
+```bash
+pnpm run instruments:build
+```
+
+A new layout or selection should go to a new version directory (`v2`) so cached packs are never mixed.
+
 ## Android app (Capacitor)
 
-The Android app wraps the same static build in a Capacitor 8 WebView shell.
+The Android app wraps the same static build in a Capacitor 8 WebView shell. The instrument packs are left out of the APK; the app fetches them from the website.
 
 ```bash
 # Build the web assets at the root base path, then sync into android/
