@@ -109,6 +109,7 @@ declare global {
 			scoreLoaded: EventEmitter<Score>;
 			soundFontLoad?: EventEmitter<LoadProgressEvent>;
 			soundFontLoaded: EventEmitter;
+			playerReady?: EventEmitter;
 			renderStarted?: EventEmitter;
 			renderFinished?: EventEmitter;
 			postRenderFinished?: EventEmitter;
@@ -119,6 +120,8 @@ declare global {
 			};
 			score: Score;
 			load(data: ArrayBuffer): void;
+			loadSoundFont(data: unknown, append?: boolean): boolean;
+			player?: { output?: { context?: AudioContext } } | null;
 			play(): void;
 			pause(): void;
 			updateSettings(): void;

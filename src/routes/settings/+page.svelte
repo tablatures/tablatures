@@ -10,7 +10,8 @@
 	import { tabStore } from '../../library/utils/store';
 	import { activeVideoId } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
-	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS } from '../../library/utils/preferences';
+	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS, activeSoundFontPreset } from '../../library/utils/preferences';
+	import { INSTRUMENTS_VERSION } from '../../library/utils/instrumentPacks';
 	import { saveFile, isNative, hapticImpact } from '../../library/utils/native';
 	import { sliderFill } from '../../library/utils/sliderFill';
 	import { onMount } from 'svelte';
@@ -56,7 +57,7 @@
 	$: historyItems = $historyStore;
 	$: prefs = $preferencesStore;
 	$: isCustomSf = !SOUNDFONT_PRESETS.some(p => p.url === prefs.soundFontUrl);
-	$: activePresetId = SOUNDFONT_PRESETS.find(p => p.url === prefs.soundFontUrl)?.id ?? 'custom';
+	$: activePresetId = activeSoundFontPreset(prefs);
 	$: customActive = customMode || isCustomSf;
 
 	$: if (isCustomSf && prefs.soundFontUrl !== 'custom') {
@@ -75,9 +76,13 @@
 		preferencesStore.update(p => ({ ...p, soundFontUrl: url }));
 	}
 
-	function selectPreset(preset: typeof SOUNDFONT_PRESETS[0]) {
+	function selectPreset(preset: typeof SOUNDFONT_PRESETS[number]) {
 		customMode = false;
-		handleSoundFontChange(preset.url);
+		preferencesStore.update((p) => ({
+			...p,
+			soundFontUrl: preset.url,
+			instrumentQuality: 'studio' in preset ? 'studio' : 'standard'
+		}));
 	}
 
 	function enableCustomMode() {
@@ -416,6 +421,16 @@
 				class="w-full mt-3 text-sm bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
 			/>
 		{/if}
+		<p class="mt-3 text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">
+			Studio instruments come from MuseScore General (MIT; FluidR3 by Frank Wen, Michael Cowgill and
+			S. Christian Collins) and, for pianos, GeneralUser GS by S. Christian Collins.
+			<a
+				href="{base}/instruments/{INSTRUMENTS_VERSION}/LICENSE.md"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="underline hover:text-violet-500">Licenses</a
+			>
+		</p>
 	</div>
 
 	<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">

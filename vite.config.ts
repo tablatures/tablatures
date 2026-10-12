@@ -61,7 +61,11 @@ const config: UserConfig = {
 				globIgnores: ['**/*.sf2', '**/*.sf3'],
 				runtimeCaching: [
 					{
-						urlPattern: ({ url }) => url.pathname.endsWith('.sf2') || url.pathname.endsWith('.sf3'),
+						// Studio instrument packs cache themselves (instrumentPacks.ts),
+						// in their own store with no entry cap.
+						urlPattern: ({ url }) =>
+							!url.pathname.includes('/instruments/') &&
+							(url.pathname.endsWith('.sf2') || url.pathname.endsWith('.sf3')),
 						handler: 'CacheFirst',
 						options: {
 							cacheName: 'soundfonts',

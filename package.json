@@ -6,7 +6,7 @@
 	"scripts": {
 		"start": "vite dev",
 		"build": "vite build",
-		"build:app": "VITE_BASE_PATH= VITE_DEPLOY_TARGET=static vite build",
+		"build:app": "VITE_BASE_PATH= VITE_DEPLOY_TARGET=static vite build && node -e \"require('fs').rmSync('build/instruments',{recursive:true,force:true})\"",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -14,7 +14,8 @@
 		"format": "prettier --write .",
 		"test:unit": "vitest run",
 		"test:e2e": "playwright test",
-		"test:layout": "playwright test --config playwright.layout.config.ts"
+		"test:layout": "playwright test --config playwright.layout.config.ts",
+		"instruments:build": "node scripts/instrument-packs/build.mjs"
 	},
 	"devDependencies": {
 		"@capacitor-community/keep-awake": "^8.0.1",

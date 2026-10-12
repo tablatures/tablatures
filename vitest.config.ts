@@ -11,7 +11,7 @@ export default defineConfig({
 		conditions: ['node']
 	},
 	test: {
-		include: ['src/**/*.test.ts'],
+		include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
 		// sqlite-wasm must be executed as-is, not transformed by vitest's SSR
 		// pipeline (it ships its own wasm loader).
 		server: {

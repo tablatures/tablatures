@@ -19,6 +19,8 @@ export interface UserPreferences {
 	haptics: boolean;
 	notationView: NotationView;
 	speedTrainer: SpeedTrainerSettings;
+	/** Studio layers per-instrument packs over the bundled soundfont. */
+	instrumentQuality: 'studio' | 'standard';
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -33,9 +35,19 @@ export const DEFAULT_SOUNDFONT = SOUNDFONT_BUNDLED;
 
 export const SOUNDFONT_PRESETS = [
 	{
+		id: 'studio',
+		name: 'Studio',
+		description:
+			'MuseScore General instruments, downloaded one at a time as tabs need them. Plays Sonivox until they arrive and offline',
+		size: '~0.2-1.5 MB per instrument',
+		tier: 'balanced' as const,
+		url: SOUNDFONT_BUNDLED,
+		studio: true
+	},
+	{
 		id: 'sonivox',
 		name: 'Sonivox',
-		description: 'Bundled offline soundfont, works with no connection',
+		description: 'Bundled offline soundfont, nothing to download',
 		size: '~955 KB',
 		tier: 'light' as const,
 		url: SOUNDFONT_BUNDLED
@@ -85,7 +97,8 @@ const DEFAULTS: UserPreferences = {
 	autoPlayOnLoad: false,
 	haptics: true,
 	notationView: 'tab',
-	speedTrainer: DEFAULT_SPEED_TRAINER
+	speedTrainer: DEFAULT_SPEED_TRAINER,
+	instrumentQuality: 'studio'
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */
@@ -137,3 +150,16 @@ function createPreferencesStore() {
 }
 
 export const preferencesStore = createPreferencesStore();
+
+/** Whether studio instrument packs layer over the base soundfont. */
+export function studioInstruments(prefs: UserPreferences): boolean {
+	return prefs.instrumentQuality === 'studio' && prefs.soundFontUrl === SOUNDFONT_BUNDLED;
+}
+
+/** The soundfont card a preference set shows as selected. */
+export function activeSoundFontPreset(prefs: UserPreferences): string {
+	if (studioInstruments(prefs)) return 'studio';
+	return (
+		SOUNDFONT_PRESETS.find((p) => !('studio' in p) && p.url === prefs.soundFontUrl)?.id ?? 'custom'
+	);
+}
