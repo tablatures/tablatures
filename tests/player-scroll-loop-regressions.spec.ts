@@ -1,12 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
 	setupPlayPage,
+	setupPlayPageWithTex,
 	dragProgressBar,
 	dragScoreLoop,
 	seekToPercent,
 	useCombinedNotation
 } from './helpers/setup';
 import { waitForSeekSettled } from './helpers/wait';
+import { TEX_SCORES } from './helpers/alphatex';
 
 async function settleScore(page: Page) {
 	await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
@@ -201,11 +203,61 @@ test('written-order MIDI reloads never show the start of the score', async ({ pa
 		.toBeNull();
 	await settled();
 	const samples = await page.evaluate((from) => (window as any).__reloadSamples.slice(from), from);
-	// Each sampled frame: never the first row, the start of the song, or a scroll back up.
-	const first = samples[0];
+	// Each sampled frame: never the first row, the start of the song, or a scroll
+	// toward it. Clearing the loop may re-frame the row (following frames a loop
+	// as a whole), settling a pixel or two away; a dip that comes back is the bug.
+	const lowest = Math.min(samples[0].scroll, samples.at(-1).scroll);
 	expect(
 		samples.filter(
-			(s: any) => s.cursorY <= bars.firstRowY + 1 || s.progress < 10 || s.scroll < first.scroll - 1
+			(s: any) => s.cursorY <= bars.firstRowY + 1 || s.progress < 10 || s.scroll < lowest - 1
 		)
 	).toEqual([]);
+});
+
+test('leaving a written-order loop with repeats before it shows only the clicked bar', async ({
+	page
+}) => {
+	// Bars 5-10 repeat, so after them the written and performance clocks differ.
+	await setupPlayPageWithTex(page, TEX_SCORES.simpleRepeat);
+	await settleScore(page);
+	const centre = (index: number, fraction = 0.5) =>
+		page.evaluate(
+			({ index, fraction }) => {
+				const bar = (window as any).__testApi.getBarPositions().find((b: any) => b.index === index);
+				const host = document.querySelector('#player-host')!.getBoundingClientRect();
+				return { x: host.x + bar.x + bar.w * fraction, y: host.y + bar.y + bar.h / 2 };
+			},
+			{ index, fraction }
+		);
+	const [start, end] = [await centre(11), await centre(12)];
+	await dragScoreLoop(page, start.x, start.y, end.x, end.y);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
+		.toEqual({ startBar: 11, endBar: 12, enabled: true });
+	await page.evaluate(() => {
+		const win = window as any;
+		win.__cursorBars = [];
+		const sample = () => {
+			const host = document.querySelector('#player-host')!.getBoundingClientRect();
+			const cursor = document.querySelector('.at-cursor-beat')!.getBoundingClientRect();
+			const [x, y] = [cursor.x - host.x, cursor.y - host.y];
+			const bar = win.__testApi
+				.getBarPositions()
+				.find((b: any) => x >= b.x - 1 && x < b.x + b.w && y >= b.y - 5 && y < b.y + b.h);
+			win.__cursorBars.push(bar?.index ?? null);
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	});
+	await expect.poll(() => page.evaluate(() => (window as any).__cursorBars.at(-1))).toBe(11);
+	const click = await centre(14, 0.6);
+	await page.mouse.click(click.x, click.y);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
+		.toBeNull();
+	await expect.poll(() => page.evaluate(() => (window as any).__cursorBars.at(-1))).toBe(14);
+	// Outlast the restore and alphaTab's second ready.
+	await page.waitForTimeout(500);
+	const bars: (number | null)[] = await page.evaluate(() => (window as any).__cursorBars);
+	expect([...new Set(bars)]).toEqual([11, 14]);
 });

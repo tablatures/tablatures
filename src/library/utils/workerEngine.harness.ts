@@ -158,12 +158,15 @@ export async function createWorkerEngine(tex: string) {
 		}
 	};
 	// Registered when alphaTab creates the player, before any application listener.
+	// alphaTab passes its last beat as a lookup hint, which can mask a tick read in
+	// the wrong clock (and is reset by clicks). Look up every tick from scratch.
+	const cursorUpdate = (tick: number) => {
+		const found = api.tickCache?.findBeat(tracks, tick);
+		if (found) cursor.beat = found;
+	};
 	player.positionChanged.on((e: any) => {
 		const tick = e.currentTick;
-		frameQueue.push(() => {
-			const found = api.tickCache?.findBeat(tracks, tick, cursor.beat);
-			if (found) cursor.beat = found;
-		});
+		frameQueue.push(() => cursorUpdate(tick));
 	});
 	player.stateChanged.on((e: any) => {
 		if (!e.stopped && e.state === 0 && cursor.beat && api.tickCache)
@@ -177,6 +180,14 @@ export async function createWorkerEngine(tex: string) {
 		api,
 		bus,
 		cursor,
+		/** A click on a beat: alphaTab's applyPlaybackRangeFromHighlight, before app listeners. */
+		click(beat: any) {
+			const lookup = api.tickCache;
+			cursor.beat = null;
+			if (player.state === 0) cursorUpdate(lookup.getBeatStart(beat));
+			api.tickPosition = lookup.getMasterBarStart(beat.voice.bar.masterBar) + beat.playbackStart;
+			api.playbackRange = null;
+		},
 		/** A display frame: run cursor updates queued before it. */
 		frame() {
 			frameQueue.splice(0).forEach((update) => update());

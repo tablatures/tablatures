@@ -154,6 +154,22 @@ export function createPracticePlayback(api: any) {
 	} | null = null;
 	// The MIDI clock that positions are currently reported in.
 	let lookup: any = null;
+	let lastPosition: any = null;
+	/** alphaTab draws each position a frame later, in whatever clock is current by
+	 * then. Positions delivered just before a regeneration would be read in the
+	 * new clock. Report the restore target, in the new clock, after them. */
+	const announce = (tick: number) => {
+		const timing = timingForApi(api);
+		if (typeof deliver !== 'function' || !lastPosition || !timing) return;
+		deliver.call(positions, {
+			...lastPosition,
+			currentTick: tick,
+			currentTime: timing.tickToMs(tick, api.playbackSpeed),
+			endTick: timing.endTick,
+			endTime: timing.tickToMs(timing.endTick, api.playbackSpeed),
+			isSeek: false
+		});
+	};
 	const beginReload = (clock: Clock) => {
 		const current = reload?.score === score ? reload : null;
 		reload = {
@@ -228,6 +244,7 @@ export function createPracticePlayback(api: any) {
 				writtenLookup = wantWritten ? api.tickCache : null;
 				pending = { lookup: api.tickCache, tick: mapped, resume: wasPlaying };
 				beginReload(clock);
+				announce(mapped);
 			} finally {
 				generating = false;
 			}
@@ -272,23 +289,24 @@ export function createPracticePlayback(api: any) {
 			reload = null;
 			return false;
 		}
-		if (!e.isSeek) {
-			if (reload.stopped) return true;
-			reload.heard = e.currentTick;
-			return false;
-		}
 		// The stop seeks to the start, or to the range start when one is kept. API
-		// ticks: the start reads below zero when the score has a lead-in. Before the
-		// stop, a seek to a new range's start acknowledges the user's own seek.
+		// ticks: the start reads below zero when the score has a lead-in.
 		const start = near(-(api.player?.midiTickShift ?? 0));
-		if (reload.resets && (start || (reload.rangeKept && near(reload.rangeStart)))) {
+		if (e.isSeek && reload.resets && (start || (reload.rangeKept && near(reload.rangeStart)))) {
 			reload.resets--;
 			reload.stopped = true;
 			return true;
 		}
-		if (reload.stopped && near(reload.rangeStart)) return true;
-		// Other seeks are genuine, including acknowledgements of the user's.
-		reload.heard = null;
+		// alphaTab reads every position in the regenerated clock, but until the stop
+		// the synth still reports the previous one: with repeats, another bar. Note
+		// where playback had got to; the restore shows it.
+		if (!reload.stopped) {
+			reload.heard = e.isSeek ? null : e.currentTick;
+			return true;
+		}
+		// After the stop: the new range's start, and buffers played before the stop.
+		if (!e.isSeek || near(reload.rangeStart)) return true;
+		// Other seeks are the user's, in the new clock.
 		return false;
 	};
 	const midiLoad = () => {
@@ -309,6 +327,7 @@ export function createPracticePlayback(api: any) {
 				};
 				resumeRequested = false;
 				beginReload(clock);
+				announce(tick);
 			}
 		}
 		queueMicrotask(() => sync(region));
@@ -318,7 +337,9 @@ export function createPracticePlayback(api: any) {
 	api.playerStateChanged?.on(stateChanged);
 	if (typeof deliver === 'function')
 		positions.trigger = (e: any) => {
-			if (!isReloadArtifact(e)) deliver.call(positions, e);
+			if (isReloadArtifact(e)) return;
+			lastPosition = e;
+			deliver.call(positions, e);
 		};
 	const session = {
 		sync,
