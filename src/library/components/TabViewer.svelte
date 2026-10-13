@@ -71,7 +71,7 @@
 		SCALE_MAX
 	} from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
-	import { followScrollTarget, cursorOffscreen } from '../utils/cursorFollow';
+	import { createScoreScroll } from '../utils/scoreScroll';
 	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
@@ -617,68 +617,13 @@
 		fetchMetadata(title);
 	}
 
-	// Follow by default; manual scrolling disengages until an explicit seek or Back to cursor.
+	// The score's scroll position has one owner (scoreScroll.ts): cursor
+	// following, the reader's own scrolling, Back to cursor and programmatic
+	// jumps. Manual scrolling disengages following until an explicit seek or
+	// Back to cursor.
 	let autoFollow = true;
-	let followAtStart = false;
+	let cursorOutOfView: 'above' | 'below' | null = null;
 	let followScoreKey: string | null = null;
-	let cursorFollowFrame = 0;
-	let cursorFollowTop: number | null = null;
-	// A retained viewer must not follow the previous score's position while its
-	// replacement renders. Versions can share a title, so key this by bytes.
-	$: if (requestedScoreKey !== followScoreKey) {
-		followScoreKey = requestedScoreKey;
-		followAtStart = false;
-		autoFollow = true;
-		cursorFollowTop = null;
-		if (browser) cancelAnimationFrame(cursorFollowFrame);
-		cursorFollowFrame = 0;
-		// On route return, props can arrive after the persistent API is adopted.
-		// Resume only the session owned by these exact bytes; a replacement's
-		// store has already been cleared and must never inherit the old position.
-		const state = get(playerState);
-		const resume = state.scoreLoaded && state.scoreKey === requestedScoreKey;
-		playing = resume ? state.playing : false;
-		progress = resume ? state.progress : 0;
-		duration = resume ? state.duration : 0;
-		currentBar = resume ? state.currentBar : 0;
-		bindDuration = true;
-	}
-	$: if (playing) followAtStart = true;
-	let cursorFollowObserver: MutationObserver | undefined;
-	let unsubscribeCursorFollow: (() => void) | undefined;
-
-	function scheduleCursorFollow() {
-		// A freshly opened, paused score starts at its top. Following the first
-		// cursor during loading scrolls the placeholder (or animates a refresh).
-		if (
-			cursorFollowFrame ||
-			!autoFollow ||
-			isLoading ||
-			(!playing && progress === 0 && !followAtStart)
-		)
-			return;
-		// Follow the placed DOM cursor rather than alphaTab's earlier playback
-		// position event. This also covers paused seeks and score reflow.
-		cursorFollowFrame = requestAnimationFrame(() => {
-			cursorFollowFrame = 0;
-			if (
-				!didReturnPlayerHost &&
-				autoFollow &&
-				!isRendering &&
-				!isLoading &&
-				(playing || progress > 0 || followAtStart)
-			)
-				alignCursorInViewport();
-		});
-	}
-
-	function reEnableAutoFollow() {
-		autoFollow = true;
-		cursorFollowTop = null;
-		followAtStart = true;
-		alignCursorInViewport();
-	}
-
 	/** The part of the score the reader can see, in client pixels. */
 	function followViewport() {
 		// The desktop console sits beside the score. Its height does not reduce
@@ -692,79 +637,66 @@
 		return { top, bottom: bottom > top ? bottom : (rect?.bottom ?? window.innerHeight) };
 	}
 
-	function alignCursorInViewport() {
-		if (isLoading) return;
-		const el = get(beatCursorEl);
-		if (!el) return;
-		const viewport = followViewport();
-		const cursor = el.getBoundingClientRect();
-		const currentTop = page ? page.scrollTop : window.scrollY;
-		const hostTop = loopRowsInHost
-			? (document.getElementById('player-host')?.getBoundingClientRect().top ?? 0)
-			: 0;
-		const top = followScrollTarget({
-			viewportTop: viewport.top,
-			viewportBottom: viewport.bottom,
-			cursorTop: cursor.top,
-			cursorBottom: cursor.bottom,
-			scrollTop: currentTop,
-			pendingScrollTop: followScrollPending,
-			loop: loopRowsInHost && {
-				top: hostTop + loopRowsInHost.top,
-				bottom: hostTop + loopRowsInHost.bottom
-			}
-		});
-		// A framed loop holds still while the cursor plays through it.
-		if (top === null) return;
-		// Cursor transforms change on every beat, including horizontal animation.
-		// Restarting smooth scroll to the same fractional position makes the staff
-		// jitter on mobile. Scroll once per new row or layout, with pixel tolerance.
-		if (cursorFollowTop !== null && Math.abs(top - cursorFollowTop) <= 1) return;
-		cursorFollowTop = top;
-		if (Math.abs(top - currentTop) <= 1) return;
-		// The browser clamps targets past the end of the score.
-		const maxTop = page ? page.scrollHeight - page.clientHeight : Infinity;
-		followScrollPending = Math.max(0, Math.min(top, maxTop));
-		clearTimeout(followScrollTimeout);
-		followScrollTimeout = setTimeout(() => (followScrollPending = null), 1500);
-		(page ?? window).scrollTo({ top, behavior: 'smooth' });
-	}
-
-	// Destination of the follow scroll in flight, until it lands. Follow
-	// decisions made mid-animation are judged where the sheet will end up.
-	let followScrollPending: number | null = null;
-	let followScrollTimeout: ReturnType<typeof setTimeout> | undefined;
-	function settleFollowScroll() {
-		const current = page ? page.scrollTop : window.scrollY;
-		if (followScrollPending !== null && Math.abs(current - followScrollPending) <= 1) {
-			followScrollPending = null;
-			clearTimeout(followScrollTimeout);
+	const scroll = createScoreScroll({
+		scrollTop: () => (page ? page.scrollTop : window.scrollY),
+		maxScrollTop: () => (page ? page.scrollHeight - page.clientHeight : Infinity),
+		scrollTo: (top, behavior) => (page ?? window).scrollTo({ top, behavior }),
+		setScrollTop: (top) => {
+			if (page) page.scrollTop = top;
+		},
+		measure: () => {
+			const el = get(beatCursorEl);
+			if (!el) return null;
+			const viewport = followViewport();
+			const cursor = el.getBoundingClientRect();
+			const hostTop = loopRowsInHost
+				? (document.getElementById('player-host')?.getBoundingClientRect().top ?? 0)
+				: 0;
+			return {
+				viewportTop: viewport.top,
+				viewportBottom: viewport.bottom,
+				cursorTop: cursor.top,
+				cursorBottom: cursor.bottom,
+				loop: loopRowsInHost && {
+					top: hostTop + loopRowsInHost.top,
+					bottom: hostTop + loopRowsInHost.bottom
+				}
+			};
+		},
+		status: () => ({
+			loading: isLoading,
+			rendering: isRendering,
+			suspended: didReturnPlayerHost,
+			moving: playing || progress > 0
+		}),
+		requestFrame: (callback) => (browser ? requestAnimationFrame(callback) : 0),
+		cancelFrame: (id) => {
+			if (browser) cancelAnimationFrame(id);
+		},
+		onChange: (state) => {
+			autoFollow = state.following;
+			cursorOutOfView = state.outOfView;
 		}
+	});
+	// A retained viewer must not follow the previous score's position while its
+	// replacement renders. Versions can share a title, so key this by bytes.
+	$: if (requestedScoreKey !== followScoreKey) {
+		followScoreKey = requestedScoreKey;
+		scroll.reset();
+		// On route return, props can arrive after the persistent API is adopted.
+		// Resume only the session owned by these exact bytes; a replacement's
+		// store has already been cleared and must never inherit the old position.
+		const state = get(playerState);
+		const resume = state.scoreLoaded && state.scoreKey === requestedScoreKey;
+		playing = resume ? state.playing : false;
+		progress = resume ? state.progress : 0;
+		duration = resume ? state.duration : 0;
+		currentBar = resume ? state.currentBar : 0;
+		bindDuration = true;
 	}
-
-	// While not following, Back to cursor appears only when the cursor is out
-	// of view, pointing the way to it. Seeing the cursor does not resume
-	// following on its own: only Back to cursor or an explicit seek does.
-	let cursorOutOfView: 'above' | 'below' | null = null;
-	let cursorVisibilityFrame = 0;
-	function updateCursorOutOfView() {
-		const el = autoFollow ? null : get(beatCursorEl);
-		if (!el) {
-			cursorOutOfView = null;
-			return;
-		}
-		const cursor = el.getBoundingClientRect();
-		const viewport = followViewport();
-		cursorOutOfView = cursorOffscreen(cursor.top, cursor.bottom, viewport.top, viewport.bottom);
-	}
-	function scheduleCursorVisibility() {
-		if (!browser || cursorVisibilityFrame) return;
-		cursorVisibilityFrame = requestAnimationFrame(() => {
-			cursorVisibilityFrame = 0;
-			updateCursorOutOfView();
-		});
-	}
-	$: if (browser) (autoFollow, scheduleCursorVisibility());
+	$: if (playing) scroll.playbackStarted();
+	let cursorFollowObserver: MutationObserver | undefined;
+	let unsubscribeCursorFollow: (() => void) | undefined;
 
 	// Speed trainer: steps the speed up each time the loop repeats
 	let trainerOn = false;
@@ -935,10 +867,7 @@
 			(hasSheet && (!scoreLoaded || !scoreMatchesRequest || !$playerState.scoreRendered))) &&
 		!apiError &&
 		!loadingTimedOut;
-	$: if (browser && isLoading && page) resetLoadingScroll(page);
-	function resetLoadingScroll(viewport: HTMLElement) {
-		viewport.scrollTo({ top: 0, behavior: 'instant' });
-	}
+	$: if (browser && isLoading && page) scroll.jumpTo(0);
 
 	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
 	// This prevents the user from being permanently stuck on the loading screen
@@ -1631,12 +1560,11 @@
 			if (!firstDiv) return;
 			// Get its position on screen and scroll so it's centered
 			const rect = firstDiv.getBoundingClientRect();
-			const scrollTarget = page ?? window;
 			const viewportH = page ? page.clientHeight : window.innerHeight;
 			const currentScroll = page ? page.scrollTop : window.scrollY;
 			// rect.top is relative to viewport, add current scroll for absolute position
 			const targetScroll = currentScroll + rect.top - viewportH / 3;
-			scrollTarget.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' });
+			scroll.jumpTo(Math.max(0, targetScroll));
 		});
 	}
 
@@ -2074,9 +2002,7 @@
 			const area = scoreScrollArea();
 			const speed = area ? edgeAutoScrollSpeed(y, area.top, area.bottom, originY) : 0;
 			if (area && speed) {
-				const before = area.el.scrollTop;
-				area.el.scrollTop = before + speed;
-				if (area.el.scrollTop !== before) follow();
+				if (scroll.nudge(speed)) follow();
 			}
 			requestAnimationFrame(autoScroll);
 		};
@@ -2167,8 +2093,7 @@
 		const pct = getProgressPercent(clientX);
 		progress = pct;
 		transport.seekPercent(pct);
-		autoFollow = true;
-		followAtStart = true;
+		scroll.engage();
 	}
 
 	function pbBeginGesture(clientX: number) {
@@ -2500,12 +2425,7 @@
 		// The console owns its own scrolling; bubbling wheel/touch events there
 		// are not an instruction to stop following the sheet.
 		if (event.target instanceof Node && settings?.contains(event.target)) return;
-		if (autoFollow) {
-			autoFollow = false;
-			cursorFollowTop = null;
-		}
-		// The user's scroll interrupts any follow scroll in flight.
-		followScrollPending = null;
+		scroll.userScroll();
 	}
 
 	// Manual browsing stays under the user's control until Back to cursor or
@@ -2513,7 +2433,7 @@
 	// to resume automatic following.
 
 	function scrollToCursor() {
-		reEnableAutoFollow();
+		scroll.backToCursor();
 	}
 
 	// A primitive, so unrelated preference changes do not rerender the score.
@@ -2711,8 +2631,7 @@
 	function seekByBars(delta: number) {
 		if (!api || totalBars === 0) return;
 		transport.seekByBars((progress / 100) * (transport.durationMs ?? duration), delta);
-		autoFollow = true;
-		followAtStart = true;
+		scroll.engage();
 	}
 
 	// Store references for cleanup
@@ -2748,11 +2667,8 @@
 
 			if (isNewSheet) {
 				dispatch('sheetChanged', metadata);
-				autoFollow = true;
-				cursorFollowTop = null;
-				// Scroll to top when a new tab is loaded (the sheet is always its
-				// own scroller now — window/page fallback covers SSR edge cases).
-				(page ?? window).scrollTo({ top: 0, behavior: 'instant' });
+				// Show a new tab from the top, following.
+				scroll.newScore();
 				// Auto-play on load if preference is enabled
 				const prefs = get(preferencesStore);
 				if (prefs.autoPlayOnLoad && apiRef && !playing) {
@@ -2811,7 +2727,7 @@
 		// Render events
 		const onRenderStart = () => {
 			isRendering = true;
-			cursorFollowTop = null;
+			scroll.layoutChanged();
 			const tracksSet = new Set();
 			apiRef.tracks.forEach((t: any) => tracksSet.add(t.index));
 			tracks.forEach((trackItem) => {
@@ -2825,7 +2741,7 @@
 			requestAnimationFrame(() => {
 				if (api) {
 					updateScoreSelection();
-					scheduleCursorFollow();
+					scroll.cursorMoved();
 				}
 			});
 		};
@@ -3004,7 +2920,7 @@
 							transport.seek(startMs);
 							// An explicit seek: follow the cursor again (a touch on the
 							// score had disengaged following as if it were a scroll).
-							autoFollow = true;
+							scroll.engage({ anchor: false });
 						}
 					}
 				}
@@ -3459,11 +3375,11 @@
 			// alphaTab writes the beat cursor's transform when it places or
 			// animates it. Rebind whenever rendering replaces the cursor element.
 			cursorFollowObserver = new MutationObserver(() => {
-				scheduleCursorFollow();
-				scheduleCursorVisibility();
+				scroll.cursorMoved();
+				scroll.refreshVisibility();
 			});
 			cursorFollowObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
-			scheduleCursorFollow();
+			scroll.cursorMoved();
 		});
 
 		mountObserver = new IntersectionObserver(
@@ -3607,8 +3523,7 @@
 		didReturnPlayerHost = true;
 		unsubscribeCursorFollow?.();
 		cursorFollowObserver?.disconnect();
-		cancelAnimationFrame(cursorFollowFrame);
-		cursorFollowFrame = 0;
+		scroll.dispose();
 		unsubscribePlayerApi?.();
 		unsubscribePlayerTarget?.();
 		cancelActiveDrag?.();
@@ -4207,8 +4122,7 @@
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
 	on:scroll={() => {
-		settleFollowScroll();
-		scheduleCursorVisibility();
+		scroll.scrolled();
 	}}
 	style:--score-header-height={isFullscreen ? '0px' : 'var(--header-h, 56px)'}
 	style="--player-bar-height: {barHeight}px; --app-header-height: 56px; --player-panel-width: {consolePanelWidthCss}; --lyrics-lift: {scoreLoaded &&
