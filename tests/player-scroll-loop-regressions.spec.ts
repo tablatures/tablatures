@@ -203,11 +203,13 @@ test('written-order MIDI reloads never show the start of the score', async ({ pa
 		.toBeNull();
 	await settled();
 	const samples = await page.evaluate((from) => (window as any).__reloadSamples.slice(from), from);
-	// Each sampled frame: never the first row, the start of the song, or a scroll back up.
-	const first = samples[0];
+	// Each sampled frame: never the first row, the start of the song, or a scroll
+	// toward it. Clearing the loop may re-frame the row (following frames a loop
+	// as a whole), settling a pixel or two away; a dip that comes back is the bug.
+	const lowest = Math.min(samples[0].scroll, samples.at(-1).scroll);
 	expect(
 		samples.filter(
-			(s: any) => s.cursorY <= bars.firstRowY + 1 || s.progress < 10 || s.scroll < first.scroll - 1
+			(s: any) => s.cursorY <= bars.firstRowY + 1 || s.progress < 10 || s.scroll < lowest - 1
 		)
 	).toEqual([]);
 });
