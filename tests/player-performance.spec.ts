@@ -34,7 +34,7 @@ async function servePlayer(page: Page) {
 	);
 }
 
-function report(name: string, work: EngineWork) {
+function report(name: string, work: EngineWork | Record<string, number>) {
 	test.info().annotations.push({ type: name, description: JSON.stringify(work) });
 }
 
@@ -95,4 +95,30 @@ test('switching to a dense tab, changing theme and returning to it reuse the lay
 	});
 	report('return to player', back);
 	expect(back).toMatchObject({ layouts: 0, midi: 0 });
+});
+
+test('playback reports its position about every 10 ms, not every audio quantum', async ({
+	page
+}) => {
+	test.setTimeout(120000);
+	await page.goto('/play?tab=dense');
+	await waitForScoreLoaded(page, 90000);
+	// Each report crosses the main thread three times (worklet, synth worker,
+	// position). alphaTab's worklet sent one per 128-frame quantum: ~375 a second.
+	const perSecond = await page.evaluate(async () => {
+		const api = (window as any).__testApi.getApi();
+		let positions = 0;
+		const count = () => positions++;
+		api.playerPositionChanged.on(count);
+		api.play();
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+		positions = 0;
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+		api.playerPositionChanged.off(count);
+		api.pause();
+		return positions / 3;
+	});
+	report('playback positions per second', { perSecond: Math.round(perSecond) });
+	expect(perSecond).toBeGreaterThan(20);
+	expect(perSecond).toBeLessThanOrEqual(100);
 });

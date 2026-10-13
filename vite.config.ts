@@ -1,8 +1,9 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import type { Plugin, UserConfig } from 'vite';
-import { cpSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { batchWorkletReports } from './scripts/vendor-alphatab.mjs';
 
 // Copy alphaTab's runtime files (the UMD script and the Bravura music font)
 // out of the npm package into static/vendor so the app serves them itself
@@ -16,7 +17,9 @@ function vendorAlphaTab(): Plugin {
 			const dist = resolve('node_modules/@coderline/alphatab/dist');
 			const dest = resolve('static/vendor/alphatab');
 			mkdirSync(dest, { recursive: true });
-			cpSync(resolve(dist, 'alphaTab.min.js'), resolve(dest, 'alphaTab.min.js'));
+			// The same script runs the page, the synth worker and the audio worklet.
+			const script = readFileSync(resolve(dist, 'alphaTab.min.js'), 'utf8');
+			writeFileSync(resolve(dest, 'alphaTab.min.js'), batchWorkletReports(script));
 			cpSync(resolve(dist, 'font'), resolve(dest, 'font'), { recursive: true });
 		}
 	};
