@@ -7,6 +7,9 @@ const RESULTS_URL = /\/search\?q=test(?:&|$)/;
 // When a search result fails to load, the user must be able to get back to the
 // same result list and pick another one without retyping the query.
 
+const failedLoadScreen = (page: Page) =>
+	page.getByRole('main').getByText('The tab service is unavailable');
+
 async function searchAndOpenFailingResult(page: Page) {
 	await setupMockApi(page);
 	// Registered last → wins over setupMockApi's download route.
@@ -25,7 +28,8 @@ async function searchAndOpenFailingResult(page: Page) {
 
 	await page.getByText('Test Song').first().click();
 	await page.waitForURL('**/play**');
-	await expect(page.getByText('The tab service is unavailable')).toBeVisible();
+	// The failure is also announced in a toast, outside the main region.
+	await expect(failedLoadScreen(page)).toBeVisible();
 }
 
 test('browser back from a failed result returns to the same results', async ({ page }) => {
@@ -34,7 +38,7 @@ test('browser back from a failed result returns to the same results', async ({ p
 	await page.goBack();
 	await expect(page).toHaveURL(RESULTS_URL);
 	await expect(page.getByText('Test Song').first()).toBeVisible();
-	await expect(page.getByText('The tab service is unavailable')).toHaveCount(0);
+	await expect(failedLoadScreen(page)).toHaveCount(0);
 });
 
 test('the failed-load screen links back to the same results', async ({ page }) => {
