@@ -244,6 +244,12 @@ it('a timeline seek moves the video once, despite earlier positions arriving fir
 	s.emitPosition({ currentTime: 48200, currentTick: 46272, isSeek: true });
 	s.emitPosition({ currentTime: 48300, currentTick: 46368, isSeek: false });
 	expect(s.video.seekTo.mock.calls.length).toBe(seeks);
+	s.emitPosition({ currentTime: 20000, currentTick: 19200, isSeek: true });
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks);
+	// A distinct small native seek must still propagate after the acknowledgement.
+	s.emitPosition({ currentTime: 20050, currentTick: 19248, isSeek: true });
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks + 1);
+	expect(s.video.seekTo).toHaveBeenLastCalledWith(20.05, true);
 	s.sync.dispose();
 });
 

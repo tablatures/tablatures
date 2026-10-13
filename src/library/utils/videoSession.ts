@@ -23,12 +23,12 @@ export interface VideoSessionPorts {
 }
 
 /** The persistent engine owns media synchronization, including mini playback.
- * Only media-origin seeks are suppressed; genuine small beat seeks propagate. */
+ * Seek acknowledgements do not echo back; genuine small beat seeks propagate. */
 export function createVideoSession(api: any, ports: VideoSessionPorts) {
 	let seekLockUntil = 0;
 	let commandUntil = 0;
 	let lastTick: number | null = null;
-	let mediaSeekTarget: number | null = null;
+	let seekEchoTarget: number | null = null;
 	let previousVideo: any = null;
 	let previousSpeed = api.playbackSpeed || 1;
 	let previousVolume: number | null = null;
@@ -41,6 +41,7 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		const video = ports.video();
 		if (!video) return;
 		seekLockUntil = Date.now() + 600;
+		seekEchoTarget = engineMs;
 		video.seekTo(
 			Math.max(
 				0,
@@ -61,8 +62,11 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 	const onPosition = (event: any) => {
 		// Earlier seeks and replaced scores must not drag the video along.
 		if (!ports.transport.accept(event)) return;
-		const isEcho = mediaSeekTarget !== null && Math.abs(event.currentTime - mediaSeekTarget) < 100;
-		if (isEcho) mediaSeekTarget = null;
+		const isEcho =
+			event.isSeek &&
+			seekEchoTarget !== null &&
+			Math.abs(event.currentTime - seekEchoTarget) <= 0.01;
+		if (isEcho) seekEchoTarget = null;
 		const wrapped = lastTick !== null && event.currentTick < lastTick - 1 && !event.isSeek;
 		const mediaMs = playbackToMediaMs(api, event.currentTime);
 		const jumped =
@@ -157,7 +161,7 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		target = Math.max(0, Math.min(timing.durationMs / speed, target));
 		// Absolute score-time tolerance stays meaningful on both short and long scores.
 		if (Math.abs(engineToScoreMs(target - api.player.timePosition, speed)) > 250) {
-			mediaSeekTarget = target;
+			seekEchoTarget = target;
 			ports.transport.followMedia(target);
 		}
 	};
