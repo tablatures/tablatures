@@ -1,5 +1,6 @@
 import { it, expect, vi, afterEach } from 'vitest';
 import { createVideoSession } from './videoSession';
+import { createPlayerTransport, type TransportEngine } from './playerTransport';
 import type { LoopRegion } from './loopRegion';
 
 afterEach(() => vi.useRealTimers());
@@ -56,6 +57,10 @@ function session(speed = 1) {
 	const position = emitter(),
 		states = emitter();
 	const api = {
+		score: {},
+		playerState: 0,
+		playbackRange: null,
+		isLooping: false,
 		playbackSpeed: speed,
 		masterVolume: 1,
 		player: { timePosition: 48000 / speed },
@@ -69,16 +74,28 @@ function session(speed = 1) {
 		},
 		playerPositionChanged: position,
 		playerStateChanged: states,
-		play: () => {
+		play: vi.fn(() => {
 			playing = true;
+			api.playerState = 1;
 			states.emit({ state: 1 });
-		},
-		pause: () => {
+		}),
+		pause: vi.fn(() => {
 			playing = false;
+			api.playerState = 0;
 			states.emit({ state: 0 });
-		}
+		})
 	};
+	// The layout's session transport, forwarding timeline seeks to this session.
+	const transport = createPlayerTransport({
+		engine: () => api as unknown as TransportEngine,
+		score: () => api.score,
+		timing: () => null,
+		syncPractice: vi.fn(),
+		videoPlaying: vi.fn(),
+		seekVideo: (ms) => sync.seek(ms)
+	});
 	const sync = createVideoSession(api, {
+		transport,
 		video: () => video,
 		offset: () => 0,
 		playing: () => playing,
@@ -87,8 +104,13 @@ function session(speed = 1) {
 		source: () => source
 	});
 	sync.onReady();
+	// Native position events always carry the score's end.
+	const emitPosition = (event: { currentTime: number; currentTick: number; isSeek: boolean }) =>
+		position.emit({ endTime: 400000, ...event });
 	return {
 		api,
+		transport,
+		emitPosition,
 		video,
 		position,
 		states,
@@ -121,7 +143,7 @@ it.each([0.5, 1, 1.5, 2])(
 
 it('propagates a sub-2% seek and pauses/resumes video without a mounted full view', () => {
 	const s = session(0.5);
-	s.position.emit({ currentTime: 98000, currentTick: 94080, isSeek: true });
+	s.emitPosition({ currentTime: 98000, currentTick: 94080, isSeek: true });
 	expect(s.video.seekTo).toHaveBeenLastCalledWith(49, true);
 	s.api.play();
 	vi.advanceTimersByTime(1000);
@@ -175,5 +197,67 @@ it.each([0.5, 1, 1.5, 2])('wraps video at precise note boundaries at %sx', (spee
 	const count = s.video.seekTo.mock.calls.length;
 	vi.advanceTimersByTime(2000);
 	expect(s.video.seekTo.mock.calls.length).toBe(count);
+	s.sync.dispose();
+});
+
+it('a drift correction from the video is fenced like any seek and never echoed back', () => {
+	const s = session();
+	s.api.play();
+	vi.advanceTimersByTime(400);
+	const seeks = s.video.seekTo.mock.calls.length;
+	// The viewer scrubs the video itself (the score is 96s): the engine must follow it.
+	s.video.seekTo(70);
+	vi.advanceTimersByTime(200);
+	expect(Math.abs(s.api.player.timePosition - 70000)).toBeLessThan(300);
+	expect(s.transport.state.suppressPosition).toBe(true);
+	// A position from before the correction cannot drag the video back.
+	s.emitPosition({ currentTime: 48500, currentTick: 46560, isSeek: true });
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks + 1);
+	// The worker's acknowledgement settles it without seeking the video again.
+	s.emitPosition({
+		currentTime: s.api.player.timePosition,
+		currentTick: 67200,
+		isSeek: true
+	});
+	expect(s.transport.state.suppressPosition).toBe(false);
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks + 1);
+	s.sync.dispose();
+});
+
+it('positions from a score whose MIDI is being replaced never move the video', () => {
+	const s = session();
+	const seeks = s.video.seekTo.mock.calls.length;
+	s.transport.beginLoad();
+	s.emitPosition({ currentTime: 150000, currentTick: 144000, isSeek: true });
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks);
+	s.transport.completeLoad();
+	s.emitPosition({ currentTime: 10000, currentTick: 9600, isSeek: true });
+	expect(s.video.seekTo).toHaveBeenLastCalledWith(10, true);
+	s.sync.dispose();
+});
+
+it('a timeline seek moves the video once, despite earlier positions arriving first', () => {
+	const s = session();
+	s.transport.seek(20000);
+	expect(s.video.seekTo).toHaveBeenLastCalledWith(20, true);
+	const seeks = s.video.seekTo.mock.calls.length;
+	s.emitPosition({ currentTime: 48200, currentTick: 46272, isSeek: true });
+	s.emitPosition({ currentTime: 48300, currentTick: 46368, isSeek: false });
+	expect(s.video.seekTo.mock.calls.length).toBe(seeks);
+	s.sync.dispose();
+});
+
+it('playing the video during a countdown starts now and ends the countdown', () => {
+	const s = session();
+	vi.advanceTimersByTime(500);
+	s.transport.play(3000);
+	s.sync.onVideoState(1);
+	expect(s.transport.state.remainingMs).toBe(0);
+	s.sync.onVideoState(1);
+	expect(s.api.play).toHaveBeenCalledTimes(1);
+	// Past the window that ignores the echo of our own video command.
+	vi.advanceTimersByTime(500);
+	s.sync.onVideoState(2);
+	expect(s.api.pause).toHaveBeenCalledTimes(1);
 	s.sync.dispose();
 });

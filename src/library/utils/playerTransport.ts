@@ -127,7 +127,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 		cancelCountdown();
 		clearSeek();
 	};
-	const seek = (ms: number) => {
+	const seek = (ms: number, forwardToMedia = true) => {
 		const engine = ports.engine();
 		if (disposed || !engine || !Number.isFinite(ms)) return;
 		ms = Math.max(0, ms);
@@ -136,7 +136,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 		// Install the target before writing: engine callbacks may be synchronous.
 		notify('onSeek', ms);
 		if (!loading) engine.player.timePosition = ms;
-		ports.seekVideo(ms);
+		if (forwardToMedia) ports.seekVideo(ms);
 	};
 	const durationMs = () => {
 		const engine = ports.engine();
@@ -218,12 +218,14 @@ export function createPlayerTransport(ports: TransportPorts) {
 			if (!countdownIsCurrent()) return cancelCountdown();
 			startCountdown(Math.max(1000, Math.min(10000, delayMs)));
 		},
-		seek,
+		seek: (ms: number) => seek(ms),
 		seekPercent(percent: number) {
 			const duration = durationMs();
 			if (!Number.isFinite(percent) || duration === null || duration <= 0) return;
 			seek((Math.max(0, Math.min(100, percent)) / 100) * duration);
 		},
+		/** The media clock moved: follow it without seeking the media back. */
+		followMedia: (ms: number) => seek(ms, false),
 		setSpeed(speed: number) {
 			const engine = ports.engine();
 			if (disposed || !engine || !Number.isFinite(speed) || speed <= 0) return;

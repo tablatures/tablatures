@@ -1,8 +1,19 @@
 import { resolveLoopRange, type LoopRegion } from './loopRegion';
 import { engineToScoreMs, scoreToEngineMs, timingForApi } from './playerTiming';
 import { playbackToMediaMs, mediaToPlaybackMs } from './practicePlayback';
+import type { TransportPosition } from './playerTransport';
+
+/** The session transport, so media-driven commands get the same seek
+ * acknowledgement and stale-position fencing as every other control. */
+export interface VideoSessionTransport {
+	accept(event: TransportPosition): boolean;
+	followMedia(ms: number): void;
+	playNow(): void;
+	pause(): void;
+}
 
 export interface VideoSessionPorts {
+	transport: VideoSessionTransport;
 	video(): any;
 	offset(): number;
 	playing(): boolean;
@@ -48,6 +59,8 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 	};
 
 	const onPosition = (event: any) => {
+		// Earlier seeks and replaced scores must not drag the video along.
+		if (!ports.transport.accept(event)) return;
 		const isEcho = mediaSeekTarget !== null && Math.abs(event.currentTime - mediaSeekTarget) < 100;
 		if (isEcho) mediaSeekTarget = null;
 		const wrapped = lastTick !== null && event.currentTick < lastTick - 1 && !event.isSeek;
@@ -113,8 +126,8 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 
 	const onVideoState = (state: number) => {
 		if (Date.now() < commandUntil) return;
-		if (state === 1 && !ports.playing()) api.play();
-		else if ((state === 2 || state === 0) && ports.playing()) api.pause();
+		if (state === 1 && !ports.playing()) ports.transport.playNow();
+		else if ((state === 2 || state === 0) && ports.playing()) ports.transport.pause();
 	};
 
 	const poll = () => {
@@ -145,7 +158,7 @@ export function createVideoSession(api: any, ports: VideoSessionPorts) {
 		// Absolute score-time tolerance stays meaningful on both short and long scores.
 		if (Math.abs(engineToScoreMs(target - api.player.timePosition, speed)) > 250) {
 			mediaSeekTarget = target;
-			api.player.timePosition = target;
+			ports.transport.followMedia(target);
 		}
 	};
 	const timer = setInterval(poll, 200);

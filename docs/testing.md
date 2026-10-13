@@ -123,9 +123,9 @@ musical policies in Node. `createPlayerTransport` is the production controller,
 not a second implementation for tests. One instance (`sessionTransport()`) serves
 the persistent engine for the whole session: the layout drives its load
 lifecycle from the moment the engine is created, and the full player,
-mini-player, resume button, lyrics and shared-link restore all command the engine
-through it. Views attach with `observe()` and detach when unmounted; the session's
-fencing does not depend on `/play` being mounted. Its engine and media
+mini-player, resume button, lyrics, shared-link restore and video session all
+command the engine through it. Views attach with `observe()` and detach when
+unmounted; the session's fencing does not depend on `/play` being mounted. Its engine and media
 ports let tests record commands, deliver synchronous stale callbacks, replace a
 score, and advance application timers deterministically. No browser, audio device
 or wall-clock sleeps are needed.
@@ -163,8 +163,12 @@ reordering of the engine's raw event stream.
 positions out of the shared store, and positions from a replaced score or MIDI
 never reach it. `share-mini-player.spec.ts` checks only that the mini bar gesture
 reaches the session and the full player reopens at the acknowledged position.
-The persistent video session still writes the engine directly when the video is
-the clock source; route it through the transport before adding fencing there.
+The persistent video session uses the same transport. When the video is the
+clock source, its drift correction calls `followMedia()`: acknowledged and fenced
+like any seek, but not sent back to the video. It reacts only to accepted
+positions, and video play/pause go through `playNow()`/`pause()`.
+`videoSession.test.ts` owns these rules; `video-sync.spec.ts` proves in the browser
+that the engine jumps to the video's clock faster than playback alone could.
 
 Keep the existing browser regressions for native acknowledgements, actual
 playback, gestures, rendering and navigation. No browser scenarios were removed

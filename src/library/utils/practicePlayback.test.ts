@@ -12,6 +12,7 @@ import {
 } from './practicePlayback';
 import { parseLoopParam } from './loopRegion';
 import { createVideoSession } from './videoSession';
+import { createPlayerTransport } from './playerTransport';
 
 function emitter() {
 	const listeners = new Set<(event?: any) => void>();
@@ -187,7 +188,17 @@ describe('written practice playback using real MIDI generation', () => {
 			unMute: vi.fn(),
 			setVolume: vi.fn()
 		};
+		// Native position events always carry the score's end.
+		const endTime = 1e7;
 		const sync = createVideoSession(api, {
+			transport: createPlayerTransport({
+				engine: () => api,
+				score: () => api.score,
+				timing: () => timingForApi(api),
+				syncPractice: vi.fn(),
+				videoPlaying: vi.fn(),
+				seekVideo: vi.fn()
+			}),
 			video: () => video,
 			offset: () => offset,
 			playing: () => true,
@@ -200,6 +211,7 @@ describe('written practice playback using real MIDI generation', () => {
 				api.playerPositionChanged.emit({
 					currentTick: tick,
 					currentTime: written.tickToMs(tick, speed),
+					endTime,
 					isSeek: false
 				});
 			}
@@ -208,9 +220,17 @@ describe('written practice playback using real MIDI generation', () => {
 			expect(video.seekTo).toHaveBeenLastCalledWith(normal.tickToMs(23040) / 1000 + offset, true);
 			vi.advanceTimersByTime(800);
 			expect(api.player.timePosition).toBeCloseTo(written.tickToMs(15360, speed));
+			// The worker acknowledges that media-driven correction before playing on.
+			api.playerPositionChanged.emit({
+				currentTick: 15360,
+				currentTime: api.player.timePosition,
+				endTime,
+				isSeek: true
+			});
 			api.playerPositionChanged.emit({
 				currentTick: 11520,
 				currentTime: written.tickToMs(11520, speed),
+				endTime,
 				isSeek: false
 			});
 			expect(video.seekTo.mock.calls.at(-1)?.[0]).toBeCloseTo(
