@@ -6,12 +6,11 @@
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
 	import {
-		subscribePlayerDomEvent,
 		subscribePlayerEvent,
 		getViewSubscriptionCount
 	} from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
-	import { createPlayerTransport } from '../utils/playerTransport';
+	import { sessionTransport } from '../utils/playerSession';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import { claimBarDrag, isBarOwnGesture, isScrubZone, isVerticalSwipe } from '../utils/barGesture';
 	import {
@@ -23,7 +22,6 @@
 	} from '../utils/barClock';
 	import {
 		writtenTimingForApi,
-		syncPracticePlayback,
 		playbackToMediaMs,
 		playbackClockRange
 	} from '../utils/practicePlayback';
@@ -51,7 +49,6 @@
 		videoSyncOffset,
 		isTransitioning,
 		beatCursorEl,
-		seekSessionVideo,
 		videoHandlers,
 		playShellEl,
 		playSheetInView,
@@ -2729,8 +2726,6 @@
 		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
 
-		transport.resetSession();
-		let receivePosition = transport.positionReceiver();
 		const listen = (emitter: any, handler: (...args: any[]) => void) => {
 			fullPlayerListenerCleanups.push(subscribePlayerEvent(apiRef, emitter, handler));
 		};
@@ -2739,8 +2734,6 @@
 		const onScoreLoaded = (score: any) => {
 			const tab = get(tabStore);
 			if (!tab?.fileAsB64 || tab.fileAsB64 !== data.fileAsB64) return;
-			transport.resetSession();
-			receivePosition = transport.positionReceiver();
 			const metadata = scoreMetadata(score, tab);
 			const newTitle = [metadata.title, metadata.artist].filter(Boolean).join(' - ');
 			const isNewSheet = title !== newTitle;
@@ -2769,7 +2762,7 @@
 					setTimeout(() => {
 						try {
 							if (apiRef.score === score && get(tabStore)?.fileAsB64 === data.fileAsB64)
-								apiRef.playPause();
+								transport.playNow();
 						} catch {}
 					}, 200);
 				}
@@ -2784,26 +2777,13 @@
 			updateTabScale();
 			updateAlphaTabTheme(theme);
 		};
-		listen(apiRef.midiLoad, () => {
-			transport.beginLoad();
-			receivePosition = transport.positionReceiver();
-		});
-		// alphaTab 1.8.1's midiLoaded.on() replay reads a recursive getter in
-		// the worker proxy. The native host event reports the same completion
-		// without reading that getter or replaying an earlier load.
-		fullPlayerListenerCleanups.push(
-			subscribePlayerDomEvent(apiRef, apiRef.container.element, 'alphaTab.midiFileLoaded', () => {
-				transport.completeLoad();
-				receivePosition = transport.positionReceiver();
-			})
-		);
-
-		// Register load tracking before scoreLoaded.on() can replay and restore a practice session.
+		// The layout's session transport tracks MIDI loads for the engine's whole
+		// lifetime, so a load that began before this view mounted is still fenced.
 		listen(apiRef.scoreLoaded, onScoreLoaded);
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
-			if (!receivePosition(e)) return;
+			if (!transport.accept(e)) return;
 			if (bindDuration) {
 				duration = e.endTime;
 				progress = 100 * (e.currentTime / e.endTime) || 0;
@@ -3699,8 +3679,9 @@
 		mountScrollTarget?.removeEventListener('wheel', handleUserScrollIntent);
 		mountScrollTarget?.removeEventListener('touchmove', handleUserScrollIntent);
 
-		// Cleanup timers that may still be running
-		transport.dispose();
+		// The session transport outlives this view; only a pending countdown is the view's.
+		transport.cancelCountdown();
+		detachTransportView();
 		clearTimeout(longPressTimer);
 
 		clearTimeout(loadingTimeoutId);
@@ -3710,19 +3691,8 @@
 
 	let rest = 0;
 	let countdownPaused = false;
-	const transport = createPlayerTransport({
-		engine: () => api,
-		score: () => api?.score,
-		timing: () => timingForApi(api),
-		syncPractice: (region) => syncPracticePlayback(api, region),
-		videoPlaying: (shouldPlay) => {
-			const video = $videoPlayerRef;
-			try {
-				if (shouldPlay) video?.playVideo();
-				else video?.pauseVideo();
-			} catch {}
-		},
-		seekVideo: seekSessionVideo,
+	const transport = sessionTransport();
+	const detachTransportView = transport.observe({
 		onSeek: (ms) => {
 			bindDuration = false;
 			trainer.resetPosition();

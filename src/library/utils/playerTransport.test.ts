@@ -67,17 +67,21 @@ function harness(timing: PlayerTiming | null = musicalClock('repeat')) {
 		timing: () => timing,
 		syncPractice: vi.fn(),
 		videoPlaying: vi.fn(),
-		seekVideo: vi.fn(),
+		seekVideo: vi.fn()
+	};
+	// The full player's view observes the session transport like any other view.
+	const view = {
 		onSeek: vi.fn(),
 		onSeekSettled: vi.fn(),
 		onLoop: vi.fn(),
 		onCountdown: vi.fn()
 	};
 	const player = createPlayerTransport(ports);
+	player.observe(view);
 	return {
 		player,
 		engine,
-		ports,
+		ports: { ...ports, ...view },
 		writes,
 		rangeWrites,
 		onEngineSeek,
@@ -531,5 +535,89 @@ describe('our region versus whole-song loop policy', () => {
 		expect(ports.syncPractice).toHaveBeenLastCalledWith(null);
 		expect(engine.playbackRange).toBeNull();
 		expect(engine.isLooping).toBe(false);
+	});
+});
+
+describe('one transport per engine session, shared by its views', () => {
+	it('a mini-player seek suppresses earlier positions for every consumer until acknowledged', () => {
+		const { player } = harness();
+		player.seek(8000);
+		// The full view and the layout's store both receive each native event.
+		expect(player.accept(position(1200))).toBe(false);
+		expect(player.accept(position(1200))).toBe(false);
+		expect(player.accept(position(1300, true))).toBe(false);
+		expect(player.accept(position(8000, true))).toBe(true);
+		expect(player.accept(position(8000, true))).toBe(true);
+		expect(player.accept(position(8050))).toBe(true);
+	});
+
+	it('the current receiver follows load generations without being recaptured', () => {
+		const { player } = harness();
+		expect(player.accept(position(500))).toBe(true);
+		player.beginLoad();
+		expect(player.accept(position(600))).toBe(false);
+		player.completeLoad();
+		expect(player.accept(position(0))).toBe(true);
+		player.resetSession();
+		expect(player.state.positionReady).toBe(false);
+		expect(player.accept(position(10))).toBe(true);
+		expect(player.state.positionReady).toBe(true);
+	});
+
+	it('a detached view stops observing while the session keeps fencing seeks', () => {
+		const { player, ports } = harness();
+		const mini = { onSeek: vi.fn(), onSeekSettled: vi.fn() };
+		const detach = player.observe(mini);
+		player.seek(4000);
+		expect(mini.onSeek).toHaveBeenCalledWith(4000);
+		expect(ports.onSeek).toHaveBeenCalledWith(4000);
+		detach();
+		detach();
+		player.seek(6000);
+		expect(mini.onSeek).toHaveBeenCalledTimes(1);
+		expect(player.accept(position(4000, true))).toBe(false);
+		expect(player.accept(position(6000, true))).toBe(true);
+		expect(mini.onSeekSettled).not.toHaveBeenCalled();
+		expect(ports.onSeekSettled).toHaveBeenCalledOnce();
+	});
+
+	it('a view detaching during a notification does not skip the remaining views', () => {
+		const { player, ports } = harness();
+		const detach = player.observe({ onLoop: () => detach() });
+		player.toggleSongLoop();
+		expect(ports.onLoop).toHaveBeenLastCalledWith(true);
+	});
+
+	it('toggle pauses the playing engine and otherwise starts it idempotently', () => {
+		const { player, engine, ports } = harness();
+		player.toggle();
+		expect(engine.play).toHaveBeenCalledTimes(1);
+		expect(ports.videoPlaying).toHaveBeenLastCalledWith(true);
+		player.toggle();
+		expect(engine.pause).toHaveBeenCalledTimes(1);
+		expect(engine.playerState).toBe(0);
+		expect(ports.videoPlaying).toHaveBeenLastCalledWith(false);
+	});
+
+	it('toggle cancels a pending countdown rather than starting playback', () => {
+		const { player, engine } = harness();
+		player.play(1000);
+		player.toggle();
+		vi.advanceTimersByTime(2000);
+		expect(engine.play).not.toHaveBeenCalled();
+		expect(player.state.remainingMs).toBe(0);
+	});
+
+	it('a session created before its engine adopts the engine once it exists', () => {
+		const h = harness();
+		const { engine } = h;
+		h.setEngine(null);
+		h.player.seek(1000);
+		expect(h.writes).toEqual([]);
+		h.setEngine(engine);
+		h.player.beginLoad();
+		expect(h.player.accept(position(0))).toBe(false);
+		h.player.completeLoad();
+		expect(h.player.accept(position(0))).toBe(true);
 	});
 });

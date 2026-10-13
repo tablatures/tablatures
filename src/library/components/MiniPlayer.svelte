@@ -19,6 +19,7 @@
 	import { shareUrl } from '../utils/shareUrl';
 	import { horizontalSwipe } from '../utils/gestures';
 	import { engineToScoreMs } from '../utils/playerTiming';
+	import { sessionTransport } from '../utils/playerSession';
 	import { displayTime } from '../utils/format';
 	import { fetchSingleArtwork } from '../utils/artwork';
 	import { placeholderArtwork } from '../utils/placeholder';
@@ -41,20 +42,24 @@
 		document.documentElement.style.setProperty('--mini-bar-height', `${barHeight}px`);
 	}
 
+	// The session transport acknowledges seeks and fences stale positions here
+	// exactly as in the full player.
+	const transport = sessionTransport();
+
 	function togglePlayPause() {
 		if (!api) return;
 		hapticTap();
-		api.playPause();
+		transport.toggle();
 	}
 
 	function handleSeek(e: CustomEvent<number>) {
 		if (!api || !state.duration) return;
-		api.player.timePosition = (e.detail / 100) * state.duration;
+		transport.seek((e.detail / 100) * state.duration);
 	}
 
 	function stopPlayer() {
 		if (api) {
-			api.pause();
+			transport.pause();
 			updatePlayerState({ playing: false });
 		}
 		tabStore.clearTab();

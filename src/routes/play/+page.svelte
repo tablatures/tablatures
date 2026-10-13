@@ -28,6 +28,7 @@
 	import { persistTabBytes } from '../../library/data/tabBytes';
 	import Seo from '../../library/components/Seo.svelte';
 	import { scoreToEngineMs } from '../../library/utils/playerTiming';
+	import { sessionTransport } from '../../library/utils/playerSession';
 	import { pageTitle } from '../../library/utils/seo';
 	import { preferencesStore } from '../../library/utils/preferences';
 
@@ -399,14 +400,7 @@
 					if (state.scoreLoaded && state.duration > 0) {
 						clearInterval(seekInterval);
 						const pct = (scoreToEngineMs(timeSec * 1000, state.speed) / state.duration) * 100;
-						if (pct > 0 && pct < 100) {
-							import('../../library/utils/playerStore').then(({ getApi }) => {
-								const api = getApi();
-								if (api) {
-									api.player.timePosition = (pct / 100) * state.duration;
-								}
-							});
-						}
+						if (pct > 0 && pct < 100) sessionTransport().seek((pct / 100) * state.duration);
 					}
 				}, 500);
 				// Clean up after 30s max
