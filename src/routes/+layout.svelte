@@ -67,6 +67,7 @@
 		INSTRUMENTS_WEB_ORIGIN
 	} from '$utils/instrumentPacks';
 	import { installMasterLimiter, hasMasterLimiter } from '$utils/masterBus';
+	import { attachSessionTransport, sessionTransport } from '$utils/playerSession';
 	import { isNative } from '$utils/native';
 	import { resetScoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
@@ -108,6 +109,15 @@
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
 	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
 	let instrumentPacks: ReturnType<typeof createInstrumentPacks> | null = null;
+	const transport = sessionTransport();
+	let detachTransport: (() => void) | null = null;
+	// Hold the store's progress at a requested target until the engine acknowledges it.
+	const unobserveTransport = transport.observe({
+		onSeek: (ms) => {
+			const { duration } = get(playerState);
+			if (duration > 0) updatePlayerState({ progress: (100 * ms) / duration });
+		}
+	});
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
 	$: if (browser && videoSession) {
 		($videoPlayerRef,
@@ -118,6 +128,8 @@
 		videoSession.syncSettings();
 	}
 	onDestroy(() => {
+		unobserveTransport();
+		detachTransport?.();
 		videoSession?.dispose();
 		practicePlayback?.dispose();
 		instrumentPacks?.dispose();
@@ -359,7 +371,9 @@
 			updatePlayerState({ playing: args.state !== 0 });
 		});
 
-		api.playerPositionChanged.on((e) => {
+		// Fences stale positions for every view: earlier seeks, previous scores
+		// and positions from a MIDI that is being replaced.
+		detachTransport = attachSessionTransport(api, transport, (e) => {
 			if (!get(tabStore)?.fileAsB64 || !get(playerState).scoreLoaded) return;
 			updatePlayerState({
 				progress: 100 * (e.currentTime / e.endTime) || 0,
@@ -479,7 +493,7 @@
 			if (wasPlayingBeforeSoundFontChange) {
 				wasPlayingBeforeSoundFontChange = false;
 				try {
-					api.play();
+					transport.playNow();
 				} catch {}
 			}
 		});
@@ -645,9 +659,7 @@
 					activeVideoId.set(null);
 					audioSource.set('tab');
 				}
-				try {
-					api.player.timePosition = 0;
-				} catch {}
+				transport.seek(0);
 				updatePlayerState({
 					scoreLoaded: false,
 					scoreRendered: false,
@@ -669,10 +681,8 @@
 
 	// When tab is cleared, reset player state
 	$: if (browser && !currentTab?.fileAsB64) {
-		const api = get(playerApi);
-		if (api) {
-			api.pause();
-		}
+		// Also cancels a countdown that would otherwise start the cleared tab.
+		transport.pause();
 		// A cleared tab has to tear down the persistent YouTube host too. The mini
 		// player's X calls tabStore.clearTab() but never touched the video, so with
 		// the bar gone the iframe fell into the off-screen `-left-[9999px]` branch
@@ -812,12 +822,8 @@
 		let removeState = () => {};
 		onAppStateChange((isActive) => {
 			if (!isActive) {
-				const api = get(playerApi);
-				if (api) {
-					try {
-						api.pause();
-					} catch {}
-				}
+				// Cancels a pending countdown too, which would start audio in the background.
+				transport.pause();
 				// Everything else that makes noise or holds hardware is independent of
 				// the alphaTab api and has to be stopped explicitly. Pausing only the
 				// synth left the metronome clicking, the tuner's microphone capturing,

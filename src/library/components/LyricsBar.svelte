@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { playbackToMediaMs, mediaToPlaybackMs } from '../utils/practicePlayback';
+	import { timingForApi } from '../utils/playerTiming';
+	import { sessionTransport } from '../utils/playerSession';
 	import { get } from 'svelte/store';
 	import {
 		lyricsStore,
@@ -98,23 +100,17 @@
 
 	function seekTicks(beat: unknown) {
 		const target = beat as { absolutePlaybackStart?: number } | undefined;
-		if (api && target && typeof target.absolutePlaybackStart === 'number') {
-			try {
-				api.tickPosition = target.absolutePlaybackStart;
-			} catch {
-				/* not ready */
-			}
-		}
+		const timing = timingForApi(api);
+		if (timing && target && typeof target.absolutePlaybackStart === 'number')
+			sessionTransport().seek(
+				timing.tickToMs(target.absolutePlaybackStart, api.playbackSpeed || 1)
+			);
 	}
 
 	function seekNominalMs(nominalMs: number) {
 		if (!api?.player) return;
 		const speed = api.playbackSpeed || 1;
-		try {
-			api.player.timePosition = mediaToPlaybackMs(api, nominalMs / speed);
-		} catch {
-			/* not ready */
-		}
+		sessionTransport().seek(mediaToPlaybackMs(api, nominalMs / speed));
 	}
 
 	function seekEmbeddedLine(lineIndex: number) {

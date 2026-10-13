@@ -29,10 +29,14 @@ export interface TransportPorts {
 	syncPractice(region: LoopRegion | null): void;
 	videoPlaying(playing: boolean): void;
 	seekVideo(ms: number): void;
-	onSeek(ms: number): void;
-	onSeekSettled(): void;
-	onLoop(looping: boolean): void;
-	onCountdown(state: Readonly<TransportState>): void;
+}
+
+/** A view of the session: the full player, the mini-player or the layout's store. */
+export interface TransportObserver {
+	onSeek?(ms: number): void;
+	onSeekSettled?(): void;
+	onLoop?(looping: boolean): void;
+	onCountdown?(state: Readonly<TransportState>): void;
 }
 
 export interface TransportPosition {
@@ -44,8 +48,9 @@ export interface TransportPosition {
 const COUNTDOWN_INTERVAL_MS = 100;
 
 /** Application transport policy shared by the UI and browser-free regressions.
- * Engine calls are effects; tests control their responses rather than retesting
- * alphaTab's synthesis, scheduling or repeat expansion. */
+ * One instance serves the persistent engine for the whole session; views attach
+ * with observe(). Engine calls are effects; tests control their responses rather
+ * than retesting alphaTab's synthesis, scheduling or repeat expansion. */
 export function createPlayerTransport(ports: TransportPorts) {
 	let state: TransportState = {
 		remainingMs: 0,
@@ -62,8 +67,16 @@ export function createPlayerTransport(ports: TransportPorts) {
 	let countdownEngine: TransportEngine | null = null;
 	let countdownScore: unknown;
 	let disposed = false;
+	let observers: TransportObserver[] = [];
 
-	const publishCountdown = () => ports.onCountdown({ ...state });
+	const notify = <K extends keyof TransportObserver>(
+		event: K,
+		...args: Parameters<NonNullable<TransportObserver[K]>>
+	) => {
+		// Iterate a snapshot: an observer may detach while being notified.
+		for (const observer of observers) (observer[event] as any)?.(...args);
+	};
+	const publishCountdown = () => notify('onCountdown', { ...state });
 	const cancelCountdown = () => {
 		clearInterval(countdown);
 		countdown = undefined;
@@ -105,7 +118,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 		pendingSeek = null;
 		if (state.suppressPosition) {
 			state = { ...state, suppressPosition: false };
-			ports.onSeekSettled();
+			notify('onSeekSettled');
 		}
 	};
 	const invalidateSession = () => {
@@ -121,9 +134,15 @@ export function createPlayerTransport(ports: TransportPorts) {
 		pendingSeek = { ms, engine, score: ports.score() };
 		state = { ...state, suppressPosition: true };
 		// Install the target before writing: engine callbacks may be synchronous.
-		ports.onSeek(ms);
+		notify('onSeek', ms);
 		if (!loading) engine.player.timePosition = ms;
 		ports.seekVideo(ms);
+	};
+	const pause = () => {
+		if (disposed) return;
+		cancelCountdown();
+		ports.engine()?.pause();
+		ports.videoPlaying(false);
 	};
 	const positionReceiver = () => {
 		const source = { generation, engine: ports.engine(), score: ports.score() };
@@ -164,11 +183,13 @@ export function createPlayerTransport(ports: TransportPorts) {
 			else playNow();
 		},
 		playNow,
-		pause() {
+		pause,
+		/** Play/pause for controls without a countdown, such as the mini-player. */
+		toggle() {
 			if (disposed) return;
-			cancelCountdown();
-			ports.engine()?.pause();
-			ports.videoPlaying(false);
+			if (state.remainingMs > 0) cancelCountdown();
+			else if ((ports.engine()?.playerState ?? 0) !== 0) pause();
+			else playNow();
 		},
 		cancelCountdown,
 		toggleCountdownPause() {
@@ -209,6 +230,15 @@ export function createPlayerTransport(ports: TransportPorts) {
 		},
 		/** Capture the source session so callbacks retained by an old view are inert. */
 		positionReceiver,
+		/** Judge a native position against the current session. Consumers of one
+		 * event (layout store, full view) receive the same answer. */
+		accept: (event: TransportPosition) => positionReceiver()(event),
+		observe(observer: TransportObserver) {
+			observers = [...observers, observer];
+			return () => {
+				observers = observers.filter((o) => o !== observer);
+			};
+		},
 		resetSession() {
 			if (disposed) return;
 			invalidateSession();
@@ -261,7 +291,7 @@ export function createPlayerTransport(ports: TransportPorts) {
 			}
 			// Absent region bounds preserve the persistent whole-song repeat toggle.
 			if (region.startBar !== null || region.endBar !== null) engine.isLooping = !!range;
-			ports.onLoop(engine.isLooping);
+			notify('onLoop', engine.isLooping);
 		},
 		clearLoop() {
 			const engine = ports.engine();
@@ -269,13 +299,13 @@ export function createPlayerTransport(ports: TransportPorts) {
 			ports.syncPractice(null);
 			engine.playbackRange = null;
 			engine.isLooping = false;
-			ports.onLoop(false);
+			notify('onLoop', false);
 		},
 		toggleSongLoop() {
 			const engine = ports.engine();
 			if (!disposed && engine) {
 				engine.isLooping = !engine.isLooping;
-				ports.onLoop(engine.isLooping);
+				notify('onLoop', engine.isLooping);
 			}
 		},
 		dispose() {

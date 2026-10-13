@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { setupPlayPage } from './helpers/setup';
-import { waitForScoreLoaded } from './helpers/wait';
+import {
+	observeSeekAcknowledgement,
+	waitForPlaying,
+	waitForScoreLoaded,
+	getTestApi
+} from './helpers/wait';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -110,4 +115,42 @@ test('mini player X quits the tab: the bar unloads', async ({ page }) => {
 	await expect(bar).toHaveCount(0);
 	await expect(page.locator('.player-host-mini')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Play', exact: true })).toHaveCount(0);
+});
+
+// Acknowledgement and stale-position fencing are owned by playerSession.test.ts.
+// This proves the mini bar's gesture reaches the session transport and that the
+// full player reopens at the acknowledged position.
+test('mini player seek is acknowledged and carried back to the full player', async ({ page }) => {
+	await setupPlayPage(page);
+	await waitForScoreLoaded(page);
+	await page.getByRole('button', { name: 'Play', exact: true }).click();
+	await waitForPlaying(page, true);
+	// Subscribe on the persistent engine while /play still exposes it.
+	await observeSeekAcknowledgement(page);
+	await page.getByRole('link', { name: 'Settings' }).first().click();
+
+	const progress = page.locator('.fixed.bottom-0.z-\\[80\\] [role="progressbar"]').first();
+	await expect(progress).toBeVisible();
+	// The bar slides in after navigation: a locator click waits for it to be
+	// stable and to receive the pointer, unlike coordinates sampled mid-transition.
+	const box = await progress.boundingBox();
+	if (!box) throw new Error('Mini player progress bar has no layout');
+	await progress.click({ position: { x: box.width / 2, y: box.height / 2 } });
+
+	await page.waitForFunction(
+		() => {
+			const acknowledged = (window as any).__testSeekObservation?.progress;
+			return typeof acknowledged === 'number' && Math.abs(acknowledged - 50) < 5;
+		},
+		undefined,
+		{ timeout: 5000 }
+	);
+	// Playback continues from the target; the bar never returns to the start.
+	await expect
+		.poll(async () => Number(await progress.getAttribute('aria-valuenow')))
+		.toBeGreaterThanOrEqual(45);
+
+	await page.goBack();
+	await waitForScoreLoaded(page);
+	await expect.poll(() => getTestApi<number>(page, 'getProgress')).toBeGreaterThanOrEqual(45);
 });

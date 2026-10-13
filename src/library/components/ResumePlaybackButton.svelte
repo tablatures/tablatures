@@ -2,6 +2,7 @@
 	import { playerApi, playerState } from '../utils/playerStore';
 	import { tabStore } from '../utils/store';
 	import { hapticTap } from '../utils/native';
+	import { sessionTransport } from '../utils/playerSession';
 	import LoadingScore from './LoadingScore.svelte';
 
 	$: title = $playerState.title || $tabStore?.title || 'track';
@@ -10,7 +11,7 @@
 	function resume() {
 		if (!$playerApi) return;
 		hapticTap();
-		$playerApi.playPause();
+		sessionTransport().playNow();
 	}
 </script>
 

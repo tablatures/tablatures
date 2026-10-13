@@ -12,7 +12,7 @@ const fixtures = ['repeat', 'tempo-change'];
 const written: LoopRegion = { startBar: 4, endBar: 5, enabled: true, order: 'written' };
 const SEEDS = Number(process.env.ENGINE_SEEDS) || 25;
 
-/** Our controllers, wired to the engine as TabViewer wires them. */
+/** Our controllers, wired to the engine as the session wires them. */
 async function player(fixture: string) {
 	const engine = await createWorkerEngine(
 		readFileSync(`tests/fixtures/player/${fixture}.tex`, 'utf8')
@@ -25,11 +25,7 @@ async function player(fixture: string) {
 		timing: () => timingForApi(api),
 		syncPractice: (region) => practice.sync(region),
 		videoPlaying: vi.fn(),
-		seekVideo: vi.fn(),
-		onSeek: vi.fn(),
-		onSeekSettled: vi.fn(),
-		onLoop: vi.fn(),
-		onCountdown: vi.fn()
+		seekVideo: vi.fn()
 	});
 	// What the time display and video were given.
 	const shown: any[] = [];

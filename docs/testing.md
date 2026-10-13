@@ -100,6 +100,10 @@ that must observe an event (a score appearing, a scroll target) runs until it ha
 seen it plus its required window, with a generous cap, rather than for a fixed
 duration that slow CI can outlast.
 
+Click elements that animate in (the mini bar after navigation) with a locator so
+Playwright waits for a stable hit target; coordinates sampled from a bounding box
+mid-transition can land on nothing.
+
 `window.__testApi` belongs to the mounted full player. After navigating away it
 reports frozen view state, so assert session behavior through the mini bar or
 return to `/play` first.
@@ -115,8 +119,13 @@ checks for boundaries that pure logic tests cannot exercise.
 ## Browser-free application player
 
 `pnpm test:player` exercises our transport, practice playback, video session and
-musical policies in Node. `createPlayerTransport` is the production controller
-used by `TabViewer`, not a second implementation for tests. Its engine and media
+musical policies in Node. `createPlayerTransport` is the production controller,
+not a second implementation for tests. One instance (`sessionTransport()`) serves
+the persistent engine for the whole session: the layout drives its load
+lifecycle from the moment the engine is created, and the full player,
+mini-player, resume button, lyrics and shared-link restore all command the engine
+through it. Views attach with `observe()` and detach when unmounted; the session's
+fencing does not depend on `/play` being mounted. Its engine and media
 ports let tests record commands, deliver synchronous stale callbacks, replace a
 score, and advance application timers deterministically. No browser, audio device
 or wall-clock sleeps are needed.
@@ -142,6 +151,13 @@ neither is a one-per-load completion signal. This narrow adapter leaves alphaTab
 unchanged. Worker messages are ordered; the application does not invent request
 identifiers absent from that protocol or promise correctness for arbitrary
 reordering of the engine's raw event stream.
+
+`playerSession.test.ts` owns the layout wiring: a mini-player seek keeps earlier
+positions out of the shared store, and positions from a replaced score or MIDI
+never reach it. `share-mini-player.spec.ts` checks only that the mini bar gesture
+reaches the session and the full player reopens at the acknowledged position.
+The persistent video session still writes the engine directly when the video is
+the clock source; route it through the transport before adding fencing there.
 
 Keep the existing browser regressions for native acknowledgements, actual
 playback, gestures, rendering and navigation. No browser scenarios were removed
