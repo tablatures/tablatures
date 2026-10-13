@@ -119,13 +119,14 @@ declare global {
 				importer?: { encoding?: string; beatTextAsLyrics?: boolean };
 			};
 			score: Score;
-			load(data: ArrayBuffer): void;
+			load(data: ArrayBuffer | Score): void;
+			onError(error: Error): void;
 			loadSoundFont(data: unknown, append?: boolean): boolean;
 			player?: { output?: { context?: AudioContext } } | null;
 			play(): void;
 			pause(): void;
 			updateSettings(): void;
-			render(): void;
+			render(renderHints?: unknown): void;
 			renderScore(score: Score, trackIndexes?: number[]): void;
 			loadMidiForScore?(): void;
 			_beatCursor?: { element?: HTMLElement };
@@ -141,6 +142,9 @@ declare global {
 			model?: { Color: new (r: number, g: number, b: number, a?: number) => Color };
 			Color?: new (r: number, g: number, b: number, a?: number) => Color;
 			exporter: { Gp7Exporter: new () => Gp7Exporter };
+			importer: {
+				ScoreLoader: { loadScoreFromBytes(data: Uint8Array, settings?: unknown): Score };
+			};
 		}
 	}
 

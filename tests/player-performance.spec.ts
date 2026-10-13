@@ -48,14 +48,16 @@ test.beforeEach(async ({ page, browserName }) => {
 	await servePlayer(page);
 });
 
-test('opening a dense tab lays it out and generates its MIDI once', async ({ page }) => {
+test('opening a dense tab lays it out and generates its MIDI once, in separate tasks', async ({
+	page
+}) => {
 	test.setTimeout(120000);
 	const work = await measureEngineWork(page, async () => {
 		await page.goto('/play?tab=dense');
 		await waitForScoreLoaded(page, 90000);
 	});
 	report('cold open', work);
-	expect(work).toMatchObject({ layouts: 1, midi: 1 });
+	expect(work).toMatchObject({ layouts: 1, midi: 1, engineTasks: 2 });
 });
 
 test('switching to a dense tab, changing theme and returning to it reuse the layout', async ({
@@ -76,7 +78,7 @@ test('switching to a dense tab, changing theme and returning to it reuse the lay
 		await waitForScoreLoaded(page, 60000);
 	});
 	report('in-app open', open);
-	expect(open).toMatchObject({ layouts: 1, midi: 1 });
+	expect(open).toMatchObject({ layouts: 1, midi: 1, engineTasks: 2 });
 
 	const theme = await measureEngineWork(page, () =>
 		page.getByRole('button', { name: 'Toggle theme', exact: true }).click()

@@ -135,6 +135,40 @@ for (const entry of ['recommendation', 'autocomplete', 'catalogue']) {
 	}
 }
 
+test('switching a paused score shows the replacement duration before any playback', async ({
+	page
+}) => {
+	await setupMockApi(page);
+	// 8 and 12 bars of 4/4 at 120 bpm: 16 s and 24 s.
+	await page.route('**/api/download/*', (route) =>
+		route.fulfill({
+			body: route.request().url().endsWith('/jingle')
+				? scoreBytes('Jingle Bells', 12)
+				: scoreBytes('These Doors', 8),
+			contentType: 'application/octet-stream'
+		})
+	);
+	const jingle = { id: 'jingle', title: 'Jingle Bells', artist: 'Pearl Jam', source: 'test' };
+	await page.route('**/api/search?*', (route) =>
+		route.fulfill({ json: { results: [jingle], total: 1, totalPages: 1, page: 1 } })
+	);
+	await page.route('**/api/autocomplete?*', (route) =>
+		route.fulfill({
+			json: { suggestions: [{ type: 'song', value: jingle.title, info: jingle.artist }] }
+		})
+	);
+	await page.goto('/play?tab=doors');
+	await waitForScoreLoaded(page);
+	const controls = page.getByRole('toolbar', { name: 'Playback controls' });
+	await expect(controls.getByText('00:00 / 00:16', { exact: true })).toBeVisible();
+
+	await page.getByRole('combobox').fill('Jingle');
+	await page.getByRole('option', { name: /Jingle Bells/ }).click();
+	await expect(controls.getByRole('heading', { name: 'Jingle Bells', exact: true })).toBeVisible();
+	await expect(controls.getByText('00:00 / 00:24', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+});
+
 test('a failed replacement clears the previous score and video, and can retry', async ({
 	page
 }) => {

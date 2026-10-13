@@ -30,6 +30,7 @@
 	import { createPlayerCursor } from '$utils/playerCursor';
 	import { applyScoreTheme } from '$utils/scoreTheme';
 	import { generateScoreMidiOnce } from '$utils/scoreMidi';
+	import { cancelScoreOpen, layOutLoadedScoresLater, openScoreBytes } from '$utils/scoreLoad';
 	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
@@ -345,6 +346,7 @@
 		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
 		// Before any view subscribes, so its scoreLoaded handler runs first.
 		generateScoreMidiOnce(api);
+		layOutLoadedScoresLater(api);
 		practicePlayback = createPracticePlayback(api);
 		instrumentPacks = createInstrumentPacks(api, {
 			baseUrl: `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`,
@@ -485,14 +487,7 @@
 			// Load the pending tab if any
 			const tab = get(tabStore);
 			const loaded = get(loadedTabB64);
-			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) {
-				const buffer = base64ToArrayBuffer(tab.fileAsB64);
-				configureImporterEncoding(api, buffer);
-				loadedTabB64.set(tab.fileAsB64);
-				api.isLooping = false;
-				api.load(buffer);
-				resetScoreEdits(tab.fileAsB64);
-			}
+			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) openInEngine(api, tab.fileAsB64);
 			// Resume playback if it was active before the soundfont change
 			// (AlphaTab's loadSoundFont always pauses the synth internally)
 			if (wasPlayingBeforeSoundFontChange) {
@@ -557,6 +552,20 @@
 
 	/** Theme the score. Inside scoreLoaded, alphaTab's own layout follows, so
 	 *  `relayout` is false there; otherwise only a changed colour relays out. */
+	/** Load a tab's bytes; parsing, MIDI and layout each take their own task.
+	 *  Resolves true once alphaTab has the score. */
+	function openInEngine(api: AlphaTab.Api, fileAsB64: string): Promise<boolean> {
+		const buffer = base64ToArrayBuffer(fileAsB64);
+		configureImporterEncoding(api, buffer);
+		loadedTabB64.set(fileAsB64);
+		api.isLooping = false;
+		const opened = openScoreBytes(api, new Uint8Array(buffer), (bytes, settings) =>
+			window.alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, settings)
+		);
+		resetScoreEdits(fileAsB64);
+		return opened;
+	}
+
 	function applyTheme(api: AlphaTab.Api, relayout = true) {
 		if (!api) return;
 		if (!applyScoreTheme(api, get(themeStore)) || !relayout) return;
@@ -650,12 +659,10 @@
 					currentBar: 0,
 					loop: null
 				});
-				const buffer = base64ToArrayBuffer(currentTab.fileAsB64);
-				configureImporterEncoding(api, buffer);
-				loadedTabB64.set(currentTab.fileAsB64);
-				api.isLooping = false;
-				api.load(buffer);
-				resetScoreEdits(currentTab.fileAsB64);
+				// The rewind above addressed the previous score. Seek the replacement
+				// too: the transport holds it until its MIDI is ready, and the engine's
+				// acknowledgement reports the new duration even while paused.
+				void openInEngine(api, currentTab.fileAsB64).then((opened) => opened && transport.seek(0));
 			}
 		}
 	}
@@ -671,6 +678,8 @@
 		// nothing on screen could stop it short of restarting the app.
 		if (get(activeVideoId)) closeMiniVideo();
 		resetPlayerState();
+		const api = get(playerApi);
+		if (api) cancelScoreOpen(api);
 		loadedTabB64.set(null);
 		resetScoreEdits(null);
 	}
