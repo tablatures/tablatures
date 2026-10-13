@@ -101,10 +101,10 @@ describe('paused positions through MIDI regeneration, under any message interlea
 				await p.settle();
 				await p.seekTo(5, 1);
 			},
-			async act(p) {
-				p.api.tickPosition = p.api.tickCache.getBeatStart(p.beat(5, 3));
-				await Promise.resolve();
-				p.transport.syncLoop({ startBar: null, endBar: null, enabled: true });
+			act(p) {
+				// alphaTab handles the click first; TabViewer then clears the loop points.
+				p.click(p.beat(5, 3));
+				p.transport.clearLoop();
 			},
 			target: (p) => p.beat(5, 3)
 		},

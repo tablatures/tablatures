@@ -369,22 +369,25 @@ describe('written practice playback using real MIDI generation', () => {
 			['leaving', 15360, null, 23040]
 		] as const)('delivers only real positions, %s practice', (_, from, next, restored) => {
 			const { api, session, delivered, emit } = positionPlayer();
+			// The player was showing `from` before the change.
 			if (!next) {
 				session.sync(region);
 				emit(seek(0));
 				api.playerReady.emit();
 				emit(seek(0), seek(11520));
-				delivered.length = 0;
 			}
 			api.tickPosition = from;
+			emit(seek(from));
+			delivered.length = 0;
 			session.sync(next);
-			// alphaTab's order: an earlier seek's acknowledgement, the stop's reset,
-			// ready, the load's own reset, and only then our restore.
+			// The target is reported at once, in the regenerated clock. Then alphaTab's
+			// order: an earlier seek's acknowledgement (in the previous clock), the stop's
+			// reset, ready, the load's own reset, and only then our restore.
 			emit(seek(from), seek(0));
 			api.playerReady.emit();
 			expect(api.tickPosition).toBe(restored);
 			emit(seek(0), seek(restored), seek(0));
-			expect(delivered).toEqual([from + 1, restored + 1, 1]);
+			expect(delivered).toEqual([restored, restored + 1, 1]);
 			session.dispose();
 		});
 
