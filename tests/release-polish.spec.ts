@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { setupMockApi } from './helpers/mock-api';
 import { setupPlayPage } from './helpers/setup';
-import { waitForScoreLoaded } from './helpers/wait';
+import { waitForPlaying, waitForScoreLoaded } from './helpers/wait';
 
 // Batch 3B pre-release polish (FOLLOWUPS items 25-28):
 //  - 25: the DESKTOP mini bar scales its content up and the preview panel is
@@ -88,10 +88,9 @@ test.describe('mini player close / hide controls', () => {
 		await waitForScoreLoaded(page);
 
 		await page.getByRole('button', { name: 'Play', exact: true }).click();
-		// Prove playback started before testing whether browsing/hiding preserves it.
-		await expect
-			.poll(() => page.evaluate(() => (window as any).__testApi.getNativePosition().ms))
-			.toBeGreaterThan(0);
+		// Prove playback started (engine state event, not the optimistic time
+		// getter) before testing whether browsing/hiding preserves it.
+		await waitForPlaying(page, true);
 		await page.getByRole('link', { name: 'Settings' }).first().click();
 		await page.getByRole('button', { name: 'Show tab preview', exact: true }).click();
 
@@ -122,8 +121,16 @@ test.describe('mini player close / hide controls', () => {
 		const restore = page.getByRole('button', { name: 'Show tab preview' }).last();
 		await expect(restore).toBeVisible();
 		await expect(restore).toHaveAttribute('aria-pressed', 'false');
-		await expect(page.locator('.fixed.bottom-0.z-\\[80\\]').first()).toBeVisible();
-		await expect.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(true);
+		const bar = page.locator('.fixed.bottom-0.z-\\[80\\]').first();
+		await expect(bar).toBeVisible();
+		// /play's test bridge is unmounted here and would report a frozen value.
+		// The bar reflects the session, and its progress must keep advancing.
+		await expect(bar.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+		const progress = bar.getByRole('progressbar');
+		const before = Number(await progress.getAttribute('aria-valuenow'));
+		await expect
+			.poll(async () => Number(await progress.getAttribute('aria-valuenow')))
+			.toBeGreaterThan(before);
 
 		await restore.click();
 		await expect(page.locator('.player-host-mini')).toBeVisible();

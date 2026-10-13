@@ -92,15 +92,19 @@ describe('writePresetPack', () => {
 		}
 	});
 
-	it('plays sample-identical to the preset in the full bank', () => {
-		for (const program of [25, 27, 30]) {
+	// Offline synthesis decodes the whole compressed bank: ~1.5s alone, and over
+	// 5s when every unit worker shares the CPU. Deterministic work, not waiting.
+	it.each([25, 27, 30])(
+		'program %i plays sample-identical to the preset in the full bank',
+		(program) => {
 			const source = presets.find((p) => p.bank === 0 && p.program === program)!;
 			const pack = new Uint8Array(writePresetPack(sf, source.index));
 			const full = render(passage(program), [new Uint8Array(sonivox)]);
 			expect(full.some((v) => v !== 0)).toBe(true);
 			expect(render(passage(program), [pack])).toEqual(full);
-		}
-	});
+		},
+		20_000
+	);
 });
 
 describe('committed instrument packs', () => {

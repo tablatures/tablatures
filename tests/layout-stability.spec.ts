@@ -369,19 +369,29 @@ for (const viewport of [
 			await page.addInitScript(() => {
 				const samples: { header: number; scroll: number | null; scoreVisible: boolean }[] = [];
 				(window as any).__refreshFrames = samples;
+				(window as any).__refreshSampled = false;
 				const start = performance.now();
+				let visibleAt: number | null = null;
 				function sample() {
 					const header = document.querySelector('header');
 					const viewport = document.querySelector('#page');
+					const now = performance.now();
+					const scoreVisible =
+						!!document.querySelector('#player-host canvas') &&
+						!document.querySelector('[data-testid="score-skeleton"]');
+					if (scoreVisible) visibleAt ??= now;
 					if (header)
 						samples.push({
 							header: header.getBoundingClientRect().top,
 							scroll: viewport?.scrollTop ?? null,
-							scoreVisible:
-								!!document.querySelector('#player-host canvas') &&
-								!document.querySelector('[data-testid="score-skeleton"]')
+							scoreVisible
 						});
-					if (performance.now() - start < 5000) requestAnimationFrame(sample);
+					// Throttled CI can take longer than 5s to show the score. Cover the
+					// whole startup and a full second after the score appears.
+					const settled = visibleAt !== null && now - visibleAt >= 1000;
+					if ((now - start < 5000 || !settled) && now - start < 20000)
+						requestAnimationFrame(sample);
+					else (window as any).__refreshSampled = true;
 				}
 				requestAnimationFrame(sample);
 			});
@@ -397,7 +407,9 @@ for (const viewport of [
 					page.getByRole('button', { name: "Show what's up next", exact: true })
 				).toBeVisible();
 			}
-			await page.waitForTimeout(1000);
+			await page.waitForFunction(() => (window as any).__refreshSampled, undefined, {
+				timeout: 25000
+			});
 			const frames = await page.evaluate(() => (window as any).__refreshFrames);
 			await testInfo.attach('refresh-frames.json', {
 				body: JSON.stringify(frames),

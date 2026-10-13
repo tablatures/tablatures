@@ -95,7 +95,14 @@ is passed to the browser predicate).
 
 Fixed observation windows may be necessary to prove that a paused position stays
 still or to generate a real long-press gesture. Explain the time requirement;
-do not use such windows to guess when asynchronous setup has finished.
+do not use such windows to guess when asynchronous setup has finished. A sampler
+that must observe an event (a score appearing, a scroll target) runs until it has
+seen it plus its required window, with a generous cap, rather than for a fixed
+duration that slow CI can outlast.
+
+`window.__testApi` belongs to the mounted full player. After navigating away it
+reports frozen view state, so assert session behavior through the mini bar or
+return to `/play` first.
 
 Missing controls and missing score bounds should fail with a useful assertion,
 not silently skip a regression. Use skips only for explicitly unsupported
