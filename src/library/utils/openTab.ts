@@ -14,6 +14,19 @@ const SEARCH_API_BASE_URL = import.meta.env.VITE_SEARCH_API_BASE_URL;
 const SEARCH_API_TIMEOUT = Number(import.meta.env.VITE_SEARCH_API_TIMEOUT) || 10000;
 
 /**
+ * Tabs the API confirmed have no file (404) this session. Alternative-version
+ * lists hide them so picking a fallback cannot lead back to a known dead end.
+ */
+const unavailableTabIds = new Set<string>();
+export const isUnavailableTab = (id: string) => unavailableTabIds.has(id);
+
+class DownloadError extends Error {
+	constructor(readonly status: number) {
+		super(downloadError(status));
+	}
+}
+
+/**
  * Open a tab from its share-URL hash payload (for file-imported entries
  * persisted in history). Decodes the compressed bytes, pushes them into the
  * tab store, and navigates to /play. Returns false on failure.
@@ -140,7 +153,10 @@ export async function openTabById(
 		const response = await fetch(`${SEARCH_API_BASE_URL}/api/download/${tab.id}${srcHint}`, {
 			signal: controller.signal
 		});
-		if (!response.ok) throw new Error(downloadError(response.status));
+		if (!response.ok) {
+			if (response.status === 404) unavailableTabIds.add(tab.id);
+			throw new DownloadError(response.status);
+		}
 
 		const arrayBuffer = await response.arrayBuffer();
 		if (!arrayBuffer || arrayBuffer.byteLength === 0) throw new Error('Empty tab file.');
@@ -153,7 +169,8 @@ export async function openTabById(
 			err?.name === 'AbortError'
 				? 'The download timed out. Please try again.'
 				: err?.message || 'Failed to open tab';
-		if (tabStore.failLoad(token, message) && !opts.silent) toastStore.error(message);
+		const status = err instanceof DownloadError ? err.status : undefined;
+		if (tabStore.failLoad(token, message, status) && !opts.silent) toastStore.error(message);
 		return false;
 	} finally {
 		clearTimeout(timeoutId);
@@ -177,7 +194,7 @@ function bestPerSource(versions: TabVersion[]): import('./playerStore').SourceVa
 
 export function downloadError(status: number): string {
 	if (status === 429) return 'Too many requests. Please wait a moment and try again.';
-	if (status === 404) return 'This tab was not found. It may have been removed.';
+	if (status === 404) return 'This version of the tab is not available for download.';
 	if (status >= 500) return 'The tab service is unavailable. Please try again later.';
 	return `Download failed (HTTP ${status}). Please try again.`;
 }
