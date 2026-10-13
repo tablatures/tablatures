@@ -75,9 +75,12 @@
 	// When nothing has been sung yet, the first line is a preview, not "current".
 	$: currentIsActive = activeLine >= 0;
 
+	// alphaTab replays the current score to a new scoreLoaded subscriber. Only a
+	// replay must relayout: a real load is laid out by alphaTab right after.
+	let subscribing = false;
 	function handleScoreLoaded(score: unknown) {
 		resetLyricsForScore(extractEmbeddedLyrics(score as any));
-		applyInScoreLyrics(get(lyricsStore).showInScore);
+		applyInScoreLyrics(get(lyricsStore).showInScore, subscribing);
 	}
 
 	function handleActiveBeats(args: { activeBeats?: unknown[] } | undefined) {
@@ -121,11 +124,15 @@
 	function subscribe() {
 		if (!api || subscribed) return;
 		subscribed = true;
-		// on() fires immediately with the current value, seeding state on mount.
-		api.scoreLoaded?.on(handleScoreLoaded);
+		// on() fires immediately with the current score, seeding state on mount.
+		subscribing = true;
+		try {
+			api.scoreLoaded?.on(handleScoreLoaded);
+		} finally {
+			subscribing = false;
+		}
 		api.activeBeatsChanged?.on(handleActiveBeats);
 		api.playerPositionChanged?.on(handlePosition);
-		if (api.score) handleScoreLoaded(api.score);
 	}
 	function unsubscribe() {
 		if (!api || !subscribed) return;

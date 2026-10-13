@@ -28,6 +28,8 @@
 	import { createVideoSession } from '$utils/videoSession';
 	import { createPracticePlayback, playbackToMediaMs } from '$utils/practicePlayback';
 	import { createPlayerCursor } from '$utils/playerCursor';
+	import { applyScoreTheme } from '$utils/scoreTheme';
+	import { generateScoreMidiOnce } from '$utils/scoreMidi';
 	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
@@ -341,6 +343,8 @@
 		});
 
 		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
+		// Before any view subscribes, so its scoreLoaded handler runs first.
+		generateScoreMidiOnce(api);
 		practicePlayback = createPracticePlayback(api);
 		instrumentPacks = createInstrumentPacks(api, {
 			baseUrl: `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`,
@@ -461,8 +465,8 @@
 			// Studio instruments for the tracks this score plays
 			void instrumentPacks?.ensure(score);
 
-			// Apply theme
-			applyTheme(api);
+			// alphaTab lays the score out right after this handler.
+			applyTheme(api, false);
 		});
 
 		if (api.soundFontLoad) {
@@ -551,35 +555,11 @@
 		}
 	}
 
-	function applyTheme(api: AlphaTab.Api) {
+	/** Theme the score. Inside scoreLoaded, alphaTab's own layout follows, so
+	 *  `relayout` is false there; otherwise only a changed colour relays out. */
+	function applyTheme(api: AlphaTab.Api, relayout = true) {
 		if (!api) return;
-		const isDark = get(themeStore);
-
-		function atColor(r: number, g: number, b: number, a = 255) {
-			const at = window.alphaTab;
-			if (at?.model?.Color) return new at.model.Color(r, g, b, a);
-			if (at?.Color) return new at.Color(r, g, b, a);
-			return { r, g, b, a };
-		}
-
-		const res = api.settings.display.resources;
-		if (isDark) {
-			res.mainGlyphColor = atColor(255, 255, 255);
-			res.secondaryGlyphColor = atColor(200, 200, 200);
-			res.scoreInfoColor = atColor(220, 220, 220);
-			res.barSeparatorColor = atColor(70, 70, 70);
-			res.staffLineColor = atColor(60, 60, 60);
-			res.barNumberColor = atColor(130, 130, 130);
-		} else {
-			res.mainGlyphColor = atColor(0, 0, 0);
-			res.secondaryGlyphColor = atColor(0, 0, 0, 200);
-			res.scoreInfoColor = atColor(0, 0, 0);
-			res.barSeparatorColor = atColor(34, 34, 34);
-			res.staffLineColor = atColor(34, 34, 34);
-			res.barNumberColor = atColor(80, 80, 80);
-		}
-		api.updateSettings();
-		// Render immediately to sync theme with UI
+		if (!applyScoreTheme(api, get(themeStore)) || !relayout) return;
 		try {
 			api.render();
 		} catch {}

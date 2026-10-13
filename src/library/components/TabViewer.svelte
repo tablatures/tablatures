@@ -60,6 +60,7 @@
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import { applyNotationView } from '../utils/notationView';
+	import { applyScoreTheme } from '../utils/scoreTheme';
 	import { createSpeedTrainer, normalizeTrainerSettings } from '../utils/speedTrainer';
 	import { isNative, downloadFile, shareLink, hapticTap } from '../utils/native';
 	import { shareUrl } from '../utils/shareUrl';
@@ -307,7 +308,9 @@
 	let tracks: any[] = [];
 	let activeTrackIndex: number = get(playerState).activeTrackIndex ?? 0;
 	let showSettings = false;
-	let theme: boolean;
+	// Read now: alphaTab replays scoreLoaded while the view adopts the engine,
+	// before onMount subscribes to the store.
+	let theme: boolean = get(themeStore);
 	let isFullscreen = false;
 	// Mobile landscape phones should auto-collapse the transport row to the
 	// fullscreen-style compact layout so the bar doesn't eat half the screen.
@@ -2499,15 +2502,19 @@
 	}
 
 	let scaleDebounceTimeout: NodeJS.Timeout;
+	/** Write the scale into the engine settings; true when it changed. */
+	function applyTabScale(): boolean {
+		if (!api?.settings?.display || api.settings.display.scale === tabScale) return false;
+		api.settings.display.scale = tabScale;
+		api.updateSettings();
+		return true;
+	}
 	function updateTabScale() {
-		if (api) {
-			api.settings.display.scale = tabScale;
-			api.updateSettings();
-			clearTimeout(scaleDebounceTimeout);
-			scaleDebounceTimeout = setTimeout(() => {
-				if (api) api.render();
-			}, DEBOUNCE_DELAY_MS);
-		}
+		if (!applyTabScale()) return;
+		clearTimeout(scaleDebounceTimeout);
+		scaleDebounceTimeout = setTimeout(() => {
+			if (api) api.render();
+		}, DEBOUNCE_DELAY_MS);
 	}
 
 	// --- Orientation / viewport relayout (FIX F) ---
@@ -2604,34 +2611,10 @@
 		api?.render();
 	}
 
-	// Create proper alphaTab Color instances for theme settings
-	function atColor(r: number, g: number, b: number, a: number = 255) {
-		const at = window.alphaTab;
-		if (at?.model?.Color) return new at.model.Color(r, g, b, a);
-		if (at?.Color) return new at.Color(r, g, b, a);
-		return { r, g, b, a };
-	}
-
-	function updateAlphaTabTheme(isDark: boolean) {
+	/** Theme the score; relayout (unless alphaTab is about to) only on a change. */
+	function updateAlphaTabTheme(isDark: boolean, relayout = true) {
 		if (!api) return;
-		const res = api.settings.display.resources;
-		if (isDark) {
-			res.mainGlyphColor = atColor(255, 255, 255);
-			res.secondaryGlyphColor = atColor(200, 200, 200);
-			res.scoreInfoColor = atColor(220, 220, 220);
-			res.barSeparatorColor = atColor(70, 70, 70);
-			res.staffLineColor = atColor(60, 60, 60);
-			res.barNumberColor = atColor(130, 130, 130);
-		} else {
-			res.mainGlyphColor = atColor(0, 0, 0);
-			res.secondaryGlyphColor = atColor(0, 0, 0, 200);
-			res.scoreInfoColor = atColor(0, 0, 0);
-			res.barSeparatorColor = atColor(34, 34, 34);
-			res.staffLineColor = atColor(34, 34, 34);
-			res.barNumberColor = atColor(80, 80, 80);
-		}
-		api.updateSettings();
-		api.render(); // Render immediately to avoid theme delay
+		if (applyScoreTheme(api, isDark) && relayout) api.render();
 	}
 
 	// Seek by bar
@@ -2694,12 +2677,22 @@
 
 			restoreScoreSession(score);
 
-			updateTabScale();
-			updateAlphaTabTheme(theme);
+			// alphaTab lays a loaded score out right after its scoreLoaded handlers,
+			// so settings written then need no layout of their own. A replay to this
+			// new subscriber is not followed by one; its scale and theme changes are
+			// applied by adoption.
+			if (replayingScore) return;
+			applyTabScale();
+			updateAlphaTabTheme(theme, false);
+			const track = tracks[activeTrackIndex];
+			if (track === apiRef.tracks?.[0]) applyNotationView(apiRef, track, notationView);
 		};
 		// The layout's session transport tracks MIDI loads for the engine's whole
 		// lifetime, so a load that began before this view mounted is still fenced.
+		// on() replays the current score synchronously.
+		let replayingScore = true;
 		listen(apiRef.scoreLoaded, onScoreLoaded);
+		replayingScore = false;
 
 		// Player position (detailed - progress + bar tracking)
 		const onPosition = (e: any) => {
@@ -3062,14 +3055,12 @@
 				currentBar = state.currentBar;
 				if (state.scoreLoaded) restoreScoreSession(api.score);
 			}
-			// IMPORTANT: Do NOT call api.render() during adoption.
+			// IMPORTANT: Do NOT call api.render() synchronously during adoption.
 			// The rendering surface is already populated from the previous render.
 			// Calling render() corrupts the player's audio state (NaN position, 0 voices).
-			// Only update the scale setting - it will be applied on next natural render.
-			if (api.settings?.display) {
-				api.settings.display.scale = tabScale;
-				api.updateSettings();
-			}
+			// A changed scale relays out after the debounce; an unchanged one keeps
+			// the existing layout.
+			updateTabScale();
 
 			// Add detailed event listeners for the full player view
 			setupFullPlayerListeners(api);
