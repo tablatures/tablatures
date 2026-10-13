@@ -129,6 +129,53 @@ export function createPracticePlayback(api: any) {
 	// load has not stopped the player yet belongs to an earlier load. Only players
 	// that report state changes can be tracked this way.
 	let loadsInFlight = 0;
+	// Every load stops the player and seeks to the start twice: when it stops, and
+	// again after reporting ready, so after our restore has been requested. A new
+	// range seeks to its start, and audio buffers played before the stop still
+	// advance the clock from zero. The cursor, following, time display and video
+	// would show all of it. Drop these positions at the source until the restore.
+	const positions = api.playerPositionChanged;
+	const deliver = positions?.trigger;
+	type Clock = { lookup: any; written: boolean };
+	let reload: {
+		score: unknown;
+		/** Seeks to the start not yet reported: two per load. */
+		resets: number;
+		rangeStart: number | null;
+		/** A range kept through the load: its stop seeks to the range start, not zero. */
+		rangeKept: boolean;
+		/** A load has stopped the player: until the restore, nothing it reports is real. */
+		stopped: boolean;
+		restore: number | null;
+		/** Positions before the stop are in the previous clock. */
+		clock: Clock;
+		/** Playback continues until the synth handles the load: where it stopped. */
+		heard: number | null;
+	} | null = null;
+	// The MIDI clock that positions are currently reported in.
+	let lookup: any = null;
+	const beginReload = (clock: Clock) => {
+		const current = reload?.score === score ? reload : null;
+		reload = {
+			score,
+			resets: (current?.resets ?? 0) + 2,
+			// Chained loads: events of the earlier one are still to come.
+			rangeStart: api.playbackRange?.startTick ?? current?.rangeStart ?? null,
+			rangeKept: !!api.playbackRange || !!current?.rangeKept,
+			stopped: current?.stopped ?? false,
+			restore: null,
+			clock: current?.clock ?? clock,
+			heard: current?.heard ?? null
+		};
+	};
+	/** The same printed position in the current clock. */
+	const translate = (from: Clock, tick: number) => {
+		const before = timingForApi({ tickCache: from.lookup, score });
+		const after = timingForApi(api);
+		return before && after
+			? mapTick(before, after, tick, from.written ? normalAnchor : tick)
+			: null;
+	};
 	const isWritten = () => writtenLookup !== null && api.tickCache === writtenLookup;
 	const applyRange = () => {
 		const timing = timingForApi(api);
@@ -136,8 +183,12 @@ export function createPracticePlayback(api: any) {
 		if (
 			api.playbackRange?.startTick !== range?.startTick ||
 			api.playbackRange?.endTick !== range?.endTick
-		)
+		) {
 			api.playbackRange = range;
+			// Setting a range seeks to its start. alphaTab's main-thread copy can be
+			// overwritten by the worker's stale report, so this may happen again.
+			if (reload && range) reload.rangeStart = range.startTick;
+		}
 		// Without region bounds, the existing whole-song repeat toggle owns looping.
 		if (region && (region.startBar !== null || region.endBar !== null) && api.isLooping !== !!range)
 			api.isLooping = !!range;
@@ -168,6 +219,7 @@ export function createPracticePlayback(api: any) {
 				(mapped < region.startTick || mapped >= region.endTick)
 			)
 				mapped = region.startTick;
+			const clock = { lookup, written: isWritten() };
 			generating = true;
 			try {
 				api.playbackRange = null;
@@ -175,6 +227,7 @@ export function createPracticePlayback(api: any) {
 				else api.loadMidiForScore();
 				writtenLookup = wantWritten ? api.tickCache : null;
 				pending = { lookup: api.tickCache, tick: mapped, resume: wasPlaying };
+				beginReload(clock);
 			} finally {
 				generating = false;
 			}
@@ -192,25 +245,81 @@ export function createPracticePlayback(api: any) {
 		const target = pending;
 		pending = null;
 		applyRange();
+		let tick = target.tick;
+		// Resume where playback had got to when the load stopped it, not where it
+		// was when the change was requested.
+		if (target.resume && reload?.heard != null)
+			tick = translate(reload.clock, reload.heard) ?? tick;
 		const range = api.playbackRange;
-		api.tickPosition =
-			range && (target.tick < range.startTick || target.tick >= range.endTick)
-				? range.startTick
-				: target.tick;
+		const restore =
+			range && (tick < range.startTick || tick >= range.endTick) ? range.startTick : tick;
+		if (reload) reload.restore = restore;
+		api.tickPosition = restore;
 		if (target.resume) resumeRequested = api.play() !== false;
 	};
 	const stateChanged = (e: { state: number; stopped?: boolean }) => {
 		if (e.stopped) loadsInFlight = Math.max(0, loadsInFlight - 1);
 		if (e.state !== 0) resumeRequested = false;
+		// Playback resumes after the restore; positions are live again.
+		if (e.state !== 0 && reload?.restore != null) reload = null;
 	};
-	// Settings that regenerate MIDI also need to retain the practice order.
+	const isReloadArtifact = (e: { currentTick: number; isSeek: boolean }) => {
+		// A score replacement has its own start position.
+		if (!reload || reload.score !== api.score) return false;
+		// alphaTab reports a seek to tick T as T or T + 1 (it adds a tick for rounding).
+		const near = (tick: number | null) => tick !== null && Math.abs(e.currentTick - tick) <= 1;
+		if (e.isSeek && near(reload.restore)) {
+			reload = null;
+			return false;
+		}
+		if (!e.isSeek) {
+			if (reload.stopped) return true;
+			reload.heard = e.currentTick;
+			return false;
+		}
+		// The stop seeks to the start, or to the range start when one is kept. API
+		// ticks: the start reads below zero when the score has a lead-in. Before the
+		// stop, a seek to a new range's start acknowledges the user's own seek.
+		const start = near(-(api.player?.midiTickShift ?? 0));
+		if (reload.resets && (start || (reload.rangeKept && near(reload.rangeStart)))) {
+			reload.resets--;
+			reload.stopped = true;
+			return true;
+		}
+		if (reload.stopped && near(reload.rangeStart)) return true;
+		// Other seeks are genuine, including acknowledgements of the user's.
+		reload.heard = null;
+		return false;
+	};
 	const midiLoad = () => {
+		const previous = lookup;
+		lookup = api.tickCache;
 		if (api.playerStateChanged) loadsInFlight++;
-		if (!generating) queueMicrotask(() => sync(region));
+		if (generating) return;
+		// Transposition and track edits regenerate MIDI too. Keep the position and
+		// playback, in the new clock, and retain the practice order.
+		if (previous && score && score === api.score) {
+			const clock = { lookup: previous, written: previous === writtenLookup };
+			const tick = translate(clock, pending?.tick ?? api.tickPosition ?? 0);
+			if (tick !== null) {
+				pending = {
+					lookup: api.tickCache,
+					tick,
+					resume: pending?.resume ?? (resumeRequested || api.playerState !== 0)
+				};
+				resumeRequested = false;
+				beginReload(clock);
+			}
+		}
+		queueMicrotask(() => sync(region));
 	};
 	api.playerReady.on(ready);
 	api.midiLoad.on(midiLoad);
 	api.playerStateChanged?.on(stateChanged);
+	if (typeof deliver === 'function')
+		positions.trigger = (e: any) => {
+			if (!isReloadArtifact(e)) deliver.call(positions, e);
+		};
 	const session = {
 		sync,
 		toMedia(ms: number) {
@@ -236,6 +345,7 @@ export function createPracticePlayback(api: any) {
 			api.playerReady.off(ready);
 			api.midiLoad.off(midiLoad);
 			api.playerStateChanged?.off(stateChanged);
+			if (typeof deliver === 'function') positions.trigger = deliver;
 			sessions.delete(api);
 		}
 	};
