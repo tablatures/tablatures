@@ -71,7 +71,7 @@
 		SCALE_MAX
 	} from '../utils/gestures';
 	import { sliderFill } from '../utils/sliderFill';
-	import { createScoreScroll } from '../utils/scoreScroll';
+	import { createScoreScroll, wheelDeltaPx } from '../utils/scoreScroll';
 	import ScoreSkeleton from '$components/ScoreSkeleton.svelte';
 	import PlayerConsole from '$components/PlayerConsole.svelte';
 	import PlaybackControls from '$components/PlaybackControls.svelte';
@@ -673,6 +673,7 @@
 		cancelFrame: (id) => {
 			if (browser) cancelAnimationFrame(id);
 		},
+		now: () => performance.now(),
 		onChange: (state) => {
 			autoFollow = state.following;
 			cursorOutOfView = state.outOfView;
@@ -2425,7 +2426,13 @@
 		// The console owns its own scrolling; bubbling wheel/touch events there
 		// are not an instruction to stop following the sheet.
 		if (event.target instanceof Node && settings?.contains(event.target)) return;
-		scroll.userScroll();
+		scroll.userScroll({
+			deltaPx:
+				event instanceof WheelEvent
+					? wheelDeltaPx(event.deltaY, event.deltaMode, page?.clientHeight ?? window.innerHeight)
+					: undefined,
+			inputTime: event.timeStamp
+		});
 	}
 
 	// Manual browsing stays under the user's control until Back to cursor or

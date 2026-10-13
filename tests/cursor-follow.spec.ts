@@ -175,14 +175,8 @@ test('resizing the dock does not cancel manual scroll disengagement', async ({ p
 	await openScore(page);
 	await page.getByRole('button', { name: 'Play', exact: true }).click();
 	await page.mouse.move(300, 350);
-	// A follow scroll that commits just after a wheel starts cancels it (see the
-	// fixme test below); like a reader, scroll again if the first tick is lost.
-	await expect(async () => {
-		await page.mouse.wheel(0, -5000);
-		await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible({
-			timeout: 1000
-		});
-	}).toPass({ timeout: 10000 });
+	await page.mouse.wheel(0, -5000);
+	await expect(page.getByRole('button', { name: 'Back to cursor' })).toBeVisible();
 	const separator = await page
 		.getByRole('separator', { name: 'Resize settings panel' })
 		.boundingBox();
@@ -198,12 +192,10 @@ test('resizing the dock does not cancel manual scroll disengagement', async ({ p
 	expect((await cursorGeometry(page)).scrollTop).toBeLessThan(10);
 });
 
-// Known race, kept as the acceptance test for a single scroll owner: in
-// Chromium the most recent scroll wins, so a follow scroll that commits just
-// after a wheel starts cancels the reader's scroll (one lost wheel tick).
-// Stopping the animation from the wheel listener also stops the wheel's own
-// scroll, so this needs the follow logic to yield before it scrolls.
-test.fixme('scrolling during a follow animation wins over the animation', async ({ page }) => {
+// In Chromium the most recent scroll wins: a follow scroll that commits just
+// after a wheel scroll started cancels the reader's scroll unless the score's
+// scroll owner applies it (see scoreScroll.ts).
+test('scrolling during a follow animation wins over the animation', async ({ page }) => {
 	await openScore(page);
 	const scrollTop = () => page.evaluate(() => document.querySelector('#page')!.scrollTop);
 	// Resolves on the first frame the follow animation moves the sheet.

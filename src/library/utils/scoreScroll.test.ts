@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createScoreScroll, type ScrollGeometry, type ScrollStatus } from './scoreScroll';
+import {
+	createScoreScroll,
+	wheelDeltaPx,
+	type ScrollGeometry,
+	type ScrollStatus
+} from './scoreScroll';
 
 // A 1000px visible score band with the cursor row at 1500-1600px (client
 // coordinates at scrollTop 0). Following anchors the row 28% down the band
@@ -23,6 +28,7 @@ function harness() {
 		loop: loop && { top: loop.top - scrollTop, bottom: loop.bottom - scrollTop }
 	});
 	let row = ROW_TOP;
+	let clock = 1000;
 	let loop: { top: number; bottom: number } | null = null;
 	let cursor = true;
 	const status: ScrollStatus = { loading: false, rendering: false, suspended: false, moving: true };
@@ -42,6 +48,7 @@ function harness() {
 			return nextFrame++;
 		},
 		cancelFrame: (id) => frames.delete(id),
+		now: () => clock,
 		onChange: (state) => changes.push({ ...state })
 	});
 	return {
@@ -61,6 +68,11 @@ function harness() {
 			scrollTop = last.top;
 			scroll.scrolled();
 		},
+		/** The browser moved the score (an animation frame), firing a scroll event. */
+		userMovesTo(top: number) {
+			scrollTop = top;
+			scroll.scrolled();
+		},
 		/** The reader moved the score without our help. */
 		userMoves(top: number) {
 			scroll.userScroll();
@@ -69,6 +81,13 @@ function harness() {
 		},
 		get scrollTop() {
 			return scrollTop;
+		},
+		/** Advance the input/event clock (ms). */
+		tick(ms: number) {
+			clock += ms;
+		},
+		get now() {
+			return clock;
 		},
 		set row(top: number) {
 			row = top;
@@ -261,6 +280,90 @@ describe('the reader scrolling', () => {
 			{ following: false, outOfView: null },
 			{ following: false, outOfView: 'below' }
 		]);
+	});
+});
+
+describe('the reader scrolling while the score follows', () => {
+	// In Chromium a programmatic smooth scroll beats the reader's wheel both
+	// ways: issued after the wheel input began, it cancels the reader's scroll
+	// (even if it lands before the wheel event reaches us); still animating when
+	// the wheel arrives, it runs on to its destination. The reader's movement is
+	// then applied from where the sheet is.
+	it('re-applies a wheel that a later follow scroll overrode, even after it landed', () => {
+		const h = harness();
+		const wheelStarted = h.now;
+		h.tick(30);
+		h.scroll.cursorMoved();
+		h.frame(); // follow issued after the wheel input began
+		h.tick(20);
+		h.land(); // and it already arrived when the wheel event is delivered
+		h.scroll.userScroll({ deltaPx: -5000, inputTime: wheelStarted });
+		expect(h.scroll.state.following).toBe(false);
+		expect(h.scrolls.at(-1)).toEqual({ top: 0, behavior: 'instant' });
+		expect(h.scrollTop).toBe(0);
+	});
+
+	it('re-applies a wheel that arrives while a follow scroll is animating', () => {
+		const h = harness();
+		h.scroll.cursorMoved();
+		h.frame(); // follow in flight, the sheet still at 0
+		h.tick(10);
+		h.scroll.userScroll({ deltaPx: 300, inputTime: h.now });
+		expect(h.scrolls.at(-1)).toEqual({ top: 300, behavior: 'instant' });
+		expect(h.scroll.state.following).toBe(false);
+	});
+
+	it('leaves a wheel after the follow scroll landed to the browser', () => {
+		const h = harness();
+		h.scroll.cursorMoved();
+		h.frame();
+		h.tick(10);
+		h.land();
+		h.scroll.userScroll({ deltaPx: 300, inputTime: h.now });
+		expect(h.scrolls).toEqual([{ top: TARGET, behavior: 'smooth' }]);
+	});
+
+	it('leaves native scrolling alone without a follow scroll', () => {
+		const h = harness();
+		h.scroll.userScroll({ deltaPx: 300, inputTime: h.now });
+		expect(h.scrolls).toEqual([]);
+	});
+
+	it('steps in once: later wheel ticks scroll natively', () => {
+		const h = harness();
+		const wheelStarted = h.now;
+		h.tick(30);
+		h.scroll.cursorMoved();
+		h.frame();
+		h.scroll.userScroll({ deltaPx: -100, inputTime: wheelStarted });
+		h.tick(16);
+		h.scroll.userScroll({ deltaPx: -100, inputTime: h.now });
+		expect(h.scrolls.filter((s) => s.behavior === 'instant')).toHaveLength(1);
+	});
+
+	it('a finger stops a follow animation still in flight', () => {
+		const h = harness();
+		h.scroll.cursorMoved();
+		h.frame();
+		h.scroll.userScroll({ inputTime: h.now });
+		expect(h.scrolls.at(-1)).toEqual({ top: 0, behavior: 'instant' });
+	});
+
+	it('a finger after the follow scroll landed leaves the sheet alone', () => {
+		const h = harness();
+		h.scroll.cursorMoved();
+		h.frame();
+		h.land();
+		h.scroll.userScroll({ inputTime: h.now });
+		expect(h.scrolls).toHaveLength(1);
+	});
+});
+
+describe('wheelDeltaPx', () => {
+	it('converts lines and pages to pixels', () => {
+		expect(wheelDeltaPx(120, 0, 800)).toBe(120);
+		expect(wheelDeltaPx(-3, 1, 800)).toBe(-48);
+		expect(wheelDeltaPx(1, 2, 800)).toBe(800);
 	});
 });
 

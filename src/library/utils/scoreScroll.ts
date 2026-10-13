@@ -36,6 +36,8 @@ export interface ScoreScrollPorts {
 	status(): ScrollStatus;
 	requestFrame(callback: () => void): number;
 	cancelFrame(id: number): void;
+	/** Clock shared with input events' timeStamp (performance.now()). */
+	now(): number;
 	onChange(state: Readonly<ScoreScrollState>): void;
 }
 
@@ -44,6 +46,13 @@ export interface ScoreScrollState {
 	following: boolean;
 	/** While not following: which way the cursor lies when out of view. */
 	outOfView: 'above' | 'below' | null;
+}
+
+/** A wheel event's movement in pixels (deltaMode: 0 pixels, 1 lines, 2 pages). */
+export function wheelDeltaPx(deltaY: number, deltaMode: number, pageHeight: number): number {
+	if (deltaMode === 1) return deltaY * 16;
+	if (deltaMode === 2) return deltaY * pageHeight;
+	return deltaY;
 }
 
 /** How long an in-flight follow target is trusted if the scroll never lands. */
@@ -59,6 +68,8 @@ export function createScoreScroll(ports: ScoreScrollPorts) {
 	// decisions made mid-animation are judged where the sheet will end up.
 	let pending: number | null = null;
 	let pendingTimeout: ReturnType<typeof setTimeout> | undefined;
+	// When the last follow scroll was issued; see userScroll.
+	let lastFollowAt = -Infinity;
 	let followFrame = 0;
 	let visibilityFrame = 0;
 
@@ -90,6 +101,7 @@ export function createScoreScroll(ports: ScoreScrollPorts) {
 		pending = Math.max(0, Math.min(top, ports.maxScrollTop()));
 		clearTimeout(pendingTimeout);
 		pendingTimeout = setTimeout(() => (pending = null), PENDING_TTL_MS);
+		lastFollowAt = ports.now();
 		ports.scrollTo(top, 'smooth');
 	}
 
@@ -156,11 +168,27 @@ export function createScoreScroll(ports: ScoreScrollPorts) {
 		},
 
 		/** Real wheel or touch input on the score. Manual browsing stays under
-		 *  the reader's control until Back to cursor or an explicit seek. */
-		userScroll() {
+		 *  the reader's control until Back to cursor or an explicit seek.
+		 *
+		 *  In Chromium a programmatic smooth scroll beats the reader's wheel both
+		 *  ways: issued after the wheel input began, it cancels the reader's
+		 *  scroll (even when it lands before the wheel event reaches us); still
+		 *  animating when the wheel arrives, it runs on to its destination. In
+		 *  either case apply the wheel's movement from where the sheet is, which
+		 *  also stops the animation. Touch has no delta: a finger stops a follow
+		 *  animation still in flight and keeps scrolling natively. */
+		userScroll({ deltaPx, inputTime }: { deltaPx?: number; inputTime?: number } = {}) {
 			if (state.following) {
 				lastTarget = null;
 				publish({ following: false });
+			}
+			const inFlight = pending !== null;
+			const overridden = inFlight || (inputTime !== undefined && lastFollowAt >= inputTime);
+			const move = deltaPx !== undefined ? (overridden ? deltaPx : null) : inFlight ? 0 : null;
+			if (move !== null) {
+				const top = Math.max(0, Math.min(ports.scrollTop() + move, ports.maxScrollTop()));
+				ports.scrollTo(top, 'instant');
+				clearTimeout(pendingTimeout);
 			}
 			pending = null;
 		},
