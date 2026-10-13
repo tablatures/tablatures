@@ -138,7 +138,14 @@ test. Musical expectations are explicit constants from the fixture.
 
 Seeks stay pending until a native position event marks a seek and matches the
 latest requested position; elapsed time and optimistic engine getters cannot
-settle them. The application rejects earlier seek acknowledgements and scopes
+settle them. Percentage seeks are resolved by `seekPercent()` against the current musical
+clock and playback speed, rather than the last displayed duration. Speed changes
+can be acknowledged before a new position report reaches the views. Both views
+also use that clock for optimistic seek progress. The settings integration test
+holds native position delivery across the speed change and seek, then releases
+the real worker events in order; no sleeps or relaxed target assertions are used.
+
+The application rejects earlier seek acknowledgements and scopes
 position receivers to an engine, score and load generation. MIDI loads fence
 old positions until all submitted loads report completion; seeks during loading
 coalesce to the latest target. Session changes cancel pending countdowns and

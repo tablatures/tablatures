@@ -5,10 +5,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
-	import {
-		subscribePlayerEvent,
-		getViewSubscriptionCount
-	} from '../utils/playerSubscriptions';
+	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
 	import { sessionTransport } from '../utils/playerSession';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
@@ -2169,7 +2166,7 @@
 		if (!range || !duration || !api) return;
 		const pct = getProgressPercent(clientX);
 		progress = pct;
-		transport.seek((pct / 100) * duration);
+		transport.seekPercent(pct);
 		autoFollow = true;
 		followAtStart = true;
 	}
@@ -2713,7 +2710,7 @@
 	// Seek by bar
 	function seekByBars(delta: number) {
 		if (!api || totalBars === 0) return;
-		transport.seekByBars((progress / 100) * duration, delta);
+		transport.seekByBars((progress / 100) * (transport.durationMs ?? duration), delta);
 		autoFollow = true;
 		followAtStart = true;
 	}
@@ -3565,7 +3562,7 @@
 		} else if (event.code === 'End') {
 			event.preventDefault();
 			if (api && duration > 0) {
-				transport.seek(duration - 100);
+				transport.seek((transport.durationMs ?? duration) - 100);
 			}
 		} else if (event.code === 'Slash') {
 			event.preventDefault();
@@ -3694,6 +3691,7 @@
 	const transport = sessionTransport();
 	const detachTransportView = transport.observe({
 		onSeek: (ms) => {
+			duration = transport.durationMs ?? duration;
 			bindDuration = false;
 			trainer.resetPosition();
 			progress = duration > 0 ? (ms / duration) * 100 : 0;
@@ -3903,7 +3901,7 @@
 
 	// update the progress on click
 	function progressChange() {
-		transport.seek((progress / 100) * duration);
+		transport.seekPercent(progress);
 	}
 
 	function clickLooping() {

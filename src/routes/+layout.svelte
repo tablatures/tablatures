@@ -114,8 +114,8 @@
 	// Hold the store's progress at a requested target until the engine acknowledges it.
 	const unobserveTransport = transport.observe({
 		onSeek: (ms) => {
-			const { duration } = get(playerState);
-			if (duration > 0) updatePlayerState({ progress: (100 * ms) / duration });
+			const duration = transport.durationMs ?? get(playerState).duration;
+			if (duration > 0) updatePlayerState({ duration, progress: (100 * ms) / duration });
 		}
 	});
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
