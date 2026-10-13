@@ -348,8 +348,9 @@ describe('written practice playback using real MIDI generation', () => {
 	describe("hiding the MIDI reload's resets to the start", () => {
 		// Like alphaTab: the emitter's trigger delivers, and positions are reported one tick late.
 		const seek = (tick: number) => ({ currentTick: tick + 1, isSeek: true });
-		function positionPlayer() {
+		function positionPlayer({ states = false } = {}) {
 			const api = fixture();
+			if (states) api.playerStateChanged = emitter();
 			const listeners = new Set<(event: any) => void>();
 			api.playerPositionChanged = {
 				on: (fn: (event: any) => void) => listeners.add(fn),
@@ -409,11 +410,22 @@ describe('written practice playback using real MIDI generation', () => {
 			session.dispose();
 		});
 
-		it('drops no more than two resets per reload when the restore never comes', () => {
-			const { session, delivered, emit } = positionPlayer();
+		it('drops two resets per reload, and stale playback until playback resumes', () => {
+			const { api, session, delivered, emit } = positionPlayer({ states: true });
 			session.sync(region);
-			emit(seek(0), seek(0), seek(0), { currentTick: 480, isSeek: false });
-			expect(delivered).toEqual([1, 480]);
+			// A third reset is a genuine seek to the start.
+			emit(seek(0), seek(0), seek(0));
+			expect(delivered).toEqual([1]);
+			// Buffers played before the stop advance the stopped clock from zero.
+			emit({ currentTick: 480, isSeek: false });
+			api.playerStateChanged.emit({ state: 0, stopped: true });
+			api.playerReady.emit();
+			emit({ currentTick: 600, isSeek: false });
+			expect(delivered).toEqual([1]);
+			// Playback restarts after the restore, even if its report was lost.
+			api.playerStateChanged.emit({ state: 1 });
+			emit({ currentTick: 11700, isSeek: false });
+			expect(delivered).toEqual([1, 11700]);
 			session.dispose();
 		});
 

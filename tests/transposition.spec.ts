@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { setupPlayPage, setupPlayPageWithTex } from './helpers/setup';
+import { setupPlayPage, setupPlayPageWithTex, seekToPercent } from './helpers/setup';
+import { waitForSeekSettled } from './helpers/wait';
 import { TEX_SCORES } from './helpers/alphatex';
 
 // Exercise the mobile full-screen console; the docked console has its own spec.
@@ -171,4 +172,45 @@ test.describe('transposition', () => {
 
 		await expect(page.locator('text=out of range')).toBeVisible();
 	});
+
+	for (const playing of [false, true])
+		test(`transposing ${playing ? 'during playback continues' : 'while paused stays'} where it was`, async ({
+			page
+		}) => {
+			await setupPlayPage(page);
+			await seekToPercent(page, 50);
+			await waitForSeekSettled(page, 50);
+			const bar = await page.evaluate(() => (window as any).__testApi.getCurrentBar());
+			if (playing) {
+				await page.getByRole('button', { name: 'Play', exact: true }).click();
+				await expect
+					.poll(() => page.evaluate(() => (window as any).__testApi.getProgress()))
+					.toBeGreaterThan(50.5);
+			}
+			await openTuningTab(page);
+			// Regenerating MIDI restarts the synth from zero; record what was shown.
+			await page.evaluate(() => {
+				const win = window as any;
+				win.__progress = [];
+				const sample = () => {
+					win.__progress.push(win.__testApi.getProgress());
+					requestAnimationFrame(sample);
+				};
+				requestAnimationFrame(sample);
+			});
+			const before = await page.evaluate(() => (window as any).__testApi.getProgress());
+			await transposeTo(page, DROP_D_LABEL);
+			await expect(page.locator('text=Transposed')).toBeVisible();
+			if (playing)
+				await expect
+					.poll(() => page.evaluate(() => (window as any).__testApi.getProgress()))
+					.toBeGreaterThan(before + 1);
+			else
+				await expect
+					.poll(() => page.evaluate(() => (window as any).__testApi.getCurrentBar()))
+					.toBe(bar);
+			const shown: number[] = await page.evaluate(() => (window as any).__progress);
+			expect(Math.min(...shown)).toBeGreaterThanOrEqual(before - 0.5);
+			expect(await page.evaluate(() => (window as any).__testApi.isPlaying())).toBe(playing);
+		});
 });
