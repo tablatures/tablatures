@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { base } from '$app/paths';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import Header from '../../library/components/Header.svelte';
 	import TabViewer from '../../library/components/TabViewer.svelte';
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
@@ -35,6 +35,13 @@
 	let currentTabId: string | undefined = undefined;
 	let shareRestorationPending = browser && window.location.hash.startsWith('#tab=');
 	$: sharedTabError = $pendingTabStore?.error || '';
+	// The search the user opened this tab from, so a failed load can return to
+	// the same result list instead of the home page.
+	let searchResultsHref = '';
+	afterNavigate(({ from }) => {
+		if (from?.route.id === '/search') searchResultsHref = from.url.pathname + from.url.search;
+		else if (from?.route.id !== '/play') searchResultsHref = '';
+	});
 
 	let playerSettings = {
 		volume: 1,
@@ -453,10 +460,10 @@
 				</button>
 			{/if}
 			<a
-				href="{base}/"
+				href={searchResultsHref || `${base}/`}
 				class="px-4 py-2 text-sm border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 			>
-				Search for tabs
+				{searchResultsHref ? 'Back to results' : 'Search for tabs'}
 			</a>
 		</div>
 	</div>

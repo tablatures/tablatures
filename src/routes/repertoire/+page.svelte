@@ -93,7 +93,7 @@
 		if (!sharedPlaylist || sharedPlaylistDismissed) {
 			url.searchParams.delete('playlist');
 		}
-		window.history.replaceState({}, '', url.toString());
+		window.history.replaceState(window.history.state, '', url.toString());
 	}
 
 	$: favorites = $favoritesStore;
