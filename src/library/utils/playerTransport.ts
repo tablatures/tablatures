@@ -138,6 +138,12 @@ export function createPlayerTransport(ports: TransportPorts) {
 		if (!loading) engine.player.timePosition = ms;
 		ports.seekVideo(ms);
 	};
+	const durationMs = () => {
+		const engine = ports.engine();
+		const timing = ports.timing();
+		return engine && timing ? timing.tickToMs(timing.endTick, engine.playbackSpeed) : null;
+	};
+
 	const pause = () => {
 		if (disposed) return;
 		cancelCountdown();
@@ -176,6 +182,10 @@ export function createPlayerTransport(ports: TransportPorts) {
 		get state(): Readonly<TransportState> {
 			return { ...state };
 		},
+		/** The current musical clock, independent of delayed position reports. */
+		get durationMs(): number | null {
+			return durationMs();
+		},
 		play(delayMs = 0) {
 			if (disposed) return;
 			if (state.remainingMs > 0) cancelCountdown();
@@ -209,6 +219,11 @@ export function createPlayerTransport(ports: TransportPorts) {
 			startCountdown(Math.max(1000, Math.min(10000, delayMs)));
 		},
 		seek,
+		seekPercent(percent: number) {
+			const duration = durationMs();
+			if (!Number.isFinite(percent) || duration === null || duration <= 0) return;
+			seek((Math.max(0, Math.min(100, percent)) / 100) * duration);
+		},
 		setSpeed(speed: number) {
 			const engine = ports.engine();
 			if (disposed || !engine || !Number.isFinite(speed) || speed <= 0) return;

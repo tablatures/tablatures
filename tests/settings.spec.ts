@@ -30,8 +30,28 @@ test.describe('Settings & Controls', () => {
 		// Exact clock scaling at each speed is covered by playerTiming.test.ts.
 		// Here verify both menu directions, native engine wiring and seek persistence.
 		for (const speed of [0.5, 2]) {
-			await changeSpeed(page, speed);
-			await seekToPercent(page, 50);
+			// Hold native position delivery to reproduce a lagging duration after
+			// speed changes. The real worker still performs and acknowledges the seek.
+			await page.evaluate(() => {
+				const win = window as any;
+				const emitter = win.__testApi.getApi().playerPositionChanged;
+				const trigger = emitter.trigger;
+				const held: unknown[] = [];
+				emitter.trigger = (event: unknown) => {
+					held.push(event);
+				};
+				win.__releaseSpeedPositions = () => {
+					emitter.trigger = trigger;
+					for (const event of held) trigger.call(emitter, event);
+				};
+			});
+			try {
+				await changeSpeed(page, speed);
+				await seekToPercent(page, 50);
+				expect(await getTestApi<number>(page, 'getProgress')).toBeCloseTo(50, 0);
+			} finally {
+				await page.evaluate(() => (window as any).__releaseSpeedPositions());
+			}
 			await waitForSeekSettled(page, 50);
 			expect(await getTestApi(page, 'getSpeed')).toBe(speed);
 			expect(await getTestApi(page, 'getApiPlaybackSpeed')).toBe(speed);

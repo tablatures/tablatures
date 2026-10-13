@@ -370,6 +370,91 @@ describe('our seeks and repeated-bar navigation', () => {
 		expect(player.state.suppressPosition).toBe(true);
 	});
 
+	it.each([
+		[0.5, 44000, 22000],
+		[2, 11000, 5500],
+		[0.75, 88000 / 3, 44000 / 3],
+		[1.5, 44000 / 3, 22000 / 3]
+	])(
+		'a 50%% seek uses the current %sx clock before any position report',
+		(speed, duration, target) => {
+			const { player, writes, ports } = harness();
+			// Repeat fixture has eleven two-second visits at 1x. No engine event
+			// updates a view's cached duration after this speed change.
+			player.setSpeed(speed);
+			expect(player.durationMs).toBeCloseTo(duration, 8);
+			player.seekPercent(50);
+			expect(writes).toHaveLength(1);
+			expect(writes[0]).toBeCloseTo(target, 8);
+			expect(ports.seekVideo).toHaveBeenLastCalledWith(writes[0]);
+		}
+	);
+
+	it('back-to-back speed changes and percentage seeks accept only the latest target', () => {
+		const { player, writes } = harness();
+		const receive = player.positionReceiver();
+		player.setSpeed(0.5);
+		player.seekPercent(50);
+		player.setSpeed(2);
+		player.seekPercent(50);
+		expect(writes).toHaveLength(2);
+		expect(writes[0]).toBeCloseTo(22000, 8);
+		expect(writes[1]).toBeCloseTo(5500, 8);
+		expect(receive({ currentTime: 22000, endTime: 44000, isSeek: true })).toBe(false);
+		expect(receive({ currentTime: 5500, endTime: 11000, isSeek: true })).toBe(true);
+	});
+
+	it('percentage seeking uses the newly installed practice clock', () => {
+		const h = harness();
+		h.setTiming(
+			new PlayerTiming([
+				{ start: 0, end: 3840, masterBar: { index: 0 }, tempoChanges: [{ tick: 0, tempo: 120 }] }
+			])
+		);
+		h.player.setSpeed(0.5);
+		h.player.seekPercent(50);
+		expect(h.player.durationMs).toBeCloseTo(4000, 8);
+		expect(h.writes).toHaveLength(1);
+		expect(h.writes[0]).toBeCloseTo(2000, 8);
+	});
+
+	it('percentage seeking remains proportional across tempo changes', () => {
+		const { player, writes } = harness(musicalClock('tempo-change'));
+		// One bar at 60, then seven at 180: total 40/3 s at 1x, 80/3 s at 0.5x.
+		player.setSpeed(0.5);
+		player.seekPercent(75);
+		expect(writes[0]).toBeCloseTo(20000, 8);
+	});
+
+	it('percentage seeks during loading coalesce on the current speed', () => {
+		const { player, writes } = harness();
+		player.beginLoad();
+		player.setSpeed(0.5);
+		player.seekPercent(25);
+		player.setSpeed(2);
+		player.seekPercent(75);
+		expect(writes).toEqual([]);
+		player.completeLoad();
+		expect(writes).toHaveLength(1);
+		expect(writes[0]).toBeCloseTo(8250, 8);
+	});
+
+	it('percentage seeking clamps to the score and ignores unavailable clocks and invalid values', () => {
+		const h = harness();
+		h.player.seekPercent(-10);
+		h.player.seekPercent(110);
+		h.player.seekPercent(NaN);
+		h.player.seekPercent(Infinity);
+		h.setTiming(null);
+		expect(h.player.durationMs).toBeNull();
+		h.player.seekPercent(50);
+		h.setEngine(null);
+		h.player.seekPercent(50);
+		expect(h.writes).toHaveLength(2);
+		expect(h.writes[0]).toBe(0);
+		expect(h.writes[1]).toBeCloseTo(22000, 8);
+	});
+
 	it('a speed change retains the musical target while an acknowledgement is pending', () => {
 		const { player, engine } = harness();
 		const receive = player.positionReceiver();

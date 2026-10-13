@@ -54,7 +54,7 @@
 
 	function handleSeek(e: CustomEvent<number>) {
 		if (!api || !state.duration) return;
-		transport.seek((e.detail / 100) * state.duration);
+		transport.seekPercent(e.detail);
 	}
 
 	function stopPlayer() {
