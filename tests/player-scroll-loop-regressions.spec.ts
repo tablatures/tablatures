@@ -111,11 +111,35 @@ for (const playing of [false, true]) {
 			await expect
 				.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()?.enabled))
 				.toBe(true);
+			// Score selections loop in written order; clearing one regenerates the
+			// performance MIDI, which stops the synth and resumes it once loaded.
+			// Record that sequence: before it starts, isPlaying() still reports the
+			// old playback and would satisfy a poll that the reload then contradicts.
+			await page.evaluate(async () => {
+				const modulePath = '/src/library/utils/playerStore.ts';
+				const { getApi } = await import(modulePath);
+				const api = getApi();
+				const reload = ((window as any).__loopReproReload = { loaded: false, resumed: false });
+				api.container.element.addEventListener('alphaTab.midiFileLoaded', () => {
+					reload.loaded = true;
+				});
+				api.playerStateChanged.on((e: { state: number }) => {
+					if (reload.loaded && e.state !== 0) reload.resumed = true;
+				});
+			});
 			await page.keyboard.press('Escape');
 			await expect
 				.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
 				.toBeNull();
-			// Written-order loops reload MIDI asynchronously when returning to normal playback.
+			if (input === 'score')
+				await page.waitForFunction(
+					(resume) => {
+						const reload = (window as any).__loopReproReload;
+						return reload.loaded && (!resume || reload.resumed);
+					},
+					playing,
+					{ timeout: 10000 }
+				);
 			await expect
 				.poll(() => page.evaluate(() => (window as any).__testApi.isPlaying()))
 				.toBe(playing);
