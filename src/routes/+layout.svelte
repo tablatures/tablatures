@@ -355,6 +355,7 @@
 		}
 
 		videoSession = createVideoSession(api, {
+			transport,
 			video: () => get(videoPlayerRef),
 			offset: () => get(videoSyncOffset),
 			playing: () => get(playerState).playing,

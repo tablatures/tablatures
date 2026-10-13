@@ -706,3 +706,24 @@ describe('one transport per engine session, shared by its views', () => {
 		expect(h.player.accept(position(0))).toBe(true);
 	});
 });
+describe('following the media clock', () => {
+	it('a media-origin correction is fenced like any seek but never sent back to the media', () => {
+		const { player, ports, writes } = harness();
+		player.followMedia(7000);
+		expect(writes).toEqual([7000]);
+		expect(ports.seekVideo).not.toHaveBeenCalled();
+		expect(ports.onSeek).toHaveBeenCalledWith(7000);
+		expect(player.accept(position(1200))).toBe(false);
+		expect(player.accept(position(7000, true))).toBe(true);
+	});
+
+	it('a correction while the next MIDI loads waits for it, like a timeline seek', () => {
+		const { player, writes, ports } = harness();
+		player.beginLoad();
+		player.followMedia(3000);
+		expect(writes).toEqual([]);
+		player.completeLoad();
+		expect(writes).toEqual([3000]);
+		expect(ports.seekVideo).not.toHaveBeenCalled();
+	});
+});
