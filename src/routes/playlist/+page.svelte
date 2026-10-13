@@ -179,7 +179,7 @@
 		url.searchParams.set('data', encoded);
 		if (mode.kind === 'saved') url.searchParams.set('saved', String(mode.index));
 		else url.searchParams.delete('saved');
-		window.history.replaceState({}, '', url);
+		window.history.replaceState(window.history.state, '', url);
 	}
 
 	/** Persist edits to their home: repertoire store, URL data param, or the queue */

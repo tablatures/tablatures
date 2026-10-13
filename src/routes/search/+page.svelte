@@ -574,7 +574,10 @@
 		if (currentTab?.tabId) urlParams.set('tab', currentTab.tabId);
 		if ($activeVideoId) urlParams.set('video', $activeVideoId);
 		const newUrl = `${$page.url.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`;
-		window.history.replaceState({}, '', newUrl);
+		// Route through SvelteKit: a raw history.replaceState drops the router's
+		// history index (so Back from /play only changed the URL and left the
+		// player on screen) and leaves $page.url on the previous query.
+		void goto(newUrl, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
 	function handleSearch(e: CustomEvent<string>) {

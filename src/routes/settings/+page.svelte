@@ -50,7 +50,7 @@
 		else url.searchParams.delete('tab');
 		if ($activeVideoId) url.searchParams.set('video', $activeVideoId);
 		else url.searchParams.delete('video');
-		window.history.replaceState({}, '', url.toString());
+		window.history.replaceState(window.history.state, '', url.toString());
 	}
 
 	$: favorites = $favoritesStore;
