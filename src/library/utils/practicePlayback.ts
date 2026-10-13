@@ -129,6 +129,15 @@ export function createPracticePlayback(api: any) {
 	// load has not stopped the player yet belongs to an earlier load. Only players
 	// that report state changes can be tracked this way.
 	let loadsInFlight = 0;
+	// alphaTab's load seeks to the start twice: when it stops the player, and
+	// again after reporting ready, so after our restore has been requested. The
+	// cursor, following, time display and video would show the start of the song
+	// until the restore arrives. Drop at most those two resets per reload, at the source.
+	const positions = api.playerPositionChanged;
+	const deliver = positions?.trigger;
+	let resets = 0;
+	let resetScore: unknown = null;
+	let restoreTick: number | null = null;
 	const isWritten = () => writtenLookup !== null && api.tickCache === writtenLookup;
 	const applyRange = () => {
 		const timing = timingForApi(api);
@@ -175,6 +184,10 @@ export function createPracticePlayback(api: any) {
 				else api.loadMidiForScore();
 				writtenLookup = wantWritten ? api.tickCache : null;
 				pending = { lookup: api.tickCache, tick: mapped, resume: wasPlaying };
+				if (resetScore !== score) resets = 0;
+				resets += 2;
+				resetScore = score;
+				restoreTick = null;
 			} finally {
 				generating = false;
 			}
@@ -193,15 +206,32 @@ export function createPracticePlayback(api: any) {
 		pending = null;
 		applyRange();
 		const range = api.playbackRange;
-		api.tickPosition =
+		restoreTick =
 			range && (target.tick < range.startTick || target.tick >= range.endTick)
 				? range.startTick
 				: target.tick;
+		api.tickPosition = restoreTick;
 		if (target.resume) resumeRequested = api.play() !== false;
 	};
 	const stateChanged = (e: { state: number; stopped?: boolean }) => {
 		if (e.stopped) loadsInFlight = Math.max(0, loadsInFlight - 1);
 		if (e.state !== 0) resumeRequested = false;
+	};
+	const isLoadReset = (e: { currentTick: number; isSeek: boolean }) => {
+		// A score replacement has its own start position.
+		if (!resets || resetScore !== api.score) return false;
+		// alphaTab reports a seek to tick T as T or T + 1 (it adds a tick for rounding).
+		const near = (tick: number) => Math.abs(e.currentTick - tick) <= 1;
+		if (restoreTick !== null && near(restoreTick)) {
+			resets = 0;
+			restoreTick = null;
+			return false;
+		}
+		// API ticks: the reset reads below zero when the score has a lead-in. Other
+		// positions are genuine, including acknowledgements of earlier seeks.
+		if (!e.isSeek || !near(-(api.player?.midiTickShift ?? 0))) return false;
+		resets--;
+		return true;
 	};
 	// Settings that regenerate MIDI also need to retain the practice order.
 	const midiLoad = () => {
@@ -211,6 +241,10 @@ export function createPracticePlayback(api: any) {
 	api.playerReady.on(ready);
 	api.midiLoad.on(midiLoad);
 	api.playerStateChanged?.on(stateChanged);
+	if (typeof deliver === 'function')
+		positions.trigger = (e: any) => {
+			if (!isLoadReset(e)) deliver.call(positions, e);
+		};
 	const session = {
 		sync,
 		toMedia(ms: number) {
@@ -236,6 +270,7 @@ export function createPracticePlayback(api: any) {
 			api.playerReady.off(ready);
 			api.midiLoad.off(midiLoad);
 			api.playerStateChanged?.off(stateChanged);
+			if (typeof deliver === 'function') positions.trigger = deliver;
 			sessions.delete(api);
 		}
 	};

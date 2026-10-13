@@ -3,8 +3,10 @@ import {
 	setupPlayPage,
 	dragProgressBar,
 	dragScoreLoop,
+	seekToPercent,
 	useCombinedNotation
 } from './helpers/setup';
+import { waitForSeekSettled } from './helpers/wait';
 
 async function settleScore(page: Page) {
 	await expect(page.getByTestId('score-skeleton')).toHaveCount(0);
@@ -130,3 +132,80 @@ for (const playing of [false, true]) {
 		});
 	}
 }
+
+test('written-order MIDI reloads never show the start of the score', async ({ page }) => {
+	await setupPlayPage(page);
+	await settleScore(page);
+	await page.evaluate(() => {
+		const win = window as any;
+		const scroller = document.querySelector('#page')!;
+		win.__reloadSamples = [];
+		const sample = () => {
+			const host = document.querySelector('#player-host')!.getBoundingClientRect();
+			win.__reloadSamples.push({
+				cursorY: document.querySelector('.at-cursor-beat')!.getBoundingClientRect().y - host.y,
+				progress: win.__testApi.getProgress(),
+				scroll: scroller.scrollTop
+			});
+			requestAnimationFrame(sample);
+		};
+		requestAnimationFrame(sample);
+	});
+	const settled = async () => {
+		let last = '',
+			stable = 0;
+		await expect
+			.poll(
+				async () => {
+					const value = await page.evaluate(() =>
+						JSON.stringify((window as any).__reloadSamples.at(-1))
+					);
+					stable = value === last ? stable + 1 : 0;
+					last = value;
+					return stable;
+				},
+				{ intervals: [100] }
+			)
+			.toBeGreaterThanOrEqual(5);
+	};
+	await seekToPercent(page, 50);
+	await waitForSeekSettled(page, 50);
+	// Read bar positions after following the seek has scrolled the score.
+	await settled();
+	const bars = await page.evaluate(() => {
+		const bridge = (window as any).__testApi;
+		const all = bridge.getBarPositions();
+		const current = all.find((b: any) => b.index === bridge.getCurrentBar());
+		const host = document.querySelector('#player-host')!.getBoundingClientRect();
+		const at = (b: any) => ({
+			index: b.index,
+			x: host.x + b.x + b.w / 2,
+			y: host.y + b.y + b.h / 2
+		});
+		const row = all.filter((b: any) => b.y === current.y);
+		return { firstRowY: all[0].y, loop: [at(row[0]), at(row[1])], click: at(row.at(-1)) };
+	});
+	expect(bars.loop[1].index).toBeGreaterThan(bars.loop[0].index);
+	expect(bars.click.index).toBeGreaterThan(bars.loop[1].index);
+	const from = await page.evaluate(() => (window as any).__reloadSamples.length - 1);
+	// Creating a score loop enters written practice order; a click that clears it
+	// leaves it. Both regenerate MIDI, and alphaTab resets the synth to tick 0.
+	await dragScoreLoop(page, bars.loop[0].x, bars.loop[0].y, bars.loop[1].x, bars.loop[1].y);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()?.enabled))
+		.toBe(true);
+	await settled();
+	await page.mouse.click(bars.click.x, bars.click.y);
+	await expect
+		.poll(() => page.evaluate(() => (window as any).__testApi.getLoopBounds()))
+		.toBeNull();
+	await settled();
+	const samples = await page.evaluate((from) => (window as any).__reloadSamples.slice(from), from);
+	// Each sampled frame: never the first row, the start of the song, or a scroll back up.
+	const first = samples[0];
+	expect(
+		samples.filter(
+			(s: any) => s.cursorY <= bars.firstRowY + 1 || s.progress < 10 || s.scroll < first.scroll - 1
+		)
+	).toEqual([]);
+});

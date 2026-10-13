@@ -345,6 +345,91 @@ describe('written practice playback using real MIDI generation', () => {
 		});
 	});
 
+	describe("hiding the MIDI reload's resets to the start", () => {
+		// Like alphaTab: the emitter's trigger delivers, and positions are reported one tick late.
+		const seek = (tick: number) => ({ currentTick: tick + 1, isSeek: true });
+		function positionPlayer() {
+			const api = fixture();
+			const listeners = new Set<(event: any) => void>();
+			api.playerPositionChanged = {
+				on: (fn: (event: any) => void) => listeners.add(fn),
+				trigger: (event: any) => listeners.forEach((fn) => fn(event))
+			};
+			const session = createPracticePlayback(api);
+			const delivered: number[] = [];
+			api.playerPositionChanged.on((e: any) => delivered.push(e.currentTick));
+			const emit = (...events: { currentTick: number; isSeek: boolean }[]) =>
+				events.forEach((e) => api.playerPositionChanged.trigger(e));
+			return { api, session, delivered, emit };
+		}
+
+		it.each([
+			['entering', 480, region, 11520],
+			['leaving', 15360, null, 23040]
+		] as const)('delivers only real positions, %s practice', (_, from, next, restored) => {
+			const { api, session, delivered, emit } = positionPlayer();
+			if (!next) {
+				session.sync(region);
+				emit(seek(0));
+				api.playerReady.emit();
+				emit(seek(0), seek(11520));
+				delivered.length = 0;
+			}
+			api.tickPosition = from;
+			session.sync(next);
+			// alphaTab's order: an earlier seek's acknowledgement, the stop's reset,
+			// ready, the load's own reset, and only then our restore.
+			emit(seek(from), seek(0));
+			api.playerReady.emit();
+			expect(api.tickPosition).toBe(restored);
+			emit(seek(0), seek(restored), seek(0));
+			expect(delivered).toEqual([from + 1, restored + 1, 1]);
+			session.dispose();
+		});
+
+		it('measures the reset in API ticks when the score has a lead-in', () => {
+			const { api, session, delivered, emit } = positionPlayer();
+			api.player = { midiTickShift: 240 };
+			session.sync(region);
+			emit(seek(-240));
+			api.playerReady.emit();
+			emit(seek(-240), seek(11520));
+			expect(delivered).toEqual([11521]);
+			session.dispose();
+		});
+
+		it('delivers a restore to the start itself', () => {
+			const { api, session, delivered, emit } = positionPlayer();
+			session.sync({ ...region, startBar: 0, startTick: 0 });
+			emit(seek(0));
+			api.playerReady.emit();
+			expect(api.tickPosition).toBe(0);
+			emit(seek(0), seek(0));
+			expect(delivered).toEqual([1, 1]);
+			session.dispose();
+		});
+
+		it('drops no more than two resets per reload when the restore never comes', () => {
+			const { session, delivered, emit } = positionPlayer();
+			session.sync(region);
+			emit(seek(0), seek(0), seek(0), { currentTick: 480, isSeek: false });
+			expect(delivered).toEqual([1, 480]);
+			session.dispose();
+		});
+
+		it('delivers a replacement score and stops filtering once disposed', () => {
+			const { api, session, delivered, emit } = positionPlayer();
+			session.sync(region);
+			const score = api.score;
+			api.score = fixture().score;
+			emit(seek(0));
+			api.score = score;
+			session.dispose();
+			emit(seek(0));
+			expect(delivered).toEqual([1, 1]);
+		});
+	});
+
 	it('suppresses score jumps during practice and restores them afterward', () => {
 		const api = fixture();
 		api.score.masterBars[6].directions = new Set([at.model.Direction.JumpDaCapo]);
