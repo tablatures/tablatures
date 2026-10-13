@@ -9,6 +9,7 @@
 	import PlayerQueueBar from '../../library/components/PlayerQueueBar.svelte';
 	import RelatedStrip from '../../library/components/RelatedStrip.svelte';
 	import PlayerBottomSheet from '../../library/components/PlayerBottomSheet.svelte';
+	import AlternativeVersions from '../../library/components/AlternativeVersions.svelte';
 	import { tabStore, pendingTabStore } from '../../library/utils/store';
 	import type { TabData } from '../../library/utils/store';
 	import { get, type Unsubscriber } from 'svelte/store';
@@ -42,6 +43,11 @@
 		if (from?.route.id === '/search') searchResultsHref = from.url.pathname + from.url.search;
 		else if (from?.route.id !== '/play') searchResultsHref = '';
 	});
+	// A 404 is permanent: retrying repeats it, so offer other versions instead.
+	$: tabMissing = $pendingTabStore?.errorStatus === 404;
+	$: errorSearchQuery = [$pendingTabStore?.artist, $pendingTabStore?.title]
+		.filter(Boolean)
+		.join(' ');
 
 	let playerSettings = {
 		volume: 1,
@@ -443,7 +449,7 @@
 
 {#if sharedTabError}
 	<div
-		class="flex flex-col items-center justify-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
+		class="flex flex-col items-center justify-center px-4 text-center h-[calc(var(--play-viewport-height,100dvh)-var(--header-h))]"
 	>
 		<i
 			class="material-icons !text-6xl text-neutral-300 dark:text-neutral-600 mb-4"
@@ -451,7 +457,7 @@
 		>
 		<p class="text-neutral-600 dark:text-neutral-400 mb-2">{sharedTabError}</p>
 		<div class="flex gap-3 mt-2">
-			{#if $pendingTabStore?.id || $page.url.hash.startsWith('#tab=')}
+			{#if !tabMissing && ($pendingTabStore?.id || $page.url.hash.startsWith('#tab='))}
 				<button
 					on:click={retryLoad}
 					class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
@@ -460,12 +466,18 @@
 				</button>
 			{/if}
 			<a
-				href={searchResultsHref || `${base}/`}
+				href={searchResultsHref ||
+					(errorSearchQuery
+						? `${base}/search?q=${encodeURIComponent(errorSearchQuery)}`
+						: `${base}/`)}
 				class="px-4 py-2 text-sm border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
 			>
 				{searchResultsHref ? 'Back to results' : 'Search for tabs'}
 			</a>
 		</div>
+		{#if tabMissing && $pendingTabStore}
+			<AlternativeVersions pending={$pendingTabStore} />
+		{/if}
 	</div>
 {:else if hasTab || shareRestorationPending || opening}
 	<!-- YouTube-style layout: the sheet + player bar fill the first screen; the

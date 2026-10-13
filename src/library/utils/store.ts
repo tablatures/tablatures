@@ -38,7 +38,11 @@ export interface PendingTab {
 	title?: string;
 	artist?: string;
 	source?: string;
+	/** Versions known when the open started; offered if this one is unavailable. */
+	variants?: TabVersion[];
 	error?: string;
+	/** HTTP status of a failed download, when the API answered. */
+	errorStatus?: number;
 }
 export const pendingTabStore = writable<PendingTab | null>(null);
 
@@ -85,9 +89,9 @@ function createTabStore() {
 			setTab(tab);
 			return true;
 		},
-		failLoad(token: number, error: string): boolean {
+		failLoad(token: number, error: string, errorStatus?: number): boolean {
 			if (token !== revision) return false;
-			pendingTabStore.update((pending) => ({ ...pending, error }));
+			pendingTabStore.update((pending) => ({ ...pending, error, errorStatus }));
 			return true;
 		},
 		updateSettings(settings: Partial<TabData>) {
