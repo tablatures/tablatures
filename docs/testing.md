@@ -5,14 +5,14 @@ A passing retry is evidence of an intermittent failure, not proof that the appli
 
 ## Development loop
 
-| Change                                 | Start here                                              | Browser follow-up                                                                                  |
-| -------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Transport commands, countdown, seeks   | `pnpm test:player`                                      | `tests/core-playback.spec.ts`, `tests/player-correctness.spec.ts`, `tests/loop.spec.ts`            |
-| Musical position, tempo, repeat ranges | `pnpm test:unit src/library/utils/playerTiming.test.ts` | `tests/loop-repeat.spec.ts`, `tests/player-correctness.spec.ts`                                    |
-| Cursor and scrolling                   | `pnpm test:unit src/library/utils/playerCursor.test.ts` | `tests/cursor-follow.spec.ts`, relevant mobile/scroll specs                                        |
-| Player settings and lifecycle          | Relevant store/subscription unit specs                  | `tests/settings-desync.spec.ts`, `tests/score-switching.spec.ts`, `tests/catalogue-player.spec.ts` |
-| Test readiness or shared setup         | `tests/harness.spec.ts`                                 | All callers of the changed helper; full E2E before integration                                     |
-| Layout/hydration                       | `pnpm test:layout`                                      | Keep production-build coverage; dev-mode tests cannot replace it                                   |
+| Change                                 | Start here                                                                                    | Browser follow-up                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Transport commands, countdown, seeks   | `pnpm test:player`                                                                            | `tests/core-playback.spec.ts`, `tests/player-correctness.spec.ts`, `tests/loop.spec.ts`            |
+| Musical position, tempo, repeat ranges | `pnpm test:unit src/library/utils/playerTiming.test.ts`                                       | `tests/loop-repeat.spec.ts`, `tests/player-correctness.spec.ts`                                    |
+| Cursor and scrolling                   | `pnpm test:unit src/library/utils/playerCursor.test.ts src/library/utils/scoreScroll.test.ts` | `tests/cursor-follow.spec.ts`, relevant mobile/scroll specs                                        |
+| Player settings and lifecycle          | Relevant store/subscription unit specs                                                        | `tests/settings-desync.spec.ts`, `tests/score-switching.spec.ts`, `tests/catalogue-player.spec.ts` |
+| Test readiness or shared setup         | `tests/harness.spec.ts`                                                                       | All callers of the changed helper; full E2E before integration                                     |
+| Layout/hydration                       | `pnpm test:layout`                                                                            | Keep production-build coverage; dev-mode tests cannot replace it                                   |
 
 ```sh
 pnpm test:unit
