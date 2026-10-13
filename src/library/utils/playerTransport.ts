@@ -37,6 +37,8 @@ export interface TransportObserver {
 	onSeekSettled?(): void;
 	onLoop?(looping: boolean): void;
 	onCountdown?(state: Readonly<TransportState>): void;
+	/** Engine milliseconds (positions and duration) scale by previous / next. */
+	onSpeed?(previous: number, next: number): void;
 }
 
 export interface TransportPosition {
@@ -212,9 +214,13 @@ export function createPlayerTransport(ports: TransportPorts) {
 		setSpeed(speed: number) {
 			const engine = ports.engine();
 			if (disposed || !engine || !Number.isFinite(speed) || speed <= 0) return;
+			const previous = engine.playbackSpeed;
+			if (previous === speed) return;
 			// Engine milliseconds change with speed; the musical target does not.
-			if (pendingSeek) pendingSeek.ms *= engine.playbackSpeed / speed;
+			if (pendingSeek) pendingSeek.ms *= previous / speed;
 			engine.playbackSpeed = speed;
+			// Views rescale now: the next position event may arrive after a seek.
+			notify('onSpeed', previous, speed);
 		},
 		/** Move through playback visits, rather than printed bar indices. */
 		seekByBars(positionMs: number, delta: number) {

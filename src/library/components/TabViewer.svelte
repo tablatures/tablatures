@@ -5,10 +5,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { base64ToArrayBuffer } from '../utils/utils';
 	import { configureImporterEncoding } from '../utils/lyrics';
-	import {
-		subscribePlayerEvent,
-		getViewSubscriptionCount
-	} from '../utils/playerSubscriptions';
+	import { subscribePlayerEvent, getViewSubscriptionCount } from '../utils/playerSubscriptions';
 	import { displayTime } from '../utils/format';
 	import { sessionTransport } from '../utils/playerSession';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
@@ -3699,6 +3696,8 @@
 			progress = duration > 0 ? (ms / duration) * 100 : 0;
 		},
 		onSeekSettled: () => (bindDuration = true),
+		// A seek computed from the previous speed's duration lands at the wrong place.
+		onSpeed: (previous, next) => (duration *= previous / next),
 		onLoop: (looping) => (trainerLooping = looping),
 		onCountdown: (state) => {
 			rest = state.remainingMs;

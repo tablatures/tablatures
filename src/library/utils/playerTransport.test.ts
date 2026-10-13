@@ -621,3 +621,18 @@ describe('one transport per engine session, shared by its views', () => {
 		expect(h.player.accept(position(0))).toBe(true);
 	});
 });
+
+describe('speed changes rescale the engine clock immediately', () => {
+	it('tells views the clock ratio so a seek before the next position uses the new scale', () => {
+		const { player, engine } = harness();
+		const view = { onSpeed: vi.fn() };
+		player.observe(view);
+		player.setSpeed(0.5);
+		expect(view.onSpeed).toHaveBeenCalledWith(1, 0.5);
+		player.setSpeed(0.5);
+		expect(view.onSpeed).toHaveBeenCalledTimes(1);
+		engine.playbackSpeed = 0.5;
+		player.setSpeed(2);
+		expect(view.onSpeed).toHaveBeenLastCalledWith(0.5, 2);
+	});
+});

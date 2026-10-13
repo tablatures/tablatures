@@ -11,6 +11,7 @@ import {
 	waitForPlaying,
 	waitForProgressAbove,
 	waitForSeekSettled,
+	observeSeekAcknowledgement,
 	getTestApi
 } from './helpers/wait';
 
@@ -36,6 +37,33 @@ test.describe('Settings & Controls', () => {
 			expect(await getTestApi(page, 'getSpeed')).toBe(speed);
 			expect(await getTestApi(page, 'getApiPlaybackSpeed')).toBe(speed);
 		}
+	});
+
+	test('a seek right after a speed change lands on the new clock', async ({ page }) => {
+		await setupPlayPage(page);
+		await observeSeekAcknowledgement(page);
+		// The speed change and the tap share one task: only microtasks run between
+		// them, so the worker cannot report a position at the new speed first.
+		// That is the race slow CI hit with a real menu click and timeline tap.
+		await page.evaluate(async () => {
+			for (let i = 0; i < 5; i++)
+				document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Minus', bubbles: true }));
+			for (let i = 0; i < 3; i++) await Promise.resolve();
+			const bar = document.querySelector(
+				'[role="slider"][aria-label*="Playback progress"]'
+			) as HTMLElement;
+			const box = bar.getBoundingClientRect();
+			const init = {
+				clientX: box.left + box.width / 2,
+				clientY: box.top + box.height / 2,
+				button: 0,
+				bubbles: true
+			};
+			bar.dispatchEvent(new MouseEvent('mousedown', init));
+			bar.dispatchEvent(new MouseEvent('mouseup', init));
+		});
+		expect(await getTestApi(page, 'getApiPlaybackSpeed')).toBe(0.5);
+		await waitForSeekSettled(page, 50);
 	});
 
 	test('volume toggle mutes and restores the audio engine', async ({ page }) => {

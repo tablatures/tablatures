@@ -142,7 +142,9 @@ settle them. The application rejects earlier seek acknowledgements and scopes
 position receivers to an engine, score and load generation. MIDI loads fence
 old positions until all submitted loads report completion; seeks during loading
 coalesce to the latest target. Session changes cancel pending countdowns and
-seeks. Rejected position events cannot update the displayed bar or speed trainer.
+seeks. A speed change notifies views (`onSpeed`) so their durations rescale
+before the worker's next position; a seek in that gap would otherwise use the old
+speed's clock. Rejected position events cannot update the displayed bar or speed trainer.
 
 The integration uses the host's `alphaTab.midiFileLoaded` event: subscribing to
 `midiLoaded.on()` reads a recursive getter in alphaTab 1.8.1's worker proxy.

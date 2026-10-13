@@ -116,7 +116,9 @@
 		onSeek: (ms) => {
 			const { duration } = get(playerState);
 			if (duration > 0) updatePlayerState({ progress: (100 * ms) / duration });
-		}
+		},
+		onSpeed: (previous, next) =>
+			updatePlayerState({ duration: (get(playerState).duration * previous) / next })
 	});
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
 	$: if (browser && videoSession) {
