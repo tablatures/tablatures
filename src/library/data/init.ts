@@ -2,7 +2,9 @@
 //
 // `initData()` is awaited once, at the top of the app's onMount (see
 // +layout.svelte). It:
-//   1. requests durable storage (`navigator.storage.persist()`),
+//   1. requests durable storage (`navigator.storage.persist()`) without waiting
+//      for it: Firefox holds the promise until its permission prompt is answered,
+//      which would hold back every store and tab open,
 //   2. opens the platform database and registers it as the singleton,
 //   3. applies pending schema migrations,
 //   4. runs the one-time legacy-localStorage import (guarded by a flag),
@@ -59,7 +61,7 @@ export async function initData(): Promise<void> {
 	if (started) return dataReady;
 	started = true;
 	try {
-		await requestPersistence();
+		void requestPersistence();
 		const { db, engine } = await createPlatformDatabase();
 		setDatabase(db, engine);
 		await getDatabase().ready();
