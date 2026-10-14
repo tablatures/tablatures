@@ -35,6 +35,16 @@
 		type TickRange
 	} from '../utils/loopRegion';
 	import {
+		LONG_PRESS_MS,
+		engaged as gestureEngaged,
+		hitLoop,
+		idle as idleGesture,
+		transition as gestureTransition,
+		type GestureEffect,
+		type GestureEvent,
+		type ProgressGesture
+	} from '../utils/progressGesture';
+	import {
 		barLoop,
 		markerLoop,
 		noLoop,
@@ -1693,10 +1703,7 @@
 		document.addEventListener('visibilitychange', visibility);
 	}
 	function cancelProgressGesture() {
-		pbTouchActive = false;
-		clearTimeout(longPressTimer);
-		pbLoopCreating = false;
-		pbScrubbing = false;
+		dispatchGesture({ type: 'cancel' });
 		isDraggingLoop = false;
 		bindDuration = true;
 	}
@@ -1732,49 +1739,20 @@
 	function handleProgressBarDown(e: MouseEvent) {
 		if (!range || !duration || e.button !== 0) return;
 
-		const rect = range.getBoundingClientRect();
-		const mouseX = e.clientX - rect.left;
-		const EDGE_THRESHOLD_PX = 10;
-
-		// Check if clicking near existing loop edges for resize, or inside for move
-		if (loop.startBar !== null && loop.endBar !== null && _loopTimelinePct) {
-			const startX = (_loopTimelinePct.start / 100) * rect.width;
-			const endX = (_loopTimelinePct.end / 100) * rect.width;
-
-			if (
-				Math.abs(mouseX - startX) < EDGE_THRESHOLD_PX &&
-				Math.abs(mouseX - startX) <= Math.abs(mouseX - endX)
-			) {
-				e.preventDefault();
-				startLoopEdgeDrag('start');
-				return;
-			}
-			if (Math.abs(mouseX - endX) < EDGE_THRESHOLD_PX) {
-				e.preventDefault();
-				startLoopEdgeDrag('end');
-				return;
-			}
-			// Inside the loop region - drag to move
-			if (
-				loop.enabled &&
-				mouseX > startX + EDGE_THRESHOLD_PX &&
-				mouseX < endX - EDGE_THRESHOLD_PX
-			) {
-				e.preventDefault();
-				startLoopMoveDrag(e);
-				return;
-			}
+		const hit = progressLoopHit(e.clientX, 10);
+		if (hit) {
+			e.preventDefault();
+			if (hit === 'inside') startLoopMoveDrag(e);
+			else startLoopEdgeDrag(hit);
+			return;
 		}
 
-		// Unified gesture: a plain drag scrubs the playhead, a press-and-hold
-		// (no movement for LONG_PRESS_MS) enters loop-select mode and subsequent
-		// movement sizes the loop. Shared with the touch handlers below.
-		pbBeginGesture(e.clientX);
-		const onMove = (me: MouseEvent) => pbMoveGesture(me.clientX);
+		dispatchGesture({ type: 'press', x: e.clientX, pct: getProgressPercent(e.clientX) });
+		const onMove = (me: MouseEvent) => dispatchGesture({ type: 'move', x: me.clientX });
 		const onUp = (me: MouseEvent) => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-			pbEndGesture(me.clientX);
+			dispatchGesture({ type: 'release', x: me.clientX });
 		};
 
 		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
@@ -1991,29 +1969,80 @@
 		showProgressTooltip = true;
 	}
 
-	// --- Unified progress-bar gesture engine (mouse + touch) -----------------
-	// One long-press-then-drag implementation shared by the mouse and touch
-	// entry points so both surfaces behave identically:
-	//   • a plain drag scrubs the playhead (immediate, no accidental loop)
-	//   • a press-and-hold (no movement for LONG_PRESS_MS) enters loop-select
-	//     mode (haptic on touch) and subsequent movement sizes the loop region
-	//   • a plain click/tap seeks to the position
-	let longPressTimer: NodeJS.Timeout;
-	// Gesture start reference (client X + percent along the bar).
-	let pbStartX = 0;
-	let pbStartPct = 0;
-	// The long-press fired → subsequent movement grows/shrinks the loop region.
-	let pbLoopCreating = false;
-	// Anchor timeline position (ms) for the hold-and-drag loop. Used to size the
-	// loop by the span of bars touched between the anchor and the finger, so the
-	// loop grows monotonically even across repeat boundaries.
-	let pbLoopAnchorMs = 0;
-	// Movement before the hold fired → scrubbing the playhead, not looping.
-	let pbScrubbing = false;
-	// Movement threshold (px) before the long-press timer is cancelled. Small
-	// fat-finger jitter shouldn't abort a hold, but a real scrub should.
-	const LONG_PRESS_MOVE_CANCEL_PX = 6;
-	const LONG_PRESS_MS = 350;
+	// --- Progress-bar gesture (mouse + touch) ---------------------------------
+	// The policy is the state machine in progressGesture.ts; this shell feeds it
+	// pointer positions and runs its effects.
+	let gesture: ProgressGesture = idleGesture;
+	let longPressTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function dispatchGesture(event: GestureEvent) {
+		const result = gestureTransition(gesture, event);
+		gesture = result.gesture;
+		result.effects.forEach(runGestureEffect);
+	}
+
+	function runGestureEffect(effect: GestureEffect) {
+		switch (effect.type) {
+			case 'armHold':
+				clearTimeout(longPressTimer);
+				longPressTimer = setTimeout(() => {
+					if (gesture.kind === 'pressing')
+						dispatchGesture({ type: 'hold', anchorMs: percentToTime(gesture.startPct) });
+				}, LONG_PRESS_MS);
+				return;
+			case 'disarmHold':
+				clearTimeout(longPressTimer);
+				return;
+			case 'seedLoop': {
+				// Seed one bar or note at the cursor/finger. A new selection uses the
+				// timeline's current order, including after practice is off.
+				const anchorBar = msToBar(effect.anchorMs);
+				if (loopSnap === 'note') selectNoteTimes(effect.anchorMs, effect.anchorMs);
+				else setLoopBars(anchorBar, anchorBar, loop.enabled ? loop.order : undefined);
+				isDraggingLoop = true;
+				dismissPopoverAndRefresh();
+				updateScoreSelection();
+				hapticTap();
+				return;
+			}
+			case 'sizeLoop': {
+				// Grow the loop across the span of bars touched between the anchor and
+				// the finger. Using the touched-bar span (not the bar index at the
+				// finger) keeps the loop monotonic across repeat boundaries.
+				const fingerMs = percentToTime(getProgressPercent(effect.x));
+				if (loopSnap === 'note') {
+					selectNoteTimes(effect.anchorMs, fingerMs);
+					return;
+				}
+				const span = barSpanBetweenMs(effect.anchorMs, fingerMs);
+				if (span) {
+					setLoopBars(span.minBar, span.maxBar, loop.order);
+					updateScoreSelection();
+				}
+				return;
+			}
+			case 'finishLoop':
+				isDraggingLoop = false;
+				return;
+			case 'dismissPopover':
+				dismissPopoverAndRefresh();
+				return;
+			case 'scrub':
+				pbSeekTo(effect.x);
+				return;
+			case 'tap': {
+				// If seeking outside the current loop, disable it.
+				const seekTime = percentToTime(getProgressPercent(effect.x));
+				if (loop.startBar !== null && loop.endBar !== null && loop.enabled && _loopTimelinePct) {
+					const loopStartMs = (_loopTimelinePct.start / 100) * duration;
+					const loopEndMs = (_loopTimelinePct.end / 100) * duration;
+					if (seekTime < loopStartMs || seekTime > loopEndMs) clearLoopPoints();
+				}
+				pbSeekTo(effect.x);
+				return;
+			}
+		}
+	}
 
 	function pbSeekTo(clientX: number) {
 		if (!range || !duration || !api) return;
@@ -2023,132 +2052,40 @@
 		scroll.engage();
 	}
 
-	function pbBeginGesture(clientX: number) {
-		pbStartX = clientX;
-		pbStartPct = getProgressPercent(clientX);
-		pbLoopCreating = false;
-		pbScrubbing = false;
-		clearTimeout(longPressTimer);
-		longPressTimer = setTimeout(() => {
-			// Hold fired without a scrub — seed one bar or note at the cursor/finger
-			// and flip into loop-sizing mode.
-			pbLoopAnchorMs = percentToTime(pbStartPct);
-			// A new selection uses the timeline's current order, including after practice is off.
-			const anchorBar = msToBar(pbLoopAnchorMs);
-			if (loopSnap === 'note') selectNoteTimes(pbLoopAnchorMs, pbLoopAnchorMs);
-			else setLoopBars(anchorBar, anchorBar, loop.enabled ? loop.order : undefined);
-			pbLoopCreating = true;
-			isDraggingLoop = true;
-			dismissPopoverAndRefresh();
-			updateScoreSelection();
-			hapticTap();
-		}, LONG_PRESS_MS);
+	/** A press on an existing loop's edges or body starts that loop's own drag. */
+	function progressLoopHit(clientX: number, thresholdPx: number) {
+		if (!range || loop.startBar === null || loop.endBar === null) return null;
+		const rect = range.getBoundingClientRect();
+		return hitLoop(clientX - rect.left, rect.width, _loopTimelinePct, loop.enabled, thresholdPx);
 	}
 
-	function pbMoveGesture(clientX: number) {
-		// Post-hold: grow the loop across the span of bars touched between the
-		// anchor and the finger. Using the touched-bar span (not the bar index at
-		// the finger) keeps the loop monotonic across repeat boundaries.
-		if (pbLoopCreating) {
-			const fingerMs = percentToTime(getProgressPercent(clientX));
-			if (loopSnap === 'note') {
-				selectNoteTimes(pbLoopAnchorMs, fingerMs);
-				return;
-			}
-			const span = barSpanBetweenMs(pbLoopAnchorMs, fingerMs);
-			if (span) {
-				setLoopBars(span.minBar, span.maxBar, loop.order);
-				updateScoreSelection();
-			}
-			return;
-		}
-
-		// Pre-hold: meaningful movement cancels the hold and scrubs instead.
-		if (!pbScrubbing && Math.abs(clientX - pbStartX) > LONG_PRESS_MOVE_CANCEL_PX) {
-			clearTimeout(longPressTimer);
-			pbScrubbing = true;
-			dismissPopoverAndRefresh();
-		}
-		if (pbScrubbing) pbSeekTo(clientX);
-	}
-
-	function pbEndGesture(clientX: number) {
-		clearTimeout(longPressTimer);
-		if (pbLoopCreating) {
-			pbLoopCreating = false;
-			isDraggingLoop = false;
-
-			return;
-		}
-		if (pbScrubbing) {
-			pbScrubbing = false;
-			return;
-		}
-
-		// Plain click/tap = seek. If seeking outside the current loop, disable it.
-		const seekTime = percentToTime(getProgressPercent(clientX));
-		if (loop.startBar !== null && loop.endBar !== null && loop.enabled && _loopTimelinePct) {
-			const loopStartMs = (_loopTimelinePct.start / 100) * duration;
-			const loopEndMs = (_loopTimelinePct.end / 100) * duration;
-			if (seekTime < loopStartMs || seekTime > loopEndMs) {
-				clearLoopPoints();
-			}
-		}
-		pbSeekTo(clientX);
-	}
-
-	// Touch entry points — thin wrappers over the shared gesture engine. Edge
-	// resize / inside-move of an existing loop keep their dedicated handlers.
-	//
-	// `pbSuppressed` is set when a clearly VERTICAL swipe that started on the
-	// scrub zone has been handed to the bottom sheet (see onBarTouchMove): from
-	// that point the progress bar ignores the rest of the gesture so the finger
-	// can't scrub or seed a loop on its way up.
-	let pbSuppressed = false;
-	let pbTouchActive = false;
-
+	// Touch entry points. A loop edge/body drag or the bottom sheet takes the
+	// rest of a touch over (`handedOff`): the bar then ignores it, so the finger
+	// can't scrub or seed a loop on its way.
 	function handleProgressBarTouchStart(event: TouchEvent) {
-		pbTouchActive = event.touches.length === 1;
 		if (event.touches.length !== 1) {
 			cancelActiveDrag?.();
 			cancelProgressGesture();
 			return;
 		}
-		pbSuppressed = false;
-		if (!range || !duration || !event.touches[0]) return;
-		const rect = range.getBoundingClientRect();
-		const x = event.touches[0].clientX - rect.left;
-
-		const EDGE_THRESHOLD_PX = 15;
-		if (loop.startBar !== null && loop.endBar !== null && _loopTimelinePct) {
-			const startX = (_loopTimelinePct.start / 100) * rect.width;
-			const endX = (_loopTimelinePct.end / 100) * rect.width;
-
-			if (Math.abs(x - startX) < EDGE_THRESHOLD_PX && Math.abs(x - startX) <= Math.abs(x - endX)) {
-				startLoopEdgeDragTouch(event, 'start');
-				return;
-			}
-			if (Math.abs(x - endX) < EDGE_THRESHOLD_PX) {
-				startLoopEdgeDragTouch(event, 'end');
-				return;
-			}
-			if (loop.enabled && x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
-				startLoopMoveDragTouch(event);
-				return;
-			}
+		if (!range || !duration || !event.touches[0]) return dispatchGesture({ type: 'cancel' });
+		const hit = progressLoopHit(event.touches[0].clientX, 15);
+		if (hit) {
+			dispatchGesture({ type: 'handOff' });
+			if (hit === 'inside') startLoopMoveDragTouch(event);
+			else startLoopEdgeDragTouch(event, hit);
+			return;
 		}
-
-		pbBeginGesture(event.touches[0].clientX);
+		const x = event.touches[0].clientX;
+		dispatchGesture({ type: 'press', x, pct: getProgressPercent(x) });
 	}
 
 	function handleProgressBarTouchMove(event: TouchEvent) {
 		if (event.touches.length !== 1) {
-			pbTouchActive = false;
 			cancelActiveDrag?.();
 			cancelProgressGesture();
 			return;
 		}
-		if (pbSuppressed) return;
 		const t = event.touches[0];
 		if (!range || !duration || !t) return;
 		// A vertical swipe from the scrub zone is a sheet gesture, not a scrub:
@@ -2156,24 +2093,13 @@
 		// bar-level handler below is what actually claims it. Once the hold HAS
 		// fired (loop-sizing) or a horizontal scrub is underway, the progress bar
 		// keeps the gesture for good — the loop long-press never regresses.
-		if (!pbLoopCreating && !pbScrubbing && !isDraggingLoop && isVerticalSheetSwipe(t)) return;
-		pbMoveGesture(t.clientX);
+		if (!gestureEngaged(gesture) && !isDraggingLoop && isVerticalSheetSwipe(t)) return;
+		dispatchGesture({ type: 'move', x: t.clientX });
 	}
 
 	function handleProgressBarTouchEnd(event: TouchEvent) {
-		if (!pbTouchActive) return;
-		pbTouchActive = false;
-		if (isDraggingLoop && !pbLoopCreating) return;
-		if (pbSuppressed) {
-			pbSuppressed = false;
-			clearTimeout(longPressTimer);
-			return;
-		}
-		if (!event.changedTouches[0]) {
-			clearTimeout(longPressTimer);
-			return;
-		}
-		pbEndGesture(event.changedTouches[0].clientX);
+		const t = event.changedTouches[0];
+		dispatchGesture(t ? { type: 'release', x: t.clientX } : { type: 'cancel' });
 	}
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
@@ -2313,14 +2239,12 @@
 				x: t.clientX,
 				y: t.clientY,
 				fromScrubZone: barFromScrubZone,
-				scrubEngaged: pbLoopCreating || pbScrubbing || isDraggingLoop,
+				scrubEngaged: gestureEngaged(gesture) || isDraggingLoop,
 				sheetEnabled: get(playSheetEnabled)
 			});
 			if (claimY === null) return;
-			if (barFromScrubZone) {
-				pbSuppressed = true; // the progress bar drops the rest of this gesture
-				clearTimeout(longPressTimer);
-			}
+			// The progress bar drops the rest of this gesture.
+			if (barFromScrubZone) dispatchGesture({ type: 'handOff' });
 			barGestureClaimed = true;
 			barTouchLastY = claimY;
 			// Hand the gesture to the bottom sheet: from here every finger delta

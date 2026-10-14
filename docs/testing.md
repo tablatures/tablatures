@@ -152,6 +152,15 @@ order resolve to written ticks in the same step, rather than in a later reactive
 repair. `loopSelection.test.ts` owns these rules and explores every four-step
 sequence of selection edits. Browser specs keep gesture-to-selection wiring.
 
+A gesture on the progress bar is a `ProgressGesture` state machine
+(`progressGesture.ts`): idle, pressing (the hold timer is armed only here),
+scrubbing, sizing a loop from a hold, or handed off to a loop edge/body drag or
+the bottom sheet, after which the bar ignores the rest of the touch.
+`progressGesture.test.ts` owns these transitions and the timeline loop
+hit-test; its exploration checks that the timer runs exactly while pressing and
+the loop drag lasts exactly as long as loop sizing. `note-loop.spec.ts` keeps
+the touch wiring, including an edge wobble that must not move the playhead.
+
 The transport suite owns delayed play cancellation/pause/resume, idempotent play,
 seek acknowledgements and video forwarding, next/previous navigation through repeated
 bar visits and tempo changes, and region versus whole-song repeat policy. Real
