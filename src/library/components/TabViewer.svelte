@@ -4116,7 +4116,7 @@
 	id="page"
 	data-layout-region="player"
 	class:loading-view={isLoading}
-	class="overflow-y-auto fullscreen:h-full webkit-fullscreen:h-full
+	class="overflow-y-scroll fullscreen:h-full webkit-fullscreen:h-full
 		{isFullscreen && native ? 'fixed inset-0 z-[120] h-[100dvh] bg-white dark:bg-black' : 'h-full'}"
 	bind:this={page}
 	on:scroll={() => {
@@ -5925,8 +5925,11 @@
 			display: none !important;
 		}
 	}
+	/* The scrollbar stays while loading: alphaTab lays the score out during the
+	   load, and a scrollbar arriving after it narrowed a classic-scrollbar
+	   container under the score, which then overflowed by the scrollbar width.
+	   The placeholder is clipped to one viewport, so there is nothing to scroll. */
 	.loading-view {
-		overflow-y: hidden;
 		overscroll-behavior-y: contain;
 	}
 	.score-loading {
