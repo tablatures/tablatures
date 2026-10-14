@@ -101,14 +101,19 @@ export function setShowInScore(show: boolean) {
 	applyInScoreLyrics(show);
 }
 
-export function applyInScoreLyrics(show: boolean) {
+/**
+ * Show or hide the in-score lyric line. Pass `relayout: false` from a
+ * scoreLoaded handler: alphaTab lays the new score out right after it.
+ */
+export function applyInScoreLyrics(show: boolean, relayout = true) {
 	const api = get(playerApi);
 	const elements = api?.settings?.notation?.elements;
 	if (!elements || typeof elements.set !== 'function') return;
+	if (elements.get(EFFECT_LYRICS) === show) return;
 	elements.set(EFFECT_LYRICS, show);
 	try {
 		api.updateSettings();
-		api.render();
+		if (relayout) api.render();
 	} catch {
 		// Rendering can throw before a score is loaded; ignore.
 	}
