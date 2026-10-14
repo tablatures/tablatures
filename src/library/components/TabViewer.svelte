@@ -31,8 +31,23 @@
 		beatSpan,
 		rangeForTimes,
 		moveLoopRange,
+		type LoopRegion,
 		type TickRange
 	} from '../utils/loopRegion';
+	import {
+		barLoop,
+		markerLoop,
+		noLoop,
+		noteLoop,
+		restoreLoop,
+		snapToBars,
+		toRegion,
+		toggleEnabled,
+		validateRestored,
+		withEdgeBar,
+		withMarker,
+		type LoopSelection
+	} from '../utils/loopSelection';
 	import { themeStore } from '../utils/theme';
 	import { toastStore } from '../utils/toast';
 	import { scoreMetadata, tabStore, type TabVersion } from '../utils/store';
@@ -322,7 +337,7 @@
 	// Touch-first devices get finger-sized loop controls: knobs on the score's
 	// brackets, a larger score toolbar, and no floating toolbar on the timeline.
 	let coarsePointer = browser && window.matchMedia('(pointer: coarse)').matches;
-	$: showTouchLoopBar = coarsePointer && loopStartBar !== null && loopEndBar !== null;
+	$: showTouchLoopBar = coarsePointer && loop.startBar !== null && loop.endBar !== null;
 	$: compactBar = isFullscreen || isMobileLandscape || isSmallScreen;
 	// The compact tuning pill belongs in the bar only when the metadata row (which
 	// carries its own chip) is hidden, otherwise it would show the chip twice.
@@ -508,15 +523,15 @@
 	let showKeyboardShortcuts = false;
 
 	// Score selections use printed order; legacy and timeline loops retain repeat visits.
-	let loopStartBar: number | null = null;
-	let loopEndBar: number | null = null;
-	let loopEnabled = true;
-	let loopTicks: TickRange | null = null;
-	let loopOrder: 'written' | undefined;
+	let loop: LoopSelection = noLoop;
 	let loopSnap: 'bar' | 'note' = 'note';
 	let loopSyncKey = '';
-	let loopRestored = false;
-	let loopNeedsValidation = false;
+	/** Nothing is applied or persisted until the score's loop is restored, and a
+	 * restored precise range waits for the MIDI clock it must fit. */
+	let loopPhase:
+		| { kind: 'unrestored' }
+		| { kind: 'validating'; region: LoopRegion }
+		| { kind: 'ready' } = { kind: 'unrestored' };
 	let pendingUrlLoop = browser ? readUrlState().loop : undefined;
 	let adoptedScore: any = null;
 
@@ -526,20 +541,18 @@
 		const shared = get(playerState).loop;
 		const region = pendingUrlLoop && pendingUrlLoop.endBar < totalBars ? pendingUrlLoop : shared;
 		pendingUrlLoop = undefined;
-		loopStartBar = region?.startBar ?? null;
-		loopEndBar = region?.endBar ?? null;
-		loopEnabled = region?.enabled ?? true;
-		loopOrder = region?.order;
-		loopTicks =
-			region?.startTick !== undefined && region.endTick !== undefined
-				? { startTick: region.startTick, endTick: region.endTick }
-				: null;
-		loopNeedsValidation = !!loopTicks;
-		if (loopTicks) loopSnap = 'note';
+		const restored = restoreLoop(region, writtenTimingForApi(api));
+		if (restored.kind === 'pending') {
+			loop = noLoop;
+			loopSnap = 'note';
+			loopPhase = { kind: 'validating', region: restored.region };
+		} else {
+			loop = restored.loop;
+			loopPhase = { kind: 'ready' };
+		}
 		trackVolumes = score.tracks.map((t: any) => t.playbackInfo.volume / 16);
 		trackMutes = score.tracks.map((t: any) => !!t.playbackInfo.isMute);
 		trackSolos = score.tracks.map((t: any) => !!t.playbackInfo.isSolo);
-		loopRestored = true;
 	}
 
 	// Loop drag state
@@ -940,33 +953,24 @@
 	}
 
 	/** Set loop from bar indices */
-	function setLoopBars(startBar: number, endBar: number, order = loopOrder, enabled = true) {
-		loopOrder = order;
-		if (order === 'written') {
-			const ticks = writtenTimingForApi(api)?.range(startBar, endBar);
-			if (ticks) setLoopTicks(ticks, enabled, order);
-			return;
-		}
-		loopTicks = null;
-		loopStartBar = startBar;
-		loopEndBar = endBar;
-		loopEnabled = true;
+	// The clock is explicit: a default of `loop.order` would also replace an
+	// explicit `undefined`, keeping written order for a new timeline selection.
+	function setLoopBars(startBar: number, endBar: number, order: 'written' | undefined) {
+		loop = markerLoop(startBar, endBar, true, order, writtenTimingForApi(api));
+	}
+
+	/** Bar edits keep the loop's clock and enabled state. */
+	function setLoopMarkers(startBar: number | null, endBar: number | null) {
+		loop = markerLoop(startBar, endBar, loop.enabled, loop.order, writtenTimingForApi(api));
 	}
 
 	function loopTiming() {
-		return loopOrder === 'written' ? writtenTimingForApi(api) : timingForApi(api);
+		return loop.order === 'written' ? writtenTimingForApi(api) : timingForApi(api);
 	}
 
 	function currentLoopRange(): TickRange | null {
 		const timing = loopTiming();
-		return timing
-			? resolveLoopRange(timing, {
-					startBar: loopStartBar,
-					endBar: loopEndBar,
-					enabled: loopEnabled,
-					...loopTicks
-				})
-			: null;
+		return timing ? resolveLoopRange(timing, toRegion(loop)) : null;
 	}
 
 	let notePositionCache: { timing: any; track: any; beats: ReturnType<typeof loopBeats> } | null =
@@ -979,25 +983,15 @@
 		return notePositionCache.beats;
 	}
 
-	function setLoopTicks(ticks: TickRange, enabled = true, order = loopOrder) {
+	function setLoopTicks(ticks: TickRange, enabled: boolean, order: 'written' | undefined) {
 		const timing = order === 'written' ? writtenTimingForApi(api) : timingForApi(api);
-		if (!timing || !resolveLoopRange(timing, { startBar: null, endBar: null, enabled, ...ticks }))
-			return;
-		loopTicks = ticks;
-		loopOrder = order;
-		// Display all printed bars visited, even when a range crosses a repeat jump.
-		const bars = timing.visits
-			.filter((v) => v.end > ticks.startTick && v.start < ticks.endTick)
-			.map((v) => v.masterBar.index);
-		loopStartBar = Math.min(...bars);
-		loopEndBar = Math.max(...bars);
-		loopEnabled = enabled;
+		loop = noteLoop(timing, ticks, enabled, order) ?? loop;
 	}
 
 	function selectNoteTimes(a: number, b: number) {
 		const timing = timingForApi(api);
 		if (!timing) return;
-		const order = loopOrder === 'written' && loopEnabled ? 'written' : undefined;
+		const order = loop.order === 'written' && loop.enabled ? 'written' : undefined;
 		const ticks = rangeForTimes(timing, notePositions(timing), a, b, api.playbackSpeed);
 		if (ticks) setLoopTicks(ticks, true, order);
 	}
@@ -1026,21 +1020,26 @@
 		if (!beatHit || !timing) return;
 		// Grace notes go with their note, as in every other selection gesture.
 		const hit = beatSpan(timing, beatHit);
-		const enabled = loopOrder === 'written' ? loopEnabled : true;
+		const enabled = loop.order === 'written' ? loop.enabled : true;
 		if (edge === 'start' && hit.startTick < original.endTick)
-			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick }, enabled);
+			setLoopTicks({ startTick: hit.startTick, endTick: original.endTick }, enabled, loop.order);
 		if (edge === 'end' && hit.endTick > original.startTick)
-			setLoopTicks({ startTick: original.startTick, endTick: hit.endTick }, enabled);
+			setLoopTicks({ startTick: original.startTick, endTick: hit.endTick }, enabled, loop.order);
 	}
 
 	function moveNoteLoop(original: TickRange, target: number) {
 		const timing = loopTiming();
-		if (timing) setLoopTicks(moveLoopRange(notePositions(), original, target, timing.endTick));
+		if (timing)
+			setLoopTicks(
+				moveLoopRange(notePositions(), original, target, timing.endTick),
+				true,
+				loop.order
+			);
 	}
 
 	/** Timeline handles can edit disabled practice markers on the full song clock. */
 	function loopTickAtTime(ms: number) {
-		const onWrittenClock = loopOrder === 'written' && !loopEnabled;
+		const onWrittenClock = loop.order === 'written' && !loop.enabled;
 		return loopTickAtMs(
 			timingForApi(api)!,
 			onWrittenClock ? writtenTimingForApi(api) : null,
@@ -1052,11 +1051,7 @@
 
 	function changeLoopSnap() {
 		// Choosing Bars explicitly expands the current selection to full bars.
-		if (loopSnap === 'bar') {
-			if (loopOrder === 'written' && loopStartBar !== null && loopEndBar !== null)
-				setLoopBars(loopStartBar, loopEndBar, loopOrder, loopEnabled);
-			else loopTicks = null;
-		}
+		if (loopSnap === 'bar') loop = snapToBars(loop, writtenTimingForApi(api));
 	}
 
 	function setLoopPoint(point: 'A' | 'B') {
@@ -1067,36 +1062,25 @@
 			if (!hit) return;
 			const beat = beatSpan(timing, hit);
 			const previous = currentLoopRange();
-			setLoopTicks({
-				startTick:
-					point === 'A'
-						? beat.startTick
-						: Math.min(previous?.startTick ?? beat.startTick, beat.startTick),
-				endTick:
-					point === 'B' ? beat.endTick : Math.max(previous?.endTick ?? beat.endTick, beat.endTick)
-			});
+			setLoopTicks(
+				{
+					startTick:
+						point === 'A'
+							? beat.startTick
+							: Math.min(previous?.startTick ?? beat.startTick, beat.startTick),
+					endTick:
+						point === 'B' ? beat.endTick : Math.max(previous?.endTick ?? beat.endTick, beat.endTick)
+				},
+				true,
+				loop.order
+			);
 			return;
 		}
-		loopTicks = null;
-		const currentBarIdx = msToBar(currentTime);
-		if (point === 'A') {
-			loopStartBar = currentBarIdx;
-			if (loopEndBar !== null && loopEndBar < currentBarIdx) {
-				loopEndBar = null;
-			}
-		} else {
-			loopEndBar = currentBarIdx;
-			if (loopStartBar !== null && loopStartBar > currentBarIdx) {
-				loopStartBar = null;
-			}
-		}
+		loop = withMarker(loop, point, msToBar(currentTime), writtenTimingForApi(api));
 	}
 
 	function clearLoopPoints() {
-		loopOrder = undefined;
-		loopTicks = null;
-		loopStartBar = null;
-		loopEndBar = null;
+		loop = noLoop;
 		selectionStartBeat = null;
 		selectionEndBeat = null;
 		showSelectionPopover = false;
@@ -1109,8 +1093,7 @@
 	// at the audio sample level (no seek, no pause, no glitch). Set in syncPlaybackRange().
 
 	function toggleLoopEnabled() {
-		if (loopStartBar === null && loopEndBar === null) return;
-		loopEnabled = !loopEnabled;
+		loop = toggleEnabled(loop);
 	}
 
 	// Loop state is resolved once to repeat-expanded ticks for synth, timeline and video.
@@ -1133,15 +1116,9 @@
 	}
 
 	function loopRangeMs(): { startMs: number; endMs: number } | null {
-		if (loopStartBar === null || loopEndBar === null) return null;
+		if (loop.startBar === null || loop.endBar === null) return null;
 		const timing = timingForApi(api);
-		const range = playbackClockRange(api, {
-			startBar: loopStartBar,
-			endBar: loopEndBar,
-			enabled: loopEnabled,
-			order: loopOrder,
-			...loopTicks
-		});
+		const range = playbackClockRange(api, toRegion(loop));
 		return range && timing
 			? {
 					startMs: timing.tickToMs(range.startTick, api.playbackSpeed),
@@ -1160,7 +1137,7 @@
 	}
 
 	function loopBars() {
-		return { startBar: loopStartBar, endBar: loopEndBar };
+		return { startBar: loop.startBar, endBar: loop.endBar };
 	}
 
 	function msToBar(ms: number): number {
@@ -1180,13 +1157,7 @@
 	/** Sync the native player from the shared musical loop range. */
 	function syncPlaybackRange() {
 		if (!api) return;
-		transport.syncLoop({
-			startBar: loopStartBar,
-			endBar: loopEndBar,
-			enabled: loopEnabled,
-			order: loopOrder,
-			...loopTicks
-		});
+		transport.syncLoop(toRegion(loop));
 	}
 
 	// --- Score selection overlay ---
@@ -1296,9 +1267,9 @@
 			!scoreLoaded ||
 			!duration ||
 			duration <= 0 ||
-			loopStartBar === null ||
-			loopEndBar === null ||
-			!loopEnabled
+			loop.startBar === null ||
+			loop.endBar === null ||
+			!loop.enabled
 		) {
 			clearScoreSelection();
 			loopMinimapVisible = false;
@@ -1315,8 +1286,8 @@
 				return;
 			}
 
-			const startBar = loopStartBar;
-			const endBar = loopEndBar;
+			const startBar = loop.startBar;
+			const endBar = loop.endBar;
 
 			type Rect = LoopRect;
 			const rects: Rect[] = [];
@@ -1326,7 +1297,7 @@
 				for (const mbb of sg.bars) {
 					if (mbb.index < startBar || mbb.index > endBar) continue;
 					const b = mbb.realBounds;
-					if (b && b.w > 0 && b.h > 0) rects.push(...loopRectsForBar(mbb.index, b, loopTicks));
+					if (b && b.w > 0 && b.h > 0) rects.push(...loopRectsForBar(mbb.index, b, loop.ticks));
 				}
 			}
 
@@ -1371,8 +1342,8 @@
 
 			// Playback can jump backwards through a repeat. Keep handles at the
 			// actual endpoints, independently of the visual order of the highlights.
-			const startRect = loopTicks ? rects.find((r) => r.startsLoop) : merged[0];
-			const endRect = loopTicks ? rects.find((r) => r.endsLoop) : merged.at(-1);
+			const startRect = loop.ticks ? rects.find((r) => r.startsLoop) : merged[0];
+			const endRect = loop.ticks ? rects.find((r) => r.endsLoop) : merged.at(-1);
 
 			for (const r of merged) {
 				// Selection area
@@ -1477,11 +1448,11 @@
 
 				// Loop toggle
 				const loopBtn = document.createElement('button');
-				loopBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:${loopEnabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loopEnabled ? 'rgb(236,72,153)' : '#999'};`;
-				loopBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">${loopEnabled ? 'loop' : 'sync_disabled'}</i>`;
-				loopBtn.title = loopEnabled ? 'Loop ON' : 'Loop OFF';
+				loopBtn.style.cssText = `${controlStyle}border-radius:999px;border:none;cursor:pointer;background:${loop.enabled ? 'rgba(236,72,153,0.1)' : 'transparent'};color:${loop.enabled ? 'rgb(236,72,153)' : '#999'};`;
+				loopBtn.innerHTML = `<i class="material-icons" style="${iconStyle}" aria-hidden="true">${loop.enabled ? 'loop' : 'sync_disabled'}</i>`;
+				loopBtn.title = loop.enabled ? 'Loop ON' : 'Loop OFF';
 				loopBtn.setAttribute('aria-label', 'Toggle selection loop');
-				loopBtn.setAttribute('aria-pressed', String(loopEnabled));
+				loopBtn.setAttribute('aria-pressed', String(loop.enabled));
 				loopBtn.addEventListener('click', (e) => {
 					e.stopPropagation();
 					toggleLoopEnabled();
@@ -1573,65 +1544,36 @@
 	}
 
 	// MIDI timing is populated after scoreLoaded; validate restored ticks once ready.
-	$: if (api && scoreLoaded && duration > 0 && loopNeedsValidation) {
-		const timing = loopTiming();
+	$: if (api && scoreLoaded && duration > 0 && loopPhase.kind === 'validating') {
+		const { region } = loopPhase;
+		const timing = region.order === 'written' ? writtenTimingForApi(api) : timingForApi(api);
 		if (timing) {
-			loopNeedsValidation = false;
-			if (
-				loopTicks &&
-				resolveLoopRange(timing, {
-					startBar: null,
-					endBar: null,
-					enabled: loopEnabled,
-					...loopTicks
-				})
-			)
-				setLoopTicks(loopTicks, loopEnabled);
-			else clearLoopPoints();
+			loopPhase = { kind: 'ready' };
+			// A loop the user made in the meantime wins over the restored one.
+			if (loop.kind === 'none') {
+				loop = validateRestored(region, timing);
+				if (loop.kind === 'none') clearLoopPoints();
+			}
 		}
 	}
-
-	// Bar edits in practice keep their explicit range on the written clock.
-	$: if (
-		loopOrder === 'written' &&
-		loopTicks === null &&
-		loopStartBar !== null &&
-		loopEndBar !== null &&
-		api
-	)
-		setLoopBars(loopStartBar, loopEndBar, loopOrder, loopEnabled);
+	$: loopReady = loopPhase.kind === 'ready';
 
 	// React to loop changes: sync playbackRange and update score selection
-	$: loopSyncKey = `${loopStartBar}-${loopEndBar}-${loopEnabled}-${loopTicks?.startTick}-${loopTicks?.endTick}-${loopSnap}-${loopOrder}`;
-	$: if (
-		api &&
-		scoreLoaded &&
-		loopRestored &&
-		!loopNeedsValidation &&
-		duration > 0 &&
-		loopSyncKey
-	) {
+	$: loopSyncKey = `${loop.startBar}-${loop.endBar}-${loop.enabled}-${loop.ticks?.startTick}-${loop.ticks?.endTick}-${loopSnap}-${loop.order}`;
+	$: if (api && scoreLoaded && loopReady && duration > 0 && loopSyncKey) {
 		syncPlaybackRange();
 		updateScoreSelection();
 	}
 	// Persist the loop region in the URL so it survives reloads / shared links.
-	$: if (browser && scoreLoaded && loopRestored && !loopNeedsValidation && loopSyncKey) {
-		updatePlayerState({
-			loop: {
-				startBar: loopStartBar,
-				endBar: loopEndBar,
-				enabled: loopEnabled,
-				order: loopOrder,
-				...loopTicks
-			}
-		});
-		syncLoopUrl(loopStartBar, loopEndBar, loopEnabled, loopTicks, loopOrder);
+	$: if (browser && scoreLoaded && loopReady && loopSyncKey) {
+		updatePlayerState({ loop: toRegion(loop) });
+		syncLoopUrl(loop.startBar, loop.endBar, loop.enabled, loop.ticks, loop.order);
 	}
 
-	// Reactive timeline percentages — directly references loopStartBar/loopEndBar/duration
+	// Reactive timeline percentages — directly references loop.startBar/loop.endBar/duration
 	// so Svelte tracks them as dependencies (it can't see through loopRangeMs()).
 	$: _loopTimelinePct =
-		loopStartBar !== null && loopEndBar !== null && duration > 0 && loopSyncKey
+		loop.startBar !== null && loop.endBar !== null && duration > 0 && loopSyncKey
 			? (() => {
 					const lm = loopRangeMs();
 					return lm
@@ -1647,7 +1589,7 @@
 			selectScoreNotes(startBeat, endBeat, startBeat !== endBeat);
 			return;
 		}
-		loopTicks = null;
+		loop = snapToBars(loop, writtenTimingForApi(api));
 
 		// Must be different beats - same beat means single click, not a range selection
 		if (startBeat === endBeat) return;
@@ -1661,9 +1603,7 @@
 
 		// bar1 === bar2 is valid (single-bar loop)
 
-		loopStartBar = sBar;
-		loopEndBar = eBar;
-		loopEnabled = true;
+		loop = markerLoop(sBar, eBar, true, loop.order, writtenTimingForApi(api));
 
 		// Position popover above the selection
 		requestAnimationFrame(() => positionSelectionPopover());
@@ -1716,13 +1656,7 @@
 		source: EventTarget = document
 	) {
 		cancelActiveDrag?.();
-		const original = {
-			start: loopStartBar,
-			end: loopEndBar,
-			enabled: loopEnabled,
-			ticks: loopTicks,
-			order: loopOrder
-		};
+		const original = loop;
 		const cleanup = () => {
 			source.removeEventListener(moveType, move);
 			source.removeEventListener(endType, end);
@@ -1734,11 +1668,7 @@
 		const cancel = () => {
 			cleanup();
 			cancelProgressGesture();
-			loopStartBar = original.start;
-			loopEndBar = original.end;
-			loopEnabled = original.enabled;
-			loopTicks = original.ticks;
-			loopOrder = original.order;
+			loop = original;
 			updateScoreSelection();
 		};
 		const visibility = () => {
@@ -1807,7 +1737,7 @@
 		const EDGE_THRESHOLD_PX = 10;
 
 		// Check if clicking near existing loop edges for resize, or inside for move
-		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
+		if (loop.startBar !== null && loop.endBar !== null && _loopTimelinePct) {
 			const startX = (_loopTimelinePct.start / 100) * rect.width;
 			const endX = (_loopTimelinePct.end / 100) * rect.width;
 
@@ -1825,7 +1755,11 @@
 				return;
 			}
 			// Inside the loop region - drag to move
-			if (loopEnabled && mouseX > startX + EDGE_THRESHOLD_PX && mouseX < endX - EDGE_THRESHOLD_PX) {
+			if (
+				loop.enabled &&
+				mouseX > startX + EDGE_THRESHOLD_PX &&
+				mouseX < endX - EDGE_THRESHOLD_PX
+			) {
 				e.preventDefault();
 				startLoopMoveDrag(e);
 				return;
@@ -1847,16 +1781,16 @@
 	}
 
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
-		if (loopStartBar === null || loopEndBar === null || !duration) return;
+		if (loop.startBar === null || loop.endBar === null || !duration) return;
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
-		const barSpan = loopEndBar - loopStartBar;
+		const barSpan = loop.endBar - loop.startBar;
 		const originalTicks = currentLoopRange();
 		const origStartBar =
-			loopTicks && originalTicks
-				? (loopTiming()?.barAt(originalTicks.startTick) ?? loopStartBar)
-				: loopStartBar;
-		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+			loop.ticks && originalTicks
+				? (loopTiming()?.barAt(originalTicks.startTick) ?? loop.startBar)
+				: loop.startBar;
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loop.startBar);
 		const scoreAnchorBeat = useScore
 			? mouseToBeatViaScore(e.clientX, e.clientY, origStartBar, true)
 			: null;
@@ -1886,7 +1820,6 @@
 				}
 				return;
 			}
-			loopTicks = null;
 			let newStartBar: number;
 			if (useScore) {
 				const currentBar = mouseToBarViaScore(me.clientX, me.clientY, origStartBar);
@@ -1902,8 +1835,7 @@
 			}
 			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
 			if (newStartBar < 0) newStartBar = 0;
-			loopStartBar = newStartBar;
-			loopEndBar = newStartBar + barSpan;
+			setLoopMarkers(newStartBar, newStartBar + barSpan);
 			updateScoreSelection();
 		};
 
@@ -1953,14 +1885,8 @@
 
 	/** Move one edge of a bar loop, never past the other edge. */
 	function setLoopEdgeBar(edge: 'start' | 'end', hitBar: number) {
-		loopTicks = null;
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
-		const barIdx = Math.min(hitBar, maxBar);
-		if (edge === 'start') {
-			loopStartBar = Math.min(barIdx, loopEndBar ?? Infinity);
-		} else {
-			loopEndBar = Math.max(barIdx, loopStartBar ?? 0);
-		}
+		loop = withEdgeBar(loop, edge, Math.min(hitBar, maxBar), writtenTimingForApi(api));
 		updateScoreSelection();
 	}
 
@@ -2045,11 +1971,8 @@
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
 			isDraggingLoop = false;
-			if (loopStartBar !== null && loopEndBar !== null && loopStartBar > loopEndBar) {
-				const tmp = loopStartBar;
-				loopStartBar = loopEndBar;
-				loopEndBar = tmp;
-			}
+			if (loop.kind === 'bars' && loop.startBar > loop.endBar)
+				loop = barLoop(loop.endBar, loop.startBar, loop.enabled);
 		};
 
 		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
@@ -2111,9 +2034,9 @@
 			// and flip into loop-sizing mode.
 			pbLoopAnchorMs = percentToTime(pbStartPct);
 			// A new selection uses the timeline's current order, including after practice is off.
-			if (!loopEnabled) loopOrder = undefined;
+			const anchorBar = msToBar(pbLoopAnchorMs);
 			if (loopSnap === 'note') selectNoteTimes(pbLoopAnchorMs, pbLoopAnchorMs);
-			else setLoopBars(msToBar(pbLoopAnchorMs), msToBar(pbLoopAnchorMs));
+			else setLoopBars(anchorBar, anchorBar, loop.enabled ? loop.order : undefined);
 			pbLoopCreating = true;
 			isDraggingLoop = true;
 			dismissPopoverAndRefresh();
@@ -2134,7 +2057,7 @@
 			}
 			const span = barSpanBetweenMs(pbLoopAnchorMs, fingerMs);
 			if (span) {
-				setLoopBars(span.minBar, span.maxBar);
+				setLoopBars(span.minBar, span.maxBar, loop.order);
 				updateScoreSelection();
 			}
 			return;
@@ -2164,7 +2087,7 @@
 
 		// Plain click/tap = seek. If seeking outside the current loop, disable it.
 		const seekTime = percentToTime(getProgressPercent(clientX));
-		if (loopStartBar !== null && loopEndBar !== null && loopEnabled && _loopTimelinePct) {
+		if (loop.startBar !== null && loop.endBar !== null && loop.enabled && _loopTimelinePct) {
 			const loopStartMs = (_loopTimelinePct.start / 100) * duration;
 			const loopEndMs = (_loopTimelinePct.end / 100) * duration;
 			if (seekTime < loopStartMs || seekTime > loopEndMs) {
@@ -2197,7 +2120,7 @@
 		const x = event.touches[0].clientX - rect.left;
 
 		const EDGE_THRESHOLD_PX = 15;
-		if (loopStartBar !== null && loopEndBar !== null && _loopTimelinePct) {
+		if (loop.startBar !== null && loop.endBar !== null && _loopTimelinePct) {
 			const startX = (_loopTimelinePct.start / 100) * rect.width;
 			const endX = (_loopTimelinePct.end / 100) * rect.width;
 
@@ -2209,7 +2132,7 @@
 				startLoopEdgeDragTouch(event, 'end');
 				return;
 			}
-			if (loopEnabled && x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
+			if (loop.enabled && x > startX + EDGE_THRESHOLD_PX && x < endX - EDGE_THRESHOLD_PX) {
 				startLoopMoveDragTouch(event);
 				return;
 			}
@@ -2271,15 +2194,15 @@
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
-		if (loopStartBar === null || loopEndBar === null || !range || !duration || !event.touches[0])
+		if (loop.startBar === null || loop.endBar === null || !range || !duration || !event.touches[0])
 			return;
 		isDraggingLoop = true;
 		dismissPopoverAndRefresh();
-		const barSpan = loopEndBar - loopStartBar;
+		const barSpan = loop.endBar - loop.startBar;
 		const rect = range.getBoundingClientRect();
 		const startTouchX = event.touches[0].clientX;
 		const originalTicks = currentLoopRange();
-		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+		const origStartMs = loopRangeMs()?.startMs ?? barToMs(loop.startBar);
 
 		const maxBar = totalBars > 0 ? totalBars - 1 : 0;
 		const onMove = (e: TouchEvent) => {
@@ -2291,12 +2214,10 @@
 				moveNoteLoop(originalTicks, timingForApi(api)!.msToTick(newMs, api.playbackSpeed));
 				return;
 			}
-			loopTicks = null;
 			let newStartBar = msToBar(newMs);
 			if (newStartBar + barSpan > maxBar) newStartBar = maxBar - barSpan;
 			if (newStartBar < 0) newStartBar = 0;
-			loopStartBar = newStartBar;
-			loopEndBar = newStartBar + barSpan;
+			setLoopMarkers(newStartBar, newStartBar + barSpan);
 			updateScoreSelection();
 		};
 		const onEnd = () => {
@@ -2892,7 +2813,7 @@
 					return;
 				}
 				lastScoreClick = { beat, time: Date.now() };
-				if (loopStartBar !== null || loopEndBar !== null) {
+				if (loop.startBar !== null || loop.endBar !== null) {
 					clearLoopPoints();
 				}
 				showSelectionPopover = false;
@@ -3118,12 +3039,12 @@
 				getDuration: () => duration,
 				isPositionReady: () => transport.state.positionReady,
 				getLoopBounds: () =>
-					loopStartBar !== null && loopEndBar !== null
-						? { startBar: loopStartBar, endBar: loopEndBar, enabled: loopEnabled }
+					loop.startBar !== null && loop.endBar !== null
+						? { startBar: loop.startBar, endBar: loop.endBar, enabled: loop.enabled }
 						: null,
 				getLoopTicks: () => currentLoopRange(),
 				getLoopSnap: () => loopSnap,
-				getLoopOrder: () => loopOrder,
+				getLoopOrder: () => loop.order,
 				getLoopMs: () => {
 					const lm = loopRangeMs();
 					return lm ? { start: lm.startMs, end: lm.endMs } : null;
@@ -3491,7 +3412,7 @@
 				showVideoDropdown = false;
 			} else if (showPlaylistPicker) {
 				showPlaylistPicker = false;
-			} else if (loopStartBar !== null || loopEndBar !== null) {
+			} else if (loop.startBar !== null || loop.endBar !== null) {
 				clearLoopPoints();
 			}
 		} else {
@@ -3644,8 +3565,8 @@
 	/** Play immediately, bypassing any delay (used by video sync, loop play-from-A) */
 	/** Seek to the loop's first note and play. */
 	function playLoopFromStart() {
-		if (loopStartBar === null || !api) return;
-		const ms = loopRangeMs()?.startMs ?? barToMs(loopStartBar);
+		if (loop.startBar === null || !api) return;
+		const ms = loopRangeMs()?.startMs ?? barToMs(loop.startBar);
 		if (ms < 0) return;
 		progress = (ms / duration) * 100;
 		transport.seek(ms);
@@ -3820,8 +3741,8 @@
 	}
 
 	function clickLooping() {
-		// If a region loop is active, this toggle affects loopEnabled (our region loop)
-		if (loopStartBar !== null && loopEndBar !== null) {
+		// If a region loop is active, this toggle affects loop.enabled (our region loop)
+		if (loop.startBar !== null && loop.endBar !== null) {
 			toggleLoopEnabled();
 		} else {
 			// No region loop - toggle alphaTab's global loop
@@ -4251,16 +4172,14 @@
 				<!-- Loop on/off toggle -->
 				<button
 					aria-label="Toggle loop"
-					class="p-1 rounded-full transition-all {loopEnabled
+					class="p-1 rounded-full transition-all {loop.enabled
 						? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 						: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
-					on:click={() => {
-						loopEnabled = !loopEnabled;
-					}}
-					title={loopEnabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
+					on:click={() => (loop = toggleEnabled(loop))}
+					title={loop.enabled ? 'Loop ON - click to disable' : 'Loop OFF - click to enable'}
 				>
 					<i class="material-icons !text-lg" aria-hidden="true"
-						>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+						>{loop.enabled ? 'loop' : 'sync_disabled'}</i
 					>
 				</button>
 
@@ -4347,32 +4266,32 @@
 		aria-label="Playback controls"
 		data-layout-region="player-controls"
 	>
-		{#if showTouchLoopBar && loopStartBar !== null && loopEndBar !== null}
+		{#if showTouchLoopBar && loop.startBar !== null && loop.endBar !== null}
 			<!-- Touch loop controls. Docked in the transport rather than floating over
 			     the score, where a finger-sized toolbar always covers notes; being part
 			     of the bar, following treats it as the bottom of the visible score. It
 			     stays while the loop is off, so the loop can be turned back on. -->
 			<div data-loop-bar class="flex items-center gap-1 px-2 pt-1">
 				<button
-					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors {loopEnabled
+					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-colors {loop.enabled
 						? 'bg-pink-500/10 text-pink-500'
 						: 'text-neutral-400'}"
 					aria-label="Toggle selection loop"
-					aria-pressed={loopEnabled}
+					aria-pressed={loop.enabled}
 					on:click={toggleLoopEnabled}
 				>
 					<i class="material-icons !text-[22px]" aria-hidden="true"
-						>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+						>{loop.enabled ? 'loop' : 'sync_disabled'}</i
 					>
 				</button>
 				<span
-					class="flex-1 min-w-0 truncate text-xs font-medium {loopEnabled
+					class="flex-1 min-w-0 truncate text-xs font-medium {loop.enabled
 						? 'text-pink-600 dark:text-pink-400'
 						: 'text-neutral-500 dark:text-neutral-400'}"
 				>
-					{loopEnabled ? 'Loop' : 'Loop off'} · {loopStartBar === loopEndBar
-						? `Bar ${loopStartBar + 1}`
-						: `Bars ${loopStartBar + 1}–${loopEndBar + 1}`}
+					{loop.enabled ? 'Loop' : 'Loop off'} · {loop.startBar === loop.endBar
+						? `Bar ${loop.startBar + 1}`
+						: `Bars ${loop.startBar + 1}–${loop.endBar + 1}`}
 				</span>
 				<button
 					class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full text-neutral-500 dark:text-neutral-400"
@@ -4431,12 +4350,12 @@
 			</div>
 
 			<!-- Loop region overlay -->
-			{#if loopStartBar !== null && loopEndBar !== null && duration > 0 && _loopTimelinePct}
+			{#if loop.startBar !== null && loop.endBar !== null && duration > 0 && _loopTimelinePct}
 				{@const startPct = _loopTimelinePct.start}
 				{@const endPct = _loopTimelinePct.end}
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
-					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loopEnabled
+					class="absolute inset-y-0 transition-colors cursor-grab active:cursor-grabbing z-10 {loop.enabled
 						? 'bg-pink-400/50'
 						: 'bg-neutral-400/25'}"
 					style="left: {startPct}%; width: {endPct - startPct}%; touch-action: none;"
@@ -4451,15 +4370,15 @@
 							<!-- Finger-sized grab area around the thin bracket -->
 							<span class="absolute -inset-x-4 -inset-y-3" aria-hidden="true" />
 						{/if}
-						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
+						<div class="w-[2px] {loop.enabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-l-sm" />
 						<div class="flex flex-col justify-between -ml-px">
 							<div
-								class="w-[5px] h-[2px] {loopEnabled
+								class="w-[5px] h-[2px] {loop.enabled
 									? 'bg-pink-500'
 									: 'bg-neutral-400'} rounded-r-sm"
 							/>
 							<div
-								class="w-[5px] h-[2px] {loopEnabled
+								class="w-[5px] h-[2px] {loop.enabled
 									? 'bg-pink-500'
 									: 'bg-neutral-400'} rounded-r-sm"
 							/>
@@ -4476,17 +4395,17 @@
 						{/if}
 						<div class="flex flex-col justify-between -mr-px">
 							<div
-								class="w-[5px] h-[2px] {loopEnabled
+								class="w-[5px] h-[2px] {loop.enabled
 									? 'bg-pink-500'
 									: 'bg-neutral-400'} rounded-l-sm"
 							/>
 							<div
-								class="w-[5px] h-[2px] {loopEnabled
+								class="w-[5px] h-[2px] {loop.enabled
 									? 'bg-pink-500'
 									: 'bg-neutral-400'} rounded-l-sm"
 							/>
 						</div>
-						<div class="w-[2px] {loopEnabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
+						<div class="w-[2px] {loop.enabled ? 'bg-pink-500' : 'bg-neutral-400'} rounded-r-sm" />
 					</div>
 				</div>
 
@@ -4513,15 +4432,15 @@
 						<!-- Loop on/off -->
 						<button
 							aria-label="Toggle loop"
-							aria-pressed={loopEnabled}
-							class="p-0.5 rounded-full transition-all {loopEnabled
+							aria-pressed={loop.enabled}
+							class="p-0.5 rounded-full transition-all {loop.enabled
 								? 'text-pink-500 bg-pink-100 dark:bg-pink-900/30'
 								: 'text-neutral-400 hover:text-pink-500 hover:bg-neutral-100 dark:hover:bg-neutral-700'}"
 							on:click|stopPropagation={toggleLoopEnabled}
-							title={loopEnabled ? 'Loop ON' : 'Loop OFF'}
+							title={loop.enabled ? 'Loop ON' : 'Loop OFF'}
 						>
 							<i class="material-icons !text-base" aria-hidden="true"
-								>{loopEnabled ? 'loop' : 'sync_disabled'}</i
+								>{loop.enabled ? 'loop' : 'sync_disabled'}</i
 							>
 						</button>
 
@@ -4867,19 +4786,19 @@
 			     toggle lives in the settings panel there; the freed slot keeps the
 			     phone bar to the essentials (settings + fullscreen). -->
 			{#if !mobileBar}
-				{#if loopStartBar !== null && loopEndBar !== null}
+				{#if loop.startBar !== null && loop.endBar !== null}
 					<button
 						on:click={toggleLoopEnabled}
 						class="{compactBar
 							? 'p-1.5'
 							: 'p-2.5'} rounded-xl transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800
-						{loopEnabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
-						title="{loopEnabled ? 'Disable' : 'Enable'} loop (bar {loopStartBar + 1} → {loopEndBar +
-							1}) [Esc to clear]"
-						aria-label="{loopEnabled ? 'Disable' : 'Enable'} loop"
+						{loop.enabled ? 'text-pink-500' : 'text-neutral-400 dark:text-neutral-500'}"
+						title="{loop.enabled ? 'Disable' : 'Enable'} loop (bar {loop.startBar +
+							1} → {loop.endBar + 1}) [Esc to clear]"
+						aria-label="{loop.enabled ? 'Disable' : 'Enable'} loop"
 					>
 						<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
-							>{loopEnabled ? 'repeat_on' : 'repeat'}</i
+							>{loop.enabled ? 'repeat_on' : 'repeat'}</i
 						>
 					</button>
 				{:else}
@@ -5628,13 +5547,13 @@
 					bind:trackVolumes
 					bind:trackMutes
 					bind:trackSolos
-					{loopStartBar}
-					{loopEndBar}
-					{loopEnabled}
+					loopStartBar={loop.startBar}
+					loopEndBar={loop.endBar}
+					loopEnabled={loop.enabled}
 					preciseLoop={loopSnap === 'note'}
 					{trainerOn}
 					{speed}
-					looping={trainerLooping || (loopStartBar !== null && loopEnabled)}
+					looping={trainerLooping || (loop.startBar !== null && loop.enabled)}
 					on:trainer={(e) => setTrainer(e.detail)}
 					bind:loopSnap
 					on:loopsnap={changeLoopSnap}

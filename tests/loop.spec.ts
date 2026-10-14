@@ -187,6 +187,31 @@ test.describe('Loop Interactions', () => {
 		});
 	});
 
+	test('a new A/B loop plays after a disabled loop was cleared', async ({ page }) => {
+		await setupPlayPage(page);
+		await setLoopSnapping(page, 'bar');
+
+		await dragProgressBar(page, 20, 40);
+		await page.keyboard.press('KeyL');
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds()?.enabled === false);
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() === null);
+
+		await seekToPercent(page, 20);
+		await waitForSeekSettled(page, 20);
+		await page.keyboard.press('KeyA');
+		await seekToPercent(page, 40);
+		await waitForSeekSettled(page, 40);
+		await page.keyboard.press('KeyB');
+
+		await page.waitForFunction(() => (window as any).__testApi?.getLoopBounds() !== null);
+		expect(await getTestApi<any>(page, 'getLoopBounds')).toMatchObject({ enabled: true });
+		await page.waitForFunction(() => {
+			const api = (window as any).__testApi.getApi();
+			return api.isLooping === true && api.playbackRange !== null;
+		});
+	});
+
 	// --- Test 15: Seek outside loop fully removes it ---
 	test('clicking outside loop clears it', async ({ page }) => {
 		await setupPlayPage(page);

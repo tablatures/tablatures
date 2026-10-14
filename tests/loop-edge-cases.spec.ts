@@ -187,10 +187,13 @@ for (const { file } of cases) {
 			const { first, last, expected } = await scorePair(page);
 			if (first === last || first.onset === last.onset) await page.mouse.dblclick(first.x, first.y);
 			else await dragScoreLoop(page, first.x, first.y, last.x, last.y);
-			await expect.poll(() => loopState(page).then((s) => s.ticks)).toEqual(expected);
+			// Entering written practice regenerates the MIDI; the engine's range is
+			// cleared during that reload and applied again once it completes.
+			await expect
+				.poll(() => loopState(page).then(({ ticks, native }) => ({ ticks, native })))
+				.toEqual({ ticks: expected, native: expected });
 			const state = await loopState(page);
 			expect(state.order).toBe('written');
-			expect(state.native).toEqual(expected);
 			expect(state.visits).toEqual([...Array(state.bars).keys()]);
 			await expect(page).toHaveURL(
 				new RegExp(`loop=w\\.${expected.startTick}\\.${expected.endTick}(&|$)`)
