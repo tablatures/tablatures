@@ -144,6 +144,14 @@ loading or for another owner, and a replaced score's countdown never starts
 playback. Add an invariant there when a fix concerns which events may apply in
 which state; keep scenario tests in `playerTransport.test.ts`.
 
+The player's loop selection is a `LoopSelection` union (`loopSelection.ts`):
+no loop, one A/B marker, printed bars, or a precise range valid on its clock.
+Every variant carries every field read-only, so TabViewer reads `loop.startBar`
+directly but must build a whole selection to change one; bar edits in written
+order resolve to written ticks in the same step, rather than in a later reactive
+repair. `loopSelection.test.ts` owns these rules and explores every four-step
+sequence of selection edits. Browser specs keep gesture-to-selection wiring.
+
 The transport suite owns delayed play cancellation/pause/resume, idempotent play,
 seek acknowledgements and video forwarding, next/previous navigation through repeated
 bar visits and tempo changes, and region versus whole-song repeat policy. Real
