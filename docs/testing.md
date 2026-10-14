@@ -130,6 +130,20 @@ ports let tests record commands, deliver synchronous stale callbacks, replace a
 score, and advance application timers deterministically. No browser, audio device
 or wall-clock sleeps are needed.
 
+The transport's policy is a pure state machine (`transportMachine.ts`):
+`transition(model, event, current)` returns the next model and the effects to
+run, and `createPlayerTransport` commits the model before running them, because
+engine callbacks may re-enter synchronously. The model is a discriminated union,
+so a pending seek, a fenced load and a delayed start each carry the engine and
+score they belong to, and combinations such as "ready while loading" or "a
+countdown with no time left" cannot be represented. `transportMachine.test.ts`
+explores every four-step sequence of commands, callbacks, score and engine
+replacements, and checks the invariants after each step: disposal is inert, only
+the current session's callbacks are accepted, the engine is never written while
+loading or for another owner, and a replaced score's countdown never starts
+playback. Add an invariant there when a fix concerns which events may apply in
+which state; keep scenario tests in `playerTransport.test.ts`.
+
 The transport suite owns delayed play cancellation/pause/resume, idempotent play,
 seek acknowledgements and video forwarding, next/previous navigation through repeated
 bar visits and tempo changes, and region versus whole-song repeat policy. Real
