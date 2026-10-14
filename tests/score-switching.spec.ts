@@ -131,6 +131,9 @@ for (const entry of ['recommendation', 'autocomplete', 'catalogue']) {
 			await expect
 				.poll(() => page.evaluate(() => (window as any).__testApi.getTotalBars()))
 				.toBe(12);
+			await expect(
+				page.locator('#player-host .at-surface canvas, #player-host .at-surface svg').first()
+			).toBeVisible();
 		});
 	}
 }
@@ -167,6 +170,10 @@ test('switching a paused score shows the replacement duration before any playbac
 	await expect(controls.getByRole('heading', { name: 'Jingle Bells', exact: true })).toBeVisible();
 	await expect(controls.getByText('00:00 / 00:24', { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+	await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+	await expect(
+		page.locator('#player-host .at-surface canvas, #player-host .at-surface svg').first()
+	).toBeVisible();
 });
 
 test('a failed replacement clears the previous score and video, and can retry', async ({

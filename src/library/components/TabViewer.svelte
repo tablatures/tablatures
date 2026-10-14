@@ -3510,8 +3510,10 @@
 	// Guard against double-cleanup (beforeNavigate + onDestroy both fire)
 	let didReturnPlayerHost = false;
 
-	// Save state and return player host when navigating away
-	beforeNavigate(() => {
+	// Save state and return player host when navigating away. Another tab on
+	// /play keeps this view mounted with new props: it must keep the host.
+	beforeNavigate(({ to }) => {
+		if (to?.route.id === '/play') return;
 		if (!didReturnPlayerHost) returnPlayerHost();
 	});
 
