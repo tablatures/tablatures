@@ -142,6 +142,7 @@ declare global {
 			model?: { Color: new (r: number, g: number, b: number, a?: number) => Color };
 			Color?: new (r: number, g: number, b: number, a?: number) => Color;
 			exporter: { Gp7Exporter: new () => Gp7Exporter };
+			meta?: { version: string };
 			importer: {
 				ScoreLoader: { loadScoreFromBytes(data: Uint8Array, settings?: unknown): Score };
 			};
