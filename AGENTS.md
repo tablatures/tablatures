@@ -8,3 +8,7 @@ Read [docs/testing.md](docs/testing.md) before changing tests or diagnosing a te
 - Inspect the first failure's trace before editing. Reproduce the affected test without retries; a single passing rerun does not establish flakiness.
 - Do not fix failures by loosening musical expectations, adding sleeps/retries, or skipping when expected UI is missing. Fix the demonstrated cause and preserve the regression assertion.
 - After a timing/harness fix, repeat the affected specs with `pnpm test:stability <spec>`; do not repeat unrelated suites without new evidence.
+
+# alphaTab
+
+Read [docs/alphatab-workarounds.md](docs/alphatab-workarounds.md) before upgrading alphaTab or adding code that depends on its internals. Prefer its public API; every workaround for alphaTab's own behaviour is version-gated in `src/library/utils/alphaTabWorkarounds.ts` and checked by a canary test.

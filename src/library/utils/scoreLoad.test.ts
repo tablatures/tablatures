@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cancelScoreOpen, layOutLoadedScoresLater, nextTask, openScoreBytes } from './scoreLoad';
+import { cancelScoreOpen, nextTask, openScoreBytes } from './scoreLoad';
 
 const bytes = new Uint8Array([1, 2, 3]);
 
@@ -49,49 +49,5 @@ describe('openScoreBytes', () => {
 		expect(await opened).toBe(false);
 		expect(api.onError).toHaveBeenCalledWith(error);
 		expect(api.load).not.toHaveBeenCalled();
-	});
-});
-
-/** alphaTab 1.8's load order: scoreLoaded handlers, MIDI, then render(). */
-function laying() {
-	const listeners: Array<(score: unknown) => void> = [];
-	const layouts = vi.fn();
-	const api = {
-		render: (hints?: unknown) => layouts(hints),
-		scoreLoaded: { on: (fn: (score: unknown) => void) => listeners.push(fn) },
-		load(score: unknown) {
-			for (const fn of listeners) fn(score);
-			api.render();
-		}
-	};
-	return { api, layouts };
-}
-
-describe('layOutLoadedScoresLater', () => {
-	it('lays a loaded score out in the next task', async () => {
-		const { api, layouts } = laying();
-		layOutLoadedScoresLater(api);
-		api.load('score');
-		expect(layouts).not.toHaveBeenCalled();
-		await nextTask();
-		expect(layouts).toHaveBeenCalledTimes(1);
-	});
-
-	it('renders other requests immediately', () => {
-		const { api, layouts } = laying();
-		layOutLoadedScoresLater(api);
-		api.render({ hint: 1 });
-		expect(layouts).toHaveBeenCalledWith({ hint: 1 });
-	});
-
-	it('lays out once when a render is requested before the deferred one', async () => {
-		const { api, layouts } = laying();
-		layOutLoadedScoresLater(api);
-		api.load('score');
-		api.render(); // e.g. a resize in between
-		expect(layouts).toHaveBeenCalledTimes(1);
-		await nextTask();
-		await nextTask();
-		expect(layouts).toHaveBeenCalledTimes(1);
 	});
 });

@@ -8,9 +8,6 @@ export interface EngineWork {
 	/** Main-thread milliseconds spent in those calls (outermost calls only). */
 	layoutMs: number;
 	midiMs: number;
-	/** Tasks that ran layouts or MIDI generations. One per pass keeps the page
-	 *  responsive between them; a single task freezes it for their sum. */
-	engineTasks: number;
 	/** Longest gap between animation frames, i.e. the longest freeze. */
 	longestFrameMs: number;
 }
@@ -28,17 +25,8 @@ export async function countEngineWork(page: Page): Promise<void> {
 			midi: 0,
 			layoutMs: 0,
 			midiMs: 0,
-			engineTasks: 0,
 			longestFrameMs: 0
 		});
-		// A task ends when its stack empties and queued microtasks run.
-		let inTask = false;
-		const enterTask = () => {
-			if (inTask) return;
-			inTask = true;
-			work.engineTasks++;
-			queueMicrotask(() => (inTask = false));
-		};
 		let last = performance.now();
 		const frame = (now: number) => {
 			work.longestFrameMs = Math.max(work.longestFrameMs, now - last);
@@ -52,10 +40,7 @@ export async function countEngineWork(page: Page): Promise<void> {
 			const original = proto[name];
 			proto[name] = function (this: any, ...args: unknown[]) {
 				if (!this.score) return original.apply(this, args);
-				if (depth === 0) {
-					work[key]++;
-					enterTask();
-				}
+				if (depth === 0) work[key]++;
 				const start = performance.now();
 				depth++;
 				try {
@@ -109,7 +94,6 @@ export async function measureEngineWork(
 			midi: work.midi,
 			layoutMs: Math.round(work.layoutMs),
 			midiMs: Math.round(work.midiMs),
-			engineTasks: work.engineTasks,
 			longestFrameMs: Math.round(work.longestFrameMs)
 		};
 	});

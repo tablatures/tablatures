@@ -30,7 +30,8 @@
 	import { createPlayerCursor } from '$utils/playerCursor';
 	import { applyScoreTheme } from '$utils/scoreTheme';
 	import { generateScoreMidiOnce } from '$utils/scoreMidi';
-	import { cancelScoreOpen, layOutLoadedScoresLater, openScoreBytes } from '$utils/scoreLoad';
+	import { workaroundApplies } from '$utils/alphaTabWorkarounds';
+	import { cancelScoreOpen, openScoreBytes } from '$utils/scoreLoad';
 	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
@@ -345,8 +346,8 @@
 
 		api.customCursorHandler = createPlayerCursor(() => api.playerState !== 0);
 		// Before any view subscribes, so its scoreLoaded handler runs first.
-		generateScoreMidiOnce(api);
-		layOutLoadedScoresLater(api);
+		if (workaroundApplies('duplicateScoreMidi', window.alphaTab.meta?.version))
+			generateScoreMidiOnce(api);
 		practicePlayback = createPracticePlayback(api);
 		instrumentPacks = createInstrumentPacks(api, {
 			baseUrl: `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`,
@@ -552,7 +553,7 @@
 
 	/** Theme the score. Inside scoreLoaded, alphaTab's own layout follows, so
 	 *  `relayout` is false there; otherwise only a changed colour relays out. */
-	/** Load a tab's bytes; parsing, MIDI and layout each take their own task.
+	/** Load a tab's bytes, parsing them in a task of their own.
 	 *  Resolves true once alphaTab has the score. */
 	function openInEngine(api: AlphaTab.Api, fileAsB64: string): Promise<boolean> {
 		const buffer = base64ToArrayBuffer(fileAsB64);

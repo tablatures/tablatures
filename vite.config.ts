@@ -4,6 +4,7 @@ import type { Plugin, UserConfig } from 'vite';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { batchWorkletReports } from './scripts/vendor-alphatab.mjs';
+import { workaroundApplies } from './src/library/utils/alphaTabWorkarounds';
 
 // Copy alphaTab's runtime files (the UMD script and the Bravura music font)
 // out of the npm package into static/vendor so the app serves them itself
@@ -19,7 +20,15 @@ function vendorAlphaTab(): Plugin {
 			mkdirSync(dest, { recursive: true });
 			// The same script runs the page, the synth worker and the audio worklet.
 			const script = readFileSync(resolve(dist, 'alphaTab.min.js'), 'utf8');
-			writeFileSync(resolve(dest, 'alphaTab.min.js'), batchWorkletReports(script));
+			const { version } = JSON.parse(
+				readFileSync(resolve('node_modules/@coderline/alphatab/package.json'), 'utf8')
+			);
+			const patch = workaroundApplies('perQuantumWorkletReports', version);
+			if (!patch)
+				this.warn(
+					`alphaTab ${version}: worklet report batching not applied; see docs/alphatab-workarounds.md`
+				);
+			writeFileSync(resolve(dest, 'alphaTab.min.js'), patch ? batchWorkletReports(script) : script);
 			cpSync(resolve(dist, 'font'), resolve(dest, 'font'), { recursive: true });
 		}
 	};

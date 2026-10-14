@@ -2,7 +2,8 @@
 // announces the score (`_onScoreLoaded`, when a player already exists) and
 // again in `_internalRenderTracks` right after, with nothing changed in
 // between. On a dense score each generation blocks the main thread for
-// ~100 ms, more on a slow phone.
+// ~100 ms, more on a slow phone. Installed only for the alphaTab versions in
+// alphaTabWorkarounds.ts; see docs/alphatab-workarounds.md.
 
 interface MidiEngine {
 	score: unknown;
