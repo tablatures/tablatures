@@ -1,7 +1,10 @@
 // Generates tests/fixtures/perf/dense.gp, the dense score behind the player
-// performance benchmark. Its size is calibrated against a real progressive
+// performance benchmark. Its notes are calibrated against a real progressive
 // metal transcription (9 tracks, 217 bars, ~13.6k notes, a dense first track)
-// so lab numbers move the way a heavy catalogue tab does, without committing someone's tab.
+// so layout and MIDI cost move the way a heavy catalogue tab does, without
+// committing someone's tab. Parsing is not representative: alphaTab's GP7
+// exporter writes ~3.4x the XML of a Guitar Pro file with as many notes, so
+// the fixture parses ~3x slower than a real one.
 //
 //   node scripts/perf-fixture.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
