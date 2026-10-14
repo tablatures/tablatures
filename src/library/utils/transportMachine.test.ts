@@ -77,53 +77,72 @@ const steps: Record<string, Step> = {
 	capture: { kind: 'capture' }
 };
 
+/** A plain assertion: the exploration makes ~200k steps, and vitest's expect()
+ * is too costly to run that often within the test timeout on CI. */
+function check(condition: unknown, invariant: string): asserts condition {
+	if (!condition) throw new Error(invariant);
+}
+
 /** Invariants that must hold after every step, whatever the history. */
 function checkStep(before: World, name: string, after: World, effects: any[], accepted: boolean) {
 	const state = snapshot(after.model);
 	const m = after.model;
 
-	// A disposed transport is inert, and stays disposed.
-	if (before.model.kind === 'disposed') {
-		expect(effects).toEqual([]);
-		expect(m.kind).toBe('disposed');
-	}
+	if (before.model.kind === 'disposed')
+		check(
+			effects.length === 0 && m.kind === 'disposed',
+			'a disposed transport is inert, and stays disposed'
+		);
 	if (m.kind === 'open') {
-		// A countdown always has time left; a seek always has an engine to answer it.
-		if (m.countdown.kind !== 'off') expect(m.countdown.remainingMs).toBeGreaterThan(0);
-		// Nothing is ready, and nothing is accepted, while a load is in flight.
+		if (m.countdown.kind !== 'off')
+			check(m.countdown.remainingMs > 0, 'a countdown always has time left');
 		if (m.phase.kind === 'loading') {
-			expect(m.phase.inFlight).toBeGreaterThan(0);
-			expect(state.positionReady).toBe(false);
+			check(m.phase.inFlight > 0, 'loading means a load is in flight');
+			check(!state.positionReady, 'nothing is ready while a load is in flight');
 		}
 	}
-	expect(state.suppressPosition).toBe(seekOf(m) !== null);
+	check(
+		state.suppressPosition === (seekOf(m) !== null),
+		'positions are suppressed exactly while a seek is pending'
+	);
 
 	if (accepted) {
-		expect(before.model.kind).toBe('open');
-		const prior = before.model as Extract<Model, { kind: 'open' }>;
-		expect(prior.phase.kind).toBe('live');
-		// Only the current session's callbacks are accepted.
+		check(
+			before.model.kind === 'open' && before.model.phase.kind === 'live',
+			'positions are accepted only by a live session'
+		);
 		const source = name === 'staleAcknowledge' ? before.captured : sourceOf(before);
-		expect(source.generation).toBe(prior.generation);
-		expect([source.engine, source.score]).toEqual([before.current.engine, before.current.score]);
-		expect(state.positionReady).toBe(true);
-		expect(state.suppressPosition).toBe(false);
+		check(
+			source.generation === before.model.generation &&
+				source.engine === before.current.engine &&
+				source.score === before.current.score,
+			"only the current session's callbacks are accepted"
+		);
+		check(
+			state.positionReady && !state.suppressPosition,
+			'an accepted position settles the session'
+		);
 	}
 
 	for (const effect of effects) {
-		// The engine is written only for the current owner, and never while loading.
-		if (effect.type === 'write') {
-			expect(effect.engine).toBe(after.current.engine);
-			expect(m.kind === 'open' && m.phase.kind).toBe('live');
-		}
-		// Playback starts only from an explicit command or the owner's own countdown.
-		if (effect.type === 'start') expect(['play', 'tick']).toContain(name);
+		if (effect.type === 'write')
+			check(
+				effect.engine === after.current.engine && m.kind === 'open' && m.phase.kind === 'live',
+				'the engine is written only for the current owner, and never while loading'
+			);
+		if (effect.type === 'start')
+			check(
+				name === 'play' || name === 'tick',
+				'playback starts only from a command or a countdown'
+			);
 	}
-	// A countdown for a replaced score or engine never starts playback.
 	if (name === 'tick' && before.model.kind === 'open' && before.model.countdown.kind !== 'off') {
 		const { owner } = before.model.countdown;
 		if (owner.engine !== after.current.engine || owner.score !== after.current.score)
-			expect(effects.some((e) => e.type === 'start')).toBe(false);
+			check(
+				!effects.some((e) => e.type === 'start'),
+				"a replaced score's countdown never starts playback"
+			);
 	}
 }
 
@@ -150,10 +169,21 @@ describe('the transport state machine', () => {
 	it('keeps its invariants across every sequence of four steps', () => {
 		const names = Object.keys(steps);
 		let explored = 0;
+		const path: string[] = [];
 		const walk = (world: World, depth: number) => {
 			explored++;
 			if (depth === 0) return;
-			for (const name of names) walk(apply(world, name), depth - 1);
+			for (const name of names) {
+				path.push(name);
+				let next: World;
+				try {
+					next = apply(world, name);
+				} catch (error) {
+					throw new Error(`${path.join(' → ')}: ${(error as Error).message}`);
+				}
+				walk(next, depth - 1);
+				path.pop();
+			}
 		};
 		walk(start(), 4);
 		expect(explored).toBeGreaterThan(names.length ** 4);
@@ -178,7 +208,11 @@ describe('the transport state machine', () => {
 		for (const name of ['seek', 'capture', 'reset', 'seek']) w = apply(w, name);
 		const stale = transition(
 			w.model,
-			{ type: 'position', event: { currentTime: 9000, endTime: 22000, isSeek: true }, source: w.captured },
+			{
+				type: 'position',
+				event: { currentTime: 9000, endTime: 22000, isSeek: true },
+				source: w.captured
+			},
 			w.current
 		);
 		expect(stale.accepted).toBe(false);
