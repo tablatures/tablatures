@@ -593,3 +593,32 @@ test.describe('phone note loops', () => {
 		await ticks(page, 480, 960);
 	});
 });
+
+test.describe('tablet note loops', () => {
+	test.use({ hasTouch: true });
+	test('a small wobble while touching a loop edge does not move the playhead', async ({ page }) => {
+		// The edge drag owns the touch. The progress bar used to treat the same
+		// touch's movement as a scrub and seek the playhead to the finger, which
+		// was only visible when the loop itself did not change.
+		await setup(page, '&loop=n.3840.4800');
+		await ticks(page, 3840, 4800);
+		const position = () => page.evaluate(() => (window as any).__testApi.getApi().timePosition);
+		await expect.poll(position).toBeCloseTo(2000, 0);
+		const cdp = await page.context().newCDPSession(page);
+		const box = await page.getByRole('slider', { name: /Playback progress/ }).boundingBox();
+		const y = box!.y + box!.height / 2;
+		const edgeX = box!.x + (box!.width * (await percentAt(page, 4800))) / 100;
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchStart',
+			touchPoints: [{ x: edgeX, y }]
+		});
+		// Further than the scrub threshold, but still within the loop's last note.
+		await cdp.send('Input.dispatchTouchEvent', {
+			type: 'touchMove',
+			touchPoints: [{ x: edgeX - 9, y }]
+		});
+		await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+		await ticks(page, 3840, 4800);
+		expect(await position()).toBeCloseTo(2000, 0);
+	});
+});
