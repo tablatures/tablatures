@@ -305,9 +305,7 @@
 		const api = new window.alphaTab.AlphaTabApi(playerHostEl, {
 			core: {
 				tex: true,
-				// Firefox's hanging canvas baseline puts title ascenders above the
-				// header bitmap. SVG can paint beyond that tile without losing pixels.
-				engine: /Firefox\//.test(navigator.userAgent) ? 'svg' : 'html5',
+				engine: 'html5',
 				logLevel: 1,
 				useWorkers: true,
 				scriptFile: `${vendorBase}/alphaTab.min.js`,
@@ -322,8 +320,10 @@
 			},
 			display: {
 				staveProfile: 'Default',
-				// Page margins are [horizontal, vertical]; title tiles have their
-				// own origin, so this spacing cannot prevent bitmap text clipping.
+				// padding is [horizontal, vertical]. Default is [35, 35]; at higher
+				// DPRs the stock 35px top margin is barely enough and the title
+				// glyph ascenders get pixel-clipped by the canvas element's own
+				// bitmap. Bump vertical to 60 to guarantee headroom.
 				padding: [35, 60]
 			},
 			notation: {

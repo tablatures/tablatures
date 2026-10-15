@@ -94,9 +94,5 @@ is not a workaround and does not belong here.
   layout, and its optimized resize can leave partials at the old width. We
   avoid the narrowing instead: `#page` keeps its scrollbar while loading.
 - **The `html5` render engine cannot run in a worker**, so `useWorkers` only
-  moves the synth off the main thread. Firefox uses the public `svg` engine
-  setting because its canvas hanging baseline clips title ascenders at the
-  header bitmap's top edge; page padding cannot recover those pixels.
-  `tests/score-title.spec.ts` checks the visible title bounds at 1x and 2x.
-  SVG supports workers but has a larger DOM; its performance trade-off has
-  not been measured. Other browsers retain `html5`.
+  moves the synth off the main thread. Switching to the worker-capable `svg`
+  engine is a separate trade-off (DOM size) that has not been measured.
