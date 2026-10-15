@@ -11,7 +11,7 @@ runs:
       shell: bash
       run: |
         installed=$(pnpm exec playwright --version | awk '{print $2}')
-        for dir in $(pnpm exec playwright install --dry-run chromium webkit | awk '/Install location:/ {print $3}'); do
+        for dir in $(pnpm exec playwright install --dry-run chromium firefox webkit | awk '/Install location:/ {print $3}'); do
           if [ ! -d "$dir" ]; then
             echo "::error::${dir} is missing. Set the mcr.microsoft.com/playwright image in .github/workflows/test.yml to v${installed}-noble."
             exit 1
