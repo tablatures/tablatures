@@ -32,6 +32,7 @@
 	import { generateScoreMidiOnce } from '$utils/scoreMidi';
 	import { workaroundApplies } from '$utils/alphaTabWorkarounds';
 	import { cancelScoreOpen, openScoreBytes } from '$utils/scoreLoad';
+	import { isParsed } from '$utils/scoreLoadMachine';
 	import { playerViewport } from '$utils/playerViewport';
 	import { navigating, page } from '$app/stores';
 	import { goto, onNavigate } from '$app/navigation';
@@ -53,6 +54,8 @@
 		isFullPlayerView,
 		loadedTabB64,
 		resetPlayerState,
+		sendScoreLoad,
+		sendSoundFont,
 		activeVideoId,
 		isTransitioning,
 		videoPlayerRef,
@@ -382,7 +385,7 @@
 		// Fences stale positions for every view: earlier seeks, previous scores
 		// and positions from a MIDI that is being replaced.
 		detachTransport = attachSessionTransport(api, transport, (e) => {
-			if (!get(tabStore)?.fileAsB64 || !get(playerState).scoreLoaded) return;
+			if (!get(tabStore)?.fileAsB64 || !sessionParsed()) return;
 			updatePlayerState({
 				progress: 100 * (e.currentTime / e.endTime) || 0,
 				duration: e.endTime,
@@ -418,12 +421,10 @@
 			tabStore.updateSettings(metadata);
 			updatePlayerState({
 				...metadata,
-				scoreLoaded: true,
-				scoreRendered: false,
 				tracks: score.tracks,
-				scoreKey: get(loadedTabB64),
-				isRendering: false
+				scoreKey: tab.fileAsB64
 			});
+			sendScoreLoad({ type: 'parsed', key: tab.fileAsB64 });
 
 			// Record only a successfully parsed score, with its resolved metadata.
 			// Keeping the byte cache and Continue card here also avoids persisting
@@ -474,14 +475,12 @@
 
 		if (api.soundFontLoad) {
 			api.soundFontLoad.on((e) => {
-				if (e.total > 0) {
-					updatePlayerState({ soundFontProgress: Math.round((e.loaded / e.total) * 100) });
-				}
+				sendSoundFont({ type: 'progress', loaded: e.loaded, total: e.total });
 			});
 		}
 
 		api.soundFontLoaded.on(() => {
-			updatePlayerState({ soundFontLoaded: true });
+			sendSoundFont({ type: 'loaded' });
 			installMasterLimiter(api);
 			// No-op once applied; after a base swap it re-layers the score's packs
 			if (api.score) void instrumentPacks?.ensure(api.score);
@@ -500,11 +499,11 @@
 		});
 
 		api.renderStarted?.on(() => {
-			updatePlayerState({ isRendering: true });
+			sendScoreLoad({ type: 'renderStarted' });
 		});
 
 		api.renderFinished?.on(() => {
-			updatePlayerState({ isRendering: false });
+			sendScoreLoad({ type: 'renderFinished' });
 			// Re-query cursor element on every render (still avoids per-frame DOM queries)
 			beatCursorEl.set(playerHostEl?.querySelector('.at-cursor-beat') as HTMLElement | null);
 		});
@@ -512,13 +511,18 @@
 		api.postRenderFinished?.on(() => {
 			// Parsing completes before the renderer has laid out the score. Keep
 			// its placeholder until the surface is ready, including on route return.
-			if (api.score) updatePlayerState({ scoreRendered: true });
+			if (api.score) sendScoreLoad({ type: 'rendered' });
 		});
 
 		api.error?.on((error) => {
 			console.error('AlphaTab error:', error);
+			const before = sendScoreLoad({
+				type: 'error',
+				message: (error as Error)?.message || 'Failed to load tablature'
+			});
 			const tab = get(tabStore);
-			if (tab?.fileAsB64 && !get(playerState).scoreLoaded) {
+			// Before the parse, the route reports it; afterwards the full player does.
+			if (tab?.fileAsB64 && !isParsed(before, get(loadedTabB64))) {
 				const token = tabStore.beginLoad({
 					id: tab.tabId,
 					title: tab.title || tab.fileName,
@@ -551,6 +555,11 @@
 		}
 	}
 
+	/** The engine holds the parsed score of the bytes it was last given. */
+	function sessionParsed() {
+		return isParsed(get(playerState).load, get(loadedTabB64));
+	}
+
 	/** Theme the score. Inside scoreLoaded, alphaTab's own layout follows, so
 	 *  `relayout` is false there; otherwise only a changed colour relays out. */
 	/** Load a tab's bytes, parsing them in a task of their own.
@@ -559,6 +568,7 @@
 		const buffer = base64ToArrayBuffer(fileAsB64);
 		configureImporterEncoding(api, buffer);
 		loadedTabB64.set(fileAsB64);
+		sendScoreLoad({ type: 'open', key: fileAsB64 });
 		api.isLooping = false;
 		const opened = openScoreBytes(api, new Uint8Array(buffer), (bytes, settings) =>
 			window.alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, settings)
@@ -594,7 +604,7 @@
 			wasPlayingBeforeSoundFontChange = get(playerState).playing;
 			api.settings.player.soundFont = newUrl;
 			api.updateSettings();
-			updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
+			sendSoundFont({ type: 'reload' });
 			instrumentPacks?.reset();
 			api.loadSoundFont(newUrl, false);
 		}
@@ -610,10 +620,10 @@
 			instrumentPacks.reset();
 			if (currentStudio) {
 				if (api.score) void instrumentPacks.ensure(api.score);
-			} else if (get(playerState).soundFontLoaded) {
+			} else if (get(playerState).soundFont.kind === 'ready') {
 				// Skipped when a soundfont switch already reloads the base
 				wasPlayingBeforeSoundFontChange = get(playerState).playing;
-				updatePlayerState({ soundFontLoaded: false, soundFontProgress: 0 });
+				sendSoundFont({ type: 'reload' });
 				api.loadSoundFont(currentSoundFontUrl, false);
 			}
 		}
@@ -622,7 +632,7 @@
 	// Subscribe to theme changes to apply to alphaTab even when not on /play route
 	$: if (browser && $themeStore !== undefined) {
 		const api = get(playerApi);
-		if (api && get(playerState).scoreLoaded) {
+		if (api && sessionParsed()) {
 			applyTheme(api);
 		}
 	}
@@ -635,7 +645,7 @@
 			if (!api) {
 				// API not yet created - ensure init (soundFont load will trigger tab load)
 				ensureApiInitialized();
-			} else if (get(playerState).soundFontLoaded) {
+			} else if (get(playerState).soundFont.kind === 'ready') {
 				// Switching to a different tab: close any YouTube video tied to
 				// the previous tab, rewind the player to the start, and clear
 				// progress/duration so the cursor doesn't flash the old position.
@@ -652,9 +662,6 @@
 				}
 				transport.seek(0);
 				updatePlayerState({
-					scoreLoaded: false,
-					scoreRendered: false,
-					isRendering: true,
 					playing: false,
 					progress: 0,
 					currentBar: 0,

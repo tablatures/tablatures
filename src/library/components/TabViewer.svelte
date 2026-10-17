@@ -80,8 +80,16 @@
 		playerBarHeight,
 		sheetDragBegin,
 		sheetDragMove,
-		sheetDragEnd
+		sheetDragEnd,
+		sendScoreLoad
 	} from '../utils/playerStore';
+	import {
+		failureFor,
+		isParsed,
+		isRendered,
+		isRendering as isLayingOut,
+		isStalled
+	} from '../utils/scoreLoadMachine';
 	import { browser } from '$app/environment';
 	import { preferencesStore } from '../utils/preferences';
 	import { applyNotationView } from '../utils/notationView';
@@ -296,7 +304,6 @@
 
 	let api: any = undefined;
 	let target: HTMLElement | undefined = undefined;
-	let scoreLoaded: boolean = false;
 	let playing: boolean = false;
 	let range: any = undefined;
 
@@ -319,7 +326,6 @@
 	let mountScrollTarget: Window | HTMLElement | undefined;
 	let mountHandleResize: (() => void) | undefined;
 
-	let apiError = '';
 	// Merge mode state, shared between the track list checkboxes and the merge
 	// action bar (both live inside the console)
 	let mergeMode = false;
@@ -518,12 +524,14 @@
 	let trackMutes: boolean[] = [];
 	let trackSolos: boolean[] = [];
 
-	// Loading states
-	let soundFontLoaded = false;
-	let soundFontProgress = 0;
-	let isRendering = false;
-	let loadingTimedOut = false;
-	let loadingTimeoutId: NodeJS.Timeout;
+	// Loading states, derived from the session's load: the layout is their only writer.
+	$: scoreLoaded = isParsed($playerState.load, data.fileAsB64);
+	$: soundFontLoaded = $playerState.soundFont.kind === 'ready';
+	$: soundFontProgress =
+		$playerState.soundFont.kind === 'loading' ? $playerState.soundFont.progress : 100;
+	$: isRendering = isLayingOut($playerState.load);
+	$: loadingTimedOut = isStalled($playerState.load, requestedScoreKey);
+	$: apiError = failureFor($playerState.load, requestedScoreKey);
 
 	// Bar tracking
 	let currentBar = 0;
@@ -714,7 +722,7 @@
 		// Resume only the session owned by these exact bytes; a replacement's
 		// store has already been cleared and must never inherit the old position.
 		const state = get(playerState);
-		const resume = state.scoreLoaded && state.scoreKey === requestedScoreKey;
+		const resume = isParsed(state.load, requestedScoreKey) && state.scoreKey === requestedScoreKey;
 		playing = resume ? state.playing : false;
 		progress = resume ? state.progress : 0;
 		duration = resume ? state.duration : 0;
@@ -891,44 +899,14 @@
 	$: scoreMatchesRequest = !!requestedScoreKey && $playerState.scoreKey === requestedScoreKey;
 	$: isLoading =
 		(pending ||
-			(hasSheet && (!scoreLoaded || !scoreMatchesRequest || !$playerState.scoreRendered))) &&
+			(hasSheet &&
+				(!scoreLoaded ||
+					!scoreMatchesRequest ||
+					!isRendered($playerState.load, requestedScoreKey)))) &&
 		!apiError &&
 		!loadingTimedOut;
 	$: if (browser && isLoading && page) scroll.jumpTo(0);
 
-	// Safety timeout: if loading takes more than 30s, force-dismiss the overlay
-	// This prevents the user from being permanently stuck on the loading screen
-	$: if (
-		browser &&
-		hasSheet &&
-		!pending &&
-		(!scoreLoaded || !$playerState.scoreRendered) &&
-		!apiError
-	) {
-		clearTimeout(loadingTimeoutId);
-		loadingTimeoutId = setTimeout(() => {
-			if ((!scoreLoaded || !get(playerState).scoreRendered) && !apiError) {
-				console.warn('Loading timed out after 30s — dismissing loading overlay');
-				loadingTimedOut = true;
-			}
-		}, 30_000);
-	}
-
-	// Keep loading state in sync with global playerState store
-	// This prevents getting stuck if scoreLoaded fires in the layout before our listener is attached
-	$: if (
-		browser &&
-		$playerState.scoreLoaded &&
-		$playerState.scoreKey === data.fileAsB64 &&
-		!scoreLoaded
-	) {
-		scoreLoaded = true;
-		isRendering = false;
-	}
-	$: if (browser && !$playerState.scoreLoaded && scoreLoaded) scoreLoaded = false;
-	$: if (browser && $playerState.soundFontLoaded && !soundFontLoaded) {
-		soundFontLoaded = true;
-	}
 	// The persistent API can parse a replacement before this view receives its
 	// new props. Adopt that score's metadata and tracks even in a retained view.
 	$: if (
@@ -954,12 +932,6 @@
 		totalBars !== $playerState.totalBars
 	) {
 		totalBars = $playerState.totalBars;
-	}
-
-	// Reset timeout flag when a new score actually loads
-	$: if (scoreLoaded && $playerState.scoreRendered) {
-		loadingTimedOut = false;
-		clearTimeout(loadingTimeoutId);
 	}
 
 	/** Set loop from bar indices */
@@ -2490,8 +2462,6 @@
 			const isNewSheet = title !== newTitle;
 			title = newTitle;
 			tracks = score.tracks;
-			scoreLoaded = true;
-			isRendering = false;
 
 			if (score.tracks?.length > 0) {
 				const track = score.tracks[0];
@@ -2561,17 +2531,8 @@
 		};
 		listen(apiRef.playerStateChanged, onState);
 
-		// Error
-		const onError = (error: Error) => {
-			console.error('AlphaTab error:', error);
-			apiError = error.message || 'Failed to load tablature';
-			scoreLoaded = false;
-		};
-		listen(apiRef.error, onError);
-
 		// Render events
 		const onRenderStart = () => {
-			isRendering = true;
 			scroll.layoutChanged();
 			const tracksSet = new Set();
 			apiRef.tracks.forEach((t: any) => tracksSet.add(t.index));
@@ -2582,7 +2543,6 @@
 		listen(apiRef.renderStarted, onRenderStart);
 
 		const onRenderEnd = () => {
-			isRendering = false;
 			requestAnimationFrame(() => {
 				if (api) {
 					updateScoreSelection();
@@ -2591,19 +2551,6 @@
 			});
 		};
 		listen(apiRef.renderFinished, onRenderEnd);
-
-		// SoundFont progress (might already be loaded)
-		if (apiRef.soundFontLoad) {
-			const onSfLoad = (e: any) => {
-				if (e.total > 0) soundFontProgress = Math.round((e.loaded / e.total) * 100);
-			};
-			listen(apiRef.soundFontLoad, onSfLoad);
-		}
-
-		const onSfLoaded = () => {
-			soundFontLoaded = true;
-		};
-		listen(apiRef.soundFontLoaded, onSfLoaded);
 
 		// --- Sheet selection via alphaTab beat events ---
 		// During drag: show a lightweight preview overlay (no loop state changes).
@@ -2883,10 +2830,7 @@
 		if (api) {
 			// Sync state from the shared API
 			const state = get(playerState);
-			soundFontLoaded = state.soundFontLoaded;
-			soundFontProgress = state.soundFontProgress;
 			if (state.scoreKey === data.fileAsB64) {
-				scoreLoaded = state.scoreLoaded;
 				if (state.title) title = [state.title, state.artist].filter(Boolean).join(' - ');
 				if (state.tracks.length > 0) tracks = state.tracks;
 				if (typeof state.activeTrackIndex === 'number' && state.activeTrackIndex >= 0) {
@@ -2898,7 +2842,7 @@
 				progress = state.progress;
 				duration = state.duration;
 				currentBar = state.currentBar;
-				if (state.scoreLoaded) restoreScoreSession(api.score);
+				if (isParsed(state.load, data.fileAsB64)) restoreScoreSession(api.score);
 			}
 			// IMPORTANT: Do NOT call api.render() synchronously during adoption.
 			// The rendering surface is already populated from the previous render.
@@ -3441,7 +3385,6 @@
 		detachTransportView();
 		clearTimeout(longPressTimer);
 
-		clearTimeout(loadingTimeoutId);
 		// Restore body scroll in case we're destroyed while loading
 		document.body.style.overflow = '';
 	});
@@ -4026,17 +3969,11 @@
 					<p class="text-neutral-600 dark:text-neutral-400 mb-4">{apiError}</p>
 					<button
 						on:click={() => {
-							apiError = '';
-							if (api) {
-								if (data.fileAsB64) {
-									const buffer = base64ToArrayBuffer(data.fileAsB64);
-									configureImporterEncoding(api, buffer);
-									api.load(buffer);
-								} else if (window.history?.state?.base64) {
-									const buffer = base64ToArrayBuffer(window.history.state.base64);
-									configureImporterEncoding(api, buffer);
-									api.load(buffer);
-								}
+							if (api && requestedScoreKey) {
+								const buffer = base64ToArrayBuffer(requestedScoreKey);
+								configureImporterEncoding(api, buffer);
+								sendScoreLoad({ type: 'open', key: requestedScoreKey });
+								api.load(buffer);
 							}
 						}}
 						class="px-4 py-2 text-sm bg-violet-500 text-white rounded-full hover:bg-violet-600 transition-colors"
