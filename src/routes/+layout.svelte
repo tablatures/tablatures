@@ -481,6 +481,8 @@
 
 		api.soundFontLoaded.on(() => {
 			const before = sendSoundFont({ type: 'loaded' });
+			const resume =
+				before.kind === 'loading' && before.resume && get(playerState).soundFont.kind === 'ready';
 			installMasterLimiter(api);
 			// No-op once applied; after a base swap it re-layers the score's packs
 			if (api.score) void instrumentPacks?.ensure(api.score);
@@ -490,7 +492,7 @@
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) openInEngine(api, tab.fileAsB64);
 			// Resume playback if it was active before the soundfont change
 			// (AlphaTab's loadSoundFont always pauses the synth internally)
-			if (before.kind === 'loading' && before.resume) {
+			if (resume) {
 				try {
 					transport.playNow();
 				} catch {}
@@ -588,6 +590,31 @@
 	let currentSoundFontUrl = get(preferencesStore).soundFontUrl;
 	let currentStudio = studioInstruments(get(preferencesStore));
 
+	let queuedBaseUrl: string | null = null;
+	/** Load a new base SoundFont. alphaTab acknowledges loads in order without
+	 *  saying which, so it is posted once appended packs are acknowledged and its
+	 *  acknowledgement is its own. Requests before it is posted share one load. */
+	function reloadBaseSoundFont(
+		api: { loadSoundFont(url: string, append: boolean): unknown },
+		url: string
+	) {
+		const queued = queuedBaseUrl !== null;
+		queuedBaseUrl = url;
+		if (queued) return;
+		// AlphaTab's loadSoundFont() internally calls pause(), so track state to resume after
+		const resume = get(playerState).playing;
+		instrumentPacks?.reset();
+		const post = () => {
+			const next = queuedBaseUrl!;
+			queuedBaseUrl = null;
+			sendSoundFont({ type: 'reload', resume });
+			instrumentPacks?.holdForBase();
+			api.loadSoundFont(next, false);
+		};
+		if (instrumentPacks) instrumentPacks.whenSettled(post);
+		else post();
+	}
+
 	// Subscribe to soundfont URL changes and apply at runtime
 	$: if (
 		browser &&
@@ -598,12 +625,9 @@
 		currentSoundFontUrl = newUrl;
 		const api = get(playerApi);
 		if (api) {
-			// AlphaTab's loadSoundFont() internally calls pause(), so track state to resume after
-			sendSoundFont({ type: 'reload', resume: get(playerState).playing });
 			api.settings.player.soundFont = newUrl;
 			api.updateSettings();
-			instrumentPacks?.reset();
-			api.loadSoundFont(newUrl, false);
+			reloadBaseSoundFont(api, newUrl);
 		}
 	}
 
@@ -618,9 +642,8 @@
 			if (currentStudio) {
 				if (api.score) void instrumentPacks.ensure(api.score);
 			} else if (get(playerState).soundFont.kind === 'ready') {
-				// Skipped when a soundfont switch already reloads the base
-				sendSoundFont({ type: 'reload', resume: get(playerState).playing });
-				api.loadSoundFont(currentSoundFontUrl, false);
+				// Shares a soundfont switch's reload, posted or queued
+				reloadBaseSoundFont(api, currentSoundFontUrl);
 			}
 		}
 	}

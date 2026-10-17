@@ -22,6 +22,7 @@ import {
 	isParsed,
 	isRendered,
 	isWaiting,
+	initialSoundFont,
 	soundFontTransition,
 	transition as loadTransition,
 	type ScoreLoad,
@@ -283,19 +284,29 @@ describe('soundfont', () => {
 		fc.record({ type: fc.constant('reload' as const), resume: fc.boolean() })
 	);
 
-	it('resumes on load exactly when a switch since the last load paused playback', () => {
+	it('is ready exactly when every posted base is acknowledged, and resumes then', () => {
 		fc.assert(
 			fc.property(events(event), (sequence) => {
-				let soundFont: SoundFont = { kind: 'loading', progress: 0, resume: false };
+				let soundFont: SoundFont = initialSoundFont;
+				// Base loads posted and not yet acknowledged; alphaTab acknowledges in order.
+				let posted = 1;
 				let wasPlaying = false;
 				for (const e of sequence) {
 					const before = soundFont;
 					soundFont = soundFontTransition(soundFont, e);
-					if (e.type === 'reload') wasPlaying ||= e.resume;
-					if (e.type === 'loaded') {
-						expect(before.kind === 'loading' && before.resume).toBe(wasPlaying);
-						wasPlaying = false;
+					if (e.type === 'reload') {
+						posted++;
+						wasPlaying ||= e.resume;
 					}
+					if (e.type === 'loaded' && posted > 0) {
+						posted--;
+						// The view resumes when the state turns ready, and only then.
+						const resumes =
+							before.kind === 'loading' && soundFont.kind === 'ready' && before.resume;
+						expect(resumes).toBe(posted === 0 && wasPlaying);
+						if (posted === 0) wasPlaying = false;
+					}
+					expect(soundFont.kind === 'ready').toBe(posted === 0);
 					if (soundFont.kind === 'loading') {
 						expect(soundFont.resume).toBe(wasPlaying);
 						expect(soundFont.progress).toBeGreaterThanOrEqual(0);

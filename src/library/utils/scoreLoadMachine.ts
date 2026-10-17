@@ -90,12 +90,25 @@ export const failureFor = (load: ScoreLoad, key: string | null | undefined): str
 
 // The soundfont belongs to the persistent engine and outlives scores. alphaTab
 // pauses to load a new one; `resume` restores playback once it is ready.
-export type SoundFont = { kind: 'loading'; progress: number; resume: boolean } | { kind: 'ready' };
+// alphaTab acknowledges SoundFont loads in the order they were posted, without
+// saying which: `pending` counts the base loads posted and not yet acknowledged,
+// and the caller posts a base only once appended packs have been acknowledged.
+export type SoundFont =
+	| { kind: 'loading'; progress: number; resume: boolean; pending: number }
+	| { kind: 'ready' };
+
+/** The engine's first base load, posted when it is created. */
+export const initialSoundFont: SoundFont = {
+	kind: 'loading',
+	progress: 0,
+	resume: false,
+	pending: 1
+};
 
 export type SoundFontEvent =
 	| { type: 'progress'; loaded: number; total: number }
 	| { type: 'loaded' }
-	/** A new base soundfont was requested; alphaTab reports its load again. */
+	/** A new base soundfont was posted; alphaTab acknowledges it in turn. */
 	| { type: 'reload'; resume: boolean };
 
 export function soundFontTransition(soundFont: SoundFont, event: SoundFontEvent): SoundFont {
@@ -107,13 +120,19 @@ export function soundFontTransition(soundFont: SoundFont, event: SoundFontEvent)
 				progress: Math.min(100, Math.round((event.loaded / event.total) * 100))
 			};
 		case 'loaded':
-			return soundFont.kind === 'ready' ? soundFont : { kind: 'ready' };
+			if (soundFont.kind === 'ready') return soundFont;
+			// An earlier base is acknowledged first; the latest one is still loading.
+			if (soundFont.pending > 1) return { ...soundFont, pending: soundFont.pending - 1 };
+			return { kind: 'ready' };
 		case 'reload':
-			// A second switch before the first loads finds playback already paused.
-			return {
-				kind: 'loading',
-				progress: 0,
-				resume: event.resume || (soundFont.kind === 'loading' && soundFont.resume)
-			};
+			if (soundFont.kind === 'loading')
+				// A second switch before the first loads finds playback already paused.
+				return {
+					kind: 'loading',
+					progress: 0,
+					resume: event.resume || soundFont.resume,
+					pending: soundFont.pending + 1
+				};
+			return { kind: 'loading', progress: 0, resume: event.resume, pending: 1 };
 	}
 }

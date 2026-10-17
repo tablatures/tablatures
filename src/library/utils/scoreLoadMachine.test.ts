@@ -155,68 +155,57 @@ describe('score load views', () => {
 });
 
 describe('soundfont transitions', () => {
+	const loading = (progress: number, resume = false, pending = 1) =>
+		({ kind: 'loading', progress, resume, pending }) as const;
+
 	it('reports progress while loading, then ready', () => {
-		const loading = soundFontTransition(
-			{ kind: 'loading', progress: 0, resume: true },
-			{ type: 'progress', loaded: 1, total: 3 }
-		);
-		expect(loading).toEqual({ kind: 'loading', progress: 33, resume: true });
-		expect(soundFontTransition(loading, { type: 'loaded' })).toEqual({ kind: 'ready' });
+		const half = soundFontTransition(loading(0, true), { type: 'progress', loaded: 1, total: 3 });
+		expect(half).toEqual(loading(33, true));
+		expect(soundFontTransition(half, { type: 'loaded' })).toEqual({ kind: 'ready' });
 	});
 
 	it('caps progress at 100%', () => {
 		// Found by the property tests: a compressed response can report more bytes
 		// than its announced total.
-		expect(
-			soundFontTransition(
-				{ kind: 'loading', progress: 0, resume: false },
-				{ type: 'progress', loaded: 2, total: 1 }
-			)
-		).toEqual({ kind: 'loading', progress: 100, resume: false });
+		expect(soundFontTransition(loading(0), { type: 'progress', loaded: 2, total: 1 })).toEqual(
+			loading(100)
+		);
 	});
 
 	it('ignores progress without a total', () => {
-		const loading = { kind: 'loading', progress: 40, resume: false } as const;
-		expect(soundFontTransition(loading, { type: 'progress', loaded: 5, total: 0 })).toBe(loading);
+		const state = loading(40);
+		expect(soundFontTransition(state, { type: 'progress', loaded: 5, total: 0 })).toBe(state);
 	});
 
-	it('ignores progress once ready', () => {
+	it('ignores progress and acknowledgements once ready', () => {
 		// Appended instrument packs report loads of their own.
 		const ready = { kind: 'ready' } as const;
 		expect(soundFontTransition(ready, { type: 'progress', loaded: 1, total: 2 })).toBe(ready);
+		expect(soundFontTransition(ready, { type: 'loaded' })).toBe(ready);
 	});
 
 	it('loads again after a soundfont switch', () => {
 		// The view's copy only ever followed the store from false to true.
-		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: false })).toEqual({
-			kind: 'loading',
-			progress: 0,
-			resume: false
-		});
+		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: false })).toEqual(
+			loading(0)
+		);
 	});
 
 	it('remembers to resume playback that the switch paused', () => {
-		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: true })).toEqual({
-			kind: 'loading',
-			progress: 0,
-			resume: true
-		});
+		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: true })).toEqual(
+			loading(0, true)
+		);
 	});
 
-	it('keeps the resume through a second switch before the first loads', () => {
-		// The first load paused playback, so the second switch reads it as stopped.
+	it('waits for the latest of two switches, and resumes once', () => {
+		// alphaTab acknowledges the first base before the second (recorded in
+		// alphatab-contract.spec.ts): ready on the first would resume playback
+		// that the second load then pauses again.
 		const first = soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: true });
-		expect(soundFontTransition(first, { type: 'reload', resume: false })).toEqual({
-			kind: 'loading',
-			progress: 0,
-			resume: true
-		});
-	});
-
-	it('forgets the resume once ready, so a later pack load cannot restart playback', () => {
-		const loading = { kind: 'loading', progress: 0, resume: true } as const;
-		const ready = soundFontTransition(loading, { type: 'loaded' });
-		expect(ready).toEqual({ kind: 'ready' });
-		expect(soundFontTransition(ready, { type: 'loaded' })).toBe(ready);
+		const second = soundFontTransition(first, { type: 'reload', resume: false });
+		expect(second).toEqual(loading(0, true, 2));
+		const firstDone = soundFontTransition(second, { type: 'loaded' });
+		expect(firstDone).toEqual(loading(0, true, 1));
+		expect(soundFontTransition(firstDone, { type: 'loaded' })).toEqual({ kind: 'ready' });
 	});
 });

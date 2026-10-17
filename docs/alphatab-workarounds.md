@@ -85,6 +85,24 @@ is not a workaround and does not belong here.
 
 ## Behaviour we rely on without working around it
 
+`tests/alphatab-contract.spec.ts` records these from the real engine and
+replays each trace through the load machine (`scoreLoadMachine.ts`). Its title
+names the installed version; re-run it on every upgrade.
+
+- **A load reports `scoreLoaded`, then one layout (`renderStarted`,
+  `renderFinished`, `postRenderFinished`), all for the new score.** A relayout
+  requested just before a load completes before the new parse, so a previous
+  score's `postRenderFinished` never follows it. A relayout never reports a
+  parse; unreadable bytes report `error` and no parse.
+- **`loadSoundFont` pauses playback before it is acknowledged, once.** The
+  layout resumes playback that a soundfont switch paused.
+- **SoundFont loads are acknowledged in order, without saying which.** A base
+  loaded by URL downloads on the main thread before it reaches the synth, so a
+  pack appended meanwhile is acknowledged first. The layout posts a base only
+  once appended packs are acknowledged (`instrumentPacks.whenSettled`), holds
+  pack posts until the base is acknowledged (`holdForBase`), and the soundfont
+  state counts the bases posted.
+
 - **`scoreLoaded` replays the current score to a new subscriber**
   (`EventEmitterOfT` with `fireOnRegister`). `TabViewer` and `LyricsBar` tell a
   replay from a real load; `LyricsBar` seeds itself when no replay happens, and
