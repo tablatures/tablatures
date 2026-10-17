@@ -10,6 +10,21 @@
 	import { sessionTransport } from '../utils/playerSession';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
 	import {
+		beginLoopDrag,
+		endLoopDrag,
+		isLoopDragging,
+		noLoopDrag,
+		type LoopDrag,
+		type LoopDragSource
+	} from '../utils/loopDrag';
+	import {
+		scoreIdle,
+		scoreTransition,
+		type ScoreGesture,
+		type ScoreGestureEffect,
+		type ScoreGestureEvent
+	} from '../utils/scoreGesture';
+	import {
 		barIdle,
 		barTransition,
 		isBarOwnGesture,
@@ -582,7 +597,9 @@
 	}
 
 	// Loop drag state
-	let isDraggingLoop = false;
+	let loopDrag: LoopDrag = noLoopDrag;
+	/** The progress bar's hold-sized loop, while its gesture is sizing. */
+	let holdDragId = 0;
 	let loopDragOriginX = 0;
 	let loopDragOriginPercent = 0;
 
@@ -1643,7 +1660,8 @@
 		endType: string,
 		onMove: any,
 		onEnd: any,
-		source: EventTarget = document
+		source: EventTarget = document,
+		loopDragId?: number
 	) {
 		cancelActiveDrag?.();
 		const original = loop;
@@ -1658,6 +1676,7 @@
 		const cancel = () => {
 			cleanup();
 			cancelProgressGesture();
+			if (loopDragId !== undefined) finishLoopDrag(loopDragId);
 			loop = original;
 			updateScoreSelection();
 		};
@@ -1684,8 +1703,21 @@
 	}
 	function cancelProgressGesture() {
 		dispatchGesture({ type: 'cancel' });
-		isDraggingLoop = false;
 		bindDuration = true;
+	}
+
+	/** Start a loop drag on the bar or the score. A drag still in progress is
+	 *  cancelled first, so restoring its original loop or ending it cannot
+	 *  happen under this one. */
+	function beginDocumentLoopDrag(source: LoopDragSource): number {
+		cancelActiveDrag?.();
+		const drag = beginLoopDrag(loopDrag, source);
+		loopDrag = drag;
+		return drag.id;
+	}
+
+	function finishLoopDrag(id: number) {
+		loopDrag = endLoopDrag(loopDrag, id);
 	}
 
 	// Drag the entire loop region (move both start and end together)
@@ -1739,8 +1771,9 @@
 	}
 
 	function startLoopMoveDrag(e: MouseEvent, useScore: boolean = false) {
+		cancelActiveDrag?.();
 		if (loop.startBar === null || loop.endBar === null || !duration) return;
-		isDraggingLoop = true;
+		const dragId = beginDocumentLoopDrag('body');
 		dismissPopoverAndRefresh();
 		const barSpan = loop.endBar - loop.startBar;
 		const originalTicks = currentLoopRange();
@@ -1800,10 +1833,10 @@
 		const onUp = () => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-			isDraggingLoop = false;
+			finishLoopDrag(dragId);
 		};
 
-		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp, document, dragId);
 	}
 
 	/** Hit-test a printed bar without constraining it to the current playback range.
@@ -1883,10 +1916,11 @@
 		let y = touch.clientY;
 		const originY = y;
 		const follow = () => dragLoopEdgeOnScore(edge, x - offsetX, y - offsetY);
-		isDraggingLoop = true;
+		const dragId = beginDocumentLoopDrag('knob');
 		hapticTap();
 		const autoScroll = () => {
-			if (!isDraggingLoop) return;
+			// Only this drag's frames scroll: a later drag must not move this edge.
+			if (!isLoopDragging(loopDrag, dragId)) return;
 			const area = scoreScrollArea();
 			const speed = area ? edgeAutoScrollSpeed(y, area.top, area.bottom, originY) : 0;
 			if (area && speed) {
@@ -1905,15 +1939,16 @@
 				follow();
 			},
 			() => {
-				isDraggingLoop = false;
+				finishLoopDrag(dragId);
 				updateScoreSelection();
 			},
-			knob
+			knob,
+			dragId
 		);
 	}
 
 	function startLoopEdgeDrag(edge: 'start' | 'end', useScore: boolean = false) {
-		isDraggingLoop = true;
+		const dragId = beginDocumentLoopDrag('edge');
 		dismissPopoverAndRefresh();
 		const onMove = (e: MouseEvent) => {
 			if (useScore) {
@@ -1928,16 +1963,16 @@
 		const onUp = () => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-			isDraggingLoop = false;
+			finishLoopDrag(dragId);
 			if (loop.kind === 'bars' && loop.startBar > loop.endBar)
 				loop = barLoop(loop.endBar, loop.startBar, loop.enabled);
 		};
 
-		startDocumentDrag('mousemove', 'mouseup', onMove, onUp);
+		startDocumentDrag('mousemove', 'mouseup', onMove, onUp, document, dragId);
 	}
 
 	function handleProgressBarHover(event: MouseEvent) {
-		if (!range || !duration || isDraggingLoop) return;
+		if (!range || !duration || isLoopDragging(loopDrag)) return;
 		const rect = range.getBoundingClientRect();
 		const x = event.clientX - rect.left;
 		const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
@@ -1979,7 +2014,8 @@
 				const anchorBar = msToBar(effect.anchorMs);
 				if (loopSnap === 'note') selectNoteTimes(effect.anchorMs, effect.anchorMs);
 				else setLoopBars(anchorBar, anchorBar, loop.enabled ? loop.order : undefined);
-				isDraggingLoop = true;
+				// The press's own document drag is in progress: do not cancel it.
+				holdDragId = (loopDrag = beginLoopDrag(loopDrag, 'hold')).id;
 				dismissPopoverAndRefresh();
 				updateScoreSelection();
 				hapticTap();
@@ -2002,7 +2038,7 @@
 				return;
 			}
 			case 'finishLoop':
-				isDraggingLoop = false;
+				finishLoopDrag(holdDragId);
 				return;
 			case 'dismissPopover':
 				dismissPopoverAndRefresh();
@@ -2075,7 +2111,7 @@
 		// keeps the gesture for good — the loop long-press never regresses.
 		if (
 			!gestureEngaged(gesture) &&
-			!isDraggingLoop &&
+			!isLoopDragging(loopDrag) &&
 			isPendingSheetSwipe(barGesture, t.clientX, t.clientY)
 		)
 			return;
@@ -2088,7 +2124,7 @@
 	}
 
 	function startLoopEdgeDragTouch(event: TouchEvent, edge: 'start' | 'end') {
-		isDraggingLoop = true;
+		const dragId = beginDocumentLoopDrag('edge');
 		dismissPopoverAndRefresh();
 		const onMove = (e: TouchEvent) => {
 			if (!e.touches[0]) return;
@@ -2099,15 +2135,16 @@
 		const onEnd = () => {
 			document.removeEventListener('touchmove', onMove);
 			document.removeEventListener('touchend', onEnd);
-			isDraggingLoop = false;
+			finishLoopDrag(dragId);
 		};
-		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd, document, dragId);
 	}
 
 	function startLoopMoveDragTouch(event: TouchEvent) {
+		cancelActiveDrag?.();
 		if (loop.startBar === null || loop.endBar === null || !range || !duration || !event.touches[0])
 			return;
-		isDraggingLoop = true;
+		const dragId = beginDocumentLoopDrag('body');
 		dismissPopoverAndRefresh();
 		const barSpan = loop.endBar - loop.startBar;
 		const rect = range.getBoundingClientRect();
@@ -2134,9 +2171,9 @@
 		const onEnd = () => {
 			document.removeEventListener('touchmove', onMove);
 			document.removeEventListener('touchend', onEnd);
-			isDraggingLoop = false;
+			finishLoopDrag(dragId);
 		};
-		startDocumentDrag('touchmove', 'touchend', onMove, onEnd);
+		startDocumentDrag('touchmove', 'touchend', onMove, onEnd, document, dragId);
 	}
 
 	// Legacy mouse touch handler (kept for backward compat)
@@ -2229,7 +2266,7 @@
 				type: 'move',
 				x: t.clientX,
 				y: t.clientY,
-				scrubEngaged: gestureEngaged(gesture) || isDraggingLoop,
+				scrubEngaged: gestureEngaged(gesture) || isLoopDragging(loopDrag),
 				sheetEnabled: get(playSheetEnabled)
 			},
 			e
@@ -2380,52 +2417,76 @@
 		relayoutForViewport(true);
 	}
 
+	// Gestures on the score surface: mouse and touch selection, and pinch zoom.
 	// Pinch uses the same persisted scale as the console; score taps and scrolls
 	// never reset it. Reset remains an explicit action on the Scale control.
-	let pinchingScore = false;
-	let pinchStartScale = tabScale;
-	let pinchLazyLoading: boolean | undefined;
-	function startScorePinch(origin: [number, number]) {
-		pinchingScore = true;
-		pinchStartScale = tabScale;
-		if (api) {
-			// Preview can move a touched canvas outside the viewport. Keep alphaTab
-			// from detaching that touch target through its lazy-loading observer.
-			const core = api.settings.core;
-			pinchLazyLoading = core.enableLazyLoading;
-			core.enableLazyLoading = false;
-		}
-		clearTimeout(scaleDebounceTimeout);
-		if (target) {
-			const rect = target.getBoundingClientRect();
-			target.style.transformOrigin = `${origin[0] - rect.left}px ${origin[1] - rect.top}px`;
-			target.style.willChange = 'transform';
-		}
+	let scoreGesture: ScoreGesture<any> = scoreIdle();
+	/** Preview and commit of a selection, installed with the engine listeners. */
+	let selectionUi: {
+		preview: (startBeat: any, endBeat: any) => void;
+		commit: (startBeat: any, endBeat: any) => void;
+	} | null = null;
+
+	function dispatchScoreGesture(event: ScoreGestureEvent<any>) {
+		const result = scoreTransition(scoreGesture, event);
+		scoreGesture = result.gesture;
+		result.effects.forEach(runScoreGestureEffect);
 	}
 
-	function setTabScaleFromPinch(scale: number) {
-		tabScale = scale;
-		// Rendering alphaTab here replaces the rendered touch target and cuts off the
-		// gesture. Preview without changing DOM; lay out the final scale on release.
-		if (target && pinchingScore) target.style.transform = `scale(${scale / pinchStartScale})`;
-	}
-
-	function endScorePinch() {
-		if (!pinchingScore) return;
-		pinchingScore = false;
-		if (api && pinchLazyLoading !== undefined) {
-			const core = api.settings.core;
-			core.enableLazyLoading = pinchLazyLoading;
+	function runScoreGestureEffect(effect: ScoreGestureEffect<any>) {
+		switch (effect.type) {
+			case 'preview':
+				selectionUi?.preview(effect.startBeat, effect.endBeat);
+				return;
+			case 'commit':
+				selectionUi?.commit(effect.startBeat, effect.endBeat);
+				return;
+			case 'refreshSelection':
+				updateScoreSelection();
+				return;
+			case 'selectNote':
+				selectScoreNotes(effect.beat, effect.beat);
+				return;
+			case 'click':
+				// An ordinary click retains seek/clear.
+				if (loop.startBar !== null || loop.endBar !== null) clearLoopPoints();
+				showSelectionPopover = false;
+				return;
+			case 'closePopover':
+				showSelectionPopover = false;
+				return;
+			case 'pinchBegin':
+				if (api) {
+					// Preview can move a touched canvas outside the viewport. Keep alphaTab
+					// from detaching that touch target through its lazy-loading observer.
+					api.settings.core.enableLazyLoading = false;
+				}
+				clearTimeout(scaleDebounceTimeout);
+				if (target) {
+					const rect = target.getBoundingClientRect();
+					target.style.transformOrigin = `${effect.origin[0] - rect.left}px ${effect.origin[1] - rect.top}px`;
+					target.style.willChange = 'transform';
+				}
+				return;
+			case 'setScale':
+				tabScale = effect.scale;
+				// Rendering alphaTab here replaces the rendered touch target and cuts off the
+				// gesture. Preview without changing DOM; lay out the final scale on release.
+				if (target) target.style.transform = `scale(${effect.ratio})`;
+				return;
+			case 'pinchFinish':
+				if (api && effect.lazyLoading !== null)
+					api.settings.core.enableLazyLoading = effect.lazyLoading;
+				if (target) {
+					target.style.transform = '';
+					target.style.transformOrigin = '';
+					target.style.willChange = '';
+				}
+				updateTabScale();
+				clearTimeout(scaleDebounceTimeout);
+				api?.render();
+				return;
 		}
-		pinchLazyLoading = undefined;
-		if (target) {
-			target.style.transform = '';
-			target.style.transformOrigin = '';
-			target.style.willChange = '';
-		}
-		updateTabScale();
-		clearTimeout(scaleDebounceTimeout);
-		api?.render();
 	}
 
 	/** Theme the score; relayout (unless alphaTab is about to) only on a change. */
@@ -2448,6 +2509,7 @@
 		// Clean up any previous listeners
 		fullPlayerListenerCleanups.forEach((fn) => fn());
 		fullPlayerListenerCleanups = [];
+		dispatchScoreGesture({ type: 'surfaceReplaced' });
 
 		const listen = (emitter: any, handler: (...args: any[]) => void) => {
 			fullPlayerListenerCleanups.push(subscribePlayerEvent(apiRef, emitter, handler));
@@ -2557,14 +2619,6 @@
 		// On release: commit the selection using the chosen snapping unit.
 		// This avoids heavy reactive updates during the drag.
 
-		let scoreDragStartBeat: any = null;
-		let scoreDragging = false;
-		let lastScoreClick: { beat: any; time: number } | null = null;
-		cancelScoreSelection = () => {
-			scoreDragStartBeat = null;
-			scoreDragging = false;
-		};
-
 		/** Show a lightweight preview overlay during score drag (no state changes) */
 		function showDragPreview(startBeat: any, endBeat: any) {
 			try {
@@ -2654,45 +2708,17 @@
 			} catch {}
 		}
 
-		const onBeatMouseDown = (beat: any) => {
-			scoreGestureCancelled = false;
-			scoreDragStartBeat = beat;
-			scoreDragging = false;
-		};
-		listen(apiRef.beatMouseDown, onBeatMouseDown);
-
-		const onBeatMouseMove = (beat: any) => {
-			if (!scoreDragStartBeat || beat === scoreDragStartBeat) return;
-			scoreDragging = true;
-			showDragPreview(scoreDragStartBeat, beat);
-		};
-		listen(apiRef.beatMouseMove, onBeatMouseMove);
-
-		const onBeatMouseUp = (beat: any) => {
-			if (scoreGestureCancelled || !scoreDragStartBeat) return;
-			if (!scoreDragging) {
-				// Double click selects one note/rest; an ordinary click retains seek/clear.
-				if (
-					loopSnap === 'note' &&
-					lastScoreClick !== null &&
-					lastScoreClick.beat === beat &&
-					Date.now() - lastScoreClick.time < 400
-				) {
-					selectScoreNotes(beat, beat);
-					lastScoreClick = null;
-					scoreDragStartBeat = null;
-					return;
-				}
-				lastScoreClick = { beat, time: Date.now() };
-				if (loop.startBar !== null || loop.endBar !== null) {
-					clearLoopPoints();
-				}
-				showSelectionPopover = false;
-			} else commitScoreDrag(scoreDragStartBeat, beat);
-			scoreDragStartBeat = null;
-			scoreDragging = false;
-		};
-		listen(apiRef.beatMouseUp, onBeatMouseUp);
+		// Double click selects one note/rest (scoreGesture.ts).
+		listen(apiRef.beatMouseDown, (beat: any) => dispatchScoreGesture({ type: 'mouseDown', beat }));
+		listen(apiRef.beatMouseMove, (beat: any) => dispatchScoreGesture({ type: 'mouseMove', beat }));
+		listen(apiRef.beatMouseUp, (beat: any) =>
+			dispatchScoreGesture({
+				type: 'mouseUp',
+				beat,
+				time: Date.now(),
+				noteSnap: loopSnap === 'note'
+			})
+		);
 
 		/** Drag complete - retain note precision or expand to full bars. */
 		function commitScoreDrag(startBeat: any, endBeat: any) {
@@ -2719,35 +2745,9 @@
 			} catch {}
 		}
 
-		// Touch: a held finger picks a note, a sideways drag extends it (see
-		// longPressSelect). Same preview and commit as the mouse path.
-		let touchStartBeat: any = null;
-		let touchEndBeat: any = null;
-		scoreTouch = {
-			hold(x, y) {
-				const beat = mouseToBeatViaScore(x, y);
-				if (!beat) return false;
-				touchStartBeat = touchEndBeat = beat;
-				showSelectionPopover = false;
-				showDragPreview(beat, beat);
-				return true;
-			},
-			drag(x, y) {
-				const beat = touchStartBeat && mouseToBeatViaScore(x, y);
-				if (!beat || beat === touchEndBeat) return;
-				touchEndBeat = beat;
-				showDragPreview(touchStartBeat, beat);
-			},
-			commit() {
-				if (touchStartBeat) commitScoreDrag(touchStartBeat, touchEndBeat);
-				touchStartBeat = touchEndBeat = null;
-				updateScoreSelection();
-			},
-			abort() {
-				touchStartBeat = touchEndBeat = null;
-				updateScoreSelection();
-			}
-		};
+		// Touch (a held finger picks a note, a sideways drag extends it; see
+		// longPressSelect) shares the mouse path's preview and commit.
+		selectionUi = { preview: showDragPreview, commit: commitScoreDrag };
 
 		// MutationObserver - only watch for childList changes (NOT attributes to avoid cursor noise)
 		function setupSelectionObserver() {
@@ -3308,7 +3308,7 @@
 
 	function returnPlayerHost() {
 		if (didReturnPlayerHost) return;
-		endScorePinch();
+		dispatchScoreGesture({ type: 'cancel' });
 		didReturnPlayerHost = true;
 		unsubscribeCursorFollow?.();
 		cursorFollowObserver?.disconnect();
@@ -3825,13 +3825,19 @@
 	// goes through longPressSelect, which claims a touch only after a still hold
 	// followed by a sideways move; synthesizing mouse drags from held touches
 	// stole slow scrolling gestures and fought the browser's momentum scrolling.
-	let cancelScoreSelection = () => {};
-	let scoreTouch: {
-		hold: (x: number, y: number) => boolean;
-		drag: (x: number, y: number) => void;
-		commit: () => void;
-		abort: () => void;
-	} | null = null;
+	/** A held finger on the score: start a selection at the beat under it. */
+	function holdScore(x: number, y: number): boolean {
+		const beat = selectionUi && mouseToBeatViaScore(x, y);
+		if (!beat) return false;
+		dispatchScoreGesture({ type: 'touchHold', beat });
+		return scoreGesture.kind === 'touchSelecting';
+	}
+
+	function dragScore(x: number, y: number) {
+		if (scoreGesture.kind !== 'touchSelecting') return;
+		const beat = mouseToBeatViaScore(x, y);
+		if (beat) dispatchScoreGesture({ type: 'touchDrag', beat });
+	}
 	/** Visible band of the score for selection edge auto-scroll: below the
 	 *  header, above the sticky transport bar. */
 	function scoreScrollArea() {
@@ -3840,12 +3846,8 @@
 		const barTop = barEl?.getBoundingClientRect().top ?? rect.bottom;
 		return { el: page, top: Math.max(rect.top, 0), bottom: Math.min(rect.bottom, barTop) };
 	}
-	let scoreGestureCancelled = false;
 	function cancelScoreGesture() {
-		endScorePinch();
-		scoreGestureCancelled = true;
-		cancelScoreSelection();
-		updateScoreSelection();
+		dispatchScoreGesture({ type: 'cancel' });
 	}
 
 	// Playback status text for screen readers
@@ -3941,19 +3943,25 @@
 		style="padding-right: var(--player-panel-width); touch-action: pan-x pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-height: calc(100% - var(--player-bar-height, 0px));"
 		on:touchstart|passive={handleUserScrollIntent}
 		use:longPressSelect={{
-			onHold: (x, y) => scoreTouch?.hold(x, y) ?? false,
-			onDrag: (x, y) => scoreTouch?.drag(x, y),
-			onCommit: () => scoreTouch?.commit(),
-			onAbort: () => scoreTouch?.abort(),
+			onHold: holdScore,
+			onDrag: dragScore,
+			onCommit: () => dispatchScoreGesture({ type: 'touchCommit' }),
+			onAbort: () => dispatchScoreGesture({ type: 'touchAbort' }),
 			scrollArea: scoreScrollArea,
 			haptic: hapticTap,
 			enabled: scoreLoaded
 		}}
 		use:pinchZoom={{
 			getScale: () => tabScale,
-			setScale: setTabScaleFromPinch,
-			onStart: startScorePinch,
-			onEnd: endScorePinch,
+			setScale: (scale) => dispatchScoreGesture({ type: 'pinchUpdate', scale }),
+			onStart: (origin) =>
+				dispatchScoreGesture({
+					type: 'pinchStart',
+					scale: tabScale,
+					lazyLoading: api ? api.settings.core.enableLazyLoading : null,
+					origin
+				}),
+			onEnd: () => dispatchScoreGesture({ type: 'pinchEnd' }),
 			min: SCALE_MIN,
 			max: SCALE_MAX,
 			haptic: hapticTap
@@ -4205,7 +4213,7 @@
 				<div class="absolute inset-y-0 left-0 bg-violet-500" style="width: {progress}%" />
 
 				<!-- Hover preview -->
-				{#if showProgressTooltip && hoverProgress > progress && !isDraggingLoop}
+				{#if showProgressTooltip && hoverProgress > progress && !isLoopDragging(loopDrag)}
 					<div class="absolute inset-y-0 left-0 bg-violet-500/20" style="width: {hoverProgress}%" />
 				{/if}
 			</div>
@@ -4342,7 +4350,7 @@
 			/>
 
 			<!-- Tooltip -->
-			{#if showProgressTooltip && tooltipTime && !isDraggingLoop}
+			{#if showProgressTooltip && tooltipTime && !isLoopDragging(loopDrag)}
 				<div
 					class="absolute bottom-full mb-3 bg-black dark:bg-white text-white dark:text-black px-2 py-1 rounded text-xs font-medium shadow-lg pointer-events-none z-10 transform -translate-x-1/2"
 					style="left: {tooltipPosition}px"
