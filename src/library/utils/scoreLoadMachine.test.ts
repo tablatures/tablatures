@@ -164,6 +164,17 @@ describe('soundfont transitions', () => {
 		expect(soundFontTransition(loading, { type: 'loaded' })).toEqual({ kind: 'ready' });
 	});
 
+	it('caps progress at 100%', () => {
+		// Found by the property tests: a compressed response can report more bytes
+		// than its announced total.
+		expect(
+			soundFontTransition(
+				{ kind: 'loading', progress: 0, resume: false },
+				{ type: 'progress', loaded: 2, total: 1 }
+			)
+		).toEqual({ kind: 'loading', progress: 100, resume: false });
+	});
+
 	it('ignores progress without a total', () => {
 		const loading = { kind: 'loading', progress: 40, resume: false } as const;
 		expect(soundFontTransition(loading, { type: 'progress', loaded: 5, total: 0 })).toBe(loading);
