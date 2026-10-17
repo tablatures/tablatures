@@ -9,7 +9,15 @@
 	import { displayTime } from '../utils/format';
 	import { sessionTransport } from '../utils/playerSession';
 	import { timingForApi, engineToScoreMs } from '../utils/playerTiming';
-	import { claimBarDrag, isBarOwnGesture, isScrubZone, isVerticalSwipe } from '../utils/barGesture';
+	import {
+		barIdle,
+		barTransition,
+		isBarOwnGesture,
+		isPendingSheetSwipe,
+		isScrubZone,
+		type BarGestureEffect,
+		type BarGestureEvent
+	} from '../utils/barGesture';
 	import {
 		barAtMs,
 		barEndMs,
@@ -2065,7 +2073,12 @@
 		// bar-level handler below is what actually claims it. Once the hold HAS
 		// fired (loop-sizing) or a horizontal scrub is underway, the progress bar
 		// keeps the gesture for good — the loop long-press never regresses.
-		if (!gestureEngaged(gesture) && !isDraggingLoop && isVerticalSheetSwipe(t)) return;
+		if (
+			!gestureEngaged(gesture) &&
+			!isDraggingLoop &&
+			isPendingSheetSwipe(barGesture, t.clientX, t.clientY)
+		)
+			return;
 		dispatchGesture({ type: 'move', x: t.clientX });
 	}
 
@@ -2134,30 +2147,39 @@
 	// --- Transport bar → outer shell scroll / bottom sheet (items 8, 21) ---
 	// Ownership rules live in barGesture.ts. Claimed drags suppress the click
 	// that would otherwise follow.
-	let barTouchStartX = 0;
-	let barTouchStartY = 0;
-	let barTouchLastY = 0;
-	let barGesturePending = false; // touch started on a draggable zone, not yet claimed
-	let barGestureClaimed = false; // moved past the threshold → it's a drag
-	let barDrivesSheet = false; // this drag is feeding the mobile bottom sheet
-	let barFromScrubZone = false; // gesture began on the progress bar
+	let barGesture = barIdle;
 
-	/** True when a touch that started on the scrub zone has moved far enough, and
-	 *  vertically enough, that the user clearly means "open the sheet". */
-	function isVerticalSheetSwipe(t: Touch): boolean {
-		if (!barGesturePending || !barFromScrubZone) return false;
-		return isVerticalSwipe(t.clientX - barTouchStartX, t.clientY - barTouchStartY);
+	function dispatchBarGesture(event: BarGestureEvent, touchEvent?: TouchEvent) {
+		const result = barTransition(barGesture, event);
+		barGesture = result.gesture;
+		result.effects.forEach((effect) => runBarGestureEffect(effect, touchEvent));
 	}
 
-	/** Drive the outer view by a vertical delta: on phones the finger moves the
-	 *  bottom sheet 1:1 (the sheet settles it on release); otherwise it scrolls
-	 *  the /play shell. */
-	function barDriveScroll(dyUp: number) {
-		if (barDrivesSheet) {
-			sheetDragMove(dyUp);
-		} else {
-			const shell = get(playShellEl);
-			if (shell) shell.scrollBy({ top: -dyUp });
+	/** On phones the finger moves the bottom sheet 1:1 (the sheet settles it on
+	 *  release); otherwise it scrolls the /play shell. */
+	function runBarGestureEffect(effect: BarGestureEffect, touchEvent?: TouchEvent) {
+		switch (effect.type) {
+			case 'handOff':
+				dispatchGesture({ type: 'handOff' });
+				return;
+			case 'sheetBegin':
+				sheetDragBegin();
+				return;
+			case 'sheetMove':
+				sheetDragMove(effect.dyUp);
+				return;
+			case 'sheetEnd':
+				sheetDragEnd();
+				return;
+			case 'shellScroll':
+				get(playShellEl)?.scrollBy({ top: -effect.dyUp });
+				return;
+			case 'suppressClick':
+				suppressNextBarClick();
+				return;
+			case 'preventDefault':
+				touchEvent?.preventDefault();
+				return;
 		}
 	}
 
@@ -2188,56 +2210,34 @@
 
 	function onBarTouchStart(e: TouchEvent) {
 		if (isBarOwnGesture(e.target) || e.touches.length !== 1) {
-			barGesturePending = false;
-			barFromScrubZone = false;
+			dispatchBarGesture({ type: 'ignore' });
 			return;
 		}
-		barFromScrubZone = isScrubZone(e.target);
-		barTouchStartX = e.touches[0].clientX;
-		barTouchStartY = e.touches[0].clientY;
-		barTouchLastY = barTouchStartY;
-		barGesturePending = true;
-		barGestureClaimed = false;
+		dispatchBarGesture({
+			type: 'start',
+			x: e.touches[0].clientX,
+			y: e.touches[0].clientY,
+			origin: isScrubZone(e.target) ? 'scrub' : 'bar'
+		});
 	}
 
 	function onBarTouchMove(e: TouchEvent) {
-		if (!barGesturePending) return;
 		const t = e.touches[0];
 		if (!t) return;
-		if (!barGestureClaimed) {
-			const claimY = claimBarDrag({
-				startX: barTouchStartX,
-				startY: barTouchStartY,
+		dispatchBarGesture(
+			{
+				type: 'move',
 				x: t.clientX,
 				y: t.clientY,
-				fromScrubZone: barFromScrubZone,
 				scrubEngaged: gestureEngaged(gesture) || isDraggingLoop,
 				sheetEnabled: get(playSheetEnabled)
-			});
-			if (claimY === null) return;
-			// The progress bar drops the rest of this gesture.
-			if (barFromScrubZone) dispatchGesture({ type: 'handOff' });
-			barGestureClaimed = true;
-			barTouchLastY = claimY;
-			// Hand the gesture to the bottom sheet: from here every finger delta
-			// moves it continuously (item 21), and its release decides where it lands.
-			barDrivesSheet = get(playSheetEnabled);
-			if (barDrivesSheet) sheetDragBegin();
-		}
-		const dyUp = barTouchLastY - t.clientY; // + when the finger moves up
-		barTouchLastY = t.clientY;
-		barDriveScroll(dyUp);
-		e.preventDefault();
+			},
+			e
+		);
 	}
 
 	function onBarTouchEnd() {
-		// A claimed drag must not also fire the button's click.
-		if (barGestureClaimed) suppressNextBarClick();
-		if (barDrivesSheet) sheetDragEnd();
-		barDrivesSheet = false;
-		barGesturePending = false;
-		barGestureClaimed = false;
-		barFromScrubZone = false;
+		dispatchBarGesture({ type: 'end' });
 	}
 
 	// Detect physical user scroll (wheel/touch only fire for real user input, not programmatic scrollTo)
@@ -4176,7 +4176,7 @@
 		     desktop keeps the thin-with-hover-grow behavior.
 		     `data-scrub-zone` marks it as the one part of the bar that owns its own
 		     gesture: the bar-level drag-to-open-the-sheet claim only takes it over
-		     for an unmistakably vertical swipe (see isVerticalSheetSwipe). -->
+		     for an unmistakably vertical swipe (see isPendingSheetSwipe). -->
 		<div
 			data-scrub-zone
 			class="relative h-3 sm:h-1 sm:hover:h-3 w-full overflow-visible transition-all duration-200 group cursor-pointer select-none"

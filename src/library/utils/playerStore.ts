@@ -39,7 +39,7 @@ const DEFAULT_STATE: PlayerState = {
 	title: '',
 	artist: '',
 	load: { kind: 'empty' },
-	soundFont: { kind: 'loading', progress: 0 },
+	soundFont: { kind: 'loading', progress: 0, resume: false },
 	currentBar: 0,
 	totalBars: 0,
 	tracks: [],
@@ -167,10 +167,12 @@ export function sendScoreLoad(event: ScoreLoadEvent): ScoreLoad {
 	return before;
 }
 
-export function sendSoundFont(event: SoundFontEvent) {
+/** Advance the soundfont. Returns the state before the event. */
+export function sendSoundFont(event: SoundFontEvent): SoundFont {
 	const before = get(playerState).soundFont;
 	const soundFont = soundFontTransition(before, event);
 	if (soundFont !== before) updatePlayerState({ soundFont });
+	return before;
 }
 
 export function getApi(): any {
