@@ -480,7 +480,7 @@
 		}
 
 		api.soundFontLoaded.on(() => {
-			sendSoundFont({ type: 'loaded' });
+			const before = sendSoundFont({ type: 'loaded' });
 			installMasterLimiter(api);
 			// No-op once applied; after a base swap it re-layers the score's packs
 			if (api.score) void instrumentPacks?.ensure(api.score);
@@ -490,8 +490,7 @@
 			if (tab?.fileAsB64 && tab.fileAsB64 !== loaded) openInEngine(api, tab.fileAsB64);
 			// Resume playback if it was active before the soundfont change
 			// (AlphaTab's loadSoundFont always pauses the synth internally)
-			if (wasPlayingBeforeSoundFontChange) {
-				wasPlayingBeforeSoundFontChange = false;
+			if (before.kind === 'loading' && before.resume) {
 				try {
 					transport.playNow();
 				} catch {}
@@ -588,7 +587,6 @@
 	// Track the current soundfont URL to detect changes
 	let currentSoundFontUrl = get(preferencesStore).soundFontUrl;
 	let currentStudio = studioInstruments(get(preferencesStore));
-	let wasPlayingBeforeSoundFontChange = false;
 
 	// Subscribe to soundfont URL changes and apply at runtime
 	$: if (
@@ -601,10 +599,9 @@
 		const api = get(playerApi);
 		if (api) {
 			// AlphaTab's loadSoundFont() internally calls pause(), so track state to resume after
-			wasPlayingBeforeSoundFontChange = get(playerState).playing;
+			sendSoundFont({ type: 'reload', resume: get(playerState).playing });
 			api.settings.player.soundFont = newUrl;
 			api.updateSettings();
-			sendSoundFont({ type: 'reload' });
 			instrumentPacks?.reset();
 			api.loadSoundFont(newUrl, false);
 		}
@@ -622,8 +619,7 @@
 				if (api.score) void instrumentPacks.ensure(api.score);
 			} else if (get(playerState).soundFont.kind === 'ready') {
 				// Skipped when a soundfont switch already reloads the base
-				wasPlayingBeforeSoundFontChange = get(playerState).playing;
-				sendSoundFont({ type: 'reload' });
+				sendSoundFont({ type: 'reload', resume: get(playerState).playing });
 				api.loadSoundFont(currentSoundFontUrl, false);
 			}
 		}

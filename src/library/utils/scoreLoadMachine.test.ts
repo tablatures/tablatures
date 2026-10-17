@@ -157,15 +157,15 @@ describe('score load views', () => {
 describe('soundfont transitions', () => {
 	it('reports progress while loading, then ready', () => {
 		const loading = soundFontTransition(
-			{ kind: 'loading', progress: 0 },
+			{ kind: 'loading', progress: 0, resume: true },
 			{ type: 'progress', loaded: 1, total: 3 }
 		);
-		expect(loading).toEqual({ kind: 'loading', progress: 33 });
+		expect(loading).toEqual({ kind: 'loading', progress: 33, resume: true });
 		expect(soundFontTransition(loading, { type: 'loaded' })).toEqual({ kind: 'ready' });
 	});
 
 	it('ignores progress without a total', () => {
-		const loading = { kind: 'loading', progress: 40 } as const;
+		const loading = { kind: 'loading', progress: 40, resume: false } as const;
 		expect(soundFontTransition(loading, { type: 'progress', loaded: 5, total: 0 })).toBe(loading);
 	});
 
@@ -177,9 +177,35 @@ describe('soundfont transitions', () => {
 
 	it('loads again after a soundfont switch', () => {
 		// The view's copy only ever followed the store from false to true.
-		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload' })).toEqual({
+		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: false })).toEqual({
 			kind: 'loading',
-			progress: 0
+			progress: 0,
+			resume: false
 		});
+	});
+
+	it('remembers to resume playback that the switch paused', () => {
+		expect(soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: true })).toEqual({
+			kind: 'loading',
+			progress: 0,
+			resume: true
+		});
+	});
+
+	it('keeps the resume through a second switch before the first loads', () => {
+		// The first load paused playback, so the second switch reads it as stopped.
+		const first = soundFontTransition({ kind: 'ready' }, { type: 'reload', resume: true });
+		expect(soundFontTransition(first, { type: 'reload', resume: false })).toEqual({
+			kind: 'loading',
+			progress: 0,
+			resume: true
+		});
+	});
+
+	it('forgets the resume once ready, so a later pack load cannot restart playback', () => {
+		const loading = { kind: 'loading', progress: 0, resume: true } as const;
+		const ready = soundFontTransition(loading, { type: 'loaded' });
+		expect(ready).toEqual({ kind: 'ready' });
+		expect(soundFontTransition(ready, { type: 'loaded' })).toBe(ready);
 	});
 });

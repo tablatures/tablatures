@@ -88,23 +88,29 @@ export const isStalled = (load: ScoreLoad, key: string | null | undefined): bool
 export const failureFor = (load: ScoreLoad, key: string | null | undefined): string =>
 	key && load.kind === 'failed' && load.key === key ? load.message : '';
 
-// The soundfont belongs to the persistent engine and outlives scores.
-export type SoundFont = { kind: 'loading'; progress: number } | { kind: 'ready' };
+// The soundfont belongs to the persistent engine and outlives scores. alphaTab
+// pauses to load a new one; `resume` restores playback once it is ready.
+export type SoundFont = { kind: 'loading'; progress: number; resume: boolean } | { kind: 'ready' };
 
 export type SoundFontEvent =
 	| { type: 'progress'; loaded: number; total: number }
 	| { type: 'loaded' }
 	/** A new base soundfont was requested; alphaTab reports its load again. */
-	| { type: 'reload' };
+	| { type: 'reload'; resume: boolean };
 
 export function soundFontTransition(soundFont: SoundFont, event: SoundFontEvent): SoundFont {
 	switch (event.type) {
 		case 'progress':
 			if (soundFont.kind !== 'loading' || !(event.total > 0)) return soundFont;
-			return { kind: 'loading', progress: Math.round((event.loaded / event.total) * 100) };
+			return { ...soundFont, progress: Math.round((event.loaded / event.total) * 100) };
 		case 'loaded':
 			return soundFont.kind === 'ready' ? soundFont : { kind: 'ready' };
 		case 'reload':
-			return { kind: 'loading', progress: 0 };
+			// A second switch before the first loads finds playback already paused.
+			return {
+				kind: 'loading',
+				progress: 0,
+				resume: event.resume || (soundFont.kind === 'loading' && soundFont.resume)
+			};
 	}
 }

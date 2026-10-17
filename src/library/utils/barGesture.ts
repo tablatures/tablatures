@@ -79,3 +79,102 @@ export function claimBarDrag(t: BarTouch): number | null {
 	}
 	return t.startY + Math.sign(dy) * claimFrom;
 }
+
+/** One touch on the transport bar. A tap stays `pending` and clicks; a claimed
+ * drag moves the bottom sheet (phones) or the /play shell (larger screens). */
+export type BarGesture =
+	| { kind: 'idle' }
+	/** Within the tap slop; the bar has not taken the touch. */
+	| { kind: 'pending'; startX: number; startY: number; origin: 'scrub' | 'bar' }
+	/** Claimed. lastY is where the next move's travel counts from. */
+	| { kind: 'dragging'; drives: 'sheet' | 'shell'; lastY: number };
+
+export type BarGestureEvent =
+	| { type: 'start'; x: number; y: number; origin: 'scrub' | 'bar' }
+	/** A touch the bar must not take: a control with its own gesture, or a second finger. */
+	| { type: 'ignore' }
+	| { type: 'move'; x: number; y: number; scrubEngaged: boolean; sheetEnabled: boolean }
+	/** touchend or touchcancel. */
+	| { type: 'end' };
+
+export type BarGestureEffect =
+	/** The progress bar drops the rest of its gesture. */
+	| { type: 'handOff' }
+	| { type: 'sheetBegin' }
+	/** dyUp is positive when the finger moves up. */
+	| { type: 'sheetMove'; dyUp: number }
+	| { type: 'sheetEnd' }
+	| { type: 'shellScroll'; dyUp: number }
+	/** A claimed drag must not also fire the button's click. */
+	| { type: 'suppressClick' }
+	| { type: 'preventDefault' };
+
+export const barIdle: BarGesture = { kind: 'idle' };
+
+export function barTransition(
+	gesture: BarGesture,
+	event: BarGestureEvent
+): { gesture: BarGesture; effects: BarGestureEffect[] } {
+	const to = (next: BarGesture, ...effects: BarGestureEffect[]) => ({ gesture: next, effects });
+	// Leaving `dragging` always settles the sheet and swallows the click, so a
+	// second finger or a lost touchend cannot leave the sheet mid-drag.
+	const leave = (next: BarGesture, ...effects: BarGestureEffect[]) =>
+		to(
+			next,
+			...(gesture.kind === 'dragging'
+				? [
+						{ type: 'suppressClick' } as const,
+						...(gesture.drives === 'sheet' ? [{ type: 'sheetEnd' } as const] : [])
+					]
+				: []),
+			...effects
+		);
+	const drive = (drives: 'sheet' | 'shell', dyUp: number): BarGestureEffect[] => [
+		drives === 'sheet' ? { type: 'sheetMove', dyUp } : { type: 'shellScroll', dyUp },
+		{ type: 'preventDefault' }
+	];
+
+	switch (event.type) {
+		case 'start':
+			return leave({ kind: 'pending', startX: event.x, startY: event.y, origin: event.origin });
+		case 'ignore':
+		case 'end':
+			return leave(barIdle);
+		case 'move':
+			if (gesture.kind === 'dragging')
+				return to(
+					{ ...gesture, lastY: event.y },
+					...drive(gesture.drives, gesture.lastY - event.y)
+				);
+			if (gesture.kind === 'pending') {
+				const claimY = claimBarDrag({
+					startX: gesture.startX,
+					startY: gesture.startY,
+					x: event.x,
+					y: event.y,
+					fromScrubZone: gesture.origin === 'scrub',
+					scrubEngaged: event.scrubEngaged,
+					sheetEnabled: event.sheetEnabled
+				});
+				if (claimY === null) return to(gesture);
+				const drives = event.sheetEnabled ? 'sheet' : 'shell';
+				return to(
+					{ kind: 'dragging', drives, lastY: event.y },
+					...(gesture.origin === 'scrub' ? [{ type: 'handOff' } as const] : []),
+					...(drives === 'sheet' ? [{ type: 'sheetBegin' } as const] : []),
+					...drive(drives, claimY - event.y)
+				);
+			}
+			return to(gesture);
+	}
+}
+
+/** A pending touch from the scrub zone that the sheet is about to claim: the
+ * progress bar must not react to it. */
+export function isPendingSheetSwipe(gesture: BarGesture, x: number, y: number): boolean {
+	return (
+		gesture.kind === 'pending' &&
+		gesture.origin === 'scrub' &&
+		isVerticalSwipe(x - gesture.startX, y - gesture.startY)
+	);
+}
