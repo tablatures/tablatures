@@ -102,7 +102,10 @@ export function soundFontTransition(soundFont: SoundFont, event: SoundFontEvent)
 	switch (event.type) {
 		case 'progress':
 			if (soundFont.kind !== 'loading' || !(event.total > 0)) return soundFont;
-			return { ...soundFont, progress: Math.round((event.loaded / event.total) * 100) };
+			return {
+				...soundFont,
+				progress: Math.min(100, Math.round((event.loaded / event.total) * 100))
+			};
 		case 'loaded':
 			return soundFont.kind === 'ready' ? soundFont : { kind: 'ready' };
 		case 'reload':
