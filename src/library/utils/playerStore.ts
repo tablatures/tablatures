@@ -1,5 +1,15 @@
 import { writable, get } from 'svelte/store';
 import type { LoopRegion } from './loopRegion';
+import {
+	SCORE_LOAD_TIMEOUT_MS,
+	isWaiting,
+	soundFontTransition,
+	transition,
+	type ScoreLoad,
+	type ScoreLoadEvent,
+	type SoundFont,
+	type SoundFontEvent
+} from './scoreLoadMachine';
 
 export interface PlayerState {
 	playing: boolean;
@@ -7,16 +17,14 @@ export interface PlayerState {
 	duration: number;
 	title: string;
 	artist: string;
-	scoreLoaded: boolean;
-	/** The first layout of the current score has reached the rendering surface. */
-	scoreRendered: boolean;
-	soundFontLoaded: boolean;
-	soundFontProgress: number;
+	/** Written only through `sendScoreLoad`. */
+	load: ScoreLoad;
+	/** Written only through `sendSoundFont`. */
+	soundFont: SoundFont;
 	currentBar: number;
 	totalBars: number;
 	tracks: any[];
 	activeTrackIndex: number;
-	isRendering: boolean;
 	videoWasPlaying: boolean;
 	loop: LoopRegion | null;
 	scoreKey: string | null;
@@ -30,15 +38,12 @@ const DEFAULT_STATE: PlayerState = {
 	duration: 0,
 	title: '',
 	artist: '',
-	scoreLoaded: false,
-	scoreRendered: false,
-	soundFontLoaded: false,
-	soundFontProgress: 0,
+	load: { kind: 'empty' },
+	soundFont: { kind: 'loading', progress: 0 },
 	currentBar: 0,
 	totalBars: 0,
 	tracks: [],
 	activeTrackIndex: 0,
-	isRendering: false,
 	videoWasPlaying: false,
 	loop: null,
 	scoreKey: null,
@@ -139,11 +144,33 @@ export function resetPlayerState() {
 	// Preserve soundfont state: the soundfont belongs to the persistent API,
 	// not the current tab. Resetting it causes a permanent desync because
 	// the soundFontLoaded event won't fire again for an already-loaded font.
-	playerState.update((s) => ({
-		...DEFAULT_STATE,
-		soundFontLoaded: s.soundFontLoaded,
-		soundFontProgress: s.soundFontProgress
-	}));
+	clearTimeout(loadTimer);
+	playerState.update((s) => ({ ...DEFAULT_STATE, soundFont: s.soundFont }));
+}
+
+let loadTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Advance the score load. Each waiting state gets its own timeout, keyed by
+ * its bytes, so a previous score's timer cannot stall the next one. Returns
+ * the state before the event. */
+export function sendScoreLoad(event: ScoreLoadEvent): ScoreLoad {
+	const before = get(playerState).load;
+	const load = transition(before, event);
+	if (load === before) return before;
+	updatePlayerState({ load });
+	clearTimeout(loadTimer);
+	if (isWaiting(load))
+		loadTimer = setTimeout(
+			() => sendScoreLoad({ type: 'timeout', key: load.key }),
+			SCORE_LOAD_TIMEOUT_MS
+		);
+	return before;
+}
+
+export function sendSoundFont(event: SoundFontEvent) {
+	const before = get(playerState).soundFont;
+	const soundFont = soundFontTransition(before, event);
+	if (soundFont !== before) updatePlayerState({ soundFont });
 }
 
 export function getApi(): any {

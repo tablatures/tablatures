@@ -32,7 +32,7 @@
 	$: state = $playerState;
 	$: api = $playerApi;
 	$: currentTab = $tabStore;
-	$: soundFontLoading = !state.soundFontLoaded;
+	$: soundFontLoading = state.soundFont.kind !== 'ready';
 
 	// Publish the bar's real measured height so the preview sheet can sit flush
 	// on top of it (no magic numbers). Includes the safe-area padding since it's
@@ -229,7 +229,11 @@
 	<!-- Soundfont loading overlay -->
 	{#if soundFontLoading}
 		<div class="absolute inset-x-0 top-0 z-10 bg-neutral-900/90 py-1.5">
-			<LoadingScore progress={state.soundFontProgress} message="Loading soundfont" size="sm" />
+			<LoadingScore
+				progress={state.soundFont.kind === 'loading' ? state.soundFont.progress : 100}
+				message="Loading soundfont"
+				size="sm"
+			/>
 		</div>
 	{/if}
 

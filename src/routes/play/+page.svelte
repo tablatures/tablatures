@@ -28,6 +28,7 @@
 	import { persistTabBytes } from '../../library/data/tabBytes';
 	import Seo from '../../library/components/Seo.svelte';
 	import { scoreToEngineMs } from '../../library/utils/playerTiming';
+	import { isParsed } from '../../library/utils/scoreLoadMachine';
 	import { sessionTransport } from '../../library/utils/playerSession';
 	import { pageTitle } from '../../library/utils/seo';
 	import { preferencesStore } from '../../library/utils/preferences';
@@ -397,7 +398,7 @@
 				// Defer seeking until the player is ready
 				const seekInterval = setInterval(() => {
 					const state = $playerState;
-					if (state.scoreLoaded && state.duration > 0) {
+					if (isParsed(state.load, state.scoreKey) && state.duration > 0) {
 						clearInterval(seekInterval);
 						const pct = (scoreToEngineMs(timeSec * 1000, state.speed) / state.duration) * 100;
 						if (pct > 0 && pct < 100) sessionTransport().seek((pct / 100) * state.duration);

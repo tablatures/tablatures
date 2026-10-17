@@ -6,7 +6,7 @@
 	import LoadingScore from './LoadingScore.svelte';
 
 	$: title = $playerState.title || $tabStore?.title || 'track';
-	$: loading = !$playerState.soundFontLoaded;
+	$: loading = $playerState.soundFont.kind !== 'ready';
 
 	function resume() {
 		if (!$playerApi) return;
