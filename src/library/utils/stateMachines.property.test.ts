@@ -11,6 +11,13 @@ import { get } from 'svelte/store';
 import { barIdle, barTransition, type BarGesture, type BarGestureEvent } from './barGesture';
 import { idle, transition as progressTransition, type GestureEvent } from './progressGesture';
 import {
+	scoreIdle,
+	scoreTransition,
+	type ScoreGesture,
+	type ScoreGestureEvent
+} from './scoreGesture';
+import { beginLoopDrag, endLoopDrag, isLoopDragging, noLoopDrag, type LoopDrag } from './loopDrag';
+import {
 	SCORE_LOAD_TIMEOUT_MS,
 	isParsed,
 	isRendered,
@@ -517,6 +524,122 @@ describe('loop selection', () => {
 					if (loop.ticks) expect(loop.ticks.startTick).toBeLessThan(loop.ticks.endTick);
 					// Written order always carries its ticks once both markers are set.
 					if (loop.order === 'written' && markers === 2) expect(loop.kind).toBe('notes');
+				}
+			}),
+			RUNS
+		);
+	});
+});
+
+describe('score gesture', () => {
+	const beats = [{ n: 0 }, { n: 1 }, { n: 2 }];
+	const beat = fc.constantFrom(...beats);
+	const event: fc.Arbitrary<ScoreGestureEvent<(typeof beats)[number]>> = fc.oneof(
+		fc.record({ type: fc.constant('mouseDown' as const), beat }),
+		fc.record({ type: fc.constant('mouseMove' as const), beat }),
+		fc.record({
+			type: fc.constant('mouseUp' as const),
+			beat,
+			time: fc.integer({ min: 0, max: 2000 }),
+			noteSnap: fc.boolean()
+		}),
+		fc.record({ type: fc.constant('touchHold' as const), beat }),
+		fc.record({ type: fc.constant('touchDrag' as const), beat }),
+		fc.constant({ type: 'touchCommit' as const }),
+		fc.constant({ type: 'touchAbort' as const }),
+		fc.record({
+			type: fc.constant('pinchStart' as const),
+			scale: fc.constantFrom(0.5, 1, 2),
+			lazyLoading: fc.constant(null),
+			origin: fc.constant([0, 0] as [number, number])
+		}),
+		fc.record({ type: fc.constant('pinchUpdate' as const), scale: fc.constantFrom(0.5, 1, 2) }),
+		fc.constant({ type: 'pinchEnd' as const }),
+		fc.constant({ type: 'cancel' as const }),
+		fc.constant({ type: 'surfaceReplaced' as const })
+	);
+
+	it('previews and commits only selections, and restores lazy loading after every pinch', () => {
+		fc.assert(
+			fc.property(fc.boolean(), events(event), (lazyAtStart, sequence) => {
+				let gesture: ScoreGesture<(typeof beats)[number]> = scoreIdle();
+				// The engine's lazy-loading setting, as the view reads and writes it.
+				let lazy = lazyAtStart;
+				let previewScaled = false;
+				for (const raw of sequence) {
+					const e = raw.type === 'pinchStart' ? { ...raw, lazyLoading: lazy } : raw;
+					const before = gesture;
+					const result = scoreTransition(gesture, e);
+					gesture = result.gesture;
+					for (const effect of result.effects) {
+						switch (effect.type) {
+							case 'preview':
+								expect(['mouseDragging', 'touchSelecting']).toContain(gesture.kind);
+								break;
+							case 'commit':
+								// A selection commits once, from the selection that was in progress.
+								expect(['mouseDragging', 'touchSelecting']).toContain(before.kind);
+								expect(gesture.kind).toBe('idle');
+								break;
+							case 'selectNote':
+							case 'click':
+								expect(before.kind).toBe('mousePressed');
+								break;
+							case 'pinchBegin':
+								expect(previewScaled).toBe(false);
+								lazy = false;
+								previewScaled = true;
+								break;
+							case 'setScale':
+								expect(gesture.kind).toBe('pinching');
+								break;
+							case 'pinchFinish':
+								expect(previewScaled).toBe(true);
+								if (effect.lazyLoading !== null) lazy = effect.lazyLoading;
+								previewScaled = false;
+								break;
+						}
+					}
+					expect(previewScaled).toBe(gesture.kind === 'pinching');
+					if (gesture.kind !== 'pinching') expect(lazy).toBe(lazyAtStart);
+				}
+			}),
+			RUNS
+		);
+	});
+});
+
+describe('loop drag', () => {
+	const step = fc.oneof(
+		fc
+			.constantFrom('hold' as const, 'edge' as const, 'body' as const, 'knob' as const)
+			.map((source) => ({ type: 'begin' as const, source })),
+		// Ends address a drag by how many drags ago it began.
+		fc.integer({ min: 0, max: 3 }).map((ago) => ({ type: 'end' as const, ago }))
+	);
+
+	it('is dragging exactly while the latest drag has not ended itself', () => {
+		fc.assert(
+			fc.property(events(step), (sequence) => {
+				let drag: LoopDrag = noLoopDrag;
+				const begun: number[] = [];
+				let latestEnded = true;
+				for (const s of sequence) {
+					if (s.type === 'begin') {
+						const next = beginLoopDrag(drag, s.source);
+						expect(begun).not.toContain(next.id);
+						begun.push(next.id);
+						drag = next;
+						latestEnded = false;
+					} else {
+						const id = begun[begun.length - 1 - s.ago];
+						if (id === undefined) continue;
+						drag = endLoopDrag(drag, id);
+						if (s.ago === 0) latestEnded = true;
+					}
+					expect(isLoopDragging(drag)).toBe(!latestEnded);
+					if (begun.length)
+						expect(isLoopDragging(drag, begun[begun.length - 1])).toBe(!latestEnded);
 				}
 			}),
 			RUNS

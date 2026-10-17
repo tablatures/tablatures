@@ -163,9 +163,9 @@ the touch wiring, including an edge wobble that must not move the playhead.
 
 `stateMachines.property.test.ts` adds random sequences of up to 40 events
 (fast-check) to those four-step explorations. It covers the transport, the loop
-selection, both bar gestures, the score load (including its timeout, under fake
-timers) and the soundfont, and checks each machine's invariants after every
-event. A failure prints a seed and a shrunk counterexample. Reproduce it with
+selection, both bar gestures, the score-surface gesture (selection and pinch),
+loop drags, the score load (including its timeout, under fake timers) and the
+soundfont, and checks each machine's invariants after every event. A failure prints a seed and a shrunk counterexample. Reproduce it with
 that seed and path before changing anything. Once it is fixed, keep the
 counterexample as an example test next to the machine. Treat a failure as a
 defect, never as a flake.
