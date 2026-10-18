@@ -495,6 +495,24 @@
 				</button>
 			</div>
 		</div>
+
+		<!-- Studio sound (experiment) -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<span class="block text-sm font-medium text-neutral-700 dark:text-neutral-200">Studio Sound (experimental)</span>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">Renders each tab offline with amp, cabinet, EQ and room processing, then plays that mix. Takes a few seconds per track; mute, solo, metronome and practice order are not applied. Desktop recommended.</p>
+			<div>
+				<button
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.studioSound ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={() => ($preferencesStore.studioSound = !$preferencesStore.studioSound)}
+					role="switch"
+					aria-checked={$preferencesStore.studioSound}
+					aria-label="Studio sound"
+					data-testid="studio-sound-toggle"
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.studioSound ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
+			</div>
+		</div>
 	</div>
 
 	<!-- ===== DISPLAY SECTION ===== -->

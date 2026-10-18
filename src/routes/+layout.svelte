@@ -67,7 +67,15 @@
 		playerBarHeight,
 		playSheetOpen
 	} from '../library/utils/playerStore';
-	import { preferencesStore, studioInstruments } from '../library/utils/preferences';
+	import {
+		preferencesStore,
+		studioInstruments,
+		SOUNDFONT_BUNDLED
+	} from '../library/utils/preferences';
+	import { createStudioPlayback } from '../library/audio/studio/studioPlayback';
+	import { renderStudioMix } from '../library/audio/studio/studioRender';
+	import { studioSoundControls, studioSoundState } from '../library/audio/studio/studioStore';
+	import StudioSoundBadge from '../library/components/StudioSoundBadge.svelte';
 	import {
 		createInstrumentPacks,
 		INSTRUMENTS_VERSION,
@@ -116,6 +124,7 @@
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
 	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
 	let instrumentPacks: ReturnType<typeof createInstrumentPacks> | null = null;
+	let studioSound: ReturnType<typeof createStudioPlayback> | null = null;
 	const transport = sessionTransport();
 	let detachTransport: (() => void) | null = null;
 	// Hold the store's progress at a requested target until the engine acknowledges it.
@@ -140,6 +149,8 @@
 		videoSession?.dispose();
 		practicePlayback?.dispose();
 		instrumentPacks?.dispose();
+		studioSound?.dispose();
+		studioSoundControls.set(null);
 		registerVideoSeek(null);
 		videoHandlers.set({});
 	});
@@ -352,15 +363,61 @@
 		if (workaroundApplies('duplicateScoreMidi', window.alphaTab.meta?.version))
 			generateScoreMidiOnce(api);
 		practicePlayback = createPracticePlayback(api);
+		const packsUrl = `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`;
 		instrumentPacks = createInstrumentPacks(api, {
-			baseUrl: `${isNative() ? INSTRUMENTS_WEB_ORIGIN : base}/instruments/${INSTRUMENTS_VERSION}`,
+			baseUrl: packsUrl,
 			fetch: window.fetch.bind(window),
 			caches: 'caches' in window ? window.caches : undefined
 		});
 		instrumentPacks.setEnabled(studioInstruments(prefs));
+		// Experimental studio sound (off by default): renders each score offline
+		// and plays the processed mix through alphaTab's external media mode.
+		studioSound = createStudioPlayback(api, {
+			alphaTab: () => window.alphaTab,
+			render: (score, signal, onProgress) =>
+				renderStudioMix(
+					window.alphaTab,
+					score,
+					(api.settings as any).notation?.transpositionPitches,
+					{
+						alphaTabUrl: `${vendorBase}/alphaTab.min.js`,
+						fonts: {
+							baseSoundFontUrl: SOUNDFONT_BUNDLED,
+							packsUrl,
+							fetch: window.fetch.bind(window),
+							caches: 'caches' in window ? window.caches : undefined
+						},
+						signal,
+						onProgress
+					}
+				),
+			onState: (state) => studioSoundState.set(state),
+			onSynthReplaced: (studioActive) => {
+				if (studioActive) {
+					// The synthesizer (and every pack it loaded) goes away.
+					instrumentPacks?.setEnabled(false);
+					instrumentPacks?.reset();
+				} else {
+					instrumentPacks?.setEnabled(studioInstruments(get(preferencesStore)));
+					// A new synthesizer loads the base SoundFont; restore() resumes playback.
+					sendSoundFont({ type: 'reload', resume: false });
+				}
+			},
+			restore: (ms, play) => {
+				practicePlayback?.playerReplaced();
+				transport.seek(ms);
+				if (play) transport.playNow();
+			}
+		});
+		studioSound.setEnabled(prefs.studioSound);
+		studioSoundControls.set({
+			listen: (source) => studioSound?.listen(source),
+			rerender: () => studioSound?.rerender()
+		});
 		api.playerReady?.on(() => installMasterLimiter(api));
 		if (import.meta.env.DEV) {
 			(window as any).__instrumentPacks = instrumentPacks;
+			(window as any).__studioSound = studioSound;
 			(window as any).__hasMasterLimiter = () => hasMasterLimiter(api);
 		}
 
@@ -624,6 +681,8 @@
 			}
 		}
 	}
+
+	$: if (browser && studioSound) studioSound.setEnabled($preferencesStore.studioSound);
 
 	// Subscribe to theme changes to apply to alphaTab even when not on /play route
 	$: if (browser && $themeStore !== undefined) {
@@ -963,6 +1022,10 @@
 				<p class="text-neutral-400 text-sm mt-1">.gp3 .gp4 .gp5 .gpx .gp .xml</p>
 			</div>
 		</div>
+	{/if}
+
+	{#if isOnPlay && $studioSoundState.kind !== 'off'}
+		<StudioSoundBadge />
 	{/if}
 
 	<!-- Persistent alphaTab rendering host (always in DOM) -->

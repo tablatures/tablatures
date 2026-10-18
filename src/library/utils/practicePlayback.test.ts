@@ -452,6 +452,27 @@ describe('written practice playback using real MIDI generation', () => {
 			session.dispose();
 		});
 
+		it('stops filtering when the player is replaced and its load never reports a stop', () => {
+			const { api, session, delivered, emit } = positionPlayer({ states: true });
+			session.sync(null); // as the layout does for every loop state
+			// The session saw the score's first load (it exists before any score).
+			api.loadMidiForScore();
+			api.playerStateChanged.emit({ state: 0, stopped: true });
+			api.playerReady.emit();
+			api.tickPosition = 5000;
+			// alphaTab adopts an already-ready player: the MIDI loads before the
+			// player's state changes are forwarded, so no stop arrives.
+			api.loadMidiForScore();
+			api.playerReady.emit();
+			emit({ currentTick: 5100, isSeek: false });
+			expect(delivered).toEqual([]);
+			session.playerReplaced();
+			// The caller restores the position, then playback reports normally.
+			emit(seek(5000), { currentTick: 5200, isSeek: false });
+			expect(delivered).toEqual([5001, 5200]);
+			session.dispose();
+		});
+
 		it('delivers a replacement score and stops filtering once disposed', () => {
 			const { api, session, delivered, emit } = positionPlayer();
 			session.sync(region);

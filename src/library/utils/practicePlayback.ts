@@ -343,6 +343,20 @@ export function createPracticePlayback(api: any) {
 		};
 	const session = {
 		sync,
+		/**
+		 * alphaTab replaced its player (studio sound swaps the synthesizer for
+		 * external media). An already-ready player loads its MIDI before alphaTab
+		 * forwards its state changes, so that load's stop is never reported and
+		 * its reload would filter every position. The new player has no earlier
+		 * buffers or loads in flight, and the caller restores the position.
+		 */
+		playerReplaced() {
+			reload = null;
+			pending = null;
+			loadsInFlight = 0;
+			resumeRequested = false;
+			lookup = api.tickCache;
+		},
 		toMedia(ms: number) {
 			const timing = timingForApi(api);
 			return isWritten() && normal && timing

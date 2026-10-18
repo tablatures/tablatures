@@ -21,6 +21,9 @@ export interface UserPreferences {
 	speedTrainer: SpeedTrainerSettings;
 	/** Studio layers per-instrument packs over the bundled soundfont. */
 	instrumentQuality: 'studio' | 'standard';
+	/** Experimental: play an offline-rendered, amp/cab/EQ-processed mix of each
+	 *  score instead of the live synthesizer (src/library/audio/studio). */
+	studioSound: boolean;
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -98,7 +101,8 @@ const DEFAULTS: UserPreferences = {
 	haptics: true,
 	notationView: 'tab',
 	speedTrainer: DEFAULT_SPEED_TRAINER,
-	instrumentQuality: 'studio'
+	instrumentQuality: 'studio',
+	studioSound: false
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */

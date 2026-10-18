@@ -57,7 +57,11 @@ export interface PackLoaderDeps {
 	settleMs?: number;
 }
 
-async function cachedBytes(url: string, deps: PackLoaderDeps): Promise<Uint8Array> {
+/** A pack's bytes, from the packs' own cache when present (also used by studio sound). */
+export async function cachedBytes(
+	url: string,
+	deps: Pick<PackLoaderDeps, 'fetch' | 'caches'>
+): Promise<Uint8Array> {
 	let cache: Cache | undefined;
 	try {
 		cache = await deps.caches?.open(CACHE_NAME);
