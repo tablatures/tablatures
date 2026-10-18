@@ -87,6 +87,13 @@ export interface InstrumentPacks {
 	setEnabled(enabled: boolean): void;
 	/** Apply packs that arrived while playing. Call when playback pauses or stops. */
 	flush(): void;
+	/** Run once every pack load posted to the synth has been acknowledged (or
+	 * given up on after 5 s). alphaTab acknowledges loads in order and without
+	 * saying which, so a base SoundFont posted after this is acknowledged on its own. */
+	whenSettled(run: () => void): void;
+	/** A base SoundFont is being posted: post no pack until it is acknowledged,
+	 * or the pack's acknowledgement would arrive first and be taken for it. */
+	holdForBase(): void;
 	readonly applied: ReadonlySet<string>;
 	readonly waiting: number;
 	dispose(): void;
@@ -140,8 +147,9 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 				return null;
 			}));
 
+	let holdingForBase = false;
 	const flush = () => {
-		if (!enabled || api.playerState !== 0 || queuedStart) return;
+		if (!enabled || api.playerState !== 0 || queuedStart || holdingForBase) return;
 		for (const [key, bytes] of ready) {
 			ready.delete(key);
 			try {
@@ -167,8 +175,23 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 		queuedStart = null;
 		start?.();
 	};
+	let settledWaiters: (() => void)[] = [];
+	const settle = () => {
+		const waiters = settledWaiters;
+		settledWaiters = [];
+		waiters.forEach((run) => run());
+	};
 	const onLoaded = () => {
-		if (applying > 0 && --applying === 0) releaseStart();
+		if (applying > 0) {
+			if (--applying === 0) {
+				releaseStart();
+				settle();
+			}
+		} else if (holdingForBase) {
+			// The base's own acknowledgement: no pack was pending ahead of it.
+			holdingForBase = false;
+			flush();
+		}
 	};
 	api.soundFontLoaded?.on(onLoaded);
 
@@ -252,6 +275,23 @@ export function createInstrumentPacks(api: SynthApi, deps: PackLoaderDeps): Inst
 			enabled = value;
 		},
 		flush,
+		whenSettled(run) {
+			// A load that never acknowledges (a failed pack) must not block the base.
+			if (applying > 0 && Date.now() - applyingSince > 5000) applying = 0;
+			if (applying === 0) return run();
+			settledWaiters.push(run);
+			setTimeout(
+				() => {
+					if (!settledWaiters.includes(run)) return;
+					applying = 0;
+					settle();
+				},
+				5000 - (Date.now() - applyingSince)
+			);
+		},
+		holdForBase() {
+			holdingForBase = true;
+		},
 		get applied() {
 			return applied;
 		},

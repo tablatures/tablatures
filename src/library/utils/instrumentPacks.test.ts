@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createInstrumentPacks, packKeysForScore, type PackManifest } from './instrumentPacks';
 
 const manifest: PackManifest = {
@@ -225,5 +225,55 @@ describe('starting playback while packs download', () => {
 		api.play();
 		expect(starts).toEqual([]);
 		await expect.poll(() => starts).toEqual(['play with 3 packs']);
+	});
+});
+
+describe('waiting for posted packs before a base SoundFont', () => {
+	it('runs at once when no pack load is pending', () => {
+		const h = harness();
+		const run = vi.fn();
+		h.packs.whenSettled(run);
+		expect(run).toHaveBeenCalledOnce();
+	});
+
+	it('runs once the synth has acknowledged every posted pack', async () => {
+		// alphaTab acknowledges loads in order and anonymously: a base posted
+		// behind packs would otherwise take a pack's acknowledgement for its own.
+		const h = harness();
+		await h.packs.ensure(rock); // three packs posted, not yet acknowledged
+		const run = vi.fn();
+		h.packs.whenSettled(run);
+		expect(run).not.toHaveBeenCalled();
+		await expect.poll(() => run.mock.calls.length).toBe(1);
+	});
+
+	it('gives up on a pack that never acknowledges', async () => {
+		const h = harness();
+		h.api.loadSoundFont = (data: Uint8Array) => void h.loaded.push(new TextDecoder().decode(data));
+		vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+		try {
+			const ensured = h.packs.ensure(rock);
+			await vi.runAllTimersAsync();
+			await ensured;
+			const run = vi.fn();
+			h.packs.whenSettled(run);
+			expect(run).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(run).toHaveBeenCalledOnce();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('posts no pack while a base is loading, then applies what arrived', async () => {
+		// A pack posted during the base's download is acknowledged before it.
+		const h = harness();
+		h.packs.holdForBase();
+		await h.packs.ensure(rock);
+		expect(h.loaded).toEqual([]);
+		// The base's acknowledgement (no pack pending ahead of it) releases them.
+		h.api.loadSoundFont(new TextEncoder().encode('base'));
+		await expect.poll(() => h.loaded.length).toBe(4);
+		expect(h.loaded[0]).toBe('base');
 	});
 });

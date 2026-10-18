@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import type { LoopRegion } from './loopRegion';
 import {
 	SCORE_LOAD_TIMEOUT_MS,
+	initialSoundFont,
 	isWaiting,
 	soundFontTransition,
 	transition,
@@ -39,7 +40,7 @@ const DEFAULT_STATE: PlayerState = {
 	title: '',
 	artist: '',
 	load: { kind: 'empty' },
-	soundFont: { kind: 'loading', progress: 0, resume: false },
+	soundFont: initialSoundFont,
 	currentBar: 0,
 	totalBars: 0,
 	tracks: [],
