@@ -2306,12 +2306,21 @@
 	$: notationView = $preferencesStore.notationView;
 	// HQ audio quick switch (testing phase): shown once a service is configured.
 	$: hqAvailable = hqAudioServerConfigured($preferencesStore);
+	$: hqRendering = $preferencesStore.hqAudio && $hqStatus.kind === 'rendering' ? $hqStatus : null;
+	// what the button shows while the tab is being prepared: its place in the queue, then a percentage
+	$: hqBadge = hqRendering
+		? hqRendering.position && !hqRendering.progress
+			? `#${hqRendering.position}`
+			: `${Math.round((hqRendering.progress ?? 0) * 100)}%`
+		: '';
 	$: hqTitle = !$preferencesStore.hqAudio
 		? 'HQ audio off: click to turn on'
 		: $hqPlayer
 			? 'Playing HQ audio: click for the built-in sound'
-			: $hqStatus.kind === 'rendering'
-				? 'HQ audio is being prepared for this tab: click to turn off'
+			: hqRendering
+				? hqRendering.position && !hqRendering.progress
+					? `HQ audio queued (position ${hqRendering.position}); the built-in sound plays meanwhile`
+					: `Preparing HQ audio: ${hqBadge}; the built-in sound plays meanwhile`
 				: $hqStatus.kind === 'ready'
 					? 'HQ audio cannot play this mute/solo, edit or video setup: built-in sound'
 					: $hqStatus.kind === 'unavailable'
@@ -4744,7 +4753,7 @@
 					on:click={toggleHq}
 					class="{compactBar
 						? 'px-2 py-1'
-						: 'px-2.5 py-1.5'} rounded-xl text-xs font-semibold tracking-wide transition-colors border
+						: 'px-2.5 py-1.5'} relative overflow-hidden rounded-xl text-xs font-semibold tracking-wide tabular-nums transition-colors border
 						{$hqPlayer
 						? 'bg-violet-500 border-violet-500 text-white hover:bg-violet-600'
 						: $preferencesStore.hqAudio
@@ -4755,7 +4764,15 @@
 					aria-pressed={$preferencesStore.hqAudio}
 					data-testid="hq-toggle"
 				>
-					HQ{$preferencesStore.hqAudio && $hqStatus.kind === 'rendering' ? '…' : ''}
+					{#if hqRendering}
+						<!-- the button fills as the render progresses -->
+						<span
+							class="absolute inset-y-0 left-0 bg-violet-500/20 transition-[width] duration-700"
+							style="width: {Math.round((hqRendering.progress ?? 0) * 100)}%"
+							aria-hidden="true"
+						></span>
+					{/if}
+					<span class="relative">HQ{hqBadge ? ` ${hqBadge}` : ''}</span>
 				</button>
 			{/if}
 

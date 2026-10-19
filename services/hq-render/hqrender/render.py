@@ -2,7 +2,8 @@
 
     python -m hqrender.render <score file> <out dir> [--work DIR]
 
-The output directory gets manifest.json, mix-<chain>.m4a and minus-<track>-<chain>.m4a. Nothing here
+Scope 'guitars' (default): guitars-<chain>.m4a and guitars-minus-<track>-<chain>.m4a, for the app's
+synth to play along with. Scope 'full': mix-<chain>.m4a and minus-<track>-<chain>.m4a. Plus manifest.json. Nothing here
 knows about queues, storage or hosting; see worker.py for that.
 
 Environment (paths default to the layout install.sh creates):
@@ -14,10 +15,11 @@ Environment (paths default to the layout install.sh creates):
     HQ_AMP_CHUNK_S amp block length in seconds                default: 1
     HQ_DRUM_POLYPHONY voice cap for the sampled drum kit      default: 48
     HQ_ENCODERS    parallel audio encoders                    default: 3
+    HQ_SCOPE       guitars (synth plays the rest) | full      default: guitars
     HQ_MIN_FREE_GB refuse to render below this much free disk default: 8
     HQ_HOT_C, HQ_COOL_C  pause above / resume below this CPU temperature (thermal.py)
 """
-import argparse, hashlib, json, math, os, resource, shutil, subprocess, sys, tempfile, time
+import argparse, hashlib, json, math, os, resource, shutil, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 # The amp's matrices are small: one BLAS thread per process is fastest; parallelism is HQ_AMP_WORKERS.
 for _k in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'): os.environ.setdefault(_k, '1')
@@ -35,6 +37,9 @@ AMP_WORKERS = int(os.environ.get('HQ_AMP_WORKERS', '2'))
 # a voice cap for the multi-mic kit: 48 voices sound the same as unlimited (-61 dB) and render 20% faster
 DRUM_POLYPHONY = int(os.environ.get('HQ_DRUM_POLYPHONY', '48'))
 ENCODERS = int(os.environ.get('HQ_ENCODERS', '3'))
+# 'guitars': render only the electric guitars, the app's synth plays the rest (and its level is
+# matched to it); 'full': every instrument, a finished mix
+SCOPE = os.environ.get('HQ_SCOPE', 'guitars')
 AMP_CHUNK_S = float(os.environ.get('HQ_AMP_CHUNK_S', '1'))  # 1 s suits Apple silicon caches, ~10 s a Raspberry Pi
 MIN_FREE = float(os.environ.get('HQ_MIN_FREE_GB', '8')) * 1e9
 CONFIG = json.load(open(os.path.join(SERVICE, 'assets', 'chain-v3.json')))
@@ -79,6 +84,16 @@ def take(score, work, index, kind):
 # ---------------------------------------------------------------- electric guitars
 
 _model = {}
+_prog = None  # in an amp process: {'path', 'total', 'done', 'at'} for the take being rendered
+
+
+def _advance(samples):
+    if not _prog: return
+    _prog['done'] += samples
+    if time.time() - _prog['at'] > 0.5 or _prog['done'] >= _prog['total']:
+        _prog['at'] = time.time()
+        with open(_prog['path'] + '.tmp', 'w') as f: f.write(f"{_prog['done']} {_prog['total']}")
+        os.replace(_prog['path'] + '.tmp', _prog['path'])
 
 
 def _amp_init():
@@ -99,6 +114,7 @@ def amp(x, cfg):
         if i % (10 * 48000) < C: thermal.wait_cool()  # also mid-track: one take keeps a core busy for minutes on a Pi
         r = m(u[max(0, i - P):i + C])
         y[i:i + C] = r[i - max(0, i - P):][:len(y[i:i + C])]
+        _advance(len(x) * min(C, len(u) - i) / len(u))
     y = resample_poly(y, 147, 160)[:len(x)]
     if 'Cab' not in name: y = dsp.conv(y, dsp.cab_ir(CONFIG['guitar']['cab']))
     return dsp.conv(y, dsp.eq_ir(cfg['eq']))
@@ -126,6 +142,7 @@ def guitar_take(di, secs):
     """One take: each program section through its chain, levels as in the DI, 30 ms crossfades."""
     xf = int(CONFIG['guitar']['crossfade_ms'] / 1000 * SR)
     ref = _frms(di, _frames(di)) + 1e-12; out = np.zeros(len(di))
+    if _prog: _prog['total'] = sum(min(len(di), b + MARGIN) - max(0, a - MARGIN) for a, b, _ in secs) or 1
     for a, b, cfg in secs:
         core = di[a:b]
         if len(core) == 0 or np.abs(core).max() < 1e-4: continue
@@ -141,9 +158,13 @@ def guitar_take(di, secs):
 
 
 def _take_job(args):
-    path, secs = args
+    global _prog
+    path, secs, prog = args
+    _prog = {'path': prog, 'total': 1, 'done': 0, 'at': 0}
     di = np.load(path); os.remove(path)
-    return guitar_take(di, secs)
+    try: return guitar_take(di, secs)
+    finally:
+        _advance(0); _prog = None
 
 
 # ---------------------------------------------------------------- drums and bass
@@ -153,7 +174,7 @@ def drums(work, index):
     from scipy.io import wavfile
     remap = {int(k): v for k, v in CONFIG['drums']['remap'].items()}
     src, mid, wav = os.path.join(work, f't{index}.mid'), os.path.join(work, f't{index}-kit.mid'), os.path.join(work, f't{index}-kit.wav')
-    m = mido.MidiFile(src)
+    m = mido.MidiFile(src, clip=True)  # alphaTab can write out-of-range data bytes
     for tr in m.tracks:
         for e in tr:
             if e.type in ('note_on', 'note_off') and e.channel == 9 and e.note in remap: e.note = remap[e.note]
@@ -193,9 +214,98 @@ def finish(pre, glue, gain):
     return np.tanh(y / 0.98) * 0.98 if pk > 0.98 else y
 
 
-def render(score, out, work=None, log=print, between=None):
-    """`between` runs before each track; by default it waits while the CPU is hot."""
+def guitar_stereo(t, takes, i):
+    left, right = takes[(i, 'di1')].result(), takes[(i, 'di2')].result()
+    # the two takes hard left and right (double tracking), level from the score's track volume
+    y = dsp.reverb(np.stack([left, right], 1), CONFIG['guitar']['reverb'])
+    return y * 10 ** (40 * math.log10(max(t.get('volume', 16), 1) / 16) / 20)
+
+
+def guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog):
+    """The electric guitars alone, at the level the app's synth needs to sit next to them.
+
+    The app keeps playing every other track with its synth, so the stem is not normalised: its
+    level is set from alphaTab's own render of the drums (guitars at the full mix's
+    guitar-to-drums balance) or, without drums, matched to alphaTab's own guitars."""
+    guitars = [t for t in playing if role[t['index']] == 'electric']
+    if not guitars: raise RenderError('no electric guitar to render')
+    drums_ = [t for t in playing if role[t['index']] == 'drums']
+    levels = CONFIG['mix']['bus_db']
+    if drums_:
+        ref = sum(fit(take(score, work, t['index'], 'plain')) for t in drums_)
+        target = dsp.active_rms_db(ref) + levels['electric'] - levels['drums']
+    else:
+        ref = sum(fit(take(score, work, t['index'], 'plain')) for t in guitars)
+        target = dsp.active_rms_db(ref)
+    del ref
+    stems = {}
+    for t in guitars:
+        i = t['index']; stems[i] = guitar_stereo(t, takes, i)
+        log(f'track {i} {t["name"][:40]} electric {" ".join(sorted({c["preset"] for _, _, c in secs_of[i]}))} {time.time() - started[i]:.0f}s')
+    amps.shutdown(); side.shutdown(); prog.set('encoding')
+    bus = sum(stems.values()); g = 10 ** ((target - dsp.active_rms_db(bus)) / 20)
+    clip = lambda y: np.tanh(y / 0.98) * 0.98 if np.abs(y).max() > 0.98 else y
+    v = CONFIG['version']; mix_name = f'guitars-{v}.m4a'
+    names = {i: f'guitars-minus-{i}-{v}.m4a' for i in stems}
+    with ThreadPoolExecutor(ENCODERS) as pool:
+        jobs = [pool.submit(encode, clip(bus * g), os.path.join(out, mix_name), 160)]
+        jobs += [pool.submit(encode, clip((bus - y) * g), os.path.join(out, names[i]), 128) for i, y in stems.items()]
+        for j in jobs: j.result()
+    manifest = dict(format=1, scope='guitars', chain=v, score_sha256=sha, title=plan['title'], artist=plan['artist'],
+                    seconds=round(n / SR, 3), mix=mix_name,
+                    tracks=[dict(index=t['index'], name=t['name'], role='electric', minus=names[t['index']]) for t in guitars],
+                    muted=[t['index'] for t in plan['tracks'] if t['mute']],
+                    rendered_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), render_seconds=round(time.time() - t_start))
+    json.dump(manifest, open(os.path.join(out, 'manifest.json'), 'w'), indent=1)
+    shutil.rmtree(work, ignore_errors=True)
+    log(f'done {plan["title"]} (guitars) in {time.time() - t_start:.0f}s')
+    return manifest
+
+
+class Progress:
+    """Overall progress from the amp processes' per-take files: preparing 0-5%, amps 5-90%,
+    mixing and encoding 90-100%. Calls `report(phase, fraction)` at most every 2 s."""
+
+    def __init__(self, report):
+        self.report, self.files, self.phase, self.last, self.stop = report or (lambda *a: None), [], 'preparing', 0.0, False
+        self.thread = threading.Thread(target=self.loop, daemon=True); self.thread.start()
+
+    def fraction(self):
+        if self.phase == 'preparing': return 0.02
+        if self.phase != 'amps': return {'mixing': 0.9, 'encoding': 0.95}.get(self.phase, 1.0)
+        done = total = 0
+        for path in self.files:
+            try: d, t = map(float, open(path).read().split())
+            except (OSError, ValueError): d, t = 0, 1
+            done += min(d, t); total += t
+        return 0.05 + 0.85 * (done / total if total else 0)
+
+    def set(self, phase):
+        self.phase = phase; self.send()
+
+    def send(self):
+        try: self.report(self.phase, round(self.fraction(), 3))
+        except Exception: pass  # progress is best effort
+
+    def loop(self):
+        while not self.stop:
+            time.sleep(2)
+            if not self.stop: self.send()
+
+    def close(self):
+        self.stop = True
+
+
+def render(score, out, work=None, log=print, between=None, progress=None):
+    """`between` runs before each track; by default it waits while the CPU is hot.
+    `progress(phase, fraction)` is called every few seconds while it works."""
     between = between or (lambda: thermal.wait_cool(log))
+    prog = Progress(progress)
+    try: return _render(score, out, work, log, between, prog)
+    finally: prog.close()
+
+
+def _render(score, out, work, log, between, prog):
     t_start = time.time()
     os.makedirs(out, exist_ok=True)
     work = work or tempfile.mkdtemp(prefix='hq-')
@@ -209,7 +319,7 @@ def render(score, out, work=None, log=print, between=None):
     # the sampled drums (sfizz, its own process) render while the guitars go through the amps
     side = ThreadPoolExecutor(1)
     drum_jobs = {t['index']: side.submit(lambda i: (node(score, work, f'{i}:midi'), fit(drums(work, i)))[1], t['index'])
-                 for t in plan['tracks'] if t['percussion'] and not t['mute']}
+                 for t in plan['tracks'] if t['percussion'] and not t['mute'] and SCOPE == 'full'}
     playing = [t for t in plan['tracks'] if not t['mute']]
     role = {t['index']: role_of(t['program'], t['percussion'], any(26 <= s['program'] <= 31 for s in t['sections'])) for t in playing}
     # every guitar take goes into one pool, so takes of different tracks use the cores in parallel
@@ -225,7 +335,9 @@ def render(score, out, work=None, log=print, between=None):
         secs_of[i] = secs
         for k in ('di1', 'di2'):
             p = os.path.join(work, f't{i}-{k}.npy'); np.save(p, fit(take(score, work, i, k)).mean(1))
-            takes[(i, k)] = amps.submit(_take_job, (p, secs))
+            pf = os.path.join(work, f'progress-{i}-{k}'); prog.files.append(pf)
+            takes[(i, k)] = amps.submit(_take_job, (p, secs, pf))
+    prog.set('amps')
 
     def keep(t, y, detail, t0):
         i = t['index']; p = os.path.join(work, f'proc-{i}.npy'); np.save(p, y.astype(np.float32))
@@ -233,6 +345,8 @@ def render(score, out, work=None, log=print, between=None):
         tracks.append(dict(index=i, name=t['name'], role=role[i], bus=role[i], proc=p, detail=detail))
         log(f'track {i} {t["name"][:40]} {role[i]} {" ".join(detail)} {time.time() - t0:.0f}s')
 
+    if SCOPE == 'guitars':
+        return guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog)
     # the other instruments while the amps run
     for t in playing:
         i = t['index']
@@ -245,13 +359,9 @@ def render(score, out, work=None, log=print, between=None):
         i = t['index']
         if role[i] == 'drums': keep(t, drum_jobs[i].result(), ['kit'], time.time())
         elif role[i] == 'electric':
-            left, right = takes[(i, 'di1')].result(), takes[(i, 'di2')].result()
-            # the two takes hard left and right (double tracking), level from the score's track volume
-            y = dsp.reverb(np.stack([left, right], 1), CONFIG['guitar']['reverb'])
-            y = y * 10 ** (40 * math.log10(max(t.get('volume', 16), 1) / 16) / 20)
-            keep(t, y, sorted({c['preset'] for _, _, c in secs_of[i]}), started[i])
+            keep(t, guitar_stereo(t, takes, i), sorted({c['preset'] for _, _, c in secs_of[i]}), started[i])
     amps.shutdown()
-    side.shutdown()
+    side.shutdown(); prog.set('mixing')
     if not tracks: raise RenderError('no playing tracks')
     levels = CONFIG['mix']['bus_db']
     ref = dsp.active_rms_db(buses['drums']) if 'drums' in buses else -20.0
@@ -270,10 +380,11 @@ def render(score, out, work=None, log=print, between=None):
         encode(finish(pre - y * gains[t['bus']], glue, gain), os.path.join(out, t['minus']), 128)
 
     for t in tracks: t['minus'] = f'minus-{t["index"]}-{v}.m4a'
+    prog.set('encoding')
     with ThreadPoolExecutor(ENCODERS) as pool:  # ffmpeg and numpy release the GIL
         jobs = [pool.submit(encode, finish(pre, glue, gain), os.path.join(out, mix_name), 160)] + [pool.submit(minus, t) for t in tracks]
         for j in jobs: j.result()
-    manifest = dict(format=1, chain=CONFIG['version'], score_sha256=sha, title=plan['title'], artist=plan['artist'],
+    manifest = dict(format=1, scope='full', chain=CONFIG['version'], score_sha256=sha, title=plan['title'], artist=plan['artist'],
                     seconds=round(n / SR, 3), mix=mix_name,
                     tracks=[dict(index=t['index'], name=t['name'], role=t['role'], minus=t['minus']) for t in tracks],
                     muted=[t['index'] for t in plan['tracks'] if t['mute']],
@@ -288,5 +399,5 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('score'); ap.add_argument('out'); ap.add_argument('--work')
     a = ap.parse_args()
-    try: render(a.score, a.out, a.work)
+    try: render(a.score, a.out, a.work, progress=lambda phase, f: print(f'  {phase} {f:.0%}', flush=True))
     except RenderError as e: sys.exit(f'render failed: {e}')

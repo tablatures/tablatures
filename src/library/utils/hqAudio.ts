@@ -5,10 +5,15 @@
 //   GET  <base>/v1/scores/<sha256>/<file>
 //   POST <base>/v1/render {tabId, sha256}
 // The rendered audio is driven like a YouTube video (videoSession.ts): the synth
-// keeps the timeline and is silenced, the audio element follows it.
+// keeps the timeline, the audio element follows it. A 'guitars' render holds the
+// electric guitars only: the synth keeps playing every other track (and the
+// metronome) and only its guitar tracks are silenced. A 'full' render replaces
+// the synth entirely.
 
 export interface HqManifest {
 	format: number;
+	/** Absent in the first renders, which were all full mixes. */
+	scope?: 'guitars' | 'full';
 	chain: string;
 	score_sha256: string;
 	seconds: number;
@@ -27,7 +32,7 @@ export type HqStatus =
 	| { kind: 'off' }
 	| { kind: 'checking' }
 	| { kind: 'unavailable'; reason: string }
-	| { kind: 'rendering' }
+	| { kind: 'rendering'; position?: number; progress?: number; phase?: string }
 	| { kind: 'ready'; manifest: HqManifest };
 
 export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
@@ -47,6 +52,7 @@ export function isCatalogueTab(tabId: string | null | undefined): tabId is strin
  * absent from every render.
  */
 export function pickHqFile(manifest: HqManifest, tracks: TrackPlayback[]): string | null {
+	if (manifest.scope === 'guitars') return pickGuitarFile(manifest, tracks);
 	const rendered = new Set(manifest.tracks.map((t) => t.index));
 	const playing = tracks.filter((t) => rendered.has(t.index));
 	const solos = playing.filter((t) => t.isSolo);
@@ -61,6 +67,23 @@ export function pickHqFile(manifest: HqManifest, tracks: TrackPlayback[]): strin
 	if (silent.length === 1) return manifest.tracks.find((t) => t.index === silent[0].index)!.minus;
 	return null;
 }
+
+/**
+ * For a guitars-only render: the stem matching which rendered guitar tracks
+ * sound. Other tracks, including guitars the render left out, stay with the
+ * synth whatever their state.
+ */
+function pickGuitarFile(manifest: HqManifest, tracks: TrackPlayback[]): string | null {
+	const anySolo = tracks.some((t) => t.isSolo);
+	const sounds = (t: TrackPlayback) => !t.isMute && (!anySolo || t.isSolo);
+	const rendered = manifest.tracks.map((r) => ({ r, t: tracks.find((t) => t.index === r.index) }));
+	const silent = rendered.filter(({ t }) => !t || !sounds(t));
+	if (silent.length === 0) return manifest.mix;
+	if (silent.length === 1 && rendered.length > 1) return silent[0].r.minus;
+	return null;
+}
+
+export const isGuitarsOnly = (manifest: HqManifest) => manifest.scope === 'guitars';
 
 export function fileUrl(base: string, sha: string, name: string): string {
 	return `${base.replace(/\/+$/, '')}/v1/scores/${sha}/${encodeURIComponent(name)}`;
@@ -82,6 +105,25 @@ export async function fetchManifest(
 	if (manifest.format !== 1 || manifest.score_sha256 !== sha)
 		throw new Error('HQ manifest mismatch');
 	return manifest;
+}
+
+export interface RenderProgress {
+	status: 'none' | 'queued' | 'rendering' | 'done' | 'failed';
+	position?: number;
+	phase?: string;
+	progress?: number;
+	error?: string;
+}
+
+/** Where a score's render stands (queue position, phase, 0..1 progress). */
+export async function fetchRenderStatus(
+	deps: HqClientDeps,
+	base: string,
+	sha: string
+): Promise<RenderProgress> {
+	const res = await deps.fetch(fileUrl(base, sha, 'status'), { cache: 'no-store' });
+	if (!res.ok) throw new Error(`HQ audio service: HTTP ${res.status}`);
+	return (await res.json()) as RenderProgress;
 }
 
 /** -> 'rendering' when queued or in progress, otherwise the service's refusal reason. */
@@ -149,6 +191,10 @@ export function createHqMedia(audio: HTMLAudioElement, onState: (state: number) 
 	});
 	return {
 		audio,
+		/** Tracks the synth must not play while this media plays (the rendered guitars). */
+		replaces: [] as number[],
+		/** Whether the synth keeps playing alongside (a guitars-only render). */
+		alongsideSynth: false,
 		setSource(url: string) {
 			if (audio.src === url) return;
 			const at = audio.currentTime;

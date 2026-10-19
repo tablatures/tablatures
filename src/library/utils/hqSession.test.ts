@@ -88,22 +88,45 @@ describe('createHqSession', () => {
 		t.session.dispose();
 	});
 
-	it('requests a render and polls until the manifest appears', async () => {
-		let rendered = false;
+	it('requests a render, shows its progress and plays it once published', async () => {
+		let progress: any = { status: 'queued', position: 2, progress: 0 };
 		const t = setup((url, init) => {
 			if (url.endsWith('/v1/render')) {
 				expect(JSON.parse(init.body)).toEqual({ tabId: 'songsterr:1', sha256: sha });
 				return json(202, { status: 'queued' });
 			}
-			return rendered ? json(200, manifestFor(sha)) : json(404, {});
+			if (url.endsWith('/status')) return json(200, progress);
+			return progress.status === 'done' ? json(200, manifestFor(sha)) : json(404, {});
 		});
 		await t.session.update();
 		expect(t.statuses.at(-1)).toEqual({ kind: 'rendering' });
 		expect(t.media()).toBeNull();
-		rendered = true;
-		await vi.advanceTimersByTimeAsync(30_000);
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(t.statuses.at(-1)).toEqual({
+			kind: 'rendering',
+			position: 2,
+			progress: 0,
+			phase: undefined
+		});
+		progress = { status: 'rendering', phase: 'amps', progress: 0.42 };
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(t.statuses.at(-1)).toMatchObject({ kind: 'rendering', progress: 0.42, phase: 'amps' });
+		progress = { status: 'done', progress: 1 };
+		await vi.advanceTimersByTimeAsync(3_000);
 		expect(t.statuses.at(-1)).toMatchObject({ kind: 'ready' });
 		expect(t.media()).not.toBeNull();
+		t.session.dispose();
+	});
+
+	it('reports a failed render', async () => {
+		const t = setup((url) => {
+			if (url.endsWith('/v1/render')) return json(202, { status: 'queued' });
+			if (url.endsWith('/status')) return json(200, { status: 'failed', error: 'boom' });
+			return json(404, {});
+		});
+		await t.session.update();
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(t.statuses.at(-1)).toEqual({ kind: 'unavailable', reason: 'boom' });
 		t.session.dispose();
 	});
 

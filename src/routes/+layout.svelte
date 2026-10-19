@@ -71,6 +71,7 @@
 	} from '../library/utils/playerStore';
 	import { hqAudioBase, preferencesStore, studioInstruments } from '../library/utils/preferences';
 	import { createHqSession } from '$utils/hqSession';
+	import { createSynthSilencer } from '$utils/synthSilencer';
 	import {
 		createInstrumentPacks,
 		INSTRUMENTS_VERSION,
@@ -387,8 +388,16 @@
 			playing: () => get(playerState).playing,
 			loop: () => get(playerState).loop,
 			volume: () => get(playerState).masterVolume,
-			source: () => (get(videoPlayerRef) ? get(audioSource) : get(hqPlayer) ? 'video' : 'tab')
+			source: () => {
+				if (get(videoPlayerRef)) return get(audioSource);
+				const hq = get(hqPlayer);
+				// guitars-only HQ audio plays along with the synth; a full render replaces it
+				return hq ? (hq.alongsideSynth ? 'both' : 'video') : 'tab';
+			}
 		});
+		const silencer = createSynthSilencer(api);
+		api.scoreLoaded.on(() => silencer.reset());
+		setInterval(() => silencer.refresh(), 1000);
 		hqSession = createHqSession({
 			fetch: window.fetch.bind(window),
 			base: () => hqAudioBase(get(preferencesStore)),
@@ -413,7 +422,10 @@
 				if (import.meta.env.DEV) (window as any).__hqAudio = audio;
 				return audio;
 			},
-			setMedia: (media) => hqPlayer.set(media),
+			setMedia: (media) => {
+				silencer.set(media?.replaces ?? []);
+				hqPlayer.set(media);
+			},
 			setStatus: (status) => hqStatus.set(status),
 			onMediaState: (state) => videoSession?.onVideoState(state)
 		});

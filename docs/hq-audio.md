@@ -1,9 +1,13 @@
 # HQ audio (experimental)
 
-Server-rendered audio for catalogue tabs, played in place of the in-browser synth. Off by default;
+Server-rendered audio for catalogue tabs. By default only the electric guitars are rendered
+(`HQ_SCOPE=guitars`): the app's synth keeps playing every other track, the metronome and count-in,
+and only its guitar tracks are silenced while the rendered guitars play. `HQ_SCOPE=full` renders
+every instrument into a mix that replaces the synth. Off by default;
 enable it in Settings → HQ Audio. Once a service is configured, the HQ button in the player bar
-switches between HQ audio and the built-in sound mid-song (filled: HQ audio is playing; `HQ…`:
-the tab is being rendered). The synth stays the fallback for everything HQ audio does not
+switches between HQ audio and the built-in sound mid-song. Filled: HQ audio is playing. While the
+tab is being rendered the button shows its place in the queue (`HQ #2`), then fills up with the
+render's progress (`HQ 40%`); the built-in sound plays meanwhile. The synth stays the fallback for everything HQ audio does not
 cover: imported files, transposed or merged tracks, the metronome and count-in, YouTube sync, and
 mute/solo combinations without a matching render.
 
@@ -23,6 +27,7 @@ The app (`src/library/utils/hqAudio.ts`, `hqSession.ts`) knows one base URL
 ```
 GET  <base>/v1/scores/<sha256 of the tab file>/manifest.json   404 until rendered
 GET  <base>/v1/scores/<sha256>/<file>                           Range requests supported
+GET  <base>/v1/scores/<sha256>/status                           queue position, phase, progress
 POST <base>/v1/render  {"tabId": "...", "sha256": "..."}       202 queued | 200 done | 4xx/503 refused
 ```
 
@@ -69,7 +74,22 @@ services/hq-render/deploy/sync-assets.sh <ssh host> <dir with nam/ and sfz/>
 ssh <host> tabrender/service/deploy/install.sh
 ```
 
-A Raspberry Pi renders a song in tens of minutes. To fill the cache faster, render on another
+### Render helpers
+
+A Raspberry Pi renders a song in tens of minutes; a Mac takes 30 to 90 seconds. A faster machine
+can take jobs from the service's queue: it claims a job, renders it, reports progress and uploads
+the files over HTTPS, authenticated with `HQ_WORKER_TOKEN` (set the same secret in the host's
+`hq.env` and the helper's). While a helper polls, the host's own worker leaves the queue to it, so
+the host keeps serving and only renders when the helper is away; a stopped helper's job returns to
+the queue after 30 minutes.
+
+```
+services/hq-render/deploy/install-helper-mac.sh <assets dir> <sfizz macOS build>
+# set HQ_SERVICE_URL and HQ_WORKER_TOKEN in ~/tabrender-helper/helper.env
+services/hq-render/deploy/helper-mac.sh start | stop | status
+```
+
+Renders can also be copied by hand. To fill the cache faster, render on another
 machine and copy the result into the host's files directory; queued requests for it are then
 answered without rendering:
 

@@ -128,6 +128,7 @@ declare global {
 			updateSettings(): void;
 			render(renderHints?: unknown): void;
 			renderScore(score: Score, trackIndexes?: number[]): void;
+			changeTrackVolume(tracks: { index: number }[], volume: number): void;
 			loadMidiForScore?(): void;
 			_beatCursor?: { element?: HTMLElement };
 			tickCache?: { masterBars: any[] } | null;

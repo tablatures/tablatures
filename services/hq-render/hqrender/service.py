@@ -5,9 +5,15 @@
 HTTP contract (the app depends on this and nothing else, so another host can replace it):
     GET  /v1/scores/<sha256>/manifest.json      rendered files for a score (404 until rendered)
     GET  /v1/scores/<sha256>/<file>             audio, with Range support
+    GET  /v1/scores/<sha256>/status             {"status": none|queued|rendering|done|failed, "position", "phase", "progress"}
     POST /v1/render  {"tabId": "...", "sha256": "..."}
          -> 202 {"status": "queued" | "rendering"} | 200 {"status": "done"} | 4xx/503 {"status": "refused", "reason": ...}
     GET  /v1/health
+Render helpers (a faster machine running worker.py) authenticate with HQ_WORKER_TOKEN:
+    POST /v1/jobs/claim  ->  {"sha256", "tabId"} | {"idle": true}
+    POST /v1/jobs/<sha256>/progress {"phase", "progress"}   (also renews the job's lease)
+    PUT  /v1/jobs/<sha256>/files/<name>    POST /v1/jobs/<sha256>/done | /failed
+While a helper is polling, the local worker leaves the queue to it.
 
 Only catalogue tabs are rendered: the worker downloads the score itself from the catalogue and
 renders it only if its hash matches the request. Nobody can upload files.
@@ -19,15 +25,17 @@ Safety limits (environment, defaults in brackets):
     HQ_STORAGE_CAP_GB  stop rendering once stored files reach this size                     [8]
     HQ_HOT_C/HQ_COOL_C pause work above HQ_HOT_C, resume below HQ_COOL_C (CPU temperature) [70/60]
     HQ_REQ_PER_MIN     render requests per client address per minute                        [10]
+    HQ_WORKER_TOKEN    secret that lets render helpers (worker.py) claim jobs and upload results  [unset: off]
     HQ_ALLOWED_ORIGINS CORS origins, comma separated, * wildcards allowed                    [*]
                        e.g. https://tablatures-git-*-tablatures.vercel.app,http://localhost:*
 Other: HQ_HOST [0.0.0.0], HQ_PORT [8790], HQ_STATE_DIR [~/tabrender/state],
     HQ_CATALOGUE_URL [https://api.tablatures.org/api/download/{id}], plus storage.py and render.py settings.
 """
-import collections, fnmatch, json, os, re, shutil, sqlite3, sys, threading, time, traceback, urllib.request
+import collections, fnmatch, hmac, json, os, re, shutil, sqlite3, sys, threading, time, traceback, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import storage as storage_mod, thermal
+from .catalogue import fetch_score
 
 E = os.environ.get
 STATE = os.path.expanduser(E('HQ_STATE_DIR', '~/tabrender/state'))
@@ -36,11 +44,13 @@ DAILY = int(E('HQ_DAILY_RENDERS', '40')); QUEUE_MAX = int(E('HQ_QUEUE_MAX', '50'
 CAP = float(E('HQ_STORAGE_CAP_GB', '8')) * 1e9
 REQ_PER_MIN = int(E('HQ_REQ_PER_MIN', '10'))
 ORIGINS = [o.strip() for o in E('HQ_ALLOWED_ORIGINS', '*').split(',')]
-CATALOGUE = E('HQ_CATALOGUE_URL', 'https://api.tablatures.org/api/download/{id}')
 TAB_ID = re.compile(r'^[A-Za-z0-9:_.\-]{1,160}$'); SHA = re.compile(r'^[0-9a-f]{64}$')
 FILE = re.compile(r'^[A-Za-z0-9_.\-]{1,80}$')
-MAX_SCORE = 20 * 2 ** 20
-USER_AGENT = 'tablatures-hq-render/1 (+https://tablatures.github.io/tablatures)'
+WORKER_TOKEN = E('HQ_WORKER_TOKEN', '')  # enables /v1/jobs/* for render helpers; unset = local rendering only
+LEASE = 1800  # a helper's claimed job returns to the queue after this many seconds
+HELPER_FRESH = 30  # while a helper polled this recently, the local worker leaves jobs to it
+MAX_UPLOAD = 64 * 2 ** 20
+last_helper_poll = 0.0
 RETRY_AFTER = 3600  # a failed render may be requested again after this many seconds
 
 os.makedirs(STATE, exist_ok=True)
@@ -48,7 +58,10 @@ store = storage_mod.from_env()
 _db_lock = threading.Lock()
 db = sqlite3.connect(os.path.join(STATE, 'jobs.sqlite'), check_same_thread=False)
 db.execute('create table if not exists jobs (sha text primary key, tab_id text, status text, error text, created real, started real, finished real)')
-db.execute("update jobs set status = 'queued' where status = 'rendering'")  # interrupted by a restart
+_cols = [r[1] for r in db.execute('pragma table_info(jobs)')]
+for _c, _t in (('worker', 'text'), ('progress', 'real'), ('phase', 'text')):
+    if _c not in _cols: db.execute(f'alter table jobs add column {_c} {_t}')
+db.execute("update jobs set status = 'queued' where status = 'rendering' and coalesce(worker, 'local') = 'local'")  # interrupted by a restart
 db.commit()
 
 
@@ -86,21 +99,13 @@ def request_render(tab_id, sha):
     return 202, {'status': 'queued'}
 
 
-def fetch_score(tab_id, sha, path):
-    import hashlib
-    req = urllib.request.Request(CATALOGUE.format(id=urllib.request.quote(tab_id, safe=':')), headers={'User-Agent': USER_AGENT})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        data = r.read(MAX_SCORE + 1)
-    if len(data) > MAX_SCORE: raise ValueError('score too large')
-    if hashlib.sha256(data).hexdigest() != sha: raise ValueError('catalogue file does not match the requested hash')
-    open(path, 'wb').write(data)
-
-
 def worker():
     from . import render
     while True:
         time.sleep(2)
         if disabled(): continue
+        q("update jobs set status = 'queued', worker = null where status = 'rendering' and worker = 'helper' and started < ?", time.time() - LEASE)
+        if time.time() - last_helper_poll < HELPER_FRESH: continue  # a faster machine is taking jobs
         job = q("select sha, tab_id from jobs where status = 'queued' order by created limit 1")
         if not job: continue
         if renders_today() >= DAILY or store.used_bytes() >= CAP: continue  # leave it queued for tomorrow / more space
@@ -108,13 +113,14 @@ def worker():
         sha, tab_id = job[0]
         if store.has(sha):  # published meanwhile, e.g. rendered on a faster machine
             q("update jobs set status = 'done', finished = ? where sha = ?", time.time(), sha); continue
-        q("update jobs set status = 'rendering', started = ? where sha = ?", time.time(), sha)
+        q("update jobs set status = 'rendering', worker = 'local', started = ?, phase = 'starting', progress = 0 where sha = ?", time.time(), sha)
         work = os.path.join(STATE, 'work', sha); out = os.path.join(STATE, 'out', sha)
         try:
             os.makedirs(work, exist_ok=True); score = os.path.join(work, 'score')
             fetch_score(tab_id, sha, score)
             log('render', tab_id, sha[:12])
-            render.render(score, out, os.path.join(work, 'tmp'), log=lambda *a: log(' ', *a), between=wait_cool)
+            render.render(score, out, os.path.join(work, 'tmp'), log=lambda *a: log(' ', *a), between=wait_cool,
+                          progress=lambda phase, f: q('update jobs set phase = ?, progress = ? where sha = ?', phase, f, sha))
             store.publish(sha, out)
             q("update jobs set status = 'done', finished = ? where sha = ?", time.time(), sha)
         except Exception as e:  # one bad score must not stop the queue
@@ -122,6 +128,51 @@ def worker():
             q("update jobs set status = 'failed', error = ?, finished = ? where sha = ?", str(e)[:500], time.time(), sha)
         finally:
             shutil.rmtree(work, ignore_errors=True); shutil.rmtree(out, ignore_errors=True)
+
+
+def status_of(sha):
+    """Public render status of a score, for the app's progress display."""
+    if store.has(sha): return {'status': 'done', 'progress': 1}
+    row = q('select status, phase, progress, created, error from jobs where sha = ?', sha)
+    if not row: return {'status': 'none'}
+    st, phase, progress, created, error = row[0]
+    if st == 'queued':
+        ahead = q("select count(*) from jobs where status in ('queued', 'rendering') and created < ?", created)[0][0]
+        return {'status': 'queued', 'position': ahead + 1, 'progress': 0}
+    if st == 'rendering': return {'status': 'rendering', 'phase': phase, 'progress': progress or 0}
+    return {'status': st, 'error': error} if st == 'failed' else {'status': st}
+
+
+def claim():
+    """Next job for a render helper, or None. Same caps as the local worker."""
+    global last_helper_poll
+    last_helper_poll = time.time()
+    if disabled() or renders_today() >= DAILY or store.used_bytes() >= CAP: return None
+    with _db_lock:
+        row = db.execute("select sha, tab_id from jobs where status = 'queued' order by created limit 1").fetchall()
+        if not row: return None
+        db.execute("update jobs set status = 'rendering', worker = 'helper', started = ?, phase = 'starting', progress = 0 where sha = ?", (time.time(), row[0][0])); db.commit()
+    return {'sha256': row[0][0], 'tabId': row[0][1]}
+
+
+def helper_job(sha):
+    row = q('select status, worker from jobs where sha = ?', sha)
+    return bool(row) and row[0] == ('rendering', 'helper')
+
+
+def finish_upload(sha):
+    """Publish a helper's uploaded render after checking it is complete and for this score."""
+    up = os.path.join(STATE, 'upload', sha)
+    try:
+        m = json.load(open(os.path.join(up, 'manifest.json')))
+        names = [m['mix']] + [t['minus'] for t in m['tracks']]
+        if m.get('format') != 1 or m.get('score_sha256') != sha: raise ValueError('manifest is not for this score')
+        missing = [n for n in names if not FILE.match(n) or not os.path.isfile(os.path.join(up, n))]
+        if missing: raise ValueError(f'missing files {missing}')
+        store.publish(sha, up)
+    finally:
+        shutil.rmtree(up, ignore_errors=True)
+    q("update jobs set status = 'done', finished = ? where sha = ?", time.time(), sha)
 
 
 _hits = collections.defaultdict(collections.deque); _hits_lock = threading.Lock()
@@ -156,10 +207,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204); self.cors(); self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); self.end_headers()
 
+    def client(self):
+        # behind the tunnel every connection comes from 127.0.0.1; the service only listens there
+        return self.headers.get('CF-Connecting-IP') or self.client_address[0]
+
+    def helper_ok(self):
+        auth = self.headers.get('Authorization', '')
+        return bool(WORKER_TOKEN) and hmac.compare_digest(auth.encode(), f'Bearer {WORKER_TOKEN}'.encode())
+
+    def do_PUT(self):
+        m = re.match(r'^/v1/jobs/([0-9a-f]{64})/files/([^/]+)$', self.path)
+        if not m or not self.helper_ok(): return self.reply(404, {'error': 'not found'})
+        sha, name = m.groups(); n = int(self.headers.get('Content-Length', '0'))
+        if not FILE.match(name) or n > MAX_UPLOAD or not helper_job(sha): return self.reply(400, {'error': 'bad upload'})
+        up = os.path.join(STATE, 'upload', sha); os.makedirs(up, exist_ok=True)
+        with open(os.path.join(up, name), 'wb') as f:
+            left = n
+            while left > 0:
+                chunk = self.rfile.read(min(1 << 16, left))
+                if not chunk: break
+                f.write(chunk); left -= len(chunk)
+        self.reply(200, {'ok': True})
+
     def do_POST(self):
         if disabled(): return self.reply(503, {'status': 'refused', 'reason': 'disabled'})
+        if self.path.startswith('/v1/jobs/'): return self.helper_post()
         if self.path != '/v1/render': return self.reply(404, {'error': 'not found'})
-        if not rate_ok(self.client_address[0]): return self.reply(429, {'status': 'refused', 'reason': 'too many requests'})
+        if not rate_ok(self.client()): return self.reply(429, {'status': 'refused', 'reason': 'too many requests'})
         try:
             n = int(self.headers.get('Content-Length', '0'))
             if n > 4096: raise ValueError
@@ -171,6 +245,33 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'status': 'refused', 'reason': 'only catalogue tabs can be rendered'})
         self.reply(*request_render(tab_id, sha))
 
+    def helper_post(self):
+        if not self.helper_ok(): return self.reply(404, {'error': 'not found'})
+        if self.path == '/v1/jobs/claim':
+            job = claim(); return self.reply(200, job) if job else self.reply(200, {'idle': True})
+        m = re.match(r'^/v1/jobs/([0-9a-f]{64})/(done|failed|progress)$', self.path)
+        if not m or not helper_job(m.group(1)): return self.reply(404, {'error': 'no such job'})
+        sha, what = m.groups()
+        if what == 'progress':
+            try:
+                body = json.loads(self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 1024)))
+                phase, f = str(body['phase'])[:20], max(0.0, min(1.0, float(body['progress'])))
+            except Exception: return self.reply(400, {'error': 'expected {phase, progress}'})
+            q('update jobs set phase = ?, progress = ?, started = ? where sha = ?', phase, f, time.time(), sha)  # also renews the lease
+            return self.reply(200, {'ok': True})
+        if what == 'failed':
+            n = min(int(self.headers.get('Content-Length', '0')), 4096)
+            error = (self.rfile.read(n).decode(errors='replace') if n else 'helper failed')[:500]
+            q("update jobs set status = 'failed', error = ?, finished = ? where sha = ?", error, time.time(), sha)
+            shutil.rmtree(os.path.join(STATE, 'upload', sha), ignore_errors=True)
+            return self.reply(200, {'ok': True})
+        try: finish_upload(sha)
+        except Exception as e:
+            q("update jobs set status = 'failed', error = ?, finished = ? where sha = ?", f'upload rejected: {e}'[:500], time.time(), sha)
+            return self.reply(422, {'error': str(e)})
+        log('published from helper', sha[:12])
+        self.reply(200, {'ok': True})
+
     def do_HEAD(self):
         self.do_GET(head=True)
 
@@ -179,6 +280,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/v1/health':
             return self.reply(200, {'ok': True, 'queued': q("select count(*) from jobs where status = 'queued'")[0][0],
                                     'today': renders_today(), 'daily_cap': DAILY, 'cpu_c': thermal.temperature()})
+        st = re.match(r'^/v1/scores/([0-9a-f]{64})/status$', self.path.split('?')[0])
+        if st: return self.reply(200, status_of(st.group(1)))
         m = re.match(r'^/v1/scores/([0-9a-f]{64})/([^/?#]+)$', self.path.split('?')[0])
         if not m or not FILE.match(m.group(2)) or not isinstance(store, storage_mod.LocalStorage):
             return self.reply(404, {'error': 'not found'})

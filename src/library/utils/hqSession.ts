@@ -1,11 +1,13 @@
 import {
 	createHqMedia,
 	fetchManifest,
+	fetchRenderStatus,
 	fileUrl,
 	isCatalogueTab,
 	pickHqFile,
 	requestRender,
 	sha256Hex,
+	isGuitarsOnly,
 	type HqMedia,
 	type HqStatus,
 	type TrackPlayback
@@ -28,8 +30,8 @@ export interface HqSessionPorts {
 	onMediaState(state: number): void;
 }
 
-const POLL_RENDER_MS = 30_000;
-const POLL_RENDER_FOR_MS = 30 * 60_000;
+const POLL_RENDER_MS = 3_000;
+const POLL_RENDER_FOR_MS = 60 * 60_000;
 const POLL_TRACKS_MS = 500;
 
 /** Finds, requests and selects the rendered audio for the loaded tab. */
@@ -54,8 +56,11 @@ export function createHqSession(ports: HqSessionPorts) {
 			base && sha && status.kind === 'ready' && !ports.blocked()
 				? pickHqFile(status.manifest, ports.tracks())
 				: null;
-		if (file && base && sha) {
+		if (file && base && sha && status.kind === 'ready') {
 			media ??= createHqMedia(ports.createAudio(), ports.onMediaState);
+			const guitars = isGuitarsOnly(status.manifest);
+			media.alongsideSynth = guitars;
+			media.replaces = guitars ? status.manifest.tracks.map((t) => t.index) : [];
 			media.setSource(fileUrl(base, sha, file));
 		}
 		const next = file ? media : null;
@@ -78,18 +83,53 @@ export function createHqSession(ports: HqSessionPorts) {
 			if (manifest) return set({ kind: 'ready', manifest });
 			if (!isCatalogueTab(tabId))
 				return set({ kind: 'unavailable', reason: 'not a catalogue tab' });
-			if (status.kind !== 'rendering') {
-				const answer = await requestRender(ports, base, tabId, sha!);
-				if (gen !== generation) return;
-				if (answer === 'done') return void check(gen, base, tabId, since);
-				if (answer !== 'rendering') return set({ kind: 'unavailable', reason: answer });
-				set({ kind: 'rendering' });
-			}
-			if (Date.now() - since < POLL_RENDER_FOR_MS)
-				renderTimer = setTimeout(() => void check(gen, base, tabId, since), POLL_RENDER_MS);
+			if (!(await request(gen, base, tabId))) return;
+			follow(gen, base, tabId, since);
 		} catch (error) {
 			if (gen === generation) set({ kind: 'unavailable', reason: (error as Error).message });
 		}
+	}
+
+	/** Ask for a render; false when refused (status set) or superseded. */
+	async function request(gen: number, base: string, tabId: string): Promise<boolean> {
+		const answer = await requestRender(ports, base, tabId, sha!);
+		if (gen !== generation) return false;
+		if (answer === 'done' || answer === 'rendering') {
+			if (status.kind !== 'rendering') set({ kind: 'rendering' });
+			return true;
+		}
+		set({ kind: 'unavailable', reason: answer });
+		return false;
+	}
+
+	/** Poll the render's progress until its files are published. */
+	function follow(gen: number, base: string, tabId: string, since: number) {
+		const again = () => {
+			if (gen === generation && Date.now() - since < POLL_RENDER_FOR_MS)
+				renderTimer = setTimeout(tick, POLL_RENDER_MS);
+		};
+		const tick = async () => {
+			try {
+				const p = await fetchRenderStatus(ports, base, sha!);
+				if (gen !== generation) return;
+				if (p.status === 'done') {
+					const manifest = await fetchManifest(ports, base, sha!);
+					if (gen !== generation) return;
+					if (manifest) return set({ kind: 'ready', manifest });
+				} else if (p.status === 'failed') {
+					return set({ kind: 'unavailable', reason: p.error || 'render failed' });
+				} else if (p.status === 'none') {
+					// the service lost the job (restart, cleanup): ask again
+					if (!(await request(gen, base, tabId))) return;
+				} else {
+					set({ kind: 'rendering', position: p.position, progress: p.progress, phase: p.phase });
+				}
+			} catch {
+				// a missed poll is not a failure; keep following
+			}
+			again();
+		};
+		again();
 	}
 
 	/** Re-evaluate after the tab or the base URL changed. */

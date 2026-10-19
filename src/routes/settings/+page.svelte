@@ -576,7 +576,7 @@
 						{$hqStatus.kind === 'ready'
 							? 'Current tab: HQ audio ready'
 							: $hqStatus.kind === 'rendering'
-								? 'Current tab: preparing HQ audio…'
+								? `Current tab: preparing HQ audio${$hqStatus.progress ? ` (${Math.round($hqStatus.progress * 100)}%)` : $hqStatus.position ? ` (queue #${$hqStatus.position})` : '…'}`
 								: $hqStatus.kind === 'unavailable'
 									? `Current tab: ${$hqStatus.reason}`
 									: $hqStatus.kind === 'checking'

@@ -68,3 +68,42 @@ describe('isCatalogueTab', () => {
 		expect(isCatalogueTab('a/b')).toBe(false);
 	});
 });
+
+describe('pickHqFile for a guitars-only render', () => {
+	const guitars: HqManifest = {
+		...manifest,
+		scope: 'guitars',
+		mix: 'guitars-v3.m4a',
+		tracks: [1, 2].map((index) => ({
+			index,
+			name: `g${index}`,
+			role: 'electric',
+			minus: `guitars-minus-${index}-v3.m4a`
+		})),
+		muted: []
+	};
+	const state = (over: Record<number, Partial<{ isMute: boolean; isSolo: boolean }>> = {}) =>
+		[0, 1, 2, 3].map((index) => ({ index, isMute: false, isSolo: false, ...over[index] }));
+
+	it('plays all guitars whatever the other tracks do', () => {
+		expect(pickHqFile(guitars, state({ 0: { isMute: true }, 3: { isMute: true } }))).toBe(
+			'guitars-v3.m4a'
+		);
+	});
+
+	it('drops one muted guitar', () => {
+		expect(pickHqFile(guitars, state({ 2: { isMute: true } }))).toBe('guitars-minus-2-v3.m4a');
+	});
+
+	it('has nothing to play when no rendered guitar sounds', () => {
+		expect(pickHqFile(guitars, state({ 1: { isMute: true }, 2: { isMute: true } }))).toBeNull();
+		expect(pickHqFile(guitars, state({ 0: { isSolo: true } }))).toBeNull();
+	});
+
+	it('follows solos among the guitars', () => {
+		expect(pickHqFile(guitars, state({ 1: { isSolo: true } }))).toBe('guitars-minus-2-v3.m4a');
+		expect(pickHqFile(guitars, state({ 1: { isSolo: true }, 2: { isSolo: true } }))).toBe(
+			'guitars-v3.m4a'
+		);
+	});
+});

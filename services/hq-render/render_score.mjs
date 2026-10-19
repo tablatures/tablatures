@@ -46,8 +46,9 @@ function seconds(tick) {
 	let s = 0;
 	for (let i = 0; i < tempos.length; i++) {
 		const [t0, usq] = tempos[i];
+		if (t0 >= tick) break;
 		const t1 = i + 1 < tempos.length ? Math.min(tempos[i + 1][0], tick) : tick;
-		if (t1 <= t0) break;
+		if (t1 <= t0) continue; // several tempo events on one tick
 		s += ((t1 - t0) * usq) / 1e6 / midi.division;
 	}
 	return s;
