@@ -1,7 +1,9 @@
 # HQ audio (experimental)
 
 Server-rendered audio for catalogue tabs, played in place of the in-browser synth. Off by default;
-enable it in Settings → HQ Audio. The synth stays the fallback for everything HQ audio does not
+enable it in Settings → HQ Audio. Once a service is configured, the HQ button in the player bar
+switches between HQ audio and the built-in sound mid-song (filled: HQ audio is playing; `HQ…`:
+the tab is being rendered). The synth stays the fallback for everything HQ audio does not
 cover: imported files, transposed or merged tracks, the metronome and count-in, YouTube sync, and
 mute/solo combinations without a matching render.
 
@@ -65,6 +67,15 @@ reports under-voltage, and systemd caps it at two cores and 2 GB.
 ```
 services/hq-render/deploy/sync-assets.sh <ssh host> <dir with nam/ and sfz/>
 ssh <host> tabrender/service/deploy/install.sh
+```
+
+A Raspberry Pi renders a song in tens of minutes. To fill the cache faster, render on another
+machine and copy the result into the host's files directory; queued requests for it are then
+answered without rendering:
+
+```
+python -m hqrender.render <tab file> out/<sha256>
+rsync -a out/ <host>:tabrender/files/v1/scores/
 ```
 
 Settings live in `~/tabrender/hq.env` on the host (`deploy/hq.env.example`). Local render without

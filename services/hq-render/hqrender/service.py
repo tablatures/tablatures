@@ -106,6 +106,8 @@ def worker():
         if renders_today() >= DAILY or store.used_bytes() >= CAP: continue  # leave it queued for tomorrow / more space
         wait_cool()
         sha, tab_id = job[0]
+        if store.has(sha):  # published meanwhile, e.g. rendered on a faster machine
+            q("update jobs set status = 'done', finished = ? where sha = ?", time.time(), sha); continue
         q("update jobs set status = 'rendering', started = ? where sha = ?", time.time(), sha)
         work = os.path.join(STATE, 'work', sha); out = os.path.join(STATE, 'out', sha)
         try:

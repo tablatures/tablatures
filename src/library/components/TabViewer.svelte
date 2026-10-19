@@ -91,6 +91,8 @@
 		updatePlayerState,
 		isFullPlayerView,
 		audioSource,
+		hqPlayer,
+		hqStatus,
 		videoSyncOffset,
 		isTransitioning,
 		beatCursorEl,
@@ -114,7 +116,7 @@
 		isStalled
 	} from '../utils/scoreLoadMachine';
 	import { browser } from '$app/environment';
-	import { preferencesStore } from '../utils/preferences';
+	import { preferencesStore, hqAudioServerConfigured } from '../utils/preferences';
 	import { applyNotationView } from '../utils/notationView';
 	import { applyScoreTheme } from '../utils/scoreTheme';
 	import { createSpeedTrainer, normalizeTrainerSettings } from '../utils/speedTrainer';
@@ -2302,6 +2304,22 @@
 
 	// A primitive, so unrelated preference changes do not rerender the score.
 	$: notationView = $preferencesStore.notationView;
+	// HQ audio quick switch (testing phase): shown once a service is configured.
+	$: hqAvailable = hqAudioServerConfigured($preferencesStore);
+	$: hqTitle = !$preferencesStore.hqAudio
+		? 'HQ audio off: click to turn on'
+		: $hqPlayer
+			? 'Playing HQ audio: click for the built-in sound'
+			: $hqStatus.kind === 'rendering'
+				? 'HQ audio is being prepared for this tab: click to turn off'
+				: $hqStatus.kind === 'ready'
+					? 'HQ audio cannot play this mute/solo, edit or video setup: built-in sound'
+					: $hqStatus.kind === 'unavailable'
+						? `HQ audio unavailable (${$hqStatus.reason}): click to turn off`
+						: 'Checking HQ audio…';
+	function toggleHq() {
+		preferencesStore.update((p) => ({ ...p, hqAudio: !p.hqAudio }));
+	}
 
 	$: if (api && tracks.length > 0 && scoreLoaded && scoreMatchesRequest && !pending) {
 		const track = tracks[activeTrackIndex] || tracks[0];
@@ -4718,6 +4736,26 @@
 					<i class="material-icons {compactBar ? '!text-xl' : '!text-2xl'}" aria-hidden="true"
 						>lyrics</i
 					>
+				</button>
+			{/if}
+
+			{#if hqAvailable}
+				<button
+					on:click={toggleHq}
+					class="{compactBar
+						? 'px-2 py-1'
+						: 'px-2.5 py-1.5'} rounded-xl text-xs font-semibold tracking-wide transition-colors border
+						{$hqPlayer
+						? 'bg-violet-500 border-violet-500 text-white hover:bg-violet-600'
+						: $preferencesStore.hqAudio
+							? 'border-violet-400 text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-900/20'
+							: 'border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
+					title={hqTitle}
+					aria-label="HQ audio"
+					aria-pressed={$preferencesStore.hqAudio}
+					data-testid="hq-toggle"
+				>
+					HQ{$preferencesStore.hqAudio && $hqStatus.kind === 'rendering' ? '…' : ''}
 				</button>
 			{/if}
 

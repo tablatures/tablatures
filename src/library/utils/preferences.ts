@@ -157,6 +157,11 @@ function createPreferencesStore() {
 
 export const preferencesStore = createPreferencesStore();
 
+/** Whether an HQ audio service is configured (in Settings or by the build). */
+export function hqAudioServerConfigured(prefs: UserPreferences): boolean {
+	return !!(prefs.hqAudioServer.trim() || import.meta.env.VITE_HQ_AUDIO_BASE_URL);
+}
+
 /** The HQ audio service to use, or null when HQ audio is off or unconfigured. */
 export function hqAudioBase(prefs: UserPreferences): string | null {
 	if (!prefs.hqAudio) return null;
