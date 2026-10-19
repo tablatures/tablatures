@@ -106,7 +106,8 @@ def worker():
         time.sleep(2)
         if disabled(): continue
         q("update jobs set status = 'queued', worker = null where status = 'rendering' and worker = 'helper' and started < ?", time.time() - LEASE)
-        if time.time() - last_helper_poll < HELPER_FRESH: continue  # a faster machine is taking jobs
+        # a faster machine is taking jobs: it polled or reported progress recently, or is mid-job
+        if time.time() - last_helper_poll < HELPER_FRESH or q("select 1 from jobs where status = 'rendering' and worker = 'helper'"): continue
         job = q("select sha, tab_id from jobs where status = 'queued' order by created limit 1")
         if not job: continue
         if renders_today() >= DAILY or store.used_bytes() >= CAP: continue  # leave it queued for tomorrow / more space
@@ -258,6 +259,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(min(int(self.headers.get('Content-Length', '0')), 1024)))
                 phase, f = str(body['phase'])[:20], max(0.0, min(1.0, float(body['progress'])))
             except Exception: return self.reply(400, {'error': 'expected {phase, progress}'})
+            global last_helper_poll
+            last_helper_poll = time.time()  # a helper reporting progress is alive and will come back for more
             q('update jobs set phase = ?, progress = ?, started = ? where sha = ?', phase, f, time.time(), sha)  # also renews the lease
             return self.reply(200, {'ok': True})
         if what == 'failed':
