@@ -48,6 +48,8 @@ NOTE_GATE_FLOOR_DB = float(os.environ.get('HQ_NOTE_GATE_FLOOR_DB', '-40'))
 NOTE_GATE_POST = os.environ.get('HQ_NOTE_GATE_POST', '1') == '1'  # gate the amp's output instead of its input
 # research: save each electric track's processed stereo here (npy) before mixing
 DUMP_TRACKS = os.environ.get('HQ_DUMP_TRACKS')
+# force the guitar style (rock | metal) instead of looking up the artist's tags
+STYLE = os.environ.get('HQ_STYLE')
 # research: override the heavy chain's amp drive in dB
 HEAVY_GAIN = float(os.environ['HQ_HEAVY_GAIN']) if os.environ.get('HQ_HEAVY_GAIN') else None
 AMP_CHUNK_S = float(os.environ.get('HQ_AMP_CHUNK_S', '1'))  # 1 s suits Apple silicon caches, ~10 s a Raspberry Pi
@@ -154,11 +156,21 @@ def _frms(x, ks):
     return np.sqrt(np.mean([(x[k * FRAME:(k + 1) * FRAME] ** 2).mean() for k in ks])) if ks else np.sqrt((x ** 2).mean())
 
 
-def chain_for(program):
-    g = CONFIG['guitar']
-    if program in g['heavy_programs']:
+def style_of(tags, genre=None):
+    """'metal' for metal, punk and grunge artists (catalogue tags), else 'rock'. Songsterr also picks
+    its guitar preset per artist; on 317 labelled sections this rule matches its light/heavy choice
+    74% of the time, against 71% for the instrument alone."""
+    import re
+    text = ' '.join([genre or '', *(tags or [])]).lower()
+    return 'metal' if re.search(CONFIG['guitar']['metal_tags'], text) else 'rock'
+
+
+def chain_for(program, style='metal'):
+    g = CONFIG['guitar']; st = g['styles'][style]
+    if program in st['heavy_programs']:
         h = g['heavy']; k = str(program) if str(program) in h['eq'] else 'None'
-        return dict(capture=h['capture'], gain=HEAVY_GAIN if HEAVY_GAIN is not None else h['gain'], shelf=[], eq=h['eq'][k], preset='heavy')
+        gain = HEAVY_GAIN if HEAVY_GAIN is not None else st['heavy_gain']
+        return dict(capture=h['capture'], gain=gain, shelf=[], eq=h['eq'][k], preset=f'heavy {gain:+.0f} dB')
     # light, and non-electric sounds inside a guitar track
     k = str(program) if str(program) in g['light'] else 'None'; t = g['light'][k]
     return dict(capture=t['capture'], gain=t['gain'], shelf=t['shelf'], eq=t['eq'], preset='light')
@@ -251,7 +263,7 @@ def guitar_stereo(t, takes, i):
     return y * 10 ** (40 * math.log10(max(t.get('volume', 16), 1) / 16) / 20)
 
 
-def guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog):
+def guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog, style):
     """The electric guitars alone, at the level the app's synth needs to sit next to them.
 
     The app keeps playing every other track with its synth, so the stem is not normalised: its
@@ -282,7 +294,7 @@ def guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs
         jobs = [pool.submit(encode, clip(bus * g), os.path.join(out, mix_name), 160)]
         jobs += [pool.submit(encode, clip((bus - y) * g), os.path.join(out, names[i]), 128) for i, y in stems.items()]
         for j in jobs: j.result()
-    manifest = dict(format=1, scope='guitars', chain=v, score_sha256=sha, title=plan['title'], artist=plan['artist'],
+    manifest = dict(format=1, scope='guitars', chain=v, style=style, score_sha256=sha, title=plan['title'], artist=plan['artist'],
                     seconds=round(n / SR, 3), mix=mix_name,
                     tracks=[dict(index=t['index'], name=t['name'], role='electric', minus=names[t['index']]) for t in guitars],
                     muted=[t['index'] for t in plan['tracks'] if t['mute']],
@@ -344,6 +356,11 @@ def _render(score, out, work, log, between, prog):
     sha = hashlib.sha256(open(score, 'rb').read()).hexdigest()
     node(score, work)
     plan = json.load(open(os.path.join(work, 'plan.json')))
+    if STYLE: style = STYLE
+    else:
+        from .catalogue import artist_info
+        info = artist_info(plan.get('artist') or ''); style = style_of(info.get('tags'), info.get('genre'))
+    log(f'style {style} ({plan.get("artist")})')
     n = int(math.ceil((plan['seconds'] + 3) * SR))  # room for the last notes' tails
     fit = lambda x: np.pad(x, ((0, max(0, n - len(x))), (0, 0)))[:n]
     tracks, buses = [], {}
@@ -362,7 +379,7 @@ def _render(score, out, work, log, between, prog):
         secs = []
         for s_ in t['sections']:
             a, b = int(s_['t0'] * SR), n if s_['t1'] is None else int(s_['t1'] * SR)
-            if a < b: secs.append((a, b, chain_for(s_['program'])))
+            if a < b: secs.append((a, b, chain_for(s_['program'], style)))
         secs_of[i] = secs
         for k in ('di1', 'di2'):
             di = fit(take(score, work, i, k)).mean(1)
@@ -386,7 +403,7 @@ def _render(score, out, work, log, between, prog):
         log(f'track {i} {t["name"][:40]} {role[i]} {" ".join(detail)} {time.time() - t0:.0f}s')
 
     if SCOPE == 'guitars':
-        return guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog)
+        return guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs_of, started, amps, side, log, t_start, prog, style)
     # the other instruments while the amps run
     for t in playing:
         i = t['index']
