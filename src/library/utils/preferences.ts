@@ -21,6 +21,10 @@ export interface UserPreferences {
 	speedTrainer: SpeedTrainerSettings;
 	/** Studio layers per-instrument packs over the bundled soundfont. */
 	instrumentQuality: 'studio' | 'standard';
+	/** Experimental: play server-rendered audio for catalogue tabs (hqAudio.ts). */
+	hqAudio: boolean;
+	/** Base URL of the HQ audio service; empty uses the build's default. */
+	hqAudioServer: string;
 }
 
 const STORAGE_KEY = PREF_KEY_PREFERENCES;
@@ -98,7 +102,9 @@ const DEFAULTS: UserPreferences = {
 	haptics: true,
 	notationView: 'tab',
 	speedTrainer: DEFAULT_SPEED_TRAINER,
-	instrumentQuality: 'studio'
+	instrumentQuality: 'studio',
+	hqAudio: false,
+	hqAudioServer: ''
 };
 
 /** Instant seed from the legacy localStorage backup for first paint. */
@@ -150,6 +156,12 @@ function createPreferencesStore() {
 }
 
 export const preferencesStore = createPreferencesStore();
+
+/** The HQ audio service to use, or null when HQ audio is off or unconfigured. */
+export function hqAudioBase(prefs: UserPreferences): string | null {
+	if (!prefs.hqAudio) return null;
+	return prefs.hqAudioServer.trim() || import.meta.env.VITE_HQ_AUDIO_BASE_URL || null;
+}
 
 /** Whether studio instrument packs layer over the base soundfont. */
 export function studioInstruments(prefs: UserPreferences): boolean {

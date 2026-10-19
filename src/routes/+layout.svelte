@@ -65,9 +65,12 @@
 		registerVideoSeek,
 		videoSyncOffset,
 		playerBarHeight,
-		playSheetOpen
+		playSheetOpen,
+		hqPlayer,
+		hqStatus
 	} from '../library/utils/playerStore';
-	import { preferencesStore, studioInstruments } from '../library/utils/preferences';
+	import { hqAudioBase, preferencesStore, studioInstruments } from '../library/utils/preferences';
+	import { createHqSession } from '$utils/hqSession';
 	import {
 		createInstrumentPacks,
 		INSTRUMENTS_VERSION,
@@ -76,7 +79,7 @@
 	import { installMasterLimiter, hasMasterLimiter } from '$utils/masterBus';
 	import { attachSessionTransport, sessionTransport } from '$utils/playerSession';
 	import { isNative } from '$utils/native';
-	import { resetScoreEdits } from '../library/utils/scoreEdits';
+	import { resetScoreEdits, scoreEdits } from '../library/utils/scoreEdits';
 	import { themeStore } from '../library/utils/theme';
 	import { sliderFill } from '../library/utils/sliderFill';
 	import { base64ToArrayBuffer } from '../library/utils/utils';
@@ -114,6 +117,7 @@
 	$: isOnPlay = $page.url.pathname.includes('/play');
 
 	let videoSession: ReturnType<typeof createVideoSession> | null = null;
+	let hqSession: ReturnType<typeof createHqSession> | null = null;
 	let practicePlayback: ReturnType<typeof createPracticePlayback> | null = null;
 	let instrumentPacks: ReturnType<typeof createInstrumentPacks> | null = null;
 	const transport = sessionTransport();
@@ -126,8 +130,17 @@
 		}
 	});
 	$: if (practicePlayback) practicePlayback.sync($playerState.loop);
+	$: if (browser && hqSession) {
+		($preferencesStore.hqAudio,
+			$preferencesStore.hqAudioServer,
+			$loadedTabB64,
+			$scoreEdits,
+			$videoPlayerRef);
+		void hqSession.update();
+	}
 	$: if (browser && videoSession) {
 		($videoPlayerRef,
+			$hqPlayer,
 			$audioSource,
 			$videoSyncOffset,
 			$playerState.masterVolume,
@@ -138,6 +151,7 @@
 		unobserveTransport();
 		detachTransport?.();
 		videoSession?.dispose();
+		hqSession?.dispose();
 		practicePlayback?.dispose();
 		instrumentPacks?.dispose();
 		registerVideoSeek(null);
@@ -361,17 +375,47 @@
 		api.playerReady?.on(() => installMasterLimiter(api));
 		if (import.meta.env.DEV) {
 			(window as any).__instrumentPacks = instrumentPacks;
+			(window as any).__playerApi = api;
 			(window as any).__hasMasterLimiter = () => hasMasterLimiter(api);
 		}
 
+		// A YouTube video, else HQ audio, is the media the session keeps in sync.
 		videoSession = createVideoSession(api, {
 			transport,
-			video: () => get(videoPlayerRef),
-			offset: () => get(videoSyncOffset),
+			video: () => get(videoPlayerRef) ?? get(hqPlayer),
+			offset: () => (get(videoPlayerRef) ? get(videoSyncOffset) : 0),
 			playing: () => get(playerState).playing,
 			loop: () => get(playerState).loop,
 			volume: () => get(playerState).masterVolume,
-			source: () => get(audioSource)
+			source: () => (get(videoPlayerRef) ? get(audioSource) : get(hqPlayer) ? 'video' : 'tab')
+		});
+		hqSession = createHqSession({
+			fetch: window.fetch.bind(window),
+			base: () => hqAudioBase(get(preferencesStore)),
+			tab: () => {
+				const tab = get(tabStore);
+				if (!tab?.fileAsB64 || tab.fileAsB64 !== get(loadedTabB64) || !api.score) return null;
+				const b64 = tab.fileAsB64;
+				return { tabId: tab.tabId ?? null, key: b64, bytes: () => base64ToArrayBuffer(b64) };
+			},
+			blocked: () => {
+				const edits = get(scoreEdits);
+				return !!get(videoPlayerRef) || !!edits.transpose || edits.mergedTrackIndexes.length > 0;
+			},
+			tracks: () =>
+				(api.score?.tracks ?? []).map((t: any) => ({
+					index: t.index,
+					isMute: !!t.playbackInfo?.isMute,
+					isSolo: !!t.playbackInfo?.isSolo
+				})),
+			createAudio: () => {
+				const audio = new Audio();
+				if (import.meta.env.DEV) (window as any).__hqAudio = audio;
+				return audio;
+			},
+			setMedia: (media) => hqPlayer.set(media),
+			setStatus: (status) => hqStatus.set(status),
+			onMediaState: (state) => videoSession?.onVideoState(state)
 		});
 		registerVideoSeek(videoSession.seek);
 		videoHandlers.set({ onStateChange: videoSession.onVideoState, onReady: videoSession.onReady });
@@ -414,6 +458,7 @@
 			}
 		});
 
+		api.scoreLoaded.on(() => void hqSession?.update());
 		api.scoreLoaded.on((score) => {
 			const tab = get(tabStore);
 			if (!tab?.fileAsB64 || tab.fileAsB64 !== get(loadedTabB64)) return;

@@ -1,0 +1,32 @@
+# systemd unit for the render service on a Linux host (installed by deploy/install.sh).
+# Limits keep the host usable: at most 2 of its cores, 2 GB of memory, lowest IO priority,
+# and no write access outside its own state and files directories.
+[Unit]
+Description=Tablatures HQ audio render service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=@USER@
+EnvironmentFile=@HOME@/tabrender/hq.env
+WorkingDirectory=@HOME@/tabrender/service
+ExecStart=@HOME@/tabrender/venv/bin/python -m hqrender.service
+Restart=on-failure
+RestartSec=30
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=200%
+MemoryMax=2G
+TasksMax=64
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@HOME@/tabrender/state @HOME@/tabrender/files
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

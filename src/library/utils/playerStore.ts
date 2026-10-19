@@ -186,6 +186,9 @@ export const videoPlayerRef = writable<any>(null);
 
 // Audio source toggle: 'tab' = alphaTab audio, 'video' = YouTube audio, 'both' = both simultaneously
 export const audioSource = writable<'tab' | 'video' | 'both'>('tab');
+/** Server-rendered audio the session follows instead of a video (hqSession.ts), and its status. */
+export const hqPlayer = writable<import('./hqAudio').HqMedia | null>(null);
+export const hqStatus = writable<import('./hqAudio').HqStatus>({ kind: 'off' });
 
 // Video sync offset (seconds), shared between TabViewer and MiniPlayer
 export const videoSyncOffset = writable<number>(0);

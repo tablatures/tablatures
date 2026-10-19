@@ -8,7 +8,7 @@
 	import { favoritesStore } from '../../library/utils/favorites';
 	import { historyStore } from '../../library/utils/history';
 	import { tabStore } from '../../library/utils/store';
-	import { activeVideoId } from '../../library/utils/playerStore';
+	import { activeVideoId, hqStatus } from '../../library/utils/playerStore';
 	import { toastStore } from '../../library/utils/toast';
 	import { preferencesStore, DEFAULT_SOUNDFONT, SOUNDFONT_PRESETS, activeSoundFontPreset } from '../../library/utils/preferences';
 	import { INSTRUMENTS_VERSION } from '../../library/utils/instrumentPacks';
@@ -551,6 +551,49 @@
 					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.haptics ? 'translate-x-6' : 'translate-x-1'}" />
 				</button>
 			</div>
+		</div>
+
+		<!-- HQ audio (experimental) -->
+		<div class="p-3 sm:p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+			<p class="text-sm font-medium text-neutral-700 dark:text-neutral-200">HQ Audio (experimental)</p>
+			<p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 mb-2">
+				Play studio-rendered audio for catalogue tabs. The tab's id is sent to the render service, which
+				prepares audio for tabs it has not rendered yet. Imported tabs, transposed tracks, the metronome
+				and some mute/solo combinations use the built-in sound.
+			</p>
+			<div class="flex items-center gap-3">
+				<button
+					class="tap-target relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$preferencesStore.hqAudio ? 'bg-violet-500' : 'bg-neutral-300 dark:bg-neutral-600'}"
+					on:click={() => preferencesStore.update((p) => ({ ...p, hqAudio: !p.hqAudio }))}
+					role="switch"
+					aria-checked={$preferencesStore.hqAudio}
+					aria-label="HQ audio"
+				>
+					<span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$preferencesStore.hqAudio ? 'translate-x-6' : 'translate-x-1'}" />
+				</button>
+				{#if $preferencesStore.hqAudio}
+					<span class="text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="hq-status">
+						{$hqStatus.kind === 'ready'
+							? 'Current tab: HQ audio ready'
+							: $hqStatus.kind === 'rendering'
+								? 'Current tab: preparing HQ audio…'
+								: $hqStatus.kind === 'unavailable'
+									? `Current tab: ${$hqStatus.reason}`
+									: $hqStatus.kind === 'checking'
+										? 'Current tab: checking…'
+										: ''}
+					</span>
+				{/if}
+			</div>
+			{#if $preferencesStore.hqAudio}
+				<input
+					type="url"
+					bind:value={$preferencesStore.hqAudioServer}
+					placeholder={import.meta.env.VITE_HQ_AUDIO_BASE_URL || 'http://raspberrypi.local:8790'}
+					aria-label="HQ audio service URL"
+					class="w-full mt-3 text-sm bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-violet-500 text-neutral-700 dark:text-neutral-300"
+				/>
+			{/if}
 		</div>
 	</div>
 
