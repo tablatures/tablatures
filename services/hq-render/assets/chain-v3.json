@@ -1,6 +1,6 @@
 {
- "version": "v3",
- "note": "Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
+ "version": "v4",
+ "note": "v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
  "guitar": {
   "reverb": 0.15,
   "cab": "4x12",

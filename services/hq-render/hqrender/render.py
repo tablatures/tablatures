@@ -40,6 +40,16 @@ ENCODERS = int(os.environ.get('HQ_ENCODERS', '3'))
 # 'guitars': render only the electric guitars, the app's synth plays the rest (and its level is
 # matched to it); 'full': every instrument, a finished mix
 SCOPE = os.environ.get('HQ_SCOPE', 'guitars')
+# release of the note gate in ms (0: off); see note_gate()
+# 150 ms after the amp, down to -40 dB: matches Songsterr's between-note drop on Breaking The Law
+# (dip error -0.52 -> +0.07 tolerances, overall 0.71 -> 0.65); shorter fades overshoot, longer ones let tails back
+NOTE_GATE_MS = float(os.environ.get('HQ_NOTE_GATE_MS', '150'))
+NOTE_GATE_FLOOR_DB = float(os.environ.get('HQ_NOTE_GATE_FLOOR_DB', '-40'))
+NOTE_GATE_POST = os.environ.get('HQ_NOTE_GATE_POST', '1') == '1'  # gate the amp's output instead of its input
+# research: save each electric track's processed stereo here (npy) before mixing
+DUMP_TRACKS = os.environ.get('HQ_DUMP_TRACKS')
+# research: override the heavy chain's amp drive in dB
+HEAVY_GAIN = float(os.environ['HQ_HEAVY_GAIN']) if os.environ.get('HQ_HEAVY_GAIN') else None
 AMP_CHUNK_S = float(os.environ.get('HQ_AMP_CHUNK_S', '1'))  # 1 s suits Apple silicon caches, ~10 s a Raspberry Pi
 MIN_FREE = float(os.environ.get('HQ_MIN_FREE_GB', '8')) * 1e9
 CONFIG = json.load(open(os.path.join(SERVICE, 'assets', 'chain-v3.json')))
@@ -79,6 +89,22 @@ def take(score, work, index, kind):
     path = os.path.join(work, f't{index}-{kind}.f32')
     x = np.fromfile(path, np.float32).reshape(-1, 2).astype(np.float64); os.remove(path)
     return x
+
+
+def note_gate(n, spans, release_ms, floor_db=-120.0):
+    """Gain that is 1 while any note of a take sounds and falls to 0 over `release_ms` after the
+    last one ends: each note stops where the score ends it, like a cleanly muted string, instead
+    of the soundfont's release tail feeding the amp."""
+    g = np.zeros(n); r = max(1, int(release_ms / 1000 * SR)); a = int(0.001 * SR)
+    fall = 0.5 * (1 + np.cos(np.linspace(0, np.pi, r)))
+    for on, off in spans:
+        i, j = int(on * SR), int(off * SR)
+        if i >= n: continue
+        g[max(0, i - a):min(n, j)] = 1
+        k = min(n, j + r) - j
+        if k > 0: g[j:j + k] = np.maximum(g[j:j + k], fall[:k])
+    floor = 10 ** (floor_db / 20)  # how far between-note sound is lowered (a gate's range)
+    return floor + (1 - floor) * g
 
 
 # ---------------------------------------------------------------- electric guitars
@@ -132,7 +158,7 @@ def chain_for(program):
     g = CONFIG['guitar']
     if program in g['heavy_programs']:
         h = g['heavy']; k = str(program) if str(program) in h['eq'] else 'None'
-        return dict(capture=h['capture'], gain=h['gain'], shelf=[], eq=h['eq'][k], preset='heavy')
+        return dict(capture=h['capture'], gain=HEAVY_GAIN if HEAVY_GAIN is not None else h['gain'], shelf=[], eq=h['eq'][k], preset='heavy')
     # light, and non-electric sounds inside a guitar track
     k = str(program) if str(program) in g['light'] else 'None'; t = g['light'][k]
     return dict(capture=t['capture'], gain=t['gain'], shelf=t['shelf'], eq=t['eq'], preset='light')
@@ -159,10 +185,14 @@ def guitar_take(di, secs):
 
 def _take_job(args):
     global _prog
-    path, secs, prog = args
+    path, secs, prog, gate_path = args
     _prog = {'path': prog, 'total': 1, 'done': 0, 'at': 0}
     di = np.load(path); os.remove(path)
-    try: return guitar_take(di, secs)
+    try:
+        y = guitar_take(di, secs)
+        if gate_path:  # after the amp: saturation would undo a partial cut made before it
+            y = y * np.load(gate_path); os.remove(gate_path)
+        return y
     finally:
         _advance(0); _prog = None
 
@@ -241,6 +271,7 @@ def guitars_only(score, work, out, sha, plan, n, fit, playing, role, takes, secs
     stems = {}
     for t in guitars:
         i = t['index']; stems[i] = guitar_stereo(t, takes, i)
+        if DUMP_TRACKS: os.makedirs(DUMP_TRACKS, exist_ok=True); np.save(os.path.join(DUMP_TRACKS, f't{i}.npy'), stems[i].astype(np.float16))
         log(f'track {i} {t["name"][:40]} electric {" ".join(sorted({c["preset"] for _, _, c in secs_of[i]}))} {time.time() - started[i]:.0f}s')
     amps.shutdown(); side.shutdown(); prog.set('encoding')
     bus = sum(stems.values()); g = 10 ** ((target - dsp.active_rms_db(bus)) / 20)
@@ -334,9 +365,18 @@ def _render(score, out, work, log, between, prog):
             if a < b: secs.append((a, b, chain_for(s_['program'])))
         secs_of[i] = secs
         for k in ('di1', 'di2'):
-            p = os.path.join(work, f't{i}-{k}.npy'); np.save(p, fit(take(score, work, i, k)).mean(1))
+            di = fit(take(score, work, i, k)).mean(1)
+            spans_path = os.path.join(work, f't{i}-{k}.notes.json')
+            gate = None
+            if NOTE_GATE_MS > 0 and os.path.exists(spans_path):
+                gate = note_gate(len(di), json.load(open(spans_path)), NOTE_GATE_MS, NOTE_GATE_FLOOR_DB)
+                if not NOTE_GATE_POST: di = di * gate; gate = None
+            if os.path.exists(spans_path): os.remove(spans_path)
+            p = os.path.join(work, f't{i}-{k}.npy'); np.save(p, di)
+            gp = None
+            if gate is not None: gp = os.path.join(work, f't{i}-{k}.gate.npy'); np.save(gp, gate.astype(np.float32))
             pf = os.path.join(work, f'progress-{i}-{k}'); prog.files.append(pf)
-            takes[(i, k)] = amps.submit(_take_job, (p, secs, pf))
+            takes[(i, k)] = amps.submit(_take_job, (p, secs, pf, gp))
     prog.set('amps')
 
     def keep(t, y, detail, t0):

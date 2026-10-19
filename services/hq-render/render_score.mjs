@@ -10,6 +10,7 @@
 //   di1, di2 electric guitars: two humanised takes (+-6 ms, +-6 velocity) with
 //            distortion programs swapped to a clean guitar, as the input of the
 //            amp models                                            t<i>-di<k>.f32
+//            and the takes' note start/end times      t<i>-di<k>.notes.json
 //   midi     drum tracks: a standard MIDI file for the sampled kit  t<i>.mid
 // Renders are one call each so a caller can process and delete them one at a time.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -159,6 +160,26 @@ function trackMidi(index, { di = false, seed = 0, smf = false } = {}) {
 	return file;
 }
 
+/** [start, end] seconds of every note in a file, for the note gate (render.py). */
+function noteSpans(file) {
+	const open = new Map();
+	const spans = [];
+	for (const e of file.events) {
+		const key = e.channel * 128 + e.noteKey;
+		if (e instanceof at.midi.NoteOnEvent && e.noteVelocity > 0) {
+			if (!open.has(key)) open.set(key, []);
+			open.get(key).push(e.tick);
+		} else if (
+			e instanceof at.midi.NoteOffEvent ||
+			(e instanceof at.midi.NoteOnEvent && e.noteVelocity === 0)
+		) {
+			const starts = open.get(key);
+			if (starts?.length) spans.push([seconds(starts.shift()), seconds(e.tick)]);
+		}
+	}
+	return spans.sort((a, b) => a[0] - b[0]).map(([a, b]) => [+a.toFixed(4), +b.toFixed(4)]);
+}
+
 mkdirSync(outDir, { recursive: true });
 const jobs = process.argv.slice(5);
 const plan = { title: score.title, artist: score.artist, sampleRate: SR, tracks: [] };
@@ -219,11 +240,9 @@ for (const job of jobs) {
 		);
 	} else if (kind === 'di1' || kind === 'di2') {
 		const fonts = fontsFor(new Set(row.programs.map((p) => (DISTORTED(p) ? 27 : p))), false);
-		render(
-			trackMidi(+idx, { di: true, seed: +kind.slice(2) }),
-			fonts,
-			join(outDir, `t${idx}-${kind}.f32`)
-		);
+		const file = trackMidi(+idx, { di: true, seed: +kind.slice(2) });
+		render(file, fonts, join(outDir, `t${idx}-${kind}.f32`));
+		writeFileSync(join(outDir, `t${idx}-${kind}.notes.json`), JSON.stringify(noteSpans(file)));
 	} else throw new Error(`unknown render kind ${kind}`);
 	console.log('rendered', job, `${Date.now() - t0} ms`);
 }
