@@ -1,6 +1,6 @@
 {
- "version": "v5",
- "note": "v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
+ "version": "v6",
+ "note": "v6 = v5 with metal at -12 dB drive plus EQ trims. v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
  "guitar": {
   "reverb": 0.15,
   "cab": "4x12",
@@ -270,8 +270,13 @@
      29,
      30
     ],
-    "heavy_gain": -6.0,
-    "note": "metal, punk, grunge artists: overdrive and distortion through the heavy chain"
+    "heavy_gain": -12.0,
+    "note": "metal, punk, grunge artists: overdrive and distortion through the heavy chain at -12 dB, body restored by EQ trims",
+    "eq_offset": {
+     "150-500": 2.0,
+     "2000-5000": 1.0,
+     "5000-10000": 1.5
+    }
    },
    "rock": {
     "heavy_programs": [

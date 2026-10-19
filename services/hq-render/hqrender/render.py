@@ -156,6 +156,15 @@ def _frms(x, ks):
     return np.sqrt(np.mean([(x[k * FRAME:(k + 1) * FRAME] ** 2).mean() for k in ks])) if ks else np.sqrt((x ** 2).mean())
 
 
+def eq_with(db, offsets):
+    """A fitted 24-band curve plus per-range trims, e.g. {'150-500': 2.0} (dB). HQ_EQ_TRIM overrides."""
+    db = list(db); offsets = json.loads(os.environ['HQ_EQ_TRIM']) if os.environ.get('HQ_EQ_TRIM') else (offsets or {})
+    for rng, d in offsets.items():
+        lo, hi = map(float, rng.split('-'))
+        db = [v + d if lo <= f < hi else v for v, f in zip(db, dsp.BAND_HZ)]
+    return db
+
+
 def style_of(tags, genre=None):
     """'metal' for metal, punk and grunge artists (catalogue tags), else 'rock'. Songsterr also picks
     its guitar preset per artist; on 317 labelled sections this rule matches its light/heavy choice
@@ -170,7 +179,7 @@ def chain_for(program, style='metal'):
     if program in st['heavy_programs']:
         h = g['heavy']; k = str(program) if str(program) in h['eq'] else 'None'
         gain = HEAVY_GAIN if HEAVY_GAIN is not None else st['heavy_gain']
-        return dict(capture=h['capture'], gain=gain, shelf=[], eq=h['eq'][k], preset=f'heavy {gain:+.0f} dB')
+        return dict(capture=h['capture'], gain=gain, shelf=[], eq=eq_with(h['eq'][k], st.get('eq_offset')), preset=f'heavy {gain:+.0f} dB')
     # light, and non-electric sounds inside a guitar track
     k = str(program) if str(program) in g['light'] else 'None'; t = g['light'][k]
     return dict(capture=t['capture'], gain=t['gain'], shelf=t['shelf'], eq=t['eq'], preset='light')
