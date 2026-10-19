@@ -44,7 +44,8 @@ DAILY = int(E('HQ_DAILY_RENDERS', '40')); QUEUE_MAX = int(E('HQ_QUEUE_MAX', '50'
 CAP = float(E('HQ_STORAGE_CAP_GB', '8')) * 1e9
 REQ_PER_MIN = int(E('HQ_REQ_PER_MIN', '10'))
 ORIGINS = [o.strip() for o in E('HQ_ALLOWED_ORIGINS', '*').split(',')]
-TAB_ID = re.compile(r'^[A-Za-z0-9:_.\-]{1,160}$'); SHA = re.compile(r'^[0-9a-f]{64}$')
+# catalogue ids may contain punctuation such as parentheses; never path or query separators
+TAB_ID = re.compile(r'^[^\s/?#\\%\x00-\x1f]{1,160}$'); SHA = re.compile(r'^[0-9a-f]{64}$')
 FILE = re.compile(r'^[A-Za-z0-9_.\-]{1,80}$')
 WORKER_TOKEN = E('HQ_WORKER_TOKEN', '')  # enables /v1/jobs/* for render helpers; unset = local rendering only
 LEASE = 1800  # a helper's claimed job returns to the queue after this many seconds

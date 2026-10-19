@@ -63,6 +63,10 @@ describe('isCatalogueTab', () => {
 	it('accepts catalogue ids and rejects imports', () => {
 		expect(isCatalogueTab('songsterr:10122')).toBe(true);
 		expect(isCatalogueTab('guitarprotaborg_weezer_buddy_holly')).toBe(true);
+		expect(isCatalogueTab('guitarprotaborg_metallica_enter_sandman_(2)')).toBe(true);
+		expect(isCatalogueTab("ug:don't_stop")).toBe(true);
+		expect(isCatalogueTab('a b')).toBe(false);
+		expect(isCatalogueTab('a?b')).toBe(false);
 		expect(isCatalogueTab('upload-123')).toBe(false);
 		expect(isCatalogueTab(null)).toBe(false);
 		expect(isCatalogueTab('a/b')).toBe(false);

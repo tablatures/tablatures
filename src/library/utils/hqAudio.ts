@@ -42,7 +42,9 @@ export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
 
 /** Only catalogue tabs are rendered; imports and shared files stay on the synth. */
 export function isCatalogueTab(tabId: string | null | undefined): tabId is string {
-	return !!tabId && /^[A-Za-z0-9:_.-]{1,160}$/.test(tabId) && !/^(local|upload)/.test(tabId);
+	// catalogue ids may contain any printable character except path and query separators,
+	// e.g. guitarprotaborg_metallica_enter_sandman_(2)
+	return !!tabId && /^[^\s/?#\\%]{1,160}$/.test(tabId) && !/^(local|upload)/.test(tabId);
 }
 
 /**

@@ -31,6 +31,12 @@ def call(url, body=None):
         return e.code, e.headers, e.read()
 
 
+def test_accepts_catalogue_ids_with_punctuation(server):
+    _, base, _ = server
+    body = {'tabId': 'guitarprotaborg_metallica_enter_sandman_(2)', 'sha256': SHA}
+    assert json.loads(call(f'{base}/v1/render', body)[2])['status'] == 'queued'
+
+
 def test_queues_catalogue_tabs_once(server):
     _, base, _ = server
     assert json.loads(call(f'{base}/v1/render', {'tabId': 'songsterr:1', 'sha256': SHA})[2])['status'] == 'queued'
