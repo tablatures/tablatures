@@ -16,7 +16,6 @@ if [ ! -x "$T/opt/bin/sfizz_render" ]; then
 fi
 [ -d "$T/venv" ] || python3 -m venv "$T/venv"
 "$T/venv/bin/pip" install -q numpy scipy numba pyloudnorm mido
-"$T/venv/bin/python" -c 'import torch' 2>/dev/null || "$T/venv/bin/pip" install -q torch --index-url https://download.pytorch.org/whl/cpu
 [ -f "$T/hq.env" ] || sed "s|@HOME@|$HOME|g" "$T/service/deploy/hq.env.example" > "$T/hq.env"
 sed -e "s|@HOME@|$HOME|g" -e "s|@USER@|$USER|g" "$T/service/deploy/hqrender.service" | sudo tee /etc/systemd/system/hqrender.service >/dev/null
 sudo systemctl daemon-reload

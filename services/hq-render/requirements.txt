@@ -3,6 +3,5 @@ scipy
 numba
 pyloudnorm
 mido
-torch
 # only for HQ_STORAGE=s3
 # boto3

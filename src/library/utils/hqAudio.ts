@@ -135,6 +135,18 @@ export function createHqMedia(audio: HTMLAudioElement, onState: (state: number) 
 	audio.addEventListener('waiting', () => (buffering = true));
 	audio.addEventListener('playing', () => (buffering = false));
 	audio.addEventListener('ended', () => onState(0));
+	// A file can be missing for a moment while a render is being published: retry once.
+	let retried = '';
+	audio.addEventListener('error', () => {
+		if (!audio.src || retried === audio.src) return;
+		retried = audio.src;
+		const at = audio.currentTime;
+		setTimeout(() => {
+			audio.load();
+			audio.currentTime = at;
+			if (wanted) void audio.play().catch(() => {});
+		}, 2000);
+	});
 	return {
 		audio,
 		setSource(url: string) {

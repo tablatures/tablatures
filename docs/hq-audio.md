@@ -75,7 +75,8 @@ answered without rendering:
 
 ```
 python -m hqrender.render <tab file> out/<sha256>
-rsync -a out/ <host>:tabrender/files/v1/scores/
+rsync -a --exclude manifest.json out/ <host>:tabrender/files/v1/scores/   # audio first,
+rsync -a out/ <host>:tabrender/files/v1/scores/                           # then manifests
 ```
 
 Settings live in `~/tabrender/hq.env` on the host (`deploy/hq.env.example`). Local render without

@@ -10,12 +10,17 @@ Environment (paths default to the layout install.sh creates):
     HQ_ASSETS      dir with nam/ (amp captures) and sfz/ (kits)  default: ./assets
     HQ_SFIZZ       sfizz_render binary                        default: sfizz_render on PATH
     HQ_SFIZZ_LIB   library dir for a non-installed sfizz build (optional)
-    HQ_AMP_WORKERS parallel amp-model processes               default: 2
+    HQ_AMP_WORKERS parallel amp-model processes (all tracks)  default: 2
+    HQ_AMP_CHUNK_S amp block length in seconds                default: 1
+    HQ_DRUM_POLYPHONY voice cap for the sampled drum kit      default: 48
+    HQ_ENCODERS    parallel audio encoders                    default: 3
     HQ_MIN_FREE_GB refuse to render below this much free disk default: 8
     HQ_HOT_C, HQ_COOL_C  pause above / resume below this CPU temperature (thermal.py)
 """
 import argparse, hashlib, json, math, os, resource, shutil, subprocess, sys, tempfile, time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+# The amp's matrices are small: one BLAS thread per process is fastest; parallelism is HQ_AMP_WORKERS.
+for _k in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'MKL_NUM_THREADS'): os.environ.setdefault(_k, '1')
 import numpy as np
 
 from . import dsp, thermal
@@ -27,6 +32,10 @@ ASSETS = os.environ.get('HQ_ASSETS', os.path.join(SERVICE, 'assets'))
 SFIZZ = os.environ.get('HQ_SFIZZ', 'sfizz_render')
 SFIZZ_ENV = {**os.environ, **({'DYLD_LIBRARY_PATH': os.environ['HQ_SFIZZ_LIB'], 'LD_LIBRARY_PATH': os.environ['HQ_SFIZZ_LIB']} if os.environ.get('HQ_SFIZZ_LIB') else {})}
 AMP_WORKERS = int(os.environ.get('HQ_AMP_WORKERS', '2'))
+# a voice cap for the multi-mic kit: 48 voices sound the same as unlimited (-61 dB) and render 20% faster
+DRUM_POLYPHONY = int(os.environ.get('HQ_DRUM_POLYPHONY', '48'))
+ENCODERS = int(os.environ.get('HQ_ENCODERS', '3'))
+AMP_CHUNK_S = float(os.environ.get('HQ_AMP_CHUNK_S', '1'))  # 1 s suits Apple silicon caches, ~10 s a Raspberry Pi
 MIN_FREE = float(os.environ.get('HQ_MIN_FREE_GB', '8')) * 1e9
 CONFIG = json.load(open(os.path.join(SERVICE, 'assets', 'chain-v3.json')))
 SR = dsp.SR
@@ -73,25 +82,23 @@ _model = {}
 
 
 def _amp_init():
-    import torch
-    torch.set_num_threads(1)
+    pass
 
 
 def amp(x, cfg):
     """Pre-shelf, gain, amp capture (at 48 kHz, 10 s chunks with receptive-field context), cab, fitted EQ."""
-    import torch
     from scipy.signal import lfilter, resample_poly
     from . import nam
     if cfg.get('shelf'): x = lfilter(*dsp.biquad_shelf(cfg['shelf'][0], cfg['shelf'][1], True), x)
     name = cfg['capture']
     if name not in _model: _model[name] = nam.load(os.path.join(ASSETS, 'nam', name))
     m = _model[name]
-    u = resample_poly(x * 10 ** (cfg['gain'] / 20), 160, 147).astype(np.float32); y = np.zeros_like(u); C, P = 10 * 48000, 8192
-    with torch.no_grad():
-        for i in range(0, len(u), C):
-            thermal.wait_cool()  # also mid-track: one guitar take keeps a core busy for minutes on a Pi
-            r = m(torch.tensor(u[max(0, i - P):i + C])[None])[0].numpy()
-            y[i:i + C] = r[i - max(0, i - P):][:len(y[i:i + C])]
+    # 1 s chunks with the model's receptive field as context: cache-sized, and a chance to cool down
+    u = resample_poly(x * 10 ** (cfg['gain'] / 20), 160, 147).astype(np.float32); y = np.zeros_like(u); C, P = int(AMP_CHUNK_S * 48000), m.rf
+    for i in range(0, len(u), C):
+        if i % (10 * 48000) < C: thermal.wait_cool()  # also mid-track: one take keeps a core busy for minutes on a Pi
+        r = m(u[max(0, i - P):i + C])
+        y[i:i + C] = r[i - max(0, i - P):][:len(y[i:i + C])]
     y = resample_poly(y, 147, 160)[:len(x)]
     if 'Cab' not in name: y = dsp.conv(y, dsp.cab_ir(CONFIG['guitar']['cab']))
     return dsp.conv(y, dsp.eq_ir(cfg['eq']))
@@ -152,7 +159,7 @@ def drums(work, index):
             if e.type in ('note_on', 'note_off') and e.channel == 9 and e.note in remap: e.note = remap[e.note]
     m.save(mid); os.remove(src)
     lim = lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (800 * 2 ** 20, 800 * 2 ** 20))
-    r = subprocess.run(['nice', SFIZZ, '--sfz', os.path.join(ASSETS, 'sfz', CONFIG['drums']['kit']), '--midi', mid, '--wav', wav, '-s', str(SR)],
+    r = subprocess.run(['nice', SFIZZ, '--sfz', os.path.join(ASSETS, 'sfz', CONFIG['drums']['kit']), '--midi', mid, '--wav', wav, '-s', str(SR), '-p', str(DRUM_POLYPHONY)],
                        capture_output=True, text=True, timeout=900, preexec_fn=lim, env=SFIZZ_ENV)
     os.remove(mid)
     if r.returncode or not os.path.exists(wav): raise RenderError(f'sfizz failed: {r.stderr[-500:]}')
@@ -199,37 +206,52 @@ def render(score, out, work=None, log=print, between=None):
     n = int(math.ceil((plan['seconds'] + 3) * SR))  # room for the last notes' tails
     fit = lambda x: np.pad(x, ((0, max(0, n - len(x))), (0, 0)))[:n]
     tracks, buses = [], {}
-    for t in plan['tracks']:
-        if t['mute']: continue
-        between(); guard(work); i = t['index']
-        electric = any(26 <= s['program'] <= 31 for s in t['sections'])
-        role = role_of(t['program'], t['percussion'], electric)
-        t0 = time.time()
-        if role == 'electric':
-            secs = []
-            for s in t['sections']:
-                a, b = int(s['t0'] * SR), n if s['t1'] is None else int(s['t1'] * SR)
-                if a < b: secs.append((a, b, chain_for(s['program'])))
-            jobs = []
-            for k in ('di1', 'di2'):
-                p = os.path.join(work, f't{i}-{k}.npy'); np.save(p, fit(take(score, work, i, k)).mean(1)); jobs.append((p, secs))
-            with ProcessPoolExecutor(min(AMP_WORKERS, 2), initializer=_amp_init) as pool:
-                left, right = pool.map(_take_job, jobs)
+    # the sampled drums (sfizz, its own process) render while the guitars go through the amps
+    side = ThreadPoolExecutor(1)
+    drum_jobs = {t['index']: side.submit(lambda i: (node(score, work, f'{i}:midi'), fit(drums(work, i)))[1], t['index'])
+                 for t in plan['tracks'] if t['percussion'] and not t['mute']}
+    playing = [t for t in plan['tracks'] if not t['mute']]
+    role = {t['index']: role_of(t['program'], t['percussion'], any(26 <= s['program'] <= 31 for s in t['sections'])) for t in playing}
+    # every guitar take goes into one pool, so takes of different tracks use the cores in parallel
+    amps = ProcessPoolExecutor(max(1, AMP_WORKERS), initializer=_amp_init)
+    takes, secs_of, started = {}, {}, {}
+    for t in playing:
+        if role[t['index']] != 'electric': continue
+        between(); guard(work); i = t['index']; started[i] = time.time()
+        secs = []
+        for s_ in t['sections']:
+            a, b = int(s_['t0'] * SR), n if s_['t1'] is None else int(s_['t1'] * SR)
+            if a < b: secs.append((a, b, chain_for(s_['program'])))
+        secs_of[i] = secs
+        for k in ('di1', 'di2'):
+            p = os.path.join(work, f't{i}-{k}.npy'); np.save(p, fit(take(score, work, i, k)).mean(1))
+            takes[(i, k)] = amps.submit(_take_job, (p, secs))
+
+    def keep(t, y, detail, t0):
+        i = t['index']; p = os.path.join(work, f'proc-{i}.npy'); np.save(p, y.astype(np.float32))
+        buses[role[i]] = buses.get(role[i], 0) + y
+        tracks.append(dict(index=i, name=t['name'], role=role[i], bus=role[i], proc=p, detail=detail))
+        log(f'track {i} {t["name"][:40]} {role[i]} {" ".join(detail)} {time.time() - t0:.0f}s')
+
+    # the other instruments while the amps run
+    for t in playing:
+        i = t['index']
+        if role[i] in ('electric', 'drums'): continue
+        between(); guard(work); t0 = time.time()
+        x = fit(take(score, work, i, 'plain'))
+        y = bass(x, t['program']) if role[i] == 'bass' else dsp.process(x, CONFIG[role[i]]['chain'] if role[i] in CONFIG else CONFIG['other']['chain'])
+        keep(t, y, [], t0)
+    for t in playing:
+        i = t['index']
+        if role[i] == 'drums': keep(t, drum_jobs[i].result(), ['kit'], time.time())
+        elif role[i] == 'electric':
+            left, right = takes[(i, 'di1')].result(), takes[(i, 'di2')].result()
             # the two takes hard left and right (double tracking), level from the score's track volume
             y = dsp.reverb(np.stack([left, right], 1), CONFIG['guitar']['reverb'])
             y = y * 10 ** (40 * math.log10(max(t.get('volume', 16), 1) / 16) / 20)
-            detail = sorted({c['preset'] for _, _, c in secs})
-        elif role == 'drums':
-            node(score, work, f'{i}:midi'); y = fit(drums(work, i)); detail = ['kit']
-        else:
-            x = fit(take(score, work, i, 'plain'))
-            y = bass(x, t['program']) if role == 'bass' else dsp.process(x, CONFIG[role]['chain'] if role in CONFIG else CONFIG['other']['chain'])
-            detail = []
-        bus = role
-        p = os.path.join(work, f'proc-{i}.npy'); np.save(p, y.astype(np.float32))
-        buses[bus] = buses.get(bus, 0) + y
-        tracks.append(dict(index=i, name=t['name'], role=role, bus=bus, proc=p, detail=detail))
-        log(f'track {i} {t["name"][:40]} {role} {" ".join(detail)} {time.time() - t0:.0f}s')
+            keep(t, y, sorted({c['preset'] for _, _, c in secs_of[i]}), started[i])
+    amps.shutdown()
+    side.shutdown()
     if not tracks: raise RenderError('no playing tracks')
     levels = CONFIG['mix']['bus_db']
     ref = dsp.active_rms_db(buses['drums']) if 'drums' in buses else -20.0
@@ -242,11 +264,15 @@ def render(score, out, work=None, log=print, between=None):
     gain = 10 ** ((CONFIG['mix']['lufs'] - pyln.Meter(SR).integrated_loudness(pre * glue[:, None])) / 20)
     # file names carry the chain version: they are cached as immutable, a new chain gets new names
     v = CONFIG['version']; mix_name = f'mix-{v}.m4a'
-    encode(finish(pre, glue, gain), os.path.join(out, mix_name), 160)
-    for t in tracks:
+
+    def minus(t):
         y = np.load(t['proc']).astype(np.float64); os.remove(t['proc'])
-        t['minus'] = f'minus-{t["index"]}-{v}.m4a'
         encode(finish(pre - y * gains[t['bus']], glue, gain), os.path.join(out, t['minus']), 128)
+
+    for t in tracks: t['minus'] = f'minus-{t["index"]}-{v}.m4a'
+    with ThreadPoolExecutor(ENCODERS) as pool:  # ffmpeg and numpy release the GIL
+        jobs = [pool.submit(encode, finish(pre, glue, gain), os.path.join(out, mix_name), 160)] + [pool.submit(minus, t) for t in tracks]
+        for j in jobs: j.result()
     manifest = dict(format=1, chain=CONFIG['version'], score_sha256=sha, title=plan['title'], artist=plan['artist'],
                     seconds=round(n / SR, 3), mix=mix_name,
                     tracks=[dict(index=t['index'], name=t['name'], role=t['role'], minus=t['minus']) for t in tracks],
