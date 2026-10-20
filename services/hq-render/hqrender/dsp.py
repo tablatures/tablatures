@@ -67,6 +67,34 @@ def eq_ir(db):
     return _cache[key]
 
 
+def trim_ir(trims):
+    """A minimum-phase FIR with exactly these gains, e.g. {'0-100': -4, '6300-8000': -5} (dB per Hz
+    range), with 1/3-octave transitions. Unlike eq_ir it neither smooths nor halves the curve:
+    minimum_phase() keeps the square root of the magnitude it is given, so it gets the square."""
+    key = ('trim', tuple(sorted(trims.items())))
+    if key not in _cache:
+        f = np.linspace(0, SR / 2, 4097); lf = np.log2(np.maximum(f, 1)); db = np.zeros_like(f)
+        for rng, d in trims.items():
+            lo, hi = map(float, rng.split('-')); hi = min(hi, SR / 2)
+            up = np.clip((lf - np.log2(max(lo, 1)) + 1 / 6) * 3, 0, 1) if lo > 0 else np.ones_like(f)
+            down = np.clip((np.log2(hi) - lf + 1 / 6) * 3, 0, 1) if hi < SR / 2 else np.ones_like(f)
+            db += d * np.minimum(up, down)
+        g2 = 10 ** (2 * db / 20)
+        _cache[key] = minimum_phase(firwin2(4097, f / (SR / 2), g2), method='homomorphic', n_fft=1 << 16)
+    return _cache[key]
+
+
+def curve_ir(hz, db):
+    """A minimum-phase FIR with exactly this response (dB at hz, interpolated in log frequency,
+    held flat outside), unlike eq_ir which smooths and halves it."""
+    key = ('curve', tuple(hz), tuple(db))
+    if key not in _cache:
+        f = np.linspace(0, SR / 2, 4097)
+        d = np.interp(np.log2(np.maximum(f, 1)), np.log2(np.asarray(hz, float)), np.asarray(db, float))
+        _cache[key] = minimum_phase(firwin2(4097, f / (SR / 2), 10 ** (2 * d / 20)), method='homomorphic', n_fft=1 << 16)
+    return _cache[key]
+
+
 def match_ir(curve, amount):
     key = ('match', tuple(curve['hz']), tuple(curve['db']), amount)
     if key not in _cache:

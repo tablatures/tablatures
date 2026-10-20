@@ -169,3 +169,14 @@ def test_status_reports_queue_position_and_helper_progress(tmp_path, monkeypatch
         assert status(other)['position'] == 2
     finally:
         httpd.shutdown()
+
+
+def test_requeues_renders_from_an_older_chain_only(server):
+    service, _, tmp = server
+    for sha, chain in (('b' * 64, 'v1'), ('c' * 64, service.CHAIN)):
+        d = tmp / 'files' / 'v1' / 'scores' / sha; d.mkdir(parents=True)
+        (d / 'manifest.json').write_text(json.dumps({'chain': chain}))
+        service.q("insert into jobs (sha, tab_id, status, created) values (?, 'tab', 'done', 0)", sha)
+    assert service.requeue_stale() == 1
+    assert service.q("select sha from jobs where status = 'queued'") == [('b' * 64,)]
+    assert service.status_of('b' * 64)['status'] == 'done'  # the old render is served until replaced

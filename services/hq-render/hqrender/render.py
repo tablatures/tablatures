@@ -17,6 +17,7 @@ Environment (paths default to the layout install.sh creates):
     HQ_ENCODERS    parallel audio encoders                    default: 3
     HQ_SCOPE       guitars (synth plays the rest) | full      default: guitars
     HQ_MIN_FREE_GB refuse to render below this much free disk default: 8
+    HQ_AMP_CACHE   dir caching amp-model outputs, for tuning runs only (16-bit FLAC; needs soundfile)
     HQ_HOT_C, HQ_COOL_C  pause above / resume below this CPU temperature (thermal.py)
 """
 import argparse, hashlib, json, math, os, resource, shutil, subprocess, sys, tempfile, threading, time
@@ -130,10 +131,26 @@ def _amp_init():
 
 def amp(x, cfg):
     """Pre-shelf, gain, amp capture (at 48 kHz, 10 s chunks with receptive-field context), cab, fitted EQ."""
-    from scipy.signal import lfilter, resample_poly
-    from . import nam
+    from scipy.signal import lfilter
     if cfg.get('shelf'): x = lfilter(*dsp.biquad_shelf(cfg['shelf'][0], cfg['shelf'][1], True), x)
     name = cfg['capture']
+    y = _cache_get(x, cfg) if AMP_CACHE else None
+    if y is None:
+        y = _amp_model(x, cfg, name)
+        if AMP_CACHE: _cache_put(x, cfg, y)
+    else: _advance(len(x))
+    if 'Cab' not in name: y = dsp.conv(y, dsp.cab_ir(CONFIG['guitar']['cab']))
+    y = dsp.conv(y, dsp.eq_ir(cfg['eq']))
+    if cfg.get('trim'): y = dsp.conv(y, dsp.trim_ir(cfg['trim']))
+    if cfg.get('fit'): y = dsp.conv(y, dsp.curve_ir(cfg['fit']['hz'], cfg['fit']['db']))
+    if cfg.get('comp'): y = compress(y, *cfg['comp'])
+    return y
+
+
+def _amp_model(x, cfg, name):
+    """The expensive part of amp(): gain and the amp capture, at 48 kHz in chunks."""
+    from scipy.signal import resample_poly
+    from . import nam
     if name not in _model: _model[name] = nam.load(os.path.join(ASSETS, 'nam', name))
     m = _model[name]
     # 1 s chunks with the model's receptive field as context: cache-sized, and a chance to cool down
@@ -143,9 +160,41 @@ def amp(x, cfg):
         r = m(u[max(0, i - P):i + C])
         y[i:i + C] = r[i - max(0, i - P):][:len(y[i:i + C])]
         _advance(len(x) * min(C, len(u) - i) / len(u))
-    y = resample_poly(y, 147, 160)[:len(x)]
-    if 'Cab' not in name: y = dsp.conv(y, dsp.cab_ir(CONFIG['guitar']['cab']))
-    return dsp.conv(y, dsp.eq_ir(cfg['eq']))
+    return resample_poly(y, 147, 160)[:len(x)]
+
+
+AMP_CACHE = os.environ.get('HQ_AMP_CACHE')
+
+
+def _cache_path(x, cfg):
+    h = hashlib.sha1(np.ascontiguousarray(x, np.float32).tobytes())
+    h.update(json.dumps([cfg['capture'], cfg['gain'], cfg.get('shelf')]).encode())
+    return os.path.join(AMP_CACHE, h.hexdigest() + '.flac')
+
+
+def _cache_get(x, cfg):
+    import soundfile
+    p = _cache_path(x, cfg)
+    if not os.path.exists(p): return None
+    y, _ = soundfile.read(p, dtype='float64'); peak = float(open(p + '.peak').read())
+    return y * peak if len(y) == len(x) else None
+
+
+def _cache_put(x, cfg, y):
+    import soundfile
+    if shutil.disk_usage(AMP_CACHE).free < MIN_FREE + 4e9: return
+    p = _cache_path(x, cfg); peak = float(np.abs(y).max()) or 1.0
+    soundfile.write(p + '.tmp.flac', y / peak, SR, subtype='PCM_16')
+    with open(p + '.peak', 'w') as f: f.write(repr(peak))
+    os.replace(p + '.tmp.flac', p)
+
+
+def compress(x, thr_db, ratio, att, rel):
+    """Feed-forward compressor, threshold relative to the signal's peak."""
+    ref = np.abs(x).max() + 1e-12
+    env = dsp.follow(np.abs(x) / ref, att, rel)
+    gr = np.minimum(0, (thr_db - 20 * np.log10(env + 1e-9)) * (1 - 1 / ratio))
+    return x * 10 ** (gr / 20)
 
 
 def _frames(d):
@@ -156,13 +205,32 @@ def _frms(x, ks):
     return np.sqrt(np.mean([(x[k * FRAME:(k + 1) * FRAME] ** 2).mean() for k in ks])) if ks else np.sqrt((x ** 2).mean())
 
 
-def eq_with(db, offsets):
-    """A fitted 24-band curve plus per-range trims, e.g. {'150-500': 2.0} (dB). HQ_EQ_TRIM overrides."""
-    db = list(db); offsets = json.loads(os.environ['HQ_EQ_TRIM']) if os.environ.get('HQ_EQ_TRIM') else (offsets or {})
-    for rng, d in offsets.items():
+def eq_with(db, offsets, light=False):
+    """A fitted 24-band curve plus per-range trims, e.g. {'150-500': 2.0} (dB), plus the trims every
+    guitar chain gets (CONFIG guitar.trim_all). HQ_EQ_TRIM overrides the style trims (heavy chain),
+    HQ_TRIM_ALL the common ones."""
+    db = list(db)
+    if not light: offsets = json.loads(os.environ['HQ_EQ_TRIM']) if os.environ.get('HQ_EQ_TRIM') else (offsets or {})
+    else: offsets = {}
+    common = json.loads(os.environ['HQ_TRIM_ALL']) if os.environ.get('HQ_TRIM_ALL') else CONFIG['guitar'].get('trim_all', {})
+    trims = [*offsets.items(), *common.items()]
+
+    for rng, d in trims:
         lo, hi = map(float, rng.split('-'))
         db = [v + d if lo <= f < hi else v for v, f in zip(db, dsp.BAND_HZ)]
     return db
+
+
+def heavy_trim():
+    """The heavy chain's cabinet-like trim in true dB (dsp.trim_ir); HQ_HEAVY_TRIM overrides."""
+    return json.loads(os.environ['HQ_HEAVY_TRIM']) if os.environ.get('HQ_HEAVY_TRIM') else CONFIG['guitar'].get('heavy_trim', {})
+
+
+def fit_for(chain):
+    """A post-amp correction fitted on the benchmark (true dB, dsp.curve_ir): CONFIG guitar.fit.<chain>,
+    or HQ_FIT, a JSON file with the same shape."""
+    fits = json.load(open(os.environ['HQ_FIT'])) if os.environ.get('HQ_FIT') else CONFIG['guitar'].get('fit', {})
+    return fits.get(chain)
 
 
 def style_of(tags, genre=None):
@@ -179,10 +247,11 @@ def chain_for(program, style='metal'):
     if program in st['heavy_programs']:
         h = g['heavy']; k = str(program) if str(program) in h['eq'] else 'None'
         gain = HEAVY_GAIN if HEAVY_GAIN is not None else st['heavy_gain']
-        return dict(capture=h['capture'], gain=gain, shelf=[], eq=eq_with(h['eq'][k], st.get('eq_offset')), preset=f'heavy {gain:+.0f} dB')
+        return dict(capture=h['capture'], gain=gain, shelf=[], eq=eq_with(h['eq'][k], st.get('eq_offset')), trim=heavy_trim(), fit=fit_for('heavy'), preset=f'heavy {gain:+.0f} dB')
     # light, and non-electric sounds inside a guitar track
     k = str(program) if str(program) in g['light'] else 'None'; t = g['light'][k]
-    return dict(capture=t['capture'], gain=t['gain'], shelf=t['shelf'], eq=t['eq'], preset='light')
+    comp = json.loads(os.environ['HQ_LIGHT_COMP']) if os.environ.get('HQ_LIGHT_COMP') else g.get('light_comp')
+    return dict(capture=t['capture'], gain=t['gain'], shelf=t['shelf'], eq=eq_with(t['eq'], None, light=True), comp=comp, fit=fit_for('light'), preset='light')
 
 
 def guitar_take(di, secs):

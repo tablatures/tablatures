@@ -6,7 +6,7 @@ so moving between backends is a configuration change.
                       HQ_S3_BUCKET=... HQ_S3_KEY_ID=... HQ_S3_SECRET=...
                       (Cloudflare R2, AWS S3, Backblaze B2, MinIO: any S3-compatible store)
 """
-import os, shutil
+import json, os, shutil
 
 PREFIX = 'v1/scores'
 TYPES = {'.json': 'application/json', '.m4a': 'audio/mp4'}
@@ -21,6 +21,14 @@ class LocalStorage:
 
     def has(self, sha):
         return os.path.exists(self.path(sha, 'manifest.json'))
+
+    def manifest(self, sha):
+        try: return json.load(open(self.path(sha, 'manifest.json')))
+        except (OSError, ValueError): return None
+
+    def scores(self):
+        d = os.path.join(self.root, PREFIX)
+        return [s for s in os.listdir(d) if not s.endswith('.partial')] if os.path.isdir(d) else []
 
     def publish(self, sha, src_dir):
         """Copy a finished render; the manifest goes last so a reader never sees a partial set."""
@@ -41,6 +49,16 @@ class S3Storage:
     def has(self, sha):
         try: self.s3.head_object(Bucket=self.bucket, Key=f'{PREFIX}/{sha}/manifest.json'); return True
         except self.s3.exceptions.ClientError: return False
+
+    def manifest(self, sha):
+        try: return json.loads(self.s3.get_object(Bucket=self.bucket, Key=f'{PREFIX}/{sha}/manifest.json')['Body'].read())
+        except self.s3.exceptions.ClientError: return None
+
+    def scores(self):
+        out = set()
+        for page in self.s3.get_paginator('list_objects_v2').paginate(Bucket=self.bucket, Prefix=PREFIX + '/'):
+            out.update(o['Key'].split('/')[2] for o in page.get('Contents', []) if o['Key'].endswith('/manifest.json'))
+        return sorted(out)
 
     def publish(self, sha, src_dir):
         names = sorted(os.listdir(src_dir), key=lambda n: n == 'manifest.json')  # manifest last

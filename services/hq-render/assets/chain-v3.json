@@ -1,6 +1,6 @@
 {
- "version": "v6",
- "note": "v6 = v5 with metal at -12 dB drive plus EQ trims. v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
+ "version": "v8",
+ "note": "v8 = v6 plus, on the heavy chain, an exact cabinet trim and a fitted correction (dsp.trim_ir, dsp.curve_ir), and on the light chain a compressor and a correction below 4 kHz; measured on an 84-song benchmark, held-out artists. v6 = v5 with metal at -12 dB drive plus EQ trims. v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
  "guitar": {
   "reverb": 0.15,
   "cab": "4x12",
@@ -286,7 +286,131 @@
     "note": "everyone else: overdrive through the light chain, distortion at less drive"
    }
   },
-  "metal_tags": "metal|punk|grunge|hardcore|thrash|djent|screamo"
+  "metal_tags": "metal|punk|grunge|hardcore|thrash|djent|screamo",
+  "heavy_trim": {
+   "0-100": -4.0,
+   "6300-8000": -5.0,
+   "10000-30000": -7.0
+  },
+  "heavy_trim_note": "cabinet-like trim in true dB (dsp.trim_ir), heavy chain only: held-out band error 5.98 -> 5.23 dB on the 84-song benchmark",
+  "light_comp": [
+   -18,
+   3,
+   0.005,
+   0.1
+  ],
+  "light_comp_note": "threshold below peak (dB), ratio, attack, release (s); on held-out artists, overall gap 1.43 -> 1.37 and excess dynamics halved",
+  "fit": {
+   "heavy": {
+    "hz": [
+     67,
+     85,
+     107,
+     135,
+     171,
+     216,
+     272,
+     344,
+     434,
+     548,
+     691,
+     872,
+     1101,
+     1389,
+     1753,
+     2213,
+     2793,
+     3524,
+     4448,
+     5614,
+     7085,
+     8942,
+     11285,
+     14242
+    ],
+    "db": [
+     -1.21,
+     -1.02,
+     -0.95,
+     -0.38,
+     0.56,
+     0.42,
+     -0.52,
+     -0.49,
+     -0.06,
+     -0.21,
+     -0.07,
+     0.46,
+     0.57,
+     -0.07,
+     -0.68,
+     -0.84,
+     -0.56,
+     -0.12,
+     -0.07,
+     -0.58,
+     -0.93,
+     -1.14,
+     -2.95,
+     -4.86
+    ]
+   },
+   "light": {
+    "hz": [
+     67,
+     85,
+     107,
+     135,
+     171,
+     216,
+     272,
+     344,
+     434,
+     548,
+     691,
+     872,
+     1101,
+     1389,
+     1753,
+     2213,
+     2793,
+     3524,
+     4448,
+     5614,
+     7085,
+     8942,
+     11285,
+     14242
+    ],
+    "db": [
+     -3.57,
+     -2.47,
+     -0.38,
+     1.05,
+     0.95,
+     0.06,
+     -0.53,
+     -0.73,
+     -0.89,
+     -0.77,
+     -0.39,
+     0.19,
+     0.72,
+     0.45,
+     -0.21,
+     -0.71,
+     -0.26,
+     0.6,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "fit_note": "exact post-amp corrections fitted on training songs (84-song benchmark); held-out band error heavy 5.23 -> 5.00 dB, light 6.58 -> 6.50 dB. The light one stops at 4 kHz: above, it dulled the clean sound"
  },
  "bass": {
   "eq": {

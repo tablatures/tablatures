@@ -1,6 +1,8 @@
 """Render queue, worker and HTTP API in one process (the proof-of-concept deployment).
 
     python -m hqrender.service
+    python -m hqrender.service requeue-stale   queue every stored score rendered with an older chain
+                                               (the old render stays served until the new one replaces it)
 
 HTTP contract (the app depends on this and nothing else, so another host can replace it):
     GET  /v1/scores/<sha256>/manifest.json      rendered files for a score (404 until rendered)
@@ -54,6 +56,9 @@ MAX_UPLOAD = 64 * 2 ** 20
 last_helper_poll = 0.0
 RETRY_AFTER = 3600  # a failed render may be requested again after this many seconds
 
+# the chain version render.py writes into manifests; a stored render with another one is stale
+CHAIN = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'chain-v3.json')))['version']
+
 os.makedirs(STATE, exist_ok=True)
 store = storage_mod.from_env()
 _db_lock = threading.Lock()
@@ -88,6 +93,24 @@ def renders_today():
     return q('select count(*) from jobs where started >= ?', day)[0][0]
 
 
+def current(sha):
+    """Stored and rendered with this chain."""
+    m = store.manifest(sha)
+    return bool(m) and m.get('chain') == CHAIN
+
+
+def requeue_stale():
+    """Queue every stored score whose render predates the current chain. Returns how many."""
+    n = 0
+    for sha in store.scores():
+        if not SHA.match(sha) or current(sha): continue
+        row = q('select tab_id from jobs where sha = ?', sha)
+        if not row or not row[0][0]: log('stale but no tab id known, skipped', sha[:12]); continue
+        q("update jobs set status = 'queued', created = ?, error = null, worker = null, progress = 0, phase = null where sha = ?", time.time(), sha)
+        n += 1
+    return n
+
+
 def request_render(tab_id, sha):
     """-> (http status, body). Every refusal is cheap: nothing is downloaded or rendered."""
     if store.has(sha): return 200, {'status': 'done'}
@@ -113,7 +136,7 @@ def worker():
         if renders_today() >= DAILY or store.used_bytes() >= CAP: continue  # leave it queued for tomorrow / more space
         wait_cool()
         sha, tab_id = job[0]
-        if store.has(sha):  # published meanwhile, e.g. rendered on a faster machine
+        if current(sha):  # published meanwhile, e.g. rendered on a faster machine
             q("update jobs set status = 'done', finished = ? where sha = ?", time.time(), sha); continue
         q("update jobs set status = 'rendering', worker = 'local', started = ?, phase = 'starting', progress = 0 where sha = ?", time.time(), sha)
         work = os.path.join(STATE, 'work', sha); out = os.path.join(STATE, 'out', sha)
@@ -328,4 +351,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:] == ['requeue-stale']: print(f'{requeue_stale()} stale renders queued (chain {CHAIN})')
+    else: main()

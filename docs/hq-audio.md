@@ -33,6 +33,8 @@ POST <base>/v1/render  {"tabId": "...", "sha256": "..."}       202 queued | 200 
 
 Renders are keyed by the hash of the tab file, so a changed tab is a new render. Audio file names
 carry the chain version (`mix-v3.m4a`) and are cached as immutable; a new chain writes new names.
+After deploying a new chain, `python -m hqrender.service requeue-stale` queues every stored score
+rendered with an older one; the old render keeps playing until the new one replaces it.
 
 ## What a render contains
 
@@ -45,17 +47,19 @@ synth keeps the timeline and is silenced, loops and seeks move the audio, speed 
 pitch-preserving `playbackRate`.
 
 The renderer uses the same alphaTab MIDI the app plays (`render_score.mjs`), so the cursor lines
-up. Chain v3 (chosen against Songsterr's stems, see the research notes):
+up. Chain v8 (`assets/chain-v3.json`), measured on an 84-song benchmark against Songsterr's stems,
+on artists not used for tuning:
 
 - Electric guitars: two humanised clean takes, hard left and right, each program section through a
-  Neural Amp Modeler capture (heavy for programs 29/30, clean Magnatone with a treble shelf
-  otherwise), 4x12 cab, fitted EQ, light reverb.
+  Neural Amp Modeler capture, 4x12 cab, fitted EQ, light reverb, then a note gate (150 ms release)
+  from the score's note spans. Heavy or clean is chosen per program and per artist style (metal,
+  punk and grunge tags: programs 29 and 30 heavy; otherwise only 30), which matches Songsterr on
+  74% of sections. The heavy chain runs at -12 dB drive with an exact cabinet trim and a fitted
+  correction (band error 5.98 -> 5.00 dB); the clean chain has a gentle compressor and a correction
+  below 4 kHz (overall gap 1.43 -> 1.36).
 - Bass: alphaTab's bass with a fitted EQ. Drums: Big Rusty Drums (CC0) through sfizz, stereo
   narrowed to half, fitted EQ. Other instruments: alphaTab with light chorus and reverb.
 - Bus levels relative to the drums, gentle glue compression, -14 LUFS.
-
-Light or heavy guitar is decided from the program alone; it matches what Songsterr does on 78% of
-sections (overdrive, program 29, is the coin flip).
 
 ## Safety limits
 
