@@ -1,6 +1,6 @@
 {
- "version": "v8",
- "note": "v8 = v6 plus, on the heavy chain, an exact cabinet trim and a fitted correction (dsp.trim_ir, dsp.curve_ir), and on the light chain a compressor and a correction below 4 kHz; measured on an 84-song benchmark, held-out artists. v6 = v5 with metal at -12 dB drive plus EQ trims. v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
+ "version": "v9",
+ "note": "v9 = v8 plus the light/heavy chooser (guitar.chooser, a logistic model of Songsterr choices from each section's notes): held-out overall gap 1.16 -> 1.12, band error 5.70 -> 5.45 dB, note dips -1.11 -> -0.89 tolerance. v8 = v6 plus, on the heavy chain, an exact cabinet trim and a fitted correction (dsp.trim_ir, dsp.curve_ir), and on the light chain a compressor and a correction below 4 kHz; measured on an 84-song benchmark, held-out artists. v6 = v5 with metal at -12 dB drive plus EQ trims. v5 = v4 plus per-artist style (rock/metal from catalogue tags). v4 = v3 plus the note gate (render.py note_gate). Chain chosen 2026-10-19 by per-section gates against Songsterr stems; see docs/hq-audio.md.",
  "guitar": {
   "reverb": 0.15,
   "cab": "4x12",
@@ -410,7 +410,39 @@
     ]
    }
   },
-  "fit_note": "exact post-amp corrections fitted on training songs (84-song benchmark); held-out band error heavy 5.23 -> 5.00 dB, light 6.58 -> 6.50 dB. The light one stops at 4 kHz: above, it dulled the clean sound"
+  "fit_note": "exact post-amp corrections fitted on training songs (84-song benchmark); held-out band error heavy 5.23 -> 5.00 dB, light 6.58 -> 6.50 dB. The light one stops at 4 kHz: above, it dulled the clean sound",
+  "chooser": {
+   "features": [
+    "pitch_med",
+    "pitch_range",
+    "chord",
+    "onsets_per_s",
+    "name_rhythm",
+    "name_lead",
+    "name_clean",
+    "p26",
+    "p27",
+    "p28",
+    "p29",
+    "p30"
+   ],
+   "weights": [
+    -0.18845,
+    0.05734,
+    2.15875,
+    -0.07089,
+    1.45307,
+    -0.05783,
+    -0.04221,
+    -4.07586,
+    -3.32662,
+    -4.27191,
+    0.87135,
+    2.35321
+   ],
+   "bias": 8.21311,
+   "note": "logistic model of Songsterr light (0) / heavy (1) choices from MIDI notes; 425 sections, 116 songs; chain_model.py"
+  }
  },
  "bass": {
   "eq": {

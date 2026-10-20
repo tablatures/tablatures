@@ -242,9 +242,27 @@ def style_of(tags, genre=None):
     return 'metal' if re.search(CONFIG['guitar']['metal_tags'], text) else 'rock'
 
 
-def chain_for(program, style='metal'):
+def heavy_section(program, style, notes=None, name=''):
+    """Heavy or light chain for one program section. With the section's note features (plan.json) and
+    CONFIG guitar.chooser, a logistic model of Songsterr's choices (chain_model.py: 89% on held-out
+    songs, against 76% for the program alone); otherwise, or with HQ_CHOOSER=rule, the style's programs."""
+    g = CONFIG['guitar']; m = g.get('chooser')
+    if not (m and notes and 26 <= program <= 31) or os.environ.get('HQ_CHOOSER') == 'rule':
+        return program in g['styles'][style]['heavy_programs']
+    name = (name or '').lower()
+    x = {**notes, 'name_rhythm': 'rhythm' in name, 'name_lead': 'lead' in name or 'solo' in name, 'name_clean': 'clean' in name,
+         'p26': program == 26, 'p27': program == 27, 'p28': program == 28, 'p29': program == 29, 'p30': program >= 30}
+    return m['bias'] + sum(w * float(x[k]) for k, w in zip(m['features'], m['weights'])) > 0
+
+
+def section_chain(section, track_name, style):
+    return chain_for(section['program'], style, heavy_section(section['program'], style, section.get('notes'), track_name))
+
+
+def chain_for(program, style='metal', heavy=None):
     g = CONFIG['guitar']; st = g['styles'][style]
-    if program in st['heavy_programs']:
+    if heavy is None: heavy = program in st['heavy_programs']
+    if heavy:
         h = g['heavy']; k = str(program) if str(program) in h['eq'] else 'None'
         gain = HEAVY_GAIN if HEAVY_GAIN is not None else st['heavy_gain']
         return dict(capture=h['capture'], gain=gain, shelf=[], eq=eq_with(h['eq'][k], st.get('eq_offset')), trim=heavy_trim(), fit=fit_for('heavy'), preset=f'heavy {gain:+.0f} dB')
@@ -457,7 +475,7 @@ def _render(score, out, work, log, between, prog):
         secs = []
         for s_ in t['sections']:
             a, b = int(s_['t0'] * SR), n if s_['t1'] is None else int(s_['t1'] * SR)
-            if a < b: secs.append((a, b, chain_for(s_['program'], style)))
+            if a < b: secs.append((a, b, section_chain(s_, t['name'], style)))
         secs_of[i] = secs
         for k in ('di1', 'di2'):
             di = fit(take(score, work, i, k)).mean(1)

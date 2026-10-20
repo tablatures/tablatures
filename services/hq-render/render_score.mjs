@@ -180,6 +180,33 @@ function noteSpans(file) {
 	return spans.sort((a, b) => a[0] - b[0]).map(([a, b]) => [+a.toFixed(4), +b.toFixed(4)]);
 }
 
+/** Linear-interpolated percentile of sorted values, as numpy's default. */
+function percentile(sorted, q) {
+	const r = (q / 100) * (sorted.length - 1), lo = Math.floor(r);
+	return lo + 1 < sorted.length ? sorted[lo] + (r - lo) * (sorted[lo + 1] - sorted[lo]) : sorted[lo];
+}
+
+/** What render.py's light/heavy model reads from a section's notes (same definitions as the
+ * training script): pitch median and 10-90% range, share of onsets that are chords, onsets/s. */
+function sectionFeatures(trackEvents, t0, t1) {
+	const ons = trackEvents
+		.filter((e) => e instanceof at.midi.NoteOnEvent && e.noteVelocity > 0)
+		.map((e) => [seconds(e.tick), e.noteKey])
+		.filter(([t]) => t >= t0 && t < t1);
+	if (!ons.length) return null;
+	const pitches = ons.map(([, p]) => p).sort((a, b) => a - b);
+	const onsets = new Map();
+	for (const [t] of ons) onsets.set(t.toFixed(2), (onsets.get(t.toFixed(2)) ?? 0) + 1);
+	const times = ons.map(([t]) => t);
+	return {
+		pitch_med: percentile(pitches, 50),
+		pitch_range: percentile(pitches, 90) - percentile(pitches, 10),
+		chord: [...onsets.values()].filter((c) => c >= 2).length / onsets.size,
+		// over the span the part plays: tracks are often silent for long stretches
+		onsets_per_s: onsets.size / (Math.max(...times) - Math.min(...times) + 1)
+	};
+}
+
 mkdirSync(outDir, { recursive: true });
 const jobs = process.argv.slice(5);
 const plan = { title: score.title, artist: score.artist, sampleRate: SR, tracks: [] };
@@ -212,7 +239,8 @@ for (const track of score.tracks) {
 		sections: sections.map((x, k) => ({
 			t0: x.t0,
 			t1: sections[k + 1]?.t0 ?? null,
-			program: x.program
+			program: x.program,
+			notes: sectionFeatures(mine, x.t0, sections[k + 1]?.t0 ?? Infinity)
 		})),
 		renders: percussion ? ['midi'] : electric ? ['di1', 'di2'] : ['plain'],
 		programs
