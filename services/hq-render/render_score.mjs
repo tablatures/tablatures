@@ -111,6 +111,20 @@ function render(file, fonts, path) {
 	return n / 2 / SR;
 }
 
+/** Lowest MIDI key a track's amp input keeps: E1 (28), or the lowest of its six highest strings
+ * when that is lower (basses, 5-strings) or when the tuning has more than 8 strings (no such
+ * guitar: the extra strings hold stray notes). Below it are transcription errors, e.g.
+ * Thunderstruck's 10-string lead with open notes at 11, 25, 30 and 35 under the riff: alphaTab's
+ * synth stretches a sample down to them and the amps turn that into rumble and noise. */
+function lowestKey(track) {
+	const all = track.staves[0]?.tuning ?? [];
+	const top = Math.min(...[...all].sort((a, b) => b - a).slice(0, 6));
+	return all.length > 8 ? top : Math.min(28, top);
+}
+const floor = new Map(score.tracks.map((t) => [t.index, t.isPercussion ? 0 : lowestKey(t)]));
+const mine0 = (i) => events.filter((e) => e.track === i && e.channel !== undefined);
+const isNote = (e) => e instanceof at.midi.NoteOnEvent || e instanceof at.midi.NoteOffEvent || e instanceof at.midi.NoteBendEvent;
+
 /** One track's events; `di` swaps distortion to a clean guitar, `seed` humanises. */
 function trackMidi(index, { di = false, seed = 0, smf = false } = {}) {
 	let s = seed;
@@ -125,6 +139,7 @@ function trackMidi(index, { di = false, seed = 0, smf = false } = {}) {
 			continue;
 		}
 		if (e.track !== index) continue;
+		if (di && isNote(e) && e.noteKey < floor.get(index)) continue;
 		// per-note bends are MIDI 2.0 only; a standard MIDI file cannot carry them
 		if (smf && e instanceof at.midi.NoteBendEvent) continue;
 		if (e instanceof at.midi.ProgramChangeEvent && di && DISTORTED(e.program)) {
@@ -212,7 +227,7 @@ const jobs = process.argv.slice(5);
 const plan = { title: score.title, artist: score.artist, sampleRate: SR, tracks: [] };
 for (const track of score.tracks) {
 	const i = track.index;
-	const mine = events.filter((e) => e.track === i && e.channel !== undefined);
+	const mine = events.filter((e) => e.track === i && e.channel !== undefined && !(isNote(e) && e.noteKey < floor.get(i)));
 	if (!mine.some((e) => e instanceof at.midi.NoteOnEvent)) continue;
 	const percussion = track.isPercussion;
 	const changes = mine.filter(
@@ -243,6 +258,7 @@ for (const track of score.tracks) {
 			notes: sectionFeatures(mine, x.t0, sections[k + 1]?.t0 ?? Infinity)
 		})),
 		renders: percussion ? ['midi'] : electric ? ['di1', 'di2'] : ['plain'],
+		dropped_low: mine0(i).filter((e) => e instanceof at.midi.NoteOnEvent && e.noteKey < floor.get(i)).length,
 		programs
 	});
 }
