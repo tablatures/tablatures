@@ -7,7 +7,8 @@
 // plan.json lists the tracks that play, their program sections (seconds) and the
 // renders each one needs. Kinds (stereo float32 at 44.1 kHz unless noted):
 //   plain    the track as the app plays it                        t<i>-plain.f32
-//   di1, di2 electric guitars: two humanised takes (+-6 ms, +-6 velocity) with
+//   di1, di2 electric guitars: two humanised takes (+-6 ms, +-6 velocity; HQ_HUMANIZE_MS,
+//            HQ_HUMANIZE_VEL) with
 //            distortion programs swapped to a clean guitar, as the input of the
 //            amp models                                            t<i>-di<k>.f32
 //            and the takes' note start/end times      t<i>-di<k>.notes.json
@@ -21,6 +22,8 @@ if (!outDir) throw new Error('usage: render_score.mjs <repo> <score> <outdir>');
 const at = await import(join(repo, 'node_modules/@coderline/alphatab/dist/alphaTab.mjs'));
 const SR = 44100;
 const ELECTRIC = (p) => p >= 26 && p <= 31;
+const HUMANIZE_MS = +(process.env.HQ_HUMANIZE_MS ?? 6);
+const HUMANIZE_VEL = +(process.env.HQ_HUMANIZE_VEL ?? 6);
 const DISTORTED = (p) => p >= 29 && p <= 31;
 
 const settings = new at.Settings();
@@ -145,8 +148,8 @@ function trackMidi(index, { di = false, seed = 0, smf = false } = {}) {
 		if (e instanceof at.midi.ProgramChangeEvent && di && DISTORTED(e.program)) {
 			file.addEvent(new at.midi.ProgramChangeEvent(e.track, e.tick, e.channel, 27));
 		} else if (seed && e instanceof at.midi.NoteOnEvent) {
-			const dt = msToTicks((rand() * 2 - 1) * 6, e.tick);
-			const v = Math.max(1, Math.min(127, e.noteVelocity + Math.round((rand() * 2 - 1) * 6)));
+			const dt = msToTicks((rand() * 2 - 1) * HUMANIZE_MS, e.tick);
+			const v = Math.max(1, Math.min(127, e.noteVelocity + Math.round((rand() * 2 - 1) * HUMANIZE_VEL)));
 			shift.set(e.channel * 128 + e.noteKey, dt);
 			file.addEvent(
 				new at.midi.NoteOnEvent(e.track, Math.max(0, e.tick + dt), e.channel, e.noteKey, v)
