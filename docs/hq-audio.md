@@ -47,7 +47,7 @@ synth keeps the timeline and is silenced, loops and seeks move the audio, speed 
 pitch-preserving `playbackRate`.
 
 The renderer uses the same alphaTab MIDI the app plays (`render_score.mjs`), so the cursor lines
-up. Chain v9 (`assets/chain-v3.json`), measured on an 84-song benchmark against Songsterr's stems,
+up. Chain v10 (`assets/chain-v3.json`), measured on an 84-song benchmark against Songsterr's stems,
 on artists not used for tuning:
 
 - Electric guitars: two humanised clean takes, hard left and right, each program section through a
@@ -56,8 +56,8 @@ on artists not used for tuning:
   (`guitar.chooser`) over the section's notes (pitch, range, chords, note rate), its track name and
   program, trained on Songsterr's choices: it matches them on 89% of sections, against 76% for the
   old per-program, per-style rule (`HQ_CHOOSER=rule` restores it; overall gap 1.16 -> 1.12). The heavy chain runs at -12 dB drive with an exact cabinet trim and a fitted
-  correction (band error 5.98 -> 5.00 dB); the clean chain has a gentle compressor and a correction
-  below 4 kHz (overall gap 1.43 -> 1.36).
+  correction (band error 5.98 -> 5.00 dB); the clean chain has a gentle compressor and a fitted correction
+  (v10, refitted on the chooser's assignments: band error 6.93 -> 6.45 dB).
 - Bass: alphaTab's bass with a fitted EQ. Drums: Big Rusty Drums (CC0) through sfizz, stereo
   narrowed to half, fitted EQ. Other instruments: alphaTab with light chorus and reverb.
 - Bus levels relative to the drums, gentle glue compression, -14 LUFS.
